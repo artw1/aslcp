@@ -1,5 +1,5 @@
 {
-  "version": "1.1.21",
-  "notes": "Merge pull request #1 from artw1/claude/sleepy-lovelace-34n4k9\n\nSchedules: scheduled connect/disconnect (1.1.21)",
+  "version": "1.1.22",
+  "notes": "CHANGELOG: 1.1.21 released; apt parser fix goes into 1.1.22\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01WyFLnHQojhM4Jvfwzs5euQ",
   "date": "2026-11-17"
 }
