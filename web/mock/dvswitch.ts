@@ -36,8 +36,87 @@ function status() {
   };
 }
 
+// M4 setup: in-memory ini values. The password is never stored, only whether one is set.
+const FILES = ['analog_bridge', 'mmdvm_bridge', 'ysfgateway', 'p25gateway', 'nxdngateway'];
+const UNIT_OF: Record<string, string> = { analog_bridge: 'analog_bridge', mmdvm_bridge: 'mmdvm_bridge', ysfgateway: 'ysfgateway', p25gateway: 'p25gateway', nxdngateway: 'nxdngateway' };
+const cfg = {
+  identity: { callsign: 'N0CALL', dmrId: '1234567', essid: '01', consistent: true },
+  dmr: { address: '192.0.2.10', port: 62031, passwordSet: false },
+  usrp: { address: '127.0.0.1', rxPort: 34001, txPort: 32001 },
+  modes: { dmr: true, ysf: false, p25: false, nxdn: false },
+  startup: { ambeMode: 'DMR', txTg: '9', txTs: 2, colorCode: 1 },
+  gateways: { ysf: { present: true, startup: 'US-Example' }, p25: { present: true, startup: '' }, nxdn: { present: true, startup: '' } },
+};
+const rev: Record<string, number> = {}, hist: Record<string, number> = {};
+const hash = (id: string) => `mock${id.length}${(rev[id] ?? 0).toString(16).padStart(60, '0')}`;
+function setup(extra: Record<string, unknown> = {}) {
+  return {
+    ...JSON.parse(JSON.stringify(cfg)),
+    files: FILES.map((id) => ({ id, present: installed, writable: installed, sha256: installed ? hash(id) : '', history: hist[id] ?? 0 })),
+    current: { found: installed, version: '1.6.4', mode: cfg.startup.ambeMode, tg: cfg.startup.txTg, slot: String(cfg.startup.txTs), colorCode: String(cfg.startup.colorCode), tune: '', mute: 'OFF', gatewayId: cfg.identity.dmrId, repeaterId: cfg.identity.dmrId + cfg.identity.essid, updated: new Date().toISOString() },
+    ...extra,
+  };
+}
+const stale = (files: string[], base: Record<string, string> | undefined) => files.some((f) => base?.[f] && base[f] !== hash(f));
+function touch(files: string[]) { for (const f of files) { rev[f] = (rev[f] ?? 0) + 1; hist[f] = Math.min((hist[f] ?? 0) + 1, 10); } }
+const bad = (c: DVCtx, what: string) => c.err(400, `invalid_field: a value is not allowed (${what})`, 'invalid_field');
+type Body = Record<string, unknown>;
+
+function write(c: DVCtx, body: Body): boolean {
+  progress();
+  if (!installed) { c.err(409, 'not_installed: DVSwitch is not installed (its ini files are missing)', 'not_installed'); return true; }
+  const base = body.base as Record<string, string> | undefined;
+  const touched = c.p === '/dvswitch/identity' ? FILES : c.p === '/dvswitch/credentials' || c.p === '/dvswitch/modes' ? ['mmdvm_bridge'] : c.p === '/dvswitch/startup' ? ['analog_bridge'] : c.p === '/dvswitch/rollback' ? [String(body.file ?? '')] : [];
+  if (stale(touched, base)) { c.err(409, 'a file changed on disk since it was read: reload and try again', 'conflict'); return true; }
+  const done = (files: string[], hint: string[]) => { touch(files); c.json(200, setup({ changed: files, skipped: [], restartHint: hint })); };
+  if (c.p === '/dvswitch/identity') {
+    const { callsign, dmrId, essid } = body as { callsign: string; dmrId: string; essid: string };
+    if (!/^[A-Z0-9/]{3,10}$/.test(callsign ?? '')) return bad(c, 'identity/callsign'), true;
+    if (!/^[0-9]{7}$/.test(dmrId ?? '')) return bad(c, 'identity/dmrId'), true;
+    if (!/^[0-9]{2}$/.test(essid ?? '')) return bad(c, 'identity/essid'), true;
+    cfg.identity = { callsign, dmrId, essid, consistent: true };
+    done(FILES, FILES.map((f) => UNIT_OF[f]));
+  } else if (c.p === '/dvswitch/credentials') {
+    const { dmrAddress, dmrPort, dmrPassword } = body as { dmrAddress?: string; dmrPort?: number; dmrPassword?: string };
+    if (dmrAddress === undefined && dmrPort === undefined && dmrPassword === undefined) return bad(c, 'credentials'), true;
+    if (dmrAddress !== undefined && !/^[A-Za-z0-9.-]{1,253}$/.test(dmrAddress)) return bad(c, 'DMR Network/Address'), true;
+    if (dmrPort !== undefined && !(Number.isInteger(dmrPort) && dmrPort >= 1 && dmrPort <= 65535)) return bad(c, 'DMR Network/Port'), true;
+    if (dmrPassword !== undefined && !/^[\x21\x24-\x3a\x3c-\x7e]{1,64}$/.test(dmrPassword)) return bad(c, 'DMR Network/Password'), true;
+    if (dmrAddress !== undefined) cfg.dmr.address = dmrAddress;
+    if (dmrPort !== undefined) cfg.dmr.port = dmrPort;
+    if (dmrPassword !== undefined) cfg.dmr.passwordSet = true;
+    done(['mmdvm_bridge'], ['mmdvm_bridge']);
+  } else if (c.p === '/dvswitch/modes') {
+    const m = body as Record<string, unknown>; let any = false;
+    for (const k of ['dmr', 'ysf', 'p25', 'nxdn'] as const) if (typeof m[k] === 'boolean') { cfg.modes[k] = m[k] as boolean; any = true; }
+    if (!any) return bad(c, 'modes'), true;
+    done(['mmdvm_bridge'], ['analog_bridge', 'mmdvm_bridge']);
+  } else if (c.p === '/dvswitch/startup') {
+    const b = body as { useCurrent?: boolean; ambeMode?: string; txTg?: string; txTs?: number; colorCode?: number; ysf?: string; p25?: string; nxdn?: string };
+    if (b.ambeMode !== undefined) { if (!['DMR', 'YSFN', 'YSFW', 'P25', 'NXDN'].includes(b.ambeMode)) return bad(c, 'AMBE_AUDIO/ambeMode'), true; cfg.startup.ambeMode = b.ambeMode; }
+    if (b.txTg !== undefined) { if (!/^[0-9]{1,8}$/.test(b.txTg)) return bad(c, 'AMBE_AUDIO/txTg'), true; cfg.startup.txTg = b.txTg; }
+    if (b.txTs !== undefined) { if (b.txTs !== 1 && b.txTs !== 2) return bad(c, 'AMBE_AUDIO/txTs'), true; cfg.startup.txTs = b.txTs; }
+    if (b.colorCode !== undefined) { if (!Number.isInteger(b.colorCode) || b.colorCode < 0 || b.colorCode > 15) return bad(c, 'AMBE_AUDIO/colorCode'), true; cfg.startup.colorCode = b.colorCode; }
+    if (b.ysf !== undefined) cfg.gateways.ysf.startup = b.ysf;
+    if (b.p25 !== undefined) cfg.gateways.p25.startup = b.p25;
+    if (b.nxdn !== undefined) cfg.gateways.nxdn.startup = b.nxdn;
+    done(['analog_bridge'], ['analog_bridge']);
+  } else if (c.p === '/dvswitch/rollback') {
+    const f = String(body.file ?? '');
+    if (!FILES.includes(f)) return bad(c, 'file'), true;
+    if (!hist[f]) { c.err(404, 'no_history: there is no earlier version of this file', 'no_history'); return true; }
+    hist[f]--; rev[f] = (rev[f] ?? 0) + 1;
+    c.json(200, setup({ changed: [f], skipped: [], restartHint: [UNIT_OF[f]] }));
+  } else if (c.p === '/dvswitch/restart') {
+    const scope = String(body.scope ?? ''), units = ({ bridge: ['analog_bridge', 'mmdvm_bridge'], gateways: ['ysfgateway', 'p25gateway', 'nxdngateway'], all: ['analog_bridge', 'mmdvm_bridge', 'ysfgateway', 'p25gateway', 'nxdngateway'] } as Record<string, string[]>)[scope];
+    if (!units) return bad(c, 'scope'), true;
+    c.json(200, { action: body.action === 'start' ? 'start' : 'restart', units, skipped: [], states: status().units, warning: 'A restart resets the running mode and talkgroup to the startup values in the ini files.' });
+  }
+  return true;
+}
+
 export interface DVCtx {
-  m: string; p: string; user?: { username: string; role: string };
+  m: string; p: string; body?: Body; user?: { username: string; role: string };
   json: (code: number, body?: unknown) => void; err: (code: number, msg: string, c: string) => void;
 }
 
@@ -47,6 +126,8 @@ export function handleDVSwitch(c: DVCtx): boolean {
   if (c.user.role !== 'admin') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
   if (c.m === 'GET' && c.p === '/dvswitch') { c.json(200, status()); return true; }
   if (c.m === 'GET' && c.p === '/dvswitch/job') { c.json(200, progress()); return true; }
+  if (c.m === 'GET' && c.p === '/dvswitch/setup') { progress(); c.json(200, setup()); return true; }
+  if ((c.m === 'PUT' && ['/dvswitch/identity', '/dvswitch/credentials', '/dvswitch/modes', '/dvswitch/startup'].includes(c.p)) || (c.m === 'POST' && ['/dvswitch/restart', '/dvswitch/rollback'].includes(c.p))) return write(c, c.body ?? {});
   if (c.m === 'POST' && (c.p === '/dvswitch/install' || c.p === '/dvswitch/uninstall')) {
     const kind = c.p === '/dvswitch/install' ? 'install' : 'uninstall';
     const s = status();

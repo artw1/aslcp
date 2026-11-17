@@ -188,3 +188,19 @@ export interface DVSwitchStatus {
   install: DVSwitchJob; uninstall: DVSwitchJob;
 }
 export interface DVSwitchJobs { install: DVSwitchJob; uninstall: DVSwitchJob }
+
+/** GET /api/dvswitch/setup and the reply of the PUT writes (docs/API.md "DVSwitch setup"). No secret value: the DMR password is write-only. */
+export interface DVFileView { id: string; present: boolean; writable: boolean; sha256: string; history: number }
+export interface DVSwitchInfo { found: boolean; version: string; mode: string; tg: string; slot: string; colorCode: string; tune: string; mute: string; gatewayId: string; repeaterId: string; updated: string }
+export interface DVSwitchSetup {
+  identity: { callsign: string; dmrId: string; essid: string; consistent: boolean };
+  dmr: { address: string; port: number; passwordSet: boolean };
+  usrp: { address: string; rxPort: number; txPort: number };
+  modes: { dmr: boolean; ysf: boolean; p25: boolean; nxdn: boolean };
+  startup: { ambeMode: string; txTg: string; txTs: number; colorCode: number };
+  gateways: { ysf: { present: boolean; startup: string }; p25: { present: boolean; startup: string }; nxdn: { present: boolean; startup: string } };
+  files: DVFileView[];
+  current: DVSwitchInfo;
+  changed?: string[]; skipped?: string[]; restartHint?: string[];
+}
+export interface DVSwitchRestartResult { action: 'restart' | 'start'; units: string[]; skipped: string[]; states: DVSwitchStatus['units']; warning: string }

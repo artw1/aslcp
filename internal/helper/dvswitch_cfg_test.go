@@ -565,3 +565,35 @@ func TestDVRequestFieldOnlyForDVOps(t *testing.T) {
 		t.Fatalf("%T", r)
 	}
 }
+
+func TestDemoDVSwitchCfg(t *testing.T) {
+	d := NewDemoDVSwitch()
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	d.now = func() time.Time { return now }
+	ctx := context.Background()
+	if _, err := d.DVSwitchModes(ctx, DVSwitchRequest{Modes: &DVModes{P25: bp(true)}}); !errors.Is(err, ErrDVNotInstalled) {
+		t.Fatal(err)
+	}
+	d.DVSwitchInstall(ctx)
+	now = now.Add(time.Minute)
+	if _, err := d.DVSwitchCredentials(ctx, DVSwitchRequest{Credentials: &DVCredentials{Password: sp("bad pass")}}); !errors.Is(err, ErrDVInvalid) {
+		t.Fatal(err)
+	}
+	if _, err := d.DVSwitchCredentials(ctx, DVSwitchRequest{Credentials: &DVCredentials{Password: sp(dvTestPass)}}); err != nil {
+		t.Fatal(err)
+	}
+	v, _ := d.DVSwitchSetup(ctx)
+	b, _ := json.Marshal(v)
+	if strings.Contains(string(b), dvTestPass) || !v.DMR.PasswordSet {
+		t.Fatalf("%s", b)
+	}
+	if _, err := d.DVSwitchRollback(ctx, DVSwitchRequest{File: DVFileMMDVMBridge}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.DVSwitchRollback(ctx, DVSwitchRequest{File: DVFileMMDVMBridge}); !errors.Is(err, ErrDVNoHistory) {
+		t.Fatal(err)
+	}
+	if r, err := d.DVSwitchRestart(ctx, DVSwitchRequest{Scope: "gateways"}); err != nil || len(r.Units) != 3 {
+		t.Fatalf("%+v %v", r, err)
+	}
+}

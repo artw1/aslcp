@@ -355,6 +355,39 @@ DVSwitchStatus = {
 
 The install job ends in `unexpected_deps` (the simulation would pull in Apache, PHP, mosquitto or Node.js; nothing is installed and a repository added by this run is removed again). The uninstall job ends in `unexpected_removals` (the purge would remove something outside the recorded list; nothing is changed). Both are visible in the job log. No secret is ever in a reply.
 
+
+## DVSwitch setup (admin)
+
+Design: docs/DVSWITCH.md (M4). All endpoints are admin only (`403 forbidden` otherwise), need `X-ASLCP: 1` when not GET, and answer `503 dvswitch_unavailable` when the helper cannot be reached. Every write is audited (`dvswitch.identity`, `.credentials`, `.modes`, `.startup`, `.rollback`, `.restart`/`.start`, and `.refused`) with the request key names and the changed file ids, never a value. **The DMR password is write-only**: it is not in any response, log line or audit entry; the setup view only has `passwordSet`.
+
+| Method | Path | Body | Response / errors |
+|---|---|---|---|
+| GET | `/api/dvswitch/setup` | | `200` Setup |
+| PUT | `/api/dvswitch/identity` | `{"callsign","dmrId","essid","base"?}` | `200` Setup |
+| PUT | `/api/dvswitch/credentials` | `{"dmrAddress"?,"dmrPort"?,"dmrPassword"?,"base"?}` | `200` Setup |
+| PUT | `/api/dvswitch/modes` | `{"dmr"?,"ysf"?,"p25"?,"nxdn"?,"base"?}` (booleans) | `200` Setup |
+| PUT | `/api/dvswitch/startup` | `{"useCurrent":true}` or `{"ambeMode"?,"txTg"?,"txTs"?,"colorCode"?,"ysf"?,"p25"?,"nxdn"?,"base"?}` | `200` Setup |
+| POST | `/api/dvswitch/rollback` | `{"file":"analog_bridge","base"?}` (file ids: `analog_bridge`, `mmdvm_bridge`, `ysfgateway`, `p25gateway`, `nxdngateway`) | `200` Setup |
+| POST | `/api/dvswitch/restart` | `{"scope":"bridge\|gateways\|all","action"?:"restart\|start"}` | `200` `{"action","units":[],"skipped":[],"states":[{name,loaded,active,enabled}],"warning"}` |
+
+Errors of the writes: `400 invalid_field` (message names `file/section/key` or the field, never a value), `409 not_installed` (the DVSwitch ini files or units are missing), `409 conflict` (a file changed since `base`; nothing written), `409 job_running` (an install or uninstall runs), `409 no_info` (`useCurrent` while the bridge does not run), `404 no_history` (rollback), `502 helper_error`. `base` is `{file id: sha256}` from the Setup `files`; it is optional and only checked for the files the call changes.
+
+```json
+Setup = {
+  "identity": { "callsign": "N0CALL", "dmrId": "1234567", "essid": "01", "consistent": true },
+  "dmr": { "address": "192.0.2.10", "port": 62031, "passwordSet": true },
+  "usrp": { "address": "127.0.0.1", "rxPort": 34001, "txPort": 32001 },
+  "modes": { "dmr": true, "ysf": false, "p25": false, "nxdn": false },
+  "startup": { "ambeMode": "DMR", "txTg": "9", "txTs": 2, "colorCode": 1 },
+  "gateways": { "ysf": { "present": true, "startup": "" }, "p25": { "present": true, "startup": "" }, "nxdn": { "present": true, "startup": "" } },
+  "files": [ { "id": "analog_bridge", "present": true, "writable": true, "sha256": "...", "history": 2 } ],
+  "current": { "found": true, "version": "1.6.4", "mode": "DMR", "tg": "9", "slot": "2", "colorCode": "1", "tune": "", "mute": "OFF", "gatewayId": "1234567", "repeaterId": "123456701", "updated": "2026-11-17T12:00:00Z" },
+  "changed": ["mmdvm_bridge"], "skipped": [], "restartHint": ["mmdvm_bridge"]   // after a write only
+}
+```
+
+A restart resets the running mode and talkgroup to the startup values; `restartHint` lists the units that must restart for a change to take effect, nothing is restarted by a write.
+
 ## Public status view
 
 Optional, off by default (admin setting). Served on the main port. While disabled the three public endpoints answer `404 {"code":"not_found"}`. They need no session and no CSRF header (GET only), set no cookies, and are rate-limited per client address (`429 {"code":"rate_limited"}` with `Retry-After`). The data comes from dedicated structs: it never contains IP addresses, system information, favorites or users.
@@ -474,5 +507,7 @@ Configuration operations (`config-list`, `config-read`, `config-apply`, `config-
 System update operations (fixed apt/systemd commands, no arguments and no package names from the web process): `os-check` (`apt-get -q update`, then `apt-get -q -s upgrade`, both `LC_ALL=C`, noninteractive; reply `OSStatus`: `packages`, `keptBack`, `rebootRequired`, `rebootPkgs`, `job`, `jobLog`; a held lock answers `apt is busy`), `os-status` (no apt), `os-apply` (transient unit `aslcp-osupgrade`), `reboot` (`systemctl --no-block reboot`) and `aslcp-restart` (`systemctl --no-block restart aslcp.service`). `os-check`, `os-apply`, `reboot`, the ASLCP update and the channel switch are refused while an apt job runs.
 
 DVSwitch operations (no arguments; fixed scripts in transient units `aslcp-dvswitch-install` and `aslcp-dvswitch-uninstall`): `dvswitch-status`, `dvswitch-job`, `dvswitch-install`, `dvswitch-uninstall`. The units call back into the helper binary as `aslcp-helper dvswitch-step <install-plan|install-check|uninstall-plan>` (root only, not a socket op). Refusals come back as errors prefixed `already_installed:`, `unsupported_platform:`, `clock_unset:`, `key_mismatch:` or `not_aslcp_installed:`.
+
+DVSwitch config operations (M4, take a `dvswitch` request object, rejected on every other op): `dvswitch-setup`, `dvswitch-info`, `dvswitch-identity`, `dvswitch-credentials`, `dvswitch-modes`, `dvswitch-startup`, `dvswitch-rollback`, `dvswitch-restart`. The file is an enum id, never a path. Errors are prefixed `invalid_field:`, `not_installed:`, `no_history:`, `no_info:`; a base mismatch is the usual conflict error.
 
 Backup operations: `backup-info` (plain request/response: `{parts:[{id,present,size}],sa818}`), `backup-create` and `backup-restore` (streaming). `backup-create` takes `backup:{history,allmon3,sounds}` and answers with one JSON line, the header (`arch`, `asl3Version`, `asteriskVersion`, `osId`, `osCodename`, `osName`, `channel`, `nodes`, `packages`, `parts`, `missingStock`, `skipped`, `entries` with per-file type, size and sha256), followed by a plain tar stream of the system files and EOF; an error before the header is an `{"error"}` line, a later failure cuts the stream short. `backup-restore` takes `restore:{dryRun,deleteMissing}` and is followed on the same connection by the gzip archive; the client half-closes after the last byte and reads one JSON result (`ok`, `files`, `steps`, node versions and Debian release, `sa818Port`/`sa818PortPresent`). The helper re-validates the archive as root, classifies conffiles with `dpkg-query` (never a shell), writes to fixed destinations only (including `/etc/aslcp/aslcp.conf`, since the server cannot write there), and undoes config changes if a step fails. Streaming requests may take up to 20 minutes; the helper stays alive while one runs.

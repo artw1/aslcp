@@ -4,6 +4,7 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import type { DVSwitchStatus } from '../lib/types';
   import Dialog from './Dialog.svelte';
+  import DvswitchSetup from './DvswitchSetup.svelte';
   import Refresh from '@lucide/svelte/icons/refresh-cw';
   import Download from '@lucide/svelte/icons/download';
   import Trash from '@lucide/svelte/icons/trash-2';
@@ -93,6 +94,9 @@
       {/if}
     </section>
   </div>
+  {#if st.installed && !running}
+    <DvswitchSetup units={st.units} onunits={(u) => { if (st) st = { ...st, units: u }; }} />
+  {/if}
   {/if}
 </div>
 
