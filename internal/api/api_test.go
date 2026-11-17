@@ -28,6 +28,7 @@ import (
 	"github.com/artw1/aslcp/internal/favstats"
 	"github.com/artw1/aslcp/internal/nodelist"
 	"github.com/artw1/aslcp/internal/rpt"
+	"github.com/artw1/aslcp/internal/schedules"
 	"github.com/artw1/aslcp/internal/store"
 	"github.com/artw1/aslcp/internal/susb"
 	"github.com/artw1/aslcp/internal/system"
@@ -141,6 +142,20 @@ type env struct {
 	mon   *rpt.Monitor
 	favDr string
 	ck    map[string]string // role -> cookie header
+	clk   *fakeClock        // with opts.schedules
+	eng   *schedules.Engine // with opts.schedules
+}
+
+type fakeClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *fakeClock) now() time.Time { c.mu.Lock(); defer c.mu.Unlock(); return c.t }
+func (c *fakeClock) set(t time.Time) {
+	c.mu.Lock()
+	c.t = t
+	c.mu.Unlock()
 }
 
 type opts struct {
@@ -157,6 +172,9 @@ type opts struct {
 	restart   func()
 	tuning    func() *susb.Service
 	favstats  *favstats.Service
+	// schedules builds a schedule engine on a fake clock (env.clk), in New
+	// York time; the clock starts on Tuesday 2026-11-17 18:59:50.
+	schedules bool
 }
 
 func newEnv(t *testing.T, o opts) *env {
@@ -213,6 +231,17 @@ func newEnv(t *testing.T, o opts) *env {
 		deps.Tuning = o.tuning()
 	}
 	deps.FavStats = o.favstats
+	var clk *fakeClock
+	var eng *schedules.Engine
+	if o.schedules {
+		ny, err := time.LoadLocation("America/New_York")
+		if err != nil {
+			t.Fatal(err)
+		}
+		clk = &fakeClock{t: time.Date(2026, 11, 17, 18, 59, 50, 0, ny)}
+		eng = &schedules.Engine{Store: st, Now: clk.now, Loc: ny, Zone: "America/New_York", Tick: time.Hour}
+		deps.Schedules = eng
+	}
 	if o.cfg != nil {
 		deps.Config = o.cfg(fake.Secret)
 	}
@@ -238,7 +267,7 @@ func newEnv(t *testing.T, o opts) *env {
 		srv.Shutdown()
 		ts.Close()
 	})
-	e := &env{t: t, fake: fake, st: st, as: as, srv: srv, ts: ts, nl: nl, mon: mon, favDr: favDir, ck: map[string]string{}}
+	e := &env{t: t, fake: fake, st: st, as: as, srv: srv, ts: ts, nl: nl, mon: mon, favDr: favDir, ck: map[string]string{}, clk: clk, eng: eng}
 
 	// wait for a real (non-stale) status
 	deadline := time.Now().Add(5 * time.Second)

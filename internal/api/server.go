@@ -26,6 +26,7 @@ import (
 	"github.com/artw1/aslcp/internal/nodelist"
 	"github.com/artw1/aslcp/internal/public"
 	"github.com/artw1/aslcp/internal/rpt"
+	"github.com/artw1/aslcp/internal/schedules"
 	"github.com/artw1/aslcp/internal/store"
 	"github.com/artw1/aslcp/internal/susb"
 	"github.com/artw1/aslcp/internal/system"
@@ -80,6 +81,10 @@ type Deps struct {
 	// FavStats is the favorites activity scan (nil: feature unavailable).
 	// New wires its sources and update broadcast.
 	FavStats *favstats.Service
+	// Schedules runs the scheduled connects (nil: feature unavailable, 503
+	// schedules_unavailable). New wires its link controller (unless set) and
+	// its change broadcast.
+	Schedules *schedules.Engine
 }
 
 // Server is the HTTP API.
@@ -155,6 +160,7 @@ func New(d Deps) *Server {
 	}
 	s.rec.OnRecord = s.pub.ActivityRecorded
 	s.initFavStats()
+	s.initSchedules()
 	s.routes()
 	return s
 }
@@ -169,6 +175,9 @@ func (s *Server) Run(ctx context.Context) {
 	go s.rec.Run(ctx)
 	if s.d.FavStats != nil {
 		go s.d.FavStats.Run(ctx)
+	}
+	if s.d.Schedules != nil {
+		go s.d.Schedules.Run(ctx)
 	}
 	<-ctx.Done()
 	s.Shutdown()
@@ -296,6 +305,12 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/favorites/import/allscan", s.authed(store.RoleOperator, s.handleImport))
 	m.HandleFunc("PUT /api/favorites/{id}", s.authed(store.RoleOperator, s.handleFavUpdate))
 	m.HandleFunc("DELETE /api/favorites/{id}", s.authed(store.RoleOperator, s.handleFavDelete))
+	// schedules
+	m.HandleFunc("GET /api/schedules", s.authed(store.RoleViewer, s.handleSchedList))
+	m.HandleFunc("POST /api/schedules", s.authed(store.RoleOperator, s.handleSchedCreate))
+	m.HandleFunc("PUT /api/schedules/enabled", s.authed(store.RoleOperator, s.handleSchedEnabled))
+	m.HandleFunc("PUT /api/schedules/{id}", s.authed(store.RoleOperator, s.handleSchedUpdate))
+	m.HandleFunc("DELETE /api/schedules/{id}", s.authed(store.RoleOperator, s.handleSchedDelete))
 	// settings
 	m.HandleFunc("GET /api/settings", s.authed(store.RoleViewer, s.handleSettingsGet))
 	// lookup, nodelist, system, events

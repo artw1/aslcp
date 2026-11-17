@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { handleConfig } from './config.ts';
 import { handleBackup, downUntil } from './backup.ts';
 import { handleRadio } from './radio.ts';
+import { createSchedules } from './schedules.ts';
 
 type Info = { node: string; callsign: string; description: string; location: string };
 const calls = ['N0AAA', 'N0AAB', 'N0AAC', 'N0AAD', 'N0AAE', 'N0AAF', 'N0AAG', 'N0AAH', 'N0AAJ', 'N0AAK', 'N0AAL', 'N0AAM', 'N0AAN', 'N0AAP', 'N0AAQ', 'N0AAR', 'N0AAS', 'N0AAT', 'N0AAU', 'N0AAV'];
@@ -168,6 +169,14 @@ export function mockApi(): Plugin {
   restartClients = () => { clients.forEach((c) => c.res.end()); clients.clear(); };
   const broadcast = (ev: string, f: (role: string) => unknown) => clients.forEach((c) => { const d = f(c.role); if (d !== undefined) sse(c, ev, d); });
 
+  const pushNodes = () => broadcast('nodes', (r) => Object.keys(locals).map((id) => status(id, r)));
+  const sched = createSchedules({
+    locals, broadcast, pushNodes,
+    link: (local, target, mode) => addLink(local, target, mode, 'OUT'),
+    unlink: (local, target) => { locals[local].links = locals[local].links.filter((l) => l.node !== target); },
+    dropOthers: (local, target) => { locals[local].links = locals[local].links.filter((l) => l.node === target); },
+  });
+
   return {
     name: 'aslcp-mock',
     configureServer(server) {
@@ -240,7 +249,7 @@ export function mockApi(): Plugin {
           sse(c, 'hello', { user, version: mockVersion, instance: mockInstance, settings: { favoritesScan: favScan } });
           sse(c, 'nodes', Object.keys(locals).map((id) => status(id, user.role)));
           if (user.role === 'admin') sse(c, 'updates', osBadge());
-          sse(c, 'system', system()); sse(c, 'favorites', sortedFavs()); if (favScan) sse(c, 'favstats', favActivity());
+          sse(c, 'system', system()); sse(c, 'favorites', sortedFavs()); sse(c, 'schedules', sched.snapshot()); if (favScan) sse(c, 'favstats', favActivity());
           return;
         }
         if (p === '/public') {
@@ -328,7 +337,9 @@ export function mockApi(): Plugin {
         if ((mm = /^\/nodes\/([^/]+)\/(connect|disconnect|disconnect-all)$/.exec(p)) && m === 'POST') {
           if (!canOp) return forbid();
           const local = locals[mm[1]]; if (!local) return err(res, 404, 'unknown node', 'not_found');
-          const push = () => broadcast('nodes', (r) => Object.keys(locals).map((id) => status(id, r)));
+          const push = pushNodes;
+          // a manual action pauses all schedules (reason like the server's)
+          sched.pause(mm[2] === 'disconnect-all' ? `disconnect all on ${mm[1]} by ${user.username}` : `manual ${mm[2]} ${body.target ?? ''} on ${mm[1]} by ${user.username}`);
           if (mm[2] === 'disconnect-all') { local.links = []; push(); return json(res, 202); }
           if (!/^\d{3,}$/.test(body.target ?? '')) return err(res, 400, 'invalid target node', 'bad_target');
           if (mm[2] === 'connect' && body.exclusive === true && (body.mode === 'transceive' || body.mode === 'monitor' || !body.mode)) {
@@ -339,6 +350,7 @@ export function mockApi(): Plugin {
           else { local.links = local.links.filter((l) => l.node !== body.target); push(); }
           return json(res, 202);
         }
+        if (sched.handle(m, p, body, canOp, (c, b) => json(res, c, b), (c, msg, code) => err(res, c, msg, code), forbid)) return;
         if (p === '/favorites/stats' && m === 'GET') return json(res, 200, favActivity());
         if (p === '/favorites/scan' && m === 'PUT') {
           if (!canOp) return forbid();

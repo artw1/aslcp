@@ -204,7 +204,7 @@
       <h3 class="font-semibold">ASLCP</h3>
       <p class="mt-1">These users will exist afterwards. Log in with your old password.</p>
       <ul class="mt-1 flex flex-wrap gap-1.5">{#each preview.users as u}<li class="badge">{u.username} · {u.role}</li>{/each}</ul>
-      <p class="mt-1 text-muted">{preview.favorites} favorite{preview.favorites === 1 ? '' : 's'}, settings and audit log.
+      <p class="mt-1 text-muted">{preview.favorites} favorite{preview.favorites === 1 ? '' : 's'}, {preview.schedules} schedule{preview.schedules === 1 ? '' : 's'}, settings and audit log.
         {#if preview.parts.history}Config history included.{/if}
         {#if preview.parts.allmon3} Allmon3 config included.{/if}
         {#if preview.parts.sounds} Custom sounds included.{/if}</p>

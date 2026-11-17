@@ -81,6 +81,8 @@ NodeInfo = {"node": "50241", "callsign": "N0CALL", "description": "Hub name", "l
 
 `400 {"code":"bad_target"}` for invalid input, `404` unknown local node, `503 {"code":"ami_down"}` when AMI is disconnected.
 
+**Manual commands pause the schedules.** After a successful connect, disconnect or disconnect-all (any user), the server cancels the schedule occurrences running now and switches all schedules off (reason, for example `manual connect 2000 on 1997 by op`); see Schedules below. The scheduler's own commands do not.
+
 ### Node stats (all roles)
 
 `GET /api/nodes/{node}/stats` runs `Action: RptStatus`, `Command: NodeStat` for a local node and returns the reply's `Key: Value` lines in wire order (`Response`/`ActionID` and any `Node`/`Message` headers are dropped):
@@ -114,6 +116,37 @@ NodeInfo = {"node": "50241", "callsign": "N0CALL", "description": "Hub name", "l
 | POST | `/api/favorites/reorder` | `{"ids": [int, ...]}` | `204` (positions follow array order) |
 | GET | `/api/favorites/import/allscan` | | `{"found": bool, "path": str, "items": [{"node","label"}]}` preview from an existing AllScan install |
 | POST | `/api/favorites/import/allscan` | | `{"imported": int, "skipped": int}` (skips nodes already in favorites) |
+
+## Schedules (read: all roles; write: operator)
+
+Scheduled connects and disconnects (`docs/SCHEDULES.md`). All endpoints answer `503 {"code":"schedules_unavailable"}` when the feature is not wired.
+
+`Schedule = {"id": int, "name": str, "enabled": bool, "node": "1997", "target": "41234", "action": "connect"|"disconnect", "mode": "transceive"|"monitor"|"localmonitor"|"", "permanent": bool, "exclusive": bool, "days": [int], "date": "YYYY-MM-DD"|"", "start": "HH:MM", "end": "HH:MM"|"", "lastRun": RFC3339|null, "lastResult": str}`: `days` are 0 = Sunday to 6 = Saturday (weekly), or `date` is set (once); exactly one of the two. Times are node local time. `end` only for `connect`; `end` before `start` crosses midnight. `lastResult` is `""`, `ok`, `skipped: <reason>` or `error: <reason>`.
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/schedules` | | `200` `Snapshot` |
+| POST | `/api/schedules` | `Schedule` fields without `id`, `lastRun`, `lastResult` (`enabled` defaults to `true`) | `201` `Schedule`. `400 bad_request` with a message (bad target, target equals node, both or neither of `days` / `date`, bad `date`, `HH:MM` or day, `end` on a disconnect, `end` equals `start`, unknown `mode` or `action`, name over 60 characters); `400 unknown_node` when `node` is not a current local node |
+| PUT | `/api/schedules/{id}` | same as POST (full replace) | `200` `Schedule`; `404 not_found` |
+| DELETE | `/api/schedules/{id}` | | `204`; `404 not_found` |
+| PUT | `/api/schedules/enabled` | `{"enabled": bool}` | `200` `Snapshot` (the global switch; switching on clears the pause reason). `400` without `enabled` |
+
+`mode` is normalised to `""` and `exclusive` to `false` for a disconnect, and `exclusive` to `false` for `localmonitor`. `permanent` on a disconnect means a permanent disconnect (`ilink 11`); on a window it also applies to the closing disconnect.
+
+```
+Snapshot = {
+  "enabled": bool,            // global switch
+  "pausedReason": str,        // "" when paused from the switch, else e.g. "manual connect 41234 on 2006 by op"
+  "pausedAt": RFC3339 | null,
+  "timezone": "Europe/Berlin",  // IANA name when found, else the abbreviation
+  "now": RFC3339,             // node time, with offset
+  "schedules": [Schedule],    // sorted by node, start, id
+  "active": [{"id": int, "start": RFC3339, "end": RFC3339}],  // windows running now (none while paused)
+  "upcoming": [{"at": RFC3339, "id": int, "name": str, "node": str, "target": str, "action": "connect"|"disconnect", "mode": str}]
+}
+```
+
+`upcoming` lists the next 10 events within 8 days (a window gives a `connect` and a `disconnect` event; `mode` is `""` for a disconnect), also while paused; disabled schedules and cancelled occurrences are left out. Timestamps carry the node's UTC offset. The persisted state lives in the `schedules` table and the settings `schedules.enabled`, `schedules.paused_reason`, `schedules.paused_at` and `schedules.state`.
 
 ## Node lookup (all roles)
 
@@ -351,6 +384,7 @@ Requires a session. Each message has an `event:` name and a JSON `data:` line. O
 | `system` | `System` (including `updateAvailable` / `updateVersion`) |
 | `updates` | Admin clients only: `{"aslcp": bool, "aslcpVersion": str, "os": n, "security": n, "reboot": bool}`: counts for the header badge, never package names. Sent on connect and whenever they change. |
 | `favorites` | `[Favorite]`: favorites changed (any client) |
+| `schedules` | `Snapshot` (see Schedules; all roles): sent after every change (create, edit, delete, switch, pause) and after each executed event. Not part of the initial state: fetch `GET /api/schedules` after login. |
 | `favstats` | `FavStats` with only the changed nodes in `stats` and, in `removed`, the nodes whose values were just cleared (offline, no data, 404, no longer a favorite; clients delete them and show an empty row): sent when a request starts (`checking` set, `next` moved on) and when it ends, and whenever the favorites change the `next` node (`checking` cleared, the node's `checkedAt` and the progress updated; `stats` only if its values changed), and when the scan is switched on or off (then `enabled` says which; off clears all values). `checkedAt` also carries only the changed nodes. Clients merge it into the snapshot. |
 
 The server sends a comment line (`: ping`) every 15 s. While at least one client is connected the server polls node status about once per second; otherwise it slows down.
