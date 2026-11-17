@@ -1,0 +1,2 @@
+System uptime: 86400
+Last reload: 3600

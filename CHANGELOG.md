@@ -1,0 +1,242 @@
+# Changelog
+
+Release notes are taken from the section of the tag being released
+(`## [X.Y.Z]`) when the tag has no annotation.
+
+## [1.1.20] - Unreleased
+
+### Changed
+- ASLCP is now open source under the GNU GPL v3.0 or later; source code at https://github.com/artw1/aslcp.
+- The apt repository moved to the gh-pages branch of the same repository; the URL https://artw1.github.io/aslcp is unchanged, no action needed.
+
+## [1.1.19] - 2026-11-17
+
+### Added
+- Config editor: find and replace. Press Ctrl+F (Cmd+F on a Mac) in the editor, or use the new Find button above it. Supports next / previous, match case, regular expressions, whole word, replace and replace all; other occurrences of the selected text are highlighted.
+
+## [1.1.18] - 2026-11-17
+
+### Fixed
+- Restart ASLCP (and Reboot) no longer leave the "Restarting…" banner spinning. The page reloads as soon as the restarted panel answers, even when the panel is back before the restart request returns (the server now reports a per-process instance id in the `X-ASLCP-Instance` header and the SSE `hello` event). A panel that has not restarted after 60 seconds gives an error instead of spinning.
+
+## [1.1.17] - 2026-11-16
+
+### Changed
+- Header menu order: Dashboard, Lookup, Config, Audio Tuning, Settings, Backup, Updates.
+- Backup (with restore) is its own admin-only tab `#/backup`, moved out of Settings.
+- Settings: About and Node list are now two cards side by side at the top (one column on narrow screens).
+- "Disconnect before Connect" / "Disconnect before Monitor" reset to on / off every time the panel loads. Changing them in the connect bar lasts only until the next reload (it is no longer saved in the browser), so cross-linking is never left on by accident. The server no longer stores or serves these defaults.
+
+### Removed
+- Settings: the Updates card (the Updates tab stays) and the admin "Connecting" section.
+- `PUT /api/settings` and the `exclusiveDefault` / `monitorExclusiveDefault` fields of `GET /api/settings` and the SSE `hello` settings.
+
+## [1.1.16] - 2026-11-16
+
+### Changed
+- Version scheme: the `X.Y.Z-beta.N` tags and `X.Y.Z~beta.N` package versions are gone. Stable stays 1.0.0 and the former 2.0.0 betas continue as plain 1.1.x versions. Every `vX.Y.Z` tag now builds and publishes to the beta apt suite (and `latest-beta.json`) and creates a GitHub pre-release.
+- A release is made by the new **Promote** workflow (Actions > Promote, input: version): the exact debs already published to beta move to the stable suite, `latest.json` is updated and the GitHub release becomes the latest full release. No rebuild; promoting a version that is not in beta is refused, and running it again changes nothing. Backport tags on `release/*` follow the same rule.
+- New **Remove from beta** workflow (dry run by default) to delete beta packages by version glob from the apt repository.
+- Settings > Updates text for the channel selector: "Beta gets new versions as soon as they are built and may be less stable. Release only gets versions promoted after testing."
+
+## [1.1.15] - 2026-11-16
+
+> 1.1.1–1.1.15 were published as 2.0.0-beta.1–15.
+
+### Added
+- Updates tab (`#/updates`, admin only) with two sections: ASLCP (the version, channel, check and update controls and the job log, moved here from Settings, which now has a link) and System packages.
+- System package (apt) updates. The helper has new fixed ops (no arguments, no package names from the web): `os-check` (`apt-get update`, quiet and noninteractive, 5 minute timeout, then a simulated `apt-get upgrade` that lists upgradable packages with a security flag when the origin contains "security", the kept-back packages and the reboot-required state), `os-status`, `os-apply`, `reboot` and `aslcp-restart`. A held apt lock gives "apt is busy, try again later" (`409 apt_busy`).
+- The server checks once a day (first check about 5 minutes after start if the last is older than 24 hours); the result and its time are stored, so restarts do not re-check. "Check now" runs a manual check (`POST /api/updates/os/check`, `202`, poll `GET /api/updates`). The ASLCP 6 hour check is unchanged.
+- Installing runs a transient systemd unit with plain `apt-get upgrade` (never `full-upgrade`; `--force-confdef --force-confold`) after a confirmation that lists the packages and warns that Asterisk packages drop all links and that `aslcp` restarts the panel. Kept-back packages are shown. Only one apt job runs at a time, shared with the ASLCP update (`409 update_running`). The list is checked again automatically afterwards. Audited as `updates.os.apply`.
+- Reboot: when a reboot is required (`/var/run/reboot-required`) the Updates tab says so, with a "Reboot now" button (`POST /api/system/reboot`, audited as `system.reboot`).
+- Header: a compact badge with the number of updates links to the Updates tab, whose nav item shows a count in the accent colour (warning colour for security updates or a pending reboot). Admins only; new admin-only SSE event `updates` carries counts only, never package names.
+- Dashboard footer: "Restart ASLCP" (`POST /api/system/restart-aslcp`, helper `systemctl --no-block restart aslcp`, audited as `aslcp.restart`), "Restart Asterisk" and "Reboot" (the same helper op as the Updates tab), all admin only, each with a confirmation. The page shows "Restarting…" or "Rebooting… waiting for the node" and reloads once the server answers again.
+- `GET /api/updates` gains an `os` object. Demo mode and `web/mock` simulate OS updates (a security package, an asterisk package, a reboot-required toggle and a job log).
+- Tests: the apt output parser, the daily scheduler (persisted, no re-check after a restart within 24 hours, manual check), concurrency (`409`), admin-only access for all new endpoints (`403` for operator and viewer), the audit records, and the SSE counts not reaching non-admins.
+
+### Changed
+- The "Update available" badge in the header is now the updates badge (ASLCP plus system packages) and links to `#/updates` instead of Settings.
+
+## [1.1.14] - 2026-11-16
+
+### Changed
+- Favorites scan: the row marked is now the next one to be checked, not the one being checked. A request takes a fraction of a second on real hardware, so the ring around the # number only flashed. The # number of the next favorite now has a blinking underscore beneath it ("Next to check"; a static underline with reduced motion). The ring is gone.
+- `GET /api/favorites/stats` and the `favstats` event carry a new `next` field: the node that will be requested next, chosen by the same ordering the poller uses (never checked first, then the oldest; nodes in their skip period, your own nodes and out-of-range numbers are passed over). It is empty when the scan is off, nobody is watching, nothing is eligible or every node is in its skip period. It is sent whenever it changes, including when favorites are added, removed or reordered. `checking` stays in the payload for compatibility.
+
+## [1.1.13] - 2026-11-16
+
+### Changed
+- Favorites scan: requests are now evenly paced. The burst of 2 is gone, so the first requests are no longer 3 s apart and the rest 6 s: one request goes out exactly every 60/rate seconds from the very first, never closer than 3 s. The default rate is back to 20 per minute (one request every 3 s; `[favstats] rate` stays 1..25 as the ceiling and the rate still halves after an HTTP 429): the earlier 429s were most likely the offline-node errors fixed in beta.12, which the header mislabelled as rate limiting. The adaptive rate, backoff and `Retry-After` work as before. The request log line shows `gap=` instead of `tokens=`.
+- The Favorites header only says "rate limited, retrying in Ns" for an HTTP 429. Other pauses say "stats service error, retrying in Ns" (HTTP 5xx) or "paused after a network error, retrying in Ns"; the payload has a new `backoffReason` (`rate-limit`, `service-error`, `network-error`).
+- Favorites header: instead of "updated Ns ago" (which only moved on successful polls and so kept climbing, and never moved for offline nodes) it shows `checked 12 of 30 · next in 4s`, `rate limited, retrying in Ns`, or `no favorites to check`. The `updated` field stays in the API for compatibility.
+- The `favstats` SSE event is sent when a request starts and when it ends instead of on value changes plus a 15 s heartbeat; `stats` still carries only changed nodes.
+
+### Added
+- Favorites scan progress in `GET /api/favorites/stats` and the `favstats` event: `checking` (node being requested), `nextAt`, `checked`, `total` (eligible favorites; `checked` counts those answered in the current pass and restarts when a pass completes) and `checkedAt` (last attempt per node, including offline ones).
+- The favorite being checked right now has a ring around its # number ("Checking now"; static with reduced motion).
+- Rx% tooltips show how long ago the node was checked ("checked 12s ago", "not checked yet"); offline nodes show "—" with "No data (offline)"; EchoLink and private numbers say "Not scanned (EchoLink or private node)".
+- Demo mode and `web/mock` simulate the progress, the indicator and offline nodes.
+
+## [1.1.12] - 2026-11-16
+
+### Fixed
+- Favorites scan: one bad node no longer pauses the whole scan. On hardware the journal showed only `favstats: request failed (error), pausing 15s`. Responses are now decoded tolerantly (every field may be a string, number, bool or null, `links` an array of strings or numbers, `node` an object, null, array or missing; a field of the wrong type is left zero) and large unneeded parts such as `linkedNodes` are skipped token by token without being buffered. The size cap is 4 MB (was 512 KB) and an oversized response is reported as such instead of as a decode error.
+- Offline and unknown nodes (the service answers 200 with `"stats":null`, an empty body, `null`, `{}`, an error object or an HTML page) no longer pause the scan or log an error: the node shows no values, is asked again after 10 minutes and goes to the back of the queue. Only the per-request line (`[favstats] log = true`, `status=200-nodata`) mentions it.
+- Favorites scan: a node counts as Active (green) only while the service has live data for it. The registration record says "Active" even for offline nodes; `stats.data.time` older than 15 minutes also means offline, and so does WebTransceiver.
+- Errors are classified. Network errors, timeouts, HTTP 429 and 5xx still pause the scan (backoff, adaptive rate). Invalid JSON, too-large responses and other HTTP 4xx (such as 404) only skip that node for 10 minutes and leave the success streak alone. The journal names the node and a short sanitized reason, for example `favstats: node 50001: response too large (>4 MB), skipping for 10m0s` or `favstats: request failed (timeout), pausing 15s`; the request log shows `status=too-large`, `decode-error` and `200-nodata`. Read timeouts while receiving the body are reported as `timeout`.
+- Favorites scan: an open dashboard now clears a favorite's Rx%, LCnt and colour when the node goes offline, returns no data or 404. The `favstats` SSE event carries the cleared nodes in a new `removed` list instead of leaving the old values until the next full snapshot.
+
+## [1.1.11] - 2026-11-16
+
+### Changed
+- Favorites scan: EchoLink favorites (7-digit numbers 3000000..3999999) are no longer queried and show no activity values. Only node numbers 2000..999999 are scanned.
+- Favorites scan stays under the stats service's real rate limit: the default is now 10 requests per minute (`[favstats] rate`, 1..25, now a ceiling), burst 2, at least 3 s between requests. After an HTTP 429 the rate in use is halved (not below 3 per minute) in addition to the backoff, and it rises by 1 per minute after every 20 successful requests. `Retry-After` is honoured.
+- Favorites scan polls nodes never queried first, then the one queried longest ago, so a backoff no longer starves the end of the list.
+- The Favorites "Scan" checkbox is now a prominent "Start scan" / "Scanning" toggle button (viewers see a "Scan on" / "Scan off" badge). During a backoff the header shows "rate limited, retrying in Ns".
+- `[favstats] log = true` (default false) writes one journal line per stats request (node, status, duration, rate, tokens, Retry-After) and each rate change, to diagnose rate limiting. No response data is logged.
+
+### Fixed
+- Favorites scan: a 429 answer no longer counts as a sample; the last values and the "updated" time stay.
+
+## [1.1.10] - 2026-11-16
+
+### Added
+- Favorites activity scan (as in AllScan). A "Scan" checkbox in the Favorites header (operators and admins; off by default) shows two new sortable columns, Rx% (lifetime TX time as a percentage of uptime) and LCnt (number of links), and colours each row's # cell: red while the node is keyed, green when it is Active, brighter green with WebTransceiver. The Node cell is highlighted when the favorite is linked to one of your nodes. The header shows when the values were last updated. One server-side poller queries `stats.allstarlink.org` for the favorite nodes (not EchoLink or your own), one at a time, at most 20 requests per minute and only while someone is logged in with the panel open, with backoff after rate limiting. New `GET /api/favorites/stats`, `PUT /api/favorites/scan` and SSE event `favstats` (see `docs/API.md`); never on the public page. `[favstats]` in `aslcp.conf` overrides the URL and the request rate (`docs/FAVSCAN.md`).
+
+## [1.1.9] - 2026-11-16
+
+### Fixed
+- The dashboard picks up nodes added to or removed from `rpt.conf` without restarting aslcp. The local node list is re-read when the Asterisk connection comes back, shortly after a reload or restart the panel triggers (config apply or restore with reload, Asterisk restart), and every 5 minutes. A removed node's row disappears from the dashboard and the public view; an added node appears and is polled at once.
+- A stale node shows the actual reason (for example the node poll error) instead of always "AMI disconnected".
+
+## [1.1.8] - 2026-11-16
+
+### Removed
+- Audio Tuning: the TX test tone. `susb tune flash` gave inconsistent tones on real hardware (see `docs/SIMPLEUSB_TUNE.md`). Removed the "Send test tone" button and its confirmation dialog, the `POST /api/radio/{dev}/tone` endpoint and its `radio.tone` audit entry, the tone rate limits and error codes (`node_keyed`, `channel_not_ready`, `tone_busy`, `rate_limited`), the channel-up pre-flight check, and the demo and mock tone code. The page now points to `simpleusb-tune-menu` in a terminal for a steady test tone.
+- The separate AMI connection for radio tuning; it existed only so the blocking tone would not stall the shared connection. Tuning commands now use the shared one.
+
+## [1.1.7] - 2026-11-16
+
+### Fixed
+- Audio Tuning: the TX test tone was always refused with "the channel SimpleUSB/<dev> is not up". The pre-flight check expected a `-<suffix>` on the channel name, but chan_simpleusb names its channel `SimpleUSB/<dev>` with none.
+
+## [1.1.6] - 2026-11-16
+
+SimpleUSB audio tuning (admin only). See `docs/SIMPLEUSB_TUNE.md`.
+
+- New "Audio Tuning" tab (`#/tune`), shown to admins when a node has a SimpleUSB device: live receive meter, RX/TX level sliders, toggles, carrier/CTCSS source, PTT mode, RX-on/TX-off delays in milliseconds, echo mode (auto-off, banner), TX test tone with confirmation, Save and Revert.
+- Link guard: shows linked nodes, warns before echo and tone, names the nodes in the tone confirmation, one-click "Disconnect all links".
+- Save records `simpleusb.conf` in the config history (new helper op `config-record`). Unsaved changes are lost when the module reloads or Asterisk restarts.
+- New admin-only API `/api/radio` (documented in `docs/API.md`), demo mode and mock support.
+- Needs hardware testing: tone and echo over AMI, save formatting. See the unverified list in `docs/SIMPLEUSB_TUNE.md`.
+
+## [1.1.5] - 2026-11-16
+
+Fixes restore on a real node.
+
+- Fix: restore on a real node rejected every backup as "not a gzip-compressed backup file" (the request's trailing newline was read as part of the archive).
+- Restore errors now show the server's reason.
+
+## [1.1.4] - 2026-11-16
+
+Debian 13 "Trixie" support, alongside Debian 12 "Bookworm" (ASL3 is supported on both).
+
+- The installer and the documentation now cover Debian 12 (bookworm) and Debian 13 (trixie) and Raspberry Pi OS; the installer only warns on other releases.
+- Backups record the Debian release of the node (`osId`, `osCodename`, `osName` in the manifest; format unchanged, older backups still restore). The restore preview shows it next to the ASL3 and Asterisk versions.
+- Restoring a backup made on another Debian release (for example bookworm onto trixie) shows a warning: your files replace the new defaults, the new defaults are kept as `.dpkg-dist`, and if Asterisk or app_rpt does not start you should compare them.
+- The health check after a restore now checks that the `app_rpt` module is loaded, and a node only counts as answering when app_rpt really responds.
+
+## [1.1.3] - 2026-11-15
+
+Backup and full restore. Download one file from a working node, re-image the SD card, install ASLCP, upload the file, and get the same node back. Try a restore on a spare SD card first.
+
+- Settings > Backup (admins only): tick the optional parts and Download. The file is `aslcp-backup-<hostname>-<date>.tar.gz`.
+- Always included: everything in `/etc/asterisk` (also `allmon.ini.php`, `custom/`, ...) with owners and permissions, AstDB, the ASLCP database (users, favorites, settings, public page, audit log) and `/etc/aslcp/aslcp.conf`, the update channel, and the SA818 radio settings in `/etc/sa818.conf` when present. Optional: config history, Allmon3 configuration and custom sounds.
+- **The backup is not encrypted.** It contains every secret of the node (node, IAX, AMI and EchoLink passwords, ASLCP password hashes). Store it like a password.
+- Restore from Settings > Backup (password re-entry) or on the first-run page ("Restore from a backup", with the one-time setup code, instead of creating an administrator). The file is checked completely first, then a preview shows what will happen to every file, the users that will exist, the SA818 settings, packages that are missing here (with the `apt install` command) and what to set up separately (network, hostname, timezone, SSH keys, other software). Nothing changes until you confirm.
+- Restoring onto a newer ASL3 is safe: your changed and local files win, files that are still stock keep the new default, and when ASL3 changed the default of a file you edited, the new one is kept beside yours as `<file>.dpkg-dist` for review. Files only the new image has are kept, nothing is deleted unless you tick it.
+- Before anything is written the current `/etc/asterisk` is saved to the config history, so a restore can be undone from History. If a step fails the changes are undone.
+- Asterisk is stopped and started, ASLCP restarts itself and the page shows the health check and the "still to do" list. Everyone has to log in again with their old account.
+- SA818 modules keep their frequency and tone settings in their own memory, and these survive a re-image. The restore result offers `sudo sa818-menu --apply` to program a different module from the restored file; it is not run automatically.
+- A backup made by a newer ASLCP is refused ("update ASLCP first"); a different ASL3 or architecture only gives a warning.
+
+## [1.1.2] - 2026-11-15
+
+- Config editor: lines starting with `;---` (separator lines, as in `usbradio.conf`) no longer turn the rest of the file grey. Like Asterisk, only `;--` followed by something other than a dash opens a block comment.
+
+## [1.1.1] - 2026-11-15
+
+First 2.0 test version (Beta channel). Configuration editing, part 1. Start with harmless edits (comments) and keep an eye on the result page.
+
+- New Config page (admins only): the Asterisk configuration files in `/etc/asterisk`, grouped (Core, Radio, Linking, Platform, Custom), with a code editor.
+- Saving shows a review first: syntax check, the exact changes, and which reload will run. Apply takes a snapshot, writes the files keeping their owner and permissions, reloads only what changed (for example `module reload app_rpt.so` for `rpt.conf`, `iax2 reload` for `iax.conf`), and checks that Asterisk and every node still answer. If the check fails, one click rolls back.
+- A file changed on disk while you were editing (by `nano`, `asl3-menu`, ...) is never overwritten: the page says so and lets you load the new version while keeping your text to copy from.
+- History: every change is kept in a local git history (`/var/lib/aslcp-config-history`, root only, never sent anywhere), with diffs (passwords and secrets hidden unless you reveal them) and Restore.
+- Restart Asterisk button on the Config page.
+- Config changes, restores, secret reveals and Asterisk restarts are recorded in an audit log.
+- The package now depends on `git`.
+
+## [1.0.0] - 2026-11-15
+
+First stable release. 1.0 is the stable line of everything since 0.1: live dashboard, connect and monitor, favorites, node list and lookup, public status page, users and roles, system and diagnostics, and one-click updates. It continues to receive fixes (1.0.x) while the next major version is tested as 2.0 betas.
+
+- Update channels: Settings > Updates has a new "Update channel" switch, Release or Beta. Release (the default) only gets finished versions. Beta gets 2.0 test versions early and may be less stable. The channel is the suite in `/etc/apt/sources.list.d/aslcp.list`, so `apt upgrade` on the command line follows the same choice. Switching back from Beta to Release does not downgrade: the node stays on the installed beta until a release newer than it comes out. The install script accepts `ASLCP_CHANNEL=beta` and keeps the channel of an existing install when run again.
+
+## [0.2.5] - 2026-11-15
+
+- Readable text on keyed and receiving rows: node descriptions and locations on red (transmitting/keyed) and green (local receive) rows are now near-white in both themes, on the dashboard, the public page and favorites. They were grey and hard to read, especially in light mode. The light-theme receive green is slightly darker.
+- Settings page sections are in a fixed order: Updates and About, then Connecting and Node list, then Public page, then Change password and Users (one column on phones).
+- Updates no longer log "Ignoring unknown escape sequences" for the upgrade job in the system journal.
+
+## [0.2.4] - 2026-11-15
+
+- The Updates page no longer fills the system journal with "Failed to open /run/systemd/transient/aslcp-upgrade.service: No such file or directory" messages every few seconds. The helper now checks whether the upgrade job exists before asking systemd about it.
+- This is the first update that is installed by 0.2.3's non-blocking updater, so it should finish without the "systemd-run failed" or "unexpected end of JSON input" message and without the pause near the end.
+
+## [0.2.3] - 2026-11-16
+
+- Fixed the real cause of "helper: bad response: unexpected end of JSON input" when updating: the helper waited for the whole upgrade before answering the Update request, and the package script, which restarts the helper, then waited for the helper. The helper now starts the upgrade and answers at once, which also removes a pause of about 20 seconds near the end of every upgrade. (This takes effect from the update after 0.2.3, because the updater that runs is the one already installed.)
+- Instant update checks: "Check now" and the background check (1 minute after start, then every 6 hours) no longer run apt. They fetch the small `latest.json` from the update URL and compare versions themselves, so the check takes a moment instead of many seconds on a Raspberry Pi 3. Manual checks bypass the CDN cache.
+- Cheaper status polling: the update page and its polling no longer load apt's package cache; they ask only for the installed version and the state of the upgrade job (the journal is read only while an upgrade runs). The page shows the last check time ("just now", "5 min ago") and keeps the check working, with only the Update button disabled, when the helper is not running.
+- Faster upgrade: one step (refresh the ASLCP apt source and install), no changelog reader, no recommended packages, and the package script skips the firewalld reload when the rule is already open and restarts ASLCP last so the web interface returns sooner. If the package index lags behind the release information the page says "Already up to date" instead of showing an empty success.
+
+## [0.2.2] - 2026-11-16
+
+- The helper finishes requests in flight when it is restarted during an update; the update page no longer shows "unexpected end of JSON".
+- The update page rides out the helper restart.
+
+## [0.2.1] - 2026-11-16
+
+- Settings > Updates no longer stays on "An update is running…" after an update. The page reloads into the new version while the upgrade is still finishing; it now keeps checking until the job ends instead of showing the first answer forever.
+
+## [0.2.0] - 2026-11-16
+
+- Public status page (optional, off by default; Settings > Public page): a modern, read-only replacement for public Allmon3/Supermon pages. When enabled, visitors who are not logged in see a live status view at the panel's address (keying, connected links, optional linked-network list and recent activity) with a "Log in" button; logged-in users still get the dashboard and can preview it ("Public view"). It never shows IP addresses, system information, favorites or users; you choose the nodes and whether callsigns, network list and activity are visible.
+- It runs on the same server and port (public data at `GET /api/public/status` and `/api/public/events`, 404 while disabled; the rest of `/api` still requires a login). Visitors are rate-limited (429), with per-address and global caps on live connections; a "trust proxy headers" setting makes the limits use the real address behind a tunnel or reverse proxy.
+- Optional embedding: `/embed` serves a chrome-less view that can be put in an iframe when "allow embedding" is on. Every other page, the login page included, keeps `frame-ancestors 'none'`.
+- Recent activity: the server now records transmissions (link keyups and local receiver keyups, 7 days, at most 10,000) in a new `activity` table; `GET /api/activity` lists them for logged-in users.
+
+## [0.1.2] - 2026-11-15
+
+- New public home at https://github.com/artw1/aslcp (the apt repository is now https://artw1.github.io/aslcp). Existing installs are migrated automatically on upgrade (apt source and an unmodified `[updates] url` line); the packaged `aslcp.conf` no longer sets URLs, so the built-in defaults apply.
+- Settings > About: versions, platform, and links to report a bug (prefilled issue form), request a feature and release notes; administrators can download a diagnostics file with private data (IP addresses, secrets, emails, other stations' callsigns) removed. A small "Report a bug" link was added to the footer.
+- The package now ships a copyright file with the licence.
+
+## [0.1.1] - 2026-11-15
+
+- The install script now asks for the admin username and password right in the terminal (no echo, confirmed twice). Without a terminal (for example a non-interactive install) it prints a one-time setup link instead.
+- New `aslcp admin` commands on the server: `create`, `reset-password USER` (also signs that user out everywhere) and `list`, for creating the first account or recovering a lost password. They work on the database directly and are safe while the service runs.
+- The one-time setup link (`/#/setup?code=...`) is logged at startup, so `journalctl -u aslcp` shows a clickable link; the setup page fills in the code from the link.
+- The service no longer blocks resource syscalls the Go runtime uses at startup (systemd SystemCallFilter fix).
+- Disconnect-before-connect: commands to a node are now paced with a minimum gap, so a connect that replaces a link no longer races the disconnect before it.
+
+## [0.1.0] - 2026-11-15
+
+First release (milestone 1).
+
+- Live dashboard for local AllStarLink nodes over AMI: links, keyed state, node statistics, system strip (CPU temperature, load, memory, Asterisk status).
+- Connect, disconnect and disconnect-all, with "disconnect before connect" to avoid cross-linking networks; monitor and local-monitor modes; permanent links.
+- Favorites with groups and ordering, import from AllScan, node lookup by number, callsign, description or location, node list refresh.
+- Users with admin, operator and viewer roles, first-run setup code, rate-limited login, CSRF protection.
+- Debian packages (arm64, armhf, amd64) with a hardened systemd service, a socket-activated root helper, firewalld service definition and a signed apt repository.
+- In-app updates: Settings > Updates shows the installed and available version with release notes and installs updates on request.

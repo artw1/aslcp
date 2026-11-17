@@ -1,0 +1,120 @@
+name: Promote
+
+# Make a version a release. Run it by hand (Actions > Promote > Run workflow)
+# with the version, e.g. 1.1.16, once the beta build has been tested.
+#
+# No rebuild: the debs already published to the beta suite are moved to the
+# stable suite, latest.json is updated, the indexes are signed again and the
+# GitHub release of the tag is marked as a full release (and as the latest one
+# when this is the newest stable version). If the release has deb assets, they
+# must be byte-identical to the packages in the apt repository.
+#
+# Refuses a version that is not published in the beta suite. Safe to run again:
+# a version that is already promoted changes nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to promote, as published in the beta suite (1.1.16 or v1.1.16)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  # Public apt repository (gh-pages branch of this repository): keep in sync with
+  # release.yml and the Makefile.
+  APT_OWNER: artw1
+  APT_REPO: aslcp
+  APT_URL: https://artw1.github.io/aslcp
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # GitHub release, and the push to the gh-pages branch (apt repository)
+    concurrency:
+      group: publish-apt
+      cancel-in-progress: false
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check the version
+        run: |
+          VERSION="${VERSION#v}"  # accept the tag form (v1.1.16) too
+          if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must look like 1.1.16 or v1.1.16"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >>"$GITHUB_ENV"  # later steps use the plain version
+      - name: Tools
+        run: sudo apt-get update && sudo apt-get install -y apt-utils
+      - uses: actions/checkout@v4
+        with:
+          path: code
+          fetch-depth: 0
+      - name: Release notes of the tagged version
+        run: |
+          git -C code fetch --force --tags
+          # the script (from the selected branch) reads CHANGELOG.md and the tag annotation
+          git -C code show "refs/tags/v$VERSION:CHANGELOG.md" >code/CHANGELOG.md 2>/dev/null || echo "no tag v$VERSION or no CHANGELOG in it: using the branch's CHANGELOG"
+      - name: Check out the apt repository (gh-pages branch)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: code/packaging/apt-checkout.sh apt-repo
+      - name: The release assets match the apt repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir rel
+          if ! gh release download "v$VERSION" --pattern 'aslcp_*.deb' --dir rel; then
+            echo "::warning::no deb assets on the GitHub release v$VERSION: nothing to compare with"
+            exit 0
+          fi
+          for f in rel/*.deb; do
+            p=$(find apt-repo/pool -name "$(basename "$f")" | head -n 1)
+            if [ -z "$p" ]; then
+              echo "::error::$(basename "$f") is not in the apt repository (is $VERSION published to beta?)"
+              exit 1
+            fi
+            cmp "$f" "$p" || { echo "::error::$(basename "$f") differs from the release asset"; exit 1; }
+          done
+          echo "release assets match the apt repository"
+      - name: Import signing key
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          printf '%s\n' "$APT_SIGNING_KEY" | gpg --batch --import
+          gpg --list-secret-keys --keyid-format long
+      - name: Promote in the apt repository
+        env:
+          TAG: v${{ inputs.version }}
+          CODE_DIR: ${{ github.workspace }}/code
+        run: code/packaging/publish-apt.sh --promote "$VERSION" apt-repo
+      - name: Commit and push
+        working-directory: apt-repo
+        run: |
+          git config user.name "aslcp-release"
+          git config user.email "noreply@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "nothing to publish"
+          else
+            git commit -m "aslcp promote $VERSION to stable"
+            git push origin HEAD:gh-pages
+          fi
+      - name: Mark the GitHub release as a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          latest=false
+          newest=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' apt-repo/latest.json)
+          if [ "$newest" = "$VERSION" ]; then latest=true; fi
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release edit "v$VERSION" --prerelease=false --latest="$latest"
+          else
+            echo "::warning::no GitHub release for v$VERSION: apt is promoted, create the release by hand if you want one"
+          fi

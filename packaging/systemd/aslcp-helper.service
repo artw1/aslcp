@@ -1,0 +1,17 @@
+[Unit]
+Description=ASLCP privileged helper
+Documentation=file:///usr/share/doc/aslcp/README
+Requires=aslcp-helper.socket
+After=aslcp-helper.socket
+
+[Service]
+Type=simple
+# Runs as root, socket-activated; exits after 60 s without requests.
+ExecStart=/usr/libexec/aslcp/aslcp-helper
+PrivateTmp=yes
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+LockPersonality=yes

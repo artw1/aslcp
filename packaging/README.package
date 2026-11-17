@@ -1,0 +1,43 @@
+ASLCP - web control panel for AllStarLink 3
+===========================================
+
+Open the web UI:      http://<this-host>:8080
+Admin account:        sudo aslcp admin create   (the install script offers this)
+Setup link fallback:  http://<this-host>:8080/#/setup?code=<code>, with the code from
+                      /var/lib/aslcp/setup-code or "journalctl -u aslcp"
+Lost password:        sudo aslcp admin reset-password <user>
+Accounts:             sudo aslcp admin list
+Configuration:        /etc/aslcp/aslcp.conf       (then: sudo systemctl restart aslcp)
+Logs:                 journalctl -u aslcp -u aslcp-helper
+
+Services
+  aslcp.service         the web server, runs as user "aslcp" (hardened, no capabilities)
+  aslcp-helper.socket   socket-activated root helper; performs package updates and
+  aslcp-helper.service  firewalld changes on request from the web server. It accepts
+                        a fixed set of operations only, from root and user "aslcp".
+
+Asterisk access
+  ASLCP reads the AMI credentials from /etc/asterisk/manager.conf ("auto"). The
+  aslcp user is added to group "asterisk". If that file is not group-readable:
+      sudo chgrp asterisk /etc/asterisk/manager.conf
+      sudo chmod 640 /etc/asterisk/manager.conf
+      sudo systemctl restart aslcp
+  Alternatively set explicit credentials in the [ami] section of aslcp.conf.
+
+Firewall
+  If firewalld is running, installing the package opens TCP 8080 through the
+  firewalld service "aslcp". Otherwise open the port yourself if you use another
+  firewall. Settings > Updates in the UI shows the firewall state.
+
+Updates
+  Settings > Updates in the web UI (administrators), or the usual:
+      sudo apt update && sudo apt install --only-upgrade aslcp
+  The repository is added by the install script; see https://artw1.github.io/aslcp/
+
+Reporting bugs
+  Settings > About > Report a bug (prefilled form), and Download diagnostics (admin)
+  for a log file with IP addresses and secrets removed. https://github.com/artw1/aslcp
+
+Removal
+  apt remove aslcp   keeps /var/lib/aslcp (users, favorites) and the user
+  apt purge aslcp    deletes them

@@ -1,0 +1,73 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: aslcp
+Source: https://github.com/artw1/aslcp
+Comment: The licence texts of the bundled third-party components (listed
+ below) are in /usr/share/doc/aslcp/THIRD-PARTY-NOTICES.
+
+Files: *
+Copyright: 2026 The ASLCP Authors
+License: GPL-3.0+
+
+License: GPL-3.0+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
+ .
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+ .
+ You should have received a copy of the GNU General Public License
+ along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ .
+ On Debian systems, the complete text of the GNU General Public
+ License version 3 can be found in /usr/share/common-licenses/GPL-3.
+
+Files: usr/bin/aslcp usr/bin/aslcp-helper
+Copyright: 2009-2025 The Go Authors
+           2012 The Go Authors (github.com/remyoudompheng/bigfft)
+           2009, 2014 Google Inc. (github.com/google/uuid)
+           2017 The Sqlite Authors, The Libc Authors, The Memory Authors,
+           2014 The mathutil Authors (modernc.org/*)
+           2011 Evan Shaw (mmap-go, in modernc.org/memory)
+License: BSD-3-Clause
+Comment: Go modules compiled into the binaries: golang.org/x/{crypto,term,sys,exp},
+ modernc.org/{sqlite,libc,mathutil,memory}, github.com/google/uuid,
+ github.com/remyoudompheng/bigfft. Full texts: THIRD-PARTY-NOTICES.
+
+Files: usr/bin/aslcp usr/bin/aslcp-helper
+Copyright: 2005-2008 Dustin Sallings
+License: MIT
+Comment: github.com/dustin/go-humanize. Full text: THIRD-PARTY-NOTICES.
+
+Files: usr/bin/aslcp
+Copyright: Marijn Haverbeke and others (CodeMirror, Lezer, style-mod,
+           w3c-keyname, crelt, find-cluster-break)
+           2016-2025 Svelte Contributors
+           2013-present Cole Bemis (Feather icons in Lucide)
+License: MIT
+Comment: npm packages in the embedded web UI bundle: @codemirror/*, @lezer/*,
+ style-mod, w3c-keyname, crelt, @marijn/find-cluster-break, svelte.
+ Full texts: THIRD-PARTY-NOTICES.
+
+Files: usr/bin/aslcp
+Copyright: 2026 Lucide Icons and Contributors
+License: ISC
+Comment: npm package @lucide/svelte in the web UI bundle. Full text:
+ THIRD-PARTY-NOTICES.
+
+License: BSD-3-Clause
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the conditions in
+ THIRD-PARTY-NOTICES are met.
+
+License: MIT
+ Permission is hereby granted, free of charge, to any person obtaining a
+ copy of the software, under the conditions in THIRD-PARTY-NOTICES.
+
+License: ISC
+ Permission to use, copy, modify, and/or distribute the software for any
+ purpose with or without fee is hereby granted, under the conditions in
+ THIRD-PARTY-NOTICES.

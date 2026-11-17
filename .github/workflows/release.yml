@@ -1,0 +1,120 @@
+name: Release
+
+# Tag vX.Y.Z -> build the three debs, then publish them to the BETA suite of the
+# apt repository (the gh-pages branch of this repository, served by GitHub
+# Pages at ${APT_URL}; created by the first release if it does not exist), update
+# latest-beta.json and attach the debs to a GitHub pre-release. Nothing is
+# published to stable here. A version becomes a release only through the
+# "Promote" workflow (.github/workflows/promote.yml), which moves these same
+# debs to the stable suite without rebuilding, updates latest.json and marks the
+# GitHub release as the latest full release. "apt-remove.yml" deletes unwanted
+# versions from the beta suite (dry run by default).
+#
+# Tags on release/* branches (backports, e.g. v1.0.1) run this same workflow and
+# follow the same rule: they build into beta (where they are older than the
+# current version, so beta nodes are not offered them) and need a Promote to
+# reach stable. One rule for every tag; the tag never decides the suite.
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: read
+
+env:
+  # Public apt repository (gh-pages branch of this repository, served by GitHub
+  # Pages): keep in sync with APT_OWNER / APT_REPO / APT_URL in the Makefile.
+  APT_OWNER: artw1
+  APT_REPO: aslcp
+  APT_URL: https://artw1.github.io/aslcp
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: go vet ./... && go test -race ./...
+      - name: Build web and debs
+        run: make debs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debs
+          path: dist/*.deb
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # GitHub release, and the push to the gh-pages branch (apt repository)
+    concurrency:
+      group: publish-apt
+      cancel-in-progress: false
+    steps:
+      - name: Tools
+        run: sudo apt-get update && sudo apt-get install -y apt-utils
+      - uses: actions/checkout@v4
+        with:
+          path: code
+          fetch-depth: 0
+      - name: Make sure the tag annotation is available
+        run: git -C code fetch --force --tags
+      - uses: actions/download-artifact@v4
+        with:
+          name: debs
+          path: debs
+      - name: Check out the apt repository (gh-pages branch)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: code/packaging/apt-checkout.sh --create apt-repo
+      - name: Import signing key
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          printf '%s\n' "$APT_SIGNING_KEY" | gpg --batch --import
+          gpg --list-secret-keys --keyid-format long
+      - name: Update the apt repository
+        env:
+          TAG: ${{ github.ref_name }}
+          CODE_DIR: ${{ github.workspace }}/code
+        run: code/packaging/publish-apt.sh debs apt-repo
+      - name: Commit and push
+        working-directory: apt-repo
+        run: |
+          git config user.name "aslcp-release"
+          git config user.email "noreply@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "nothing to publish"
+          else
+            git commit -m "aslcp ${GITHUB_REF_NAME}"
+            git push origin HEAD:gh-pages
+          fi
+      - name: GitHub pre-release with the debs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # created by hand in the web UI: attach the packages, keep it a pre-release
+            gh release upload "$GITHUB_REF_NAME" debs/*.deb --clobber
+            gh release edit "$GITHUB_REF_NAME" --prerelease
+          else
+            v=${GITHUB_REF_NAME#v}
+            awk -v v="$v" '
+              /^## / { if (on) exit; line=$0; gsub(/[\[\]]/, "", line); split(line, p, " "); if (p[2] == v) { on=1; next } }
+              on { print }' code/CHANGELOG.md >notes.md
+            [ -s notes.md ] || echo "Release $v" >notes.md
+            gh release create "$GITHUB_REF_NAME" debs/*.deb --verify-tag --prerelease \
+              --title "$GITHUB_REF_NAME" --notes-file notes.md
+          fi

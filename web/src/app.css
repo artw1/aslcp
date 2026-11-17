@@ -1,0 +1,72 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-tx: var(--tx);
+  --color-rx: var(--rx);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+}
+
+:root {
+  --bg: #f3f5f8; --surface: #ffffff; --surface-2: #e9edf2; --line: #cfd6df;
+  --fg: #0f172a; --muted: #566274; --accent: #0369a1; --accent-fg: #ffffff;
+  --tx: #c2410c; --rx: #15803d; --ok: #15803d; --warn: #a16207; --danger: #b91c1c;
+  --row-tx: #b91c1c; --row-rx: #166534; --row-fg: #ffffff;
+}
+.dark {
+  --bg: #0a0e14; --surface: #111821; --surface-2: #19222e; --line: #273344;
+  --fg: #e6edf6; --muted: #93a1b5; --accent: #38bdf8; --accent-fg: #04121c;
+  --tx: #fb923c; --rx: #4ade80; --ok: #4ade80; --warn: #facc15; --danger: #f87171;
+  --row-tx: #a11d24; --row-rx: #166a34; --row-fg: #ffffff;
+}
+html { color-scheme: light; }
+html.dark { color-scheme: dark; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-sans); -webkit-text-size-adjust: 100%; font-size: 14px; }
+*:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
+
+@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); } 100% { box-shadow: 0 0 0 10px transparent; } }
+.pulse { animation: pulse-ring 1.2s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+
+/* Secondary text on keyed (red) / local-RX (green) rows. Unlayered so it beats the
+   .text-muted utility (which otherwise leaves grey text on red). White at 94% is
+   >= 4.6:1 on every row background in both themes (5.9 / 7.0 red, 6.5 / 6.1 green). */
+.tbl tr.row-tx .muted, .tbl tr.row-rx .muted, .tbl tr.row-tx .text-muted, .tbl tr.row-rx .text-muted { color: rgb(255 255 255 / 0.94); }
+
+@layer components {
+  .btn { @apply inline-flex items-center justify-center gap-1 rounded border border-line bg-surface px-2.5 py-1 text-[13px] font-medium text-fg transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45; min-height: 1.9rem; }
+  .btn-primary { @apply border-transparent bg-accent text-accent-fg hover:opacity-90 hover:bg-accent; }
+  .btn-danger { @apply text-danger hover:bg-danger/10; }
+  .btn-sm { @apply px-2 py-0.5 text-xs; min-height: 1.6rem; }
+  .btn-icon { @apply px-1.5; }
+  .input { @apply w-full rounded border border-line bg-surface px-2.5 py-1 text-sm text-fg placeholder:text-muted; min-height: 1.9rem; }
+  .card { @apply rounded-md border border-line bg-surface; }
+  .badge { @apply inline-flex items-center gap-1 rounded-full border border-line bg-surface-2 px-1.5 py-0 text-xs font-medium text-muted; }
+  .label { @apply mb-1 block text-xs font-medium text-muted; }
+
+  /* Dense data tables (status + favorites). */
+  .tbl { @apply w-full border-collapse text-sm tabular-nums; }
+  .tbl th { @apply border-b border-line bg-surface-2 px-2 py-1 text-left text-xs font-semibold uppercase tracking-wide text-muted; }
+  .tbl td { @apply border-b border-line px-2 py-1 align-middle; }
+  .tbl tbody tr:last-child td { border-bottom: 0; }
+  .tbl .num { @apply font-mono; }
+  .tbl .title td, .tbl .title th { @apply bg-surface-2 text-sm font-semibold normal-case tracking-normal text-fg; }
+  .tbl tr.row-tx > td { background: var(--row-tx); color: var(--row-fg); border-color: rgb(255 255 255 / 0.22); }
+  .tbl tr.row-rx > td { background: var(--row-rx); color: var(--row-fg); border-color: rgb(255 255 255 / 0.22); }
+  .rowbtn { @apply inline-flex size-6 items-center justify-center rounded border border-transparent text-current opacity-80 hover:opacity-100; }
+  .rowbtn:hover:not(:disabled) { background: rgb(128 128 128 / 0.28); }
+  .rowbtn:disabled { opacity: 0.35; cursor: not-allowed; }
+  tr.row-tx .rowbtn:focus-visible, tr.row-rx .rowbtn:focus-visible { outline-color: #fff; }
+}

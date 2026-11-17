@@ -1,0 +1,353 @@
+Asterisk Call Manager/11.0.0
+Response: Success
+ActionID: login
+Message: Authentication accepted
+
+<?xml version="1.0"?>
+<nodes>
+  <node>2001</node>
+  <node>1998</node>
+</nodes>
+
+Event: RPT_ALINKS
+Privilege: call,all
+Node: 2001
+Channel: SimpleUSB/2001
+EventValue: 1,50241TU
+LastKeyedTime: Fri Nov 13 13:18:52 2026
+LastTxKeyedTime: Sat Nov 14 22:49:26 2026
+
+Event: RPT_NUMALINKS
+Privilege: call,all
+Node: 2001
+Channel: SimpleUSB/2001
+EventValue: 1
+LastKeyedTime: Fri Nov 13 13:18:52 2026
+LastTxKeyedTime: Sat Nov 14 22:49:26 2026
+
+Response: Success
+ActionID: rptstat
+Nodes: 2001,1998
+RptUptime: 33:30:53
+
+Event: RPT_LINKS
+Privilege: call,all
+Node: 2001
+Channel: SimpleUSB/2001
+EventValue: 159,T50241,T43085,T64038,T50241,T639672,T1021,T517300,T49892,T475213,TN0AAA,TN0AAB,T66214,T540123,T48121,T637350,T637351,T40535,T65489,T452410,T55178,T27277,T68562,T52028,T517301,T53981,T554358,T58753,T60185,T68981,T449800,T61040,T61346,T509940,T542490,T52879,T1528793,T42202,T42156,T46378,T53178,T510560,T52568,T1330,T1530,T1430,T50565,T1528794,T3633686,T3737044,T3727368,T1528791,T482181,T45503,T42070,T571241,T52780,T50980,T1528792,T69338,T53556,T55101,T3338649,T613481,T491366,T52782,T571390,T510562,T683210,T51438,T574071,T68168,T636030,T55583,T52359,T588294,T630212,T526431,TN0AAC,T556500,T54935,T62138,T3134418,TN0AAD,T28507,T29307,T68408,T40034,T47587,T601480,T601481,T60919,T51394,T671923,T51394,T3164864,T512339,T512333,T1899,T1999,T1799,T65879,T3461019,T450520,T50864,T512539,T450521,T450523,T56178,T56180,T56781,T528641,T528640,T450528,T45382,T663131,T58986,T440250,T490450,T517302,T3472774,T3482073,T539852,T539851,T539850,T508120,T1995,T62136,T3069556,T1995,THOIP-400000,T517303,T89029,T526290,T593863,T1999,T54161,T509200,T27131,T60796,T1992,T1994,T1996,T561910,T53428,T50852,T683211,T52579,T58581,T539063,T62470,T56848,T653263,T66543,T3355800,T50242,T27542,T1980,T484064,T428970
+LastKeyedTime: Fri Nov 13 13:18:52 2026
+LastTxKeyedTime: Sat Nov 14 22:49:26 2026
+
+Event: RPT_NUMLINKS
+Privilege: call,all
+Node: 2001
+Channel: SimpleUSB/2001
+EventValue: 159
+LastKeyedTime: Fri Nov 13 13:18:52 2026
+LastTxKeyedTime: Sat Nov 14 22:49:26 2026
+
+Event: RPT_ALINKS
+Privilege: call,all
+Node: 2001
+Channel: SimpleUSB/2001
+EventValue: 1,50241TK
+LastKeyedTime: Fri Nov 13 13:18:52 2026
+LastTxKeyedTime: Sat Nov 14 22:49:26 2026
+
+Response: Success
+ActionID: XStat-2001
+Node: 2001
+Conn: 50241     192.0.2.58      0           OUT        00:00:29            ESTABLISHED         
+LinkedNodes: T1021, T1330, T1430, T1528791, T1528792, T1528793, T1528794, T1530, T1799, T1899, T1980, T1992, T1994, T1995, T1995, T1996, T1999, T1999, T27131, T27277, T27542, T28507, T29307, T3069556, T3134418, T3164864, T3338649, T3355800, T3461019, T3472774, T3482073, T3633686, T3727368, T3737044, T40034, T40535, T42070, T42156, T42202, T428970, T43085, T440250, T449800, T450520, T450521, T450523, T450528, T452410, T45382, T45503, T46378, T475213, T47587, T48121, T482181, T484064, T490450, T491366, T49892, T50241, T50241, T50242, T50565, T508120, T50852, T50864, T509200, T50980, T509940, T510560, T510562, T512333, T512339, T512539, T51394, T51394, T51438, T517300, T517301, T517302, T517303, T52028, T52359, T52568, T52579, T526290, T526431, T52780, T52782, T528640, T528641, T52879, T53178, T53428, T53556, T539063, T53981, T539850, T539851, T539852, T540123, T54161, T542490, T54935, T55101, T55178, T554358, T55583, T556500, T56178, T56180, T561910, T56781, T56848, T571241, T571390, T574071, T58581, T58753, T588294, T58986, T593863, T601480, T601481, T60185, T60796, T60919, T61040, T61346, T613481, T62136, T62138, T62470, T630212, T636030, T637350, T637351, T639672, T64038, T653263, T65489, T65879, T66214, T663131, T66543, T671923, T68168, T683210, T683211, T68408, T68562, T68981, T69338, T89029, TN0AAC, THOIP-400000, TN0AAB, TN0AAA, TN0AAD
+Var: XX_RPT_RXKEYED=0
+Var: RPT_TXKEYED=0
+Var: RPT_NUMLINKS=159
+Var: RPT_LINKS=159,T50241,T43085,T64038,T50241,T639672,T1021,T517300,T49892,T475213,TN0AAA,TN0AAB,T66214,T540123,T48121,T637350,T637351,T40535,T65489,T452410,T55178,T27277,T68562,T52028,T517301,T53981,T554358,T58753,T60185,T68981,T449800,T61040,T61346,T509940,T542490,T52879,T1528793,T42202,T42156,T46378,T53178,T510560,T52568,T1330,T1530,T1430,T50565,T1528794,T3633686,T3737044,T3727368,T1528791,T482181,T45503,T42070,T571241,T52780,T50980,T1528792,T69338,T53556,T55101,T3338649,T613481,T491366,T52782,T571390,T510562,T683210,T51438,T574071,T68168,T636030,T55583,T52359,T588294,T630212,T526431,TN0AAC,T556500,T54935,T62138,T3134418,TN0AAD,T28507,T29307,T68408,T40034,T47587,T601480,T601481,T60919,T51394,T671923,T51394,T3164864,T512339,T512333,T1899,T1999,T1799,T65879,T3461019,T450520,T50864,T512539,T450521,T450523,T56178,T56180,T56781,T528641,T528640,T450528,T45382,T663131,T58986,T440250,T490450,T517302,T3472774,T3482073,T539852,T539851,T539850,T508120,T1995,T62136,T3069556,T1995,THOIP-400000,T517303,T89029,T526290,T593863,T1999,T54161,T509200,T27131,T60796,T1992,T1994,T1996,T561910,T53428,T50852,T683211,T52579,T58581,T539063,T62470,T56848,T653263,T66543,T3355800,T50242,T27542,T1980,T484064,T428970
+Var: RPT_NUMALINKS=1
+Var: RPT_ALINKS=1,50241TU
+Var: RPT_AUTOPATCHUP=0
+Var: RPT_ETXKEYED=0
+Var: RPT_RXKEYED=0
+parrot_ena: 0
+sys_ena: 0
+tot_ena: 0
+link_ena: 0
+patch_ena: 0
+patch_state: 4
+sch_ena: 0
+user_funs: 0
+tail_type: 0
+iconns: 0
+tot_state: 2
+ider_state: 1
+tel_mode: 0
+
+Event: RPT_TXKEYED
+Privilege: call,all
+Node: 2001
+Channel: SimpleUSB/2001
+EventValue: 0
+LastKeyedTime: Fri Nov 13 13:18:52 2026
+LastTxKeyedTime: Sat Nov 14 22:49:56 2026
+
+Response: Success
+ActionID: SawStat-2001
+Node: 2001
+Conn: 50241 0 1 1
+
+Response: Success
+ActionID: NodeStat-2001
+IsRemoteBase: NO
+NodeState: 0
+SignalOnInput: NO
+TransmitterKeyed: NO
+Transmitter: ENABLED
+Parrot: DISABLED
+Scheduler: ENABLED
+TailLength: STANDARD
+TimeOutTimer: ENABLED
+TimeOutTimerState: RESET
+TimeOutsSinceSystemInitialization: 0
+IdentifierState: QUEUED FOR CLEANUP
+KerchunksToday: 0
+KerchunksSinceSystemInitialization: 0
+KeyupsToday: 2
+KeyupsSinceSystemInitialization: 2
+DtmfCommandsToday: 0
+DtmfCommandsSinceSystemInitialization: 0
+LastDtmfCommandExecuted: N/A
+TxTimeToday: 00:00:33:172
+TxTimeSinceSystemInitialization: 00:00:33:172
+NodesCurrentlyConnectedToUs: 50241
+Autopatch: ENABLED
+AutopatchState: DOWN
+AutopatchCalledNumber: N/A
+ReversePatchIaxrptConnected: DOWN
+UserLinkingCommands: ENABLED
+UserFunctions: ENABLED
+
+Response: Success
+ActionID: XStat-1998
+Node: 1998
+LinkedNodes: <NONE>
+Var: XX_RPT_RXKEYED=0
+Var: RPT_ETXKEYED=0
+Var: RPT_RXKEYED=0
+Var: RPT_ALINKS=0
+Var: RPT_LINKS=0
+Var: RPT_NUMALINKS=0
+Var: RPT_NUMLINKS=0
+Var: RPT_AUTOPATCHUP=0
+Var: RPT_TXKEYED=0
+parrot_ena: 0
+sys_ena: 0
+tot_ena: 0
+link_ena: 0
+patch_ena: 0
+patch_state: 4
+sch_ena: 0
+user_funs: 0
+tail_type: 0
+iconns: 0
+tot_state: 2
+ider_state: 2
+tel_mode: 0
+
+Response: Success
+ActionID: SawStat-1998
+Node: 1998
+
+Response: Success
+ActionID: NodeStat-1998
+IsRemoteBase: NO
+NodeState: 0
+SignalOnInput: NO
+TransmitterKeyed: NO
+Transmitter: ENABLED
+Parrot: DISABLED
+Scheduler: ENABLED
+TailLength: STANDARD
+TimeOutTimer: ENABLED
+TimeOutTimerState: RESET
+TimeOutsSinceSystemInitialization: 0
+IdentifierState: CLEAN
+KerchunksToday: 0
+KerchunksSinceSystemInitialization: 0
+KeyupsToday: 0
+KeyupsSinceSystemInitialization: 0
+DtmfCommandsToday: 0
+DtmfCommandsSinceSystemInitialization: 0
+LastDtmfCommandExecuted: N/A
+TxTimeToday: 00:00:00:00
+TxTimeSinceSystemInitialization: 00:00:00:00
+NodesCurrentlyConnectedToUs: <NONE>
+Autopatch: ENABLED
+AutopatchState: DOWN
+AutopatchCalledNumber: N/A
+ReversePatchIaxrptConnected: DOWN
+UserLinkingCommands: ENABLED
+UserFunctions: ENABLED
+
+Response: Success
+ActionID: uptime
+Message: Command output follows
+Output: System uptime: 120660
+Output: Last reload: 120660
+
+Response: Success
+ActionID: version
+Message: Command output follows
+Output: Asterisk 22.10.1+asl3-3.10.8-1.deb12 built by builder @ allstarlink.org on a aarch64 running Linux on 2026-10-11 15:31:58 UTC
+
+Response: Success
+ActionID: cli-localnodes
+Message: Command output follows
+Output:                          
+Output: Node
+Output: ----
+Output: 2001
+Output: 1998
+Output: 
+
+Event: RPT_TXKEYED
+Privilege: call,all
+Node: 2001
+Channel: SimpleUSB/2001
+EventValue: 1
+LastKeyedTime: Fri Nov 13 13:18:52 2026
+LastTxKeyedTime: Sat Nov 14 22:49:56 2026
+
+Event: HangupRequest
+Privilege: call,all
+Channel: IAX2/192.0.2.58:4568-16325
+ChannelState: 6
+ChannelStateDesc: Up
+CallerIDNum: <unknown>
+CallerIDName: <unknown>
+ConnectedLineNum: 2001
+ConnectedLineName: <unknown>
+Language: en
+AccountCode: 
+Context: 
+Exten: 50241
+Priority: 1
+Uniqueid: 1794714566.30
+Linkedid: 1794714566.30
+
+Event: SoftHangupRequest
+Privilege: call,all
+Channel: IAX2/192.0.2.58:4568-16325
+ChannelState: 6
+ChannelStateDesc: Up
+CallerIDNum: <unknown>
+CallerIDName: <unknown>
+ConnectedLineNum: 2001
+ConnectedLineName: <unknown>
+Language: en
+AccountCode: 
+Context: 
+Exten: 50241
+Priority: 1
+Uniqueid: 1794714566.30
+Linkedid: 1794714566.30
+Cause: 1
+
+Event: RPT_ALINKS
+Privilege: call,all
+Node: 2001
+Channel: SimpleUSB/2001
+EventValue: 1,50241TU
+LastKeyedTime: Fri Nov 13 13:18:52 2026
+LastTxKeyedTime: Sat Nov 14 22:50:09 2026
+
+Event: RPT_LINKS
+Privilege: call,all
+Node: 2001
+Channel: SimpleUSB/2001
+EventValue: 1,T50241
+LastKeyedTime: Fri Nov 13 13:18:52 2026
+LastTxKeyedTime: Sat Nov 14 22:50:09 2026
+
+Event: Hangup
+Privilege: call,all
+Channel: IAX2/192.0.2.58:4568-16325
+ChannelState: 6
+ChannelStateDesc: Up
+CallerIDNum: <unknown>
+CallerIDName: <unknown>
+ConnectedLineNum: 2001
+ConnectedLineName: <unknown>
+Language: en
+AccountCode: 
+Context: 
+Exten: 50241
+Priority: 1
+Uniqueid: 1794714566.30
+Linkedid: 1794714566.30
+Cause: 0
+Cause-txt: Unknown
+
+Event: RPT_ALINKS
+Privilege: call,all
+Node: 2001
+Channel: SimpleUSB/2001
+EventValue: 
+LastKeyedTime: Fri Nov 13 13:18:52 2026
+LastTxKeyedTime: Sat Nov 14 22:50:09 2026
+
+Event: RPT_NUMALINKS
+Privilege: call,all
+Node: 2001
+Channel: SimpleUSB/2001
+EventValue: 0
+LastKeyedTime: Fri Nov 13 13:18:52 2026
+LastTxKeyedTime: Sat Nov 14 22:50:09 2026
+
+Event: RPT_LINKS
+Privilege: call,all
+Node: 2001
+Channel: SimpleUSB/2001
+EventValue: 0
+LastKeyedTime: Fri Nov 13 13:18:52 2026
+LastTxKeyedTime: Sat Nov 14 22:50:09 2026
+
+Event: RPT_NUMLINKS
+Privilege: call,all
+Node: 2001
+Channel: SimpleUSB/2001
+EventValue: 0
+LastKeyedTime: Fri Nov 13 13:18:52 2026
+LastTxKeyedTime: Sat Nov 14 22:50:09 2026
+
+Event: RPT_ALINKS
+Privilege: call,all
+Node: 2001
+Channel: SimpleUSB/2001
+EventValue: 1,50241TU
+LastKeyedTime: Fri Nov 13 13:18:52 2026
+LastTxKeyedTime: Sat Nov 14 22:50:09 2026
+
+Event: RPT_LINKS
+Privilege: call,all
+Node: 2001
+Channel: SimpleUSB/2001
+EventValue: 1,T50241
+LastKeyedTime: Fri Nov 13 13:18:52 2026
+LastTxKeyedTime: Sat Nov 14 22:50:09 2026
+
+Event: RPT_ALINKS
+Privilege: call,all
+Node: 2001
+Channel: SimpleUSB/2001
+EventValue: 1,50241TK
+LastKeyedTime: Fri Nov 13 13:18:52 2026
+LastTxKeyedTime: Sat Nov 14 22:50:09 2026
+
+Event: RPT_TXKEYED
+Privilege: call,all
+Node: 2001
+Channel: SimpleUSB/2001
+EventValue: 1
+LastKeyedTime: Fri Nov 13 13:18:52 2026
+LastTxKeyedTime: Sat Nov 14 22:50:09 2026
+

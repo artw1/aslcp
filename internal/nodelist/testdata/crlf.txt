@@ -1,0 +1,2 @@
+3000|N0CRL|CRLF node|Town, ST
+3001|N0CRL2|Second|Town2

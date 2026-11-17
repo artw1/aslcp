@@ -1,0 +1,32 @@
+2000|N0CALL|ASL Public Hub|aws-east2ls-ast0
+2001|N0CALL|ASL Public Hub|aws-east2ls-ast0
+2002|N0CALL|AllStarLink Parrot|AWS US-EAST-1
+2003|N0AAM|147.000-|Springfield, ST
+2004|N0CALL|Beta Test Node|Springfield, ST, US
+2010|N0AAZ|147.000-|Metropolis, ST
+2011|N0AAZ|TBD|Metropolis, ST
+2012|N0AAZ|TBD|Metropolis, ST
+2013|N0AAZ|TBD|Metropolis, ST
+2014|N0AAZ|TBD|Metropolis, ST
+2015|N0AAA|Hub|Primary Hub is 2560
+2017|N0AAZ|TBD|Metropolis, ST
+2018|N0AAZ|TBD|Metropolis, ST
+2019|N0AAZ|Lab Dev Box|Metropolis, ST
+2020|N0AAK|Private Node|ST
+2021|M0AAA|HUBNet|Metropolis
+2022|M0AAA|HUBNet|Metropolis
+2024|N0AAM|147.000-|Springfield
+2027|N0AAG|147.000|Springfield, ST
+2029|N0AAW|147.000-|Metropolis, ST
+55198|N0AAC|cloud||Metropolis, ST
+57267|N0AAD | CN ||Springfield, ST. USA
+554630|N0AAD | remote|146.520|Springfield, ST. USA
+554631|N0AAD | VHF CN|146.520|Springfield, ST. USA
+554632|N0AAD | Clear0|146.520|Springfield, ST. USA
+608720|ZS0AAA|** ZA-NET **|Example ARC - Metropolis | ZA-NET
+608721|ZS0AAA||Example ARC - Metropolis | ZA-NET
+
+
+;Generated 41700 records in 0.230 seconds.
+;Generated at 2026-11-15 02:15:19 UTC by aws-east1a-portal0
+

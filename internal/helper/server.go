@@ -1,0 +1,276 @@
+package helper
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"os"
+	"os/user"
+	"strconv"
+	"sync/atomic"
+	"time"
+)
+
+// Server accepts connections and serves requests.
+type Server struct {
+	Ops *Ops
+	// Peer returns the uid of the process on the other end of conn.
+	Peer func(conn net.Conn) (uint32, error)
+	// AllowedUIDs returns the uids permitted to talk to the helper (root plus
+	// the aslcp user). It is evaluated per connection.
+	AllowedUIDs func() []uint32
+	// Idle is how long the server waits without connections before Serve
+	// returns (systemd restarts the service on the next connection). Zero
+	// means never.
+	Idle   time.Duration
+	Logger *log.Logger
+
+	active atomic.Int32
+}
+
+// NewServer returns a Server wired to the real system.
+func NewServer(logger *log.Logger, extraUIDs ...uint32) *Server {
+	return &Server{
+		Ops:         NewOps(),
+		Peer:        PeerUID,
+		AllowedUIDs: func() []uint32 { return DefaultAllowedUIDs(extraUIDs...) },
+		Idle:        60 * time.Second,
+		Logger:      logger,
+	}
+}
+
+// DefaultAllowedUIDs returns root, the uid of user "aslcp" (if it exists)
+// and any extra uids.
+func DefaultAllowedUIDs(extra ...uint32) []uint32 {
+	uids := []uint32{0}
+	if u, err := user.Lookup("aslcp"); err == nil {
+		if n, err := strconv.ParseUint(u.Uid, 10, 32); err == nil {
+			uids = append(uids, uint32(n))
+		}
+	}
+	return append(uids, extra...)
+}
+
+// Authorized reports whether uid is in allowed.
+func Authorized(uid uint32, allowed []uint32) bool {
+	for _, a := range allowed {
+		if a == uid {
+			return true
+		}
+	}
+	return false
+}
+
+// maxRequest bounds requests of the plain operations; config operations may
+// carry files and are bounded by maxConfigRequest.
+const maxRequest = 4096
+
+// Serve accepts connections on ln until ctx is done or the idle timeout
+// passes with no connection and no request in flight.
+func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
+	type deadliner interface{ SetDeadline(time.Time) error }
+	dl, _ := ln.(deadliner)
+	last := time.Now()
+	for {
+		if ctx.Err() != nil {
+			s.drain()
+			return nil
+		}
+		if dl != nil {
+			_ = dl.SetDeadline(time.Now().Add(time.Second))
+		}
+		conn, err := ln.Accept()
+		if err != nil {
+			var ne net.Error
+			if errors.As(err, &ne) && ne.Timeout() {
+				if s.Idle > 0 && s.active.Load() == 0 && time.Since(last) > s.Idle {
+					s.logf("idle for %s, exiting", s.Idle)
+					return nil
+				}
+				continue
+			}
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+				s.drain()
+				return nil
+			}
+			return err
+		}
+		last = time.Now()
+		s.active.Add(1)
+		go func() {
+			defer s.active.Add(-1)
+			s.handle(ctx, conn)
+		}()
+	}
+}
+
+// drainTimeout bounds how long a stopping helper waits for requests in
+// flight. The package's postinst restarts the helper during an upgrade while
+// the web UI is polling it; answering those requests instead of dropping the
+// connection avoids "unexpected end of JSON" errors in the UI.
+var drainTimeout = 20 * time.Second
+
+func (s *Server) drain() {
+	deadline := time.Now().Add(drainTimeout)
+	for s.active.Load() > 0 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func (s *Server) logf(format string, a ...any) {
+	if s.Logger != nil {
+		s.Logger.Printf(format, a...)
+	}
+}
+
+func (s *Server) handle(ctx context.Context, conn net.Conn) {
+	defer conn.Close()
+	reply := func(v any) {
+		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		_ = json.NewEncoder(conn).Encode(v)
+	}
+	fail := func(msg string) { reply(errorResponse{Error: msg}) }
+
+	// The request is read before the peer check so that a rejected client has
+	// no unread data pending (which would turn our reply into a reset).
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var req Request
+	dec := json.NewDecoder(io.LimitReader(conn, maxConfigRequest))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		s.logf("bad request: %v", err)
+		fail("invalid request")
+		return
+	}
+	if !isConfigOp(req.Op) && dec.InputOffset() > maxRequest {
+		s.logf("request too large for op %s", safeOp(req.Op))
+		fail("invalid request")
+		return
+	}
+	uid, err := s.Peer(conn)
+	if err != nil {
+		s.logf("rejecting connection: peer credentials: %v", err)
+		fail("peer check failed")
+		return
+	}
+	if !Authorized(uid, s.AllowedUIDs()) {
+		s.logf("rejecting connection from uid %d", uid)
+		fail("not authorized")
+		return
+	}
+
+	if isStreamOp(req.Op) {
+		// The archive of backup-restore follows the request; the decoder may
+		// already have buffered the first bytes of it. The client's JSON
+		// encoder terminates the request with a newline, which is not part
+		// of the archive, so leading JSON whitespace is skipped (lazily: a
+		// stream op that sends nothing more must not block here).
+		rest := &skipLeadingSpace{r: io.MultiReader(dec.Buffered(), conn)}
+		s.handleStream(ctx, conn, rest, req, uid)
+		return
+	}
+
+	// Not derived from ctx: a request in flight when the helper is asked to
+	// stop still completes (see drain).
+	timeout := callTimeout
+	if req.Op == OpOSCheck {
+		timeout = osCallTimeout
+	}
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	defer cancel()
+	res, err := s.Ops.HandleRequest(cctx, req)
+	if err != nil {
+		if req.Op == "" || !knownOp(req.Op) {
+			s.logf("uid %d: refused unknown op %s", uid, safeOp(req.Op))
+			fail("unknown op")
+			return
+		}
+		s.logf("uid %d: %s: error: %v", uid, req.Op, err)
+		fail(err.Error())
+		return
+	}
+	s.logf("uid %d: %s ok", uid, req.Op)
+	reply(res)
+}
+
+// skipLeadingSpace drops JSON whitespace (space, tab, CR, LF) from the start
+// of the stream on the first Read. gzip's magic (0x1f 0x8b) is not
+// whitespace, so no archive byte is ever lost.
+type skipLeadingSpace struct {
+	r    io.Reader
+	done bool
+}
+
+func (s *skipLeadingSpace) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	for !s.done {
+		n, err := s.r.Read(p)
+		i := 0
+		for i < n && (p[i] == ' ' || p[i] == '\t' || p[i] == '\r' || p[i] == '\n') {
+			i++
+		}
+		if i < n {
+			s.done = true
+			copy(p, p[i:n])
+			return n - i, err
+		}
+		if err != nil {
+			return 0, err
+		}
+	}
+	return s.r.Read(p)
+}
+
+func knownOp(op string) bool {
+	switch op {
+	case OpUpdateStatus, OpUpdateCheck, OpUpdateApply, OpOSCheck, OpOSStatus, OpOSApply, OpReboot, OpAslcpRestart, OpFirewallStatus, OpFirewallOpen, OpChannelStable, OpChannelBeta, OpAsteriskRestart, OpConfigList, OpConfigRead, OpConfigApply, OpConfigLog, OpConfigShow, OpConfigRestore, OpConfigRecord, OpBackupInfo, OpBackupCreate, OpBackupRestore:
+		return true
+	}
+	return false
+}
+
+// safeOp limits what a client-supplied string can put into the log.
+func safeOp(op string) string {
+	if len(op) > 40 {
+		op = op[:40]
+	}
+	return fmt.Sprintf("%q", op)
+}
+
+// ListenerFromSystemd returns the listener passed by systemd socket
+// activation (LISTEN_PID/LISTEN_FDS, fd 3), or (nil, nil) when the process
+// was not socket-activated.
+func ListenerFromSystemd() (net.Listener, error) {
+	pid, _ := strconv.Atoi(os.Getenv("LISTEN_PID"))
+	n, _ := strconv.Atoi(os.Getenv("LISTEN_FDS"))
+	os.Unsetenv("LISTEN_PID")
+	os.Unsetenv("LISTEN_FDS")
+	os.Unsetenv("LISTEN_FDNAMES")
+	if pid != os.Getpid() || n < 1 {
+		return nil, nil
+	}
+	f := os.NewFile(3, "systemd-socket")
+	defer f.Close()
+	return net.FileListener(f)
+}
+
+// ListenUnix creates a unix socket at path with mode 0660 (for tests and
+// --listen), replacing a stale socket file.
+func ListenUnix(path string) (net.Listener, error) {
+	_ = os.Remove(path)
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(path, 0o660); err != nil {
+		ln.Close()
+		return nil, err
+	}
+	return ln, nil
+}

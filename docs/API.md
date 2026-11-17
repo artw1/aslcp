@@ -1,0 +1,403 @@
+# ASLCP HTTP API (milestone 1)
+
+Contract between the Go server (`cmd/aslcp`) and the Svelte UI (`web/`). JSON everywhere, UTF-8. All paths are under `/api`. The server also serves the embedded UI at `/` (SPA: unknown non-`/api` paths return `index.html`).
+
+## Conventions
+
+- **Auth:** session cookie `aslcp_session` (HttpOnly, SameSite=Lax, Secure when served over HTTPS). Unauthenticated requests to protected endpoints get `401`.
+- **CSRF:** every non-GET request must send header `X-ASLCP: 1`; the server also rejects a non-GET whose `Origin` header doesn't match the host. Missing header returns `403`.
+- **Errors:** non-2xx responses have body `{"error": "human readable message", "code": "machine_code"}`.
+- **Roles:** `admin` (everything), `operator` (connect/disconnect, favorites), `viewer` (read only). Forbidden returns `403`.
+- **Live updates:** Server-Sent Events (not WebSocket) at `GET /api/events`. Commands go over REST.
+- Durations are integer **seconds**; timestamps are RFC 3339 strings; "never" is `null`.
+
+## Setup and session
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/setup` | | `{"needed": bool}`. `true` when no users exist. Public. |
+| POST | `/api/setup` | `{"code", "username", "password"}` | `204`, and logs in. `code` is the one-time setup code the server writes to `<datadir>/setup-code`; at startup it also logs a ready-made link `http://<addr>:<port>/#/setup?code=<code>` (and prints the code in `--dev`). Only allowed while no users exist: afterwards `409 {"code":"setup_done"}`; a wrong code is `403 {"code":"bad_setup_code"}`. |
+| POST | `/api/login` | `{"username", "password"}` | `200` `User`. `401` `{"code":"bad_credentials"}`. Rate limited (`429`). |
+| POST | `/api/logout` | | `204` |
+| GET | `/api/session` | | `200` `User` or `401` |
+| POST | `/api/password` | `{"current", "new"}` | `204` |
+
+Accounts can also be created out of band with `aslcp admin create` (see `aslcp admin --help`), which removes `<datadir>/setup-code`, after which `GET /api/setup` reports `needed: false`.
+
+`User` = `{"id": int, "username": str, "role": "admin"|"operator"|"viewer"}`
+
+### Users (admin)
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/users` | | `[User]` |
+| POST | `/api/users` | `{"username", "password", "role"}` | `201` `User` |
+| PUT | `/api/users/{id}` | `{"role"?, "password"?}` | `200` `User` |
+| DELETE | `/api/users/{id}` | | `204` (cannot delete the last admin or yourself) |
+
+## Nodes and links
+
+`GET /api/nodes` returns `[NodeStatus]` for all local nodes (same objects as the SSE `node` event).
+
+```json
+NodeStatus = {
+  "node": "2001",
+  "info": NodeInfo | null,          // lookup for the local node itself
+  "stale": false,                   // true while AMI is disconnected or polls fail
+  "rxKeyed": false,                 // signal on the node's receiver (COS)
+  "txKeyed": false,                 // node transmitter keyed
+  "extTxKeyed": false,
+  "numLinks": 159,                  // whole-network count as reported (may include duplicates)
+  "links": [Link],                  // directly connected links
+  "network": [{"node": "1999", "mode": "T", "kind": "allstar", "info": NodeInfo|null}],
+  "flags": {"txDisabled": false, "linkFunsDisabled": false, "parrot": false, "...": "..."},
+  "updated": "2026-11-15T12:00:00Z"
+}
+Link = {
+  "node": "50241",
+  "kind": "allstar" | "echolink" | "phone" | "client" | "unknown",
+  "info": NodeInfo | null,
+  "ip": "192.0.2.58" | "",          // only sent to admin/operator; "" for viewer
+  "direction": "IN" | "OUT",
+  "connected": 29,                  // seconds
+  "state": "ESTABLISHED" | "CONNECTING",
+  "mode": "T" | "R" | "L" | "C",    // transceive, monitor (RX only), local monitor, connecting
+  "keyed": false,
+  "sinceKey": 12 | null,            // seconds since this link last keyed
+  "sinceUnkey": 3 | null
+}
+NodeInfo = {"node": "50241", "callsign": "N0CALL", "description": "Hub name", "location": "City, ST"}
+```
+
+### Link control (operator)
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| POST | `/api/nodes/{node}/connect` | `{"target": "2000", "mode": "transceive"\|"monitor"\|"localmonitor", "permanent": bool, "exclusive"?: bool}` | `202` (accepted by app_rpt; the link appears via SSE) |
+| POST | `/api/nodes/{node}/disconnect` | `{"target": "2000", "permanent": bool}` | `202` |
+| POST | `/api/nodes/{node}/disconnect-all` | | `202` |
+
+**`exclusive`** ("disconnect before connect", prevents cross-linking networks) is optional and defaults to `false` when absent. When `true` and `mode` is `transceive` or `monitor`, the server first sends a normal (non-permanent) disconnect (`rpt cmd <node> ilink 1 <link>`) for every current direct link of that local node except `target`, in the order of the latest monitored status (not a fresh poll), and then sends the connect. Permanent links survive because app_rpt ignores a non-permanent disconnect of a permanent link. If `target` is already directly linked it is not disconnected, but the connect is still sent (so a mode change works). Links whose name is not a valid disconnect target are skipped. If any disconnect command fails, that error is returned and the connect is not sent. `localmonitor` ignores `exclusive` (local monitor audio is not passed to other links, so it cannot cross-link).
+
+`400 {"code":"bad_target"}` for invalid input, `404` unknown local node, `503 {"code":"ami_down"}` when AMI is disconnected.
+
+### Node stats (all roles)
+
+`GET /api/nodes/{node}/stats` runs `Action: RptStatus`, `Command: NodeStat` for a local node and returns the reply's `Key: Value` lines in wire order (`Response`/`ActionID` and any `Node`/`Message` headers are dropped):
+
+```json
+{"node": "2001", "stats": [{"key": "IsRemoteBase", "value": "NO"}, {"key": "KeyupsToday", "value": "2"}, {"key": "TxTimeToday", "value": "00:00:33:172"}]}
+```
+
+`404 {"code":"unknown_node"}` for a node that is not local, `503 {"code":"ami_down"}` when AMI is disconnected.
+
+## Settings (read: all roles; write: admin)
+
+`Settings = {"favoritesScan": bool}` (`favoritesScan` is read-only here; it is changed with `PUT /api/favorites/scan`). The "Disconnect before Connect" (default on) and "Disconnect before Monitor" (default off) checkboxes are not server settings: every page load starts from those fixed defaults; a change in the connect bar lasts only until the page is reloaded (nothing is saved in the browser). The connect endpoint itself is unaffected; the UI sends `exclusive` accordingly (Connect uses the first, Monitor the second, Local Mon never). The former `exclusiveDefault` / `monitorExclusiveDefault` fields and `PUT /api/settings` were removed in 1.1.17; stored `connect.exclusive_default` / `monitor.exclusive_default` values are ignored.
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/settings` | | `200` `Settings` |
+
+## Favorites (read: all roles; write: operator)
+
+`Favorite = {"id": int, "node": "2000", "label": "My hub", "group": "Hubs" | "", "position": int, "info": NodeInfo|null}`
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/favorites` | | `[Favorite]` ordered by group then position |
+| POST | `/api/favorites` | `{"node", "label"?, "group"?}` | `201` `Favorite` (label defaults to the node-list callsign/description) |
+| PUT | `/api/favorites/{id}` | `{"node"?, "label"?, "group"?}` | `200` `Favorite` |
+| DELETE | `/api/favorites/{id}` | | `204` |
+| GET | `/api/favorites/stats` | | `200` `FavStats` snapshot (login required, all roles; never part of the public page) |
+| PUT | `/api/favorites/scan` | `{"enabled": bool}` | `200` `FavStats` (operator or admin). `400` without `enabled`. Stored as setting `favstats.enabled`, default off |
+| POST | `/api/favorites/reorder` | `{"ids": [int, ...]}` | `204` (positions follow array order) |
+| GET | `/api/favorites/import/allscan` | | `{"found": bool, "path": str, "items": [{"node","label"}]}` preview from an existing AllScan install |
+| POST | `/api/favorites/import/allscan` | | `{"imported": int, "skipped": int}` (skips nodes already in favorites) |
+
+## Node lookup (all roles)
+
+| Method | Path | Response |
+|---|---|---|
+| GET | `/api/lookup/{node}` | `NodeInfo` or `404` |
+| GET | `/api/lookup?q=text&limit=50` | `[NodeInfo]` matching node number prefix, callsign, description or location (case-insensitive) |
+| GET | `/api/nodelist` | `{"count": int, "updated": RFC3339 \| null, "source": str, "error": str \| null}` |
+| POST | `/api/nodelist/refresh` | `202` (admin) |
+
+## System (all roles)
+
+`GET /api/system` returns `System`; also pushed via SSE every 10 s.
+
+```json
+System = {
+  "hostname": "node2001",
+  "cpuTemp": 48.2 | null,          // °C
+  "load": [0.12, 0.10, 0.05],
+  "memTotal": 1024000000, "memAvailable": 512000000,   // bytes
+  "uptime": 120660,                // host, seconds
+  "asterisk": {"connected": true, "version": "22.10.1+asl3-3.10.8-1.deb12", "uptime": 120660, "error": null},
+  "version": "0.1.0",              // ASLCP version
+  "updateAvailable": false,        // a newer package is known (cached; set by the background/manual check)
+  "updateVersion": ""              // that version, "" when none
+}
+```
+
+### Restart Asterisk (admin)
+
+`POST /api/system/restart-asterisk` sends the AMI command `core restart gracefully` (Asterisk restarts once active calls end; all links drop and AMI reconnects afterwards). Response `202`. `403` for operator/viewer, `503 {"code":"ami_down"}` when AMI is disconnected. When AMI is down and configuration editing is available, the restart goes through the root helper (`systemctl restart asterisk`) instead.
+
+`POST /api/system/asterisk/restart` does the same and answers `200 {"ok":true}`. Both are audited (`asterisk.restart`).
+
+## Configuration editing (admin)
+
+All routes are admin only (`403` otherwise), non-GET requests need the CSRF header, and `503 {"code":"config_unavailable"}` is returned when the helper is not reachable. Request bodies are limited to 2 MiB. Paths are relative to `/etc/asterisk`, end in `.conf`, are at most 4 levels deep, and new files are only allowed under an existing `custom/` directory. `base` is the `sha256` of the version being edited (`""` for a new file).
+
+| Route | Body | Response |
+|---|---|---|
+| `GET /api/config/files` | | `[{path,size,mtime,sha256,known,group}]` (`mtime` RFC3339) |
+| `GET /api/config/file?path=` | | `{path,content,sha256}` (audited as `config.read`, path only) |
+| `POST /api/config/preview` | `{files:[{path,content,base}]}` | `{files:[{path,ok,error?:{line,message},diff,changed,conflict?}],reload:[{command,reason}],restart}` |
+| `POST /api/config/apply` | `{files,message,reload}` | `{commit,before,files,reload:[{command,ok,output}]\|null,health:{ok,checks:[{name,ok,detail}]}\|null,restart}` |
+| `GET /api/config/history?limit=&offset=` | | `[{commit,date,author,message,files}]`, newest first (`limit` 1-200, default 50) |
+| `GET /api/config/history/{commit}?reveal=1` | | `{commit,date,author,message,files:[{path,status,diff}]}`; values of `secret`, `password`, `passwd`, `pass`, `md5secret`, `dbsecret` and the credentials of `register =>` are masked unless `reveal=1` (audited as `config.reveal`) |
+| `POST /api/config/history/{commit}/restore` | `{reload}` | like apply, plus `skipped:[path]` |
+| `POST /api/system/asterisk/restart` | | `{ok:true}` |
+
+`reload` and `health` are `null` when `reload` was false (or nothing changed). Errors: `409 {"code":"conflict","files":[...]}` (a file changed on disk since it was loaded), `422 {"code":"syntax_error","issues":[{path,line,message}]}`, `400 bad_request`, `404 not_found`, `502 helper_error`. Audit entries (`config.apply`, `config.restore`, `config.read`, `config.reveal`, `asterisk.restart`) contain paths and commit ids only, never file contents, secret values or commit messages.
+
+## Radio tuning (admin)
+
+SimpleUSB audio tuning (see [SIMPLEUSB_TUNE.md](SIMPLEUSB_TUNE.md)). Every route is admin only (`403` otherwise); writes need the CSRF header. The commands run through the Asterisk CLI over the AMI connection. `503 {"code":"radio_unavailable"}` is returned when the service is not wired (it never is in a normal install). `{dev}` is the SimpleUSB device name from `simpleusb.conf` (letters, digits, `_` and `-`, at most 32); an unknown one is `404 unknown_device`. Node numbers below are placeholders.
+
+| Route | Body | Response |
+|---|---|---|
+| `GET /api/radio` | | `{available,reason?,devices:[{name,node?,usbPath?,card,links:[node]}]}`. `node` comes from `rxchannel = SimpleUSB/<dev>` in rpt.conf. `available` is false (and `devices` empty) when no device exists or Asterisk cannot be asked; this never fails |
+| `GET /api/radio/{dev}` | | `{device,node?,params,saved,dirty:[field],identity:{device,usbString?,serial?,card?},echoState:{on,expiresAt?}}`. `params` is the running state read with `menu-support 0+4` (exactly 16 fields, otherwise `501 unsupported_version`); `saved` is the baseline (the values of `simpleusb.conf` laid over the running ones when the device was first opened or last saved) and `dirty` the fields that differ from it |
+| `PUT /api/radio/{dev}/params` | any of `{rxVoice,txA,txB,rxBoost,preEmphasis,deEmphasis,plFilter,pttInvert,carrierFrom,ctcssFrom,rxOnDelayMs,txOffDelayMs}` | `{applied:[{field,reply}],errors:[{field,message,reply?}],params,dirty}`. Levels are integers 0-999; `carrierFrom`/`ctcssFrom` are `no`, `usb`, `usbinvert`, `pp` or `ppinvert` (the driver's numeric codes are never accepted); delays are milliseconds 0-60000 and are converted to 20 ms frames. `pttInvert` true means the PTT line is "Open". Validation of the whole body happens before any command is sent (`400 invalid`). Each setting is verified against the driver's reply; a refused one is reported in `errors` |
+| `GET /api/radio/{dev}/meter` | | `{pk,avg,min,max,clip,at,stale?}`: the last second of receive audio (`menu-support Y`), dBFS. At most one read per 700 ms; faster requests, and requests while another operation holds the interface, get the last reading (`stale` true). Polling it also keeps echo mode on |
+| `POST /api/radio/{dev}/echo` | `{on}` | `{on,expiresAt?}`. Echo mode retransmits what the receiver hears. It switches itself off after 10 minutes, 30 seconds after the last meter or read request for the device, before a save, and when ASLCP stops. Audited with the linked nodes |
+| `POST /api/radio/{dev}/save` | | runs `susb tune save` (echo mode is switched off first), re-reads the device, and records `simpleusb.conf` in the config history through the helper (`config-record`): `{saved,params,changed:[field],commit?,warning?}`. `warning` explains a partial success (the history record failed, or the file does not show a running value) |
+| `POST /api/radio/{dev}/revert` | | sets every tuning value back to the baseline (not `susb tune load`, which reads the interface EEPROM): like `PUT params` |
+
+Other errors: `502 radio_unexpected_output` (a reply that is not the expected one, including a device other than the one addressed), `502 device_not_found` (the interface is not plugged in), `502 radio_command_failed`, `503 no_chan_simpleusb` (the module is not loaded), `503 radio_unavailable` (the interface is busy or the radio service is not wired), `503 ami_down`, `504 radio_unavailable` (no answer in time). Writes are audited as `radio.params`, `radio.echo`, `radio.save` and `radio.revert` with the device, the field names and the linked nodes, never reply text. Unsaved changes are lost when `chan_simpleusb` is reloaded or Asterisk restarts.
+
+## Backup and restore (admin)
+
+See [BACKUP.md](BACKUP.md) for what a backup holds and how a restore works.
+
+| Endpoint | Auth | Body | Result |
+|---|---|---|---|
+| `GET /api/backup/info` | admin | | `{parts:[{id:"history"\|"allmon3"\|"sounds",present,size}],sa818}` |
+| `POST /api/backup` | admin, CSRF | `{history,allmon3,sounds}` (booleans) | the archive, `application/gzip`, `Content-Disposition: attachment; filename="aslcp-backup-<host>-<YYYYMMDD-HHMM>.tar.gz"` |
+| `POST /api/restore/upload` | admin session + field `password`, or (only while setup is needed, i.e. no user exists) field `code` = the setup code | multipart, field `file` (at most 256 MiB) | `{id, preview}` |
+| `POST /api/restore/{id}/apply` | admin session, or `code` in the body (same rule) | `{deleteMissing:[path], code?}` | `{ok, steps:[{name,ok,detail}], restarting, error?}` |
+| `DELETE /api/restore/{id}` | as apply (`?code=` for the setup-code path) | | `204` |
+| `GET /api/restore/result` | none while the result is under 30 minutes old, otherwise admin | | `{at, backupCreated, steps, health:{ok,pending,checks:[{name,ok,detail}]}, checklist:[{item,value}]}` or `404` |
+
+`preview` is `{backup:{hostname,created,createdBy,aslcpVersion,asl3Version,asteriskVersion,arch,osId?,osCodename?,osName?,nodes,channel}, node:{asl3Version,asteriskVersion,arch,osId?,osCodename?,osName?}, warnings:[{code,message}], files:[{path,action,note?}], users:[{username,role}], favorites, missingPackages, installCommand, checklist:[{item,value}], radio:null|{band,freqRx,freqTx,tone,ctcssRx,ctcssTx,dcsRx,dcsTx,port,portPresent}, parts:{history,allmon3,sounds,sa818}}`. Arrays (and `files`) are never `null`. `files[].action` is one of `restore`, `restore_dist`, `keep_stock`, `keep_new`, `delete_optional`, `skip`. `node` describes this node for comparison; the `os*` fields come from the manifest (or, for `osCodename`, from the `.debNN` version suffix) and are omitted when unknown. Warning codes: `asl3_version`, `asterisk_version`, `os_release` (backup and node run different Debian releases), `arch`, `sa818_port`, `dist_files`, `skipped_files`. `deleteMissing` may only list `delete_optional` paths of the preview.
+
+Errors: `403 bad_password` / `bad_setup_code`, `400 bad_backup`, `409 backup_too_new` (the backup was made by a newer ASLCP or has a newer format/schema), `413 too_large`, `404 not_found` (unknown or expired upload id; uploads expire after 1 hour, at most 3 are kept), `409 busy`, `429 rate_limited`, `401`/`403` for sessions, `503 helper_unavailable` / `backup_unavailable`, `502 backup_failed`.
+
+An upload is checked completely (archive hashes, paths, the database) and the helper makes a dry run, but nothing on the node changes until `apply`. A successful `apply` answers first, then ASLCP exits with status 75 and systemd starts it again (`restarting:true`); the restored database is swapped in at that start (the old one is kept as `aslcp.db.pre-restore`) and the page reads `GET /api/restore/result`; `health.pending` stays `true` until the post-restart checks have run (additive field). A failed `apply` answers `ok:false` with the steps and an `error`; the node keeps running with the old ASLCP database. Audit entries: `backup.create` (parts, size) and `backup.restore`; never passwords, codes or file contents. In demo mode backup and restore run against temporary directories and nothing restarts.
+
+## About (all roles)
+
+`GET /api/about` returns the data of Settings > About (Asterisk version is `""` while AMI is down):
+
+```json
+About = {
+  "version": "0.1.1",
+  "asterisk": "22.10.1+asl3-3.10.8-1.deb12",
+  "platform": {
+    "os": "linux", "arch": "arm64",                       // GOOS / GOARCH
+    "model": "Raspberry Pi 4 Model B Rev 1.5",            // /proc/device-tree/model, "" if absent
+    "distro": "Debian GNU/Linux 12 (bookworm)",           // PRETTY_NAME of /etc/os-release
+    "kernel": "6.1.0-rpi8-rpi-v8",
+    "hardware": "Raspberry Pi 4"                          // value of the bug form's hardware dropdown
+  }
+}
+```
+
+The UI builds the bug report link from it: `https://github.com/artw1/aslcp/issues/new?template=bug_report.yml&version=..&asl=..&hardware=..&os=..` (the query keys are the field ids of `.github/ISSUE_TEMPLATE/bug_report.yml`).
+
+## Diagnostics (admin)
+
+`GET /api/diagnostics` returns a `text/plain` attachment `aslcp-diagnostics-<YYYY-MM-DD>.txt` (`403` for operator/viewer). Sections: versions (ASLCP, Asterisk, OS, kernel, hardware); uptime, load, memory, CPU temperature; AMI connection state; local nodes with link counts, link modes and states (no peer IPs) and the monitor's stale state; node list status; update/helper status; firewall status from the helper (when reachable); the configuration (the active lines of `aslcp.conf` and the effective values; values of `secret`, `password`, `token`, `key` entries are masked); and the last 200 lines of the server's own log (an in-memory ring of 500 lines).
+
+The whole text is redacted before it is sent (`internal/diag/redact.go`):
+
+- values of secret-like keys (`secret`, `password`, `token`, `key`, `authorization`, `cookie`, ...) in `k=v`, `k: v` and JSON forms, Bearer tokens, `user:pass@` in URLs, setup links (`?code=`), long random-looking tokens, and the resolved AMI secret wherever it occurs, even in free text, become `<redacted>`;
+- email addresses become `<email>`;
+- IPv4 and IPv6 addresses become `<ipv4>` / `<ipv6>`, except loopback (`127.x.x.x`, `::1`) and the unspecified address; MAC addresses become `<mac>`;
+- callsign-like tokens (`[A-Z]{1,2}[0-9][A-Z]{1,4}`) become `<call>`, except the callsigns of the local nodes' own node-list entries. Node numbers are kept.
+
+The hostname is not included. Redaction is best effort; users are asked to read the file before attaching it.
+
+## Updates (admin)
+
+Checking for updates needs no package manager. The server fetches `<[updates] url>/latest.json` (release channel) or `<[updates] url>/latest-beta.json` (beta channel) (HTTPS, 10 s timeout, 64 KB cap) and compares its `version` with the installed version using the Debian version algorithm (epoch, upstream, revision, `~` sorts first). The installed version is the running binary's version (the package version); a development build (`dev`, `v0.1.0-4-g...`, `...~git...`) asks the helper (`dpkg-query`) instead and otherwise reports "not installed from a package". A background check runs 1 minute after start and then every 6 hours (no cache buster); the result is cached. Installing is performed by the privileged helper (`aslcp-helper`, reached over a unix socket), never by the web process, and always needs an explicit `apply`. All endpoints are admin only (`403` otherwise).
+
+```json
+Updates = {
+  "available": true,             // false: nothing works (see reason)
+  "reason": null,                // when available is false: "not installed from a package" | "helper not running" | "no permission to use the helper"
+  "applyReason": null,           // non-null: checks work but the Update button cannot (e.g. "helper not running")
+  "channel": "stable" | "beta",   // update channel: the suite of /etc/apt/sources.list.d/aslcp.list as reported by the helper; "stable" when unknown
+  "installed": "0.2.0", "candidate": "0.3.0", "upgradable": true,   // candidate = version in the channel's latest json ("" before the first check and after a channel change until the next check)
+  "job": "idle" | "running" | "succeeded" | "failed" | "noop",       // the detached upgrade; noop: it ran but apt had nothing to upgrade
+  "jobLog": "log of the latest upgrade run (at most 50 lines)",
+  "notes": "release notes (plain text, - lists, **bold**) for candidate" | null,
+  "checked": "2026-11-15T12:00:00Z" | null,              // last successful check since the server started
+  "os": OSUpdates                                         // system (apt) packages; omitted when the server has no helper support
+}
+
+OSUpdates = {
+  "available": true, "reason": null,       // false: not usable (reason as for Updates)
+  "checkedAt": "2026-11-16T04:10:00Z" | null,   // last finished check, persisted across restarts
+  "checking": false,                        // a check is running (apt-get update can take minutes)
+  "error": null,                            // text of the last failed check, e.g. "apt is busy, try again later"
+  "packages": [{"name": "libssl3", "from": "3.0.11-1", "to": "3.0.13-1", "security": true}],   // upgradable; security when the apt origin contains "security"
+  "keptBack": ["raspi-firmware"],           // not installed by a plain upgrade
+  "rebootRequired": false, "rebootPkgs": [],   // /var/run/reboot-required and .pkgs
+  "job": "idle" | "running" | "succeeded" | "failed" | "noop", "jobLog": "..."   // the upgrade unit
+}
+```
+
+| Method | Path | Response |
+|---|---|---|
+| GET | `/api/updates` | `200` `Updates`. Fast: cached state plus the helper's cheap job status (`dpkg-query` and `systemctl show`; no apt, no network). |
+| POST | `/api/updates/check` | `200` `Updates`. Fetches `latest.json` now, with a `?t=<unix>` cache buster (the CDN caches it for ~10 minutes). `502 {"code":"check_failed"}` when it cannot be fetched or parsed. |
+| PUT | `/api/updates/channel` | Body `{"channel":"stable"}` or `{"channel":"beta"}` (exactly these two values; anything else is `400 {"code":"bad_request"}`). Switches the update channel by asking the helper to rewrite the suite word (`stable`/`beta`) of the `aslcp` line in `/etc/apt/sources.list.d/aslcp.list`, so `apt upgrade` on the command line follows the same channel. The cached check is dropped and a fresh (cache-busted) check of the new channel's json runs. `200` `Updates`. `409 {"code":"update_running"}` while an upgrade runs, `503 {"code":"updates_unavailable"}` without helper, `502 {"code":"helper_error"}` when the file is missing or has no `aslcp` line. Switching from beta to stable never downgrades: a node with a beta installed stays on it until a release newer than it is published. |
+| POST | `/api/updates/apply` | `202` `Updates` (`job: "running"`). Starts one transient systemd unit that refreshes only the ASLCP apt source and runs `apt-get install --only-upgrade aslcp` (no changelog reader, no recommends); it survives the restart of ASLCP. `409 {"code":"update_running"}` if one is already running. |
+
+| POST | `/api/updates/os/check` | `202` `Updates`. Starts a check in the background (`apt-get update`, then lists upgradable packages; 5 minute timeout); poll `GET /api/updates` until `os.checking` is false. A check already running is not restarted. `409 {"code":"update_running"}` while an upgrade runs, `409 {"code":"apt_busy"}` when another apt process holds the lock ("apt is busy, try again later"), `503 {"code":"updates_unavailable"}`. |
+| POST | `/api/updates/os/apply` | `202` `Updates` (`os.job: "running"`). Starts the transient unit `aslcp-osupgrade`: `apt-get update` then plain `apt-get upgrade -y` with `--force-confdef --force-confold` (never `full-upgrade`; kept-back packages stay). Survives the restart of Asterisk or ASLCP if those are upgraded. Re-checks automatically afterwards. `409 {"code":"update_running"}` if any apt job (this or the ASLCP update) runs. Audited as `updates.os.apply` (package names, count, security count). |
+| POST | `/api/system/reboot` | `202 {"ok":true}`. The helper runs `systemctl --no-block reboot`. `409 update_running` during an upgrade, `503 updates_unavailable` without helper. Audited as `system.reboot`. |
+| POST | `/api/system/restart-aslcp` | `202 {"ok":true}`. The helper runs `systemctl --no-block restart aslcp.service`; the panel is unavailable for a few seconds. Audited as `aslcp.restart`. |
+
+All four are admin only (`403` for operator and viewer). The server also checks the OS packages once a day (the first check about 5 minutes after start when the last one is older than 24 hours); the result and its time are stored, so a restart does not trigger a new check.
+
+Channels: the apt repository has two suites, `stable` (releases `X.Y.Z`) and `beta` (prereleases `X.Y.Z~beta.N`, plus every release). `latest.json` is the newest release; `latest-beta.json` is the newest version overall (a release newer than the newest beta is what beta nodes are offered).
+
+`job: "noop"` means the upgrade ran but apt reported `0 upgraded`: latest.json is newer than the apt index (CDN lag). The UI says "Already up to date (the package index may lag a few minutes; try again later)". The job log only contains the latest run.
+
+`503 {"code":"updates_unavailable"}` when updates cannot be used (see `reason` of `GET`) or the helper cannot be used for `apply`, `502 {"code":"helper_error"}` when the helper reports a failure. While the upgrade runs the server restarts, so the SSE stream drops; the UI reconnects and reloads when `hello.version` changes.
+
+## Public status view
+
+Optional, off by default (admin setting). Served on the main port. While disabled the three public endpoints answer `404 {"code":"not_found"}`. They need no session and no CSRF header (GET only), set no cookies, and are rate-limited per client address (`429 {"code":"rate_limited"}` with `Retry-After`). The data comes from dedicated structs: it never contains IP addresses, system information, favorites or users.
+
+| Method | Path | Response |
+|---|---|---|
+| GET | `/api/public/info` | `{"enabled": bool, "title": str, "loggedIn": bool}`. Always answers; `title` is empty while disabled; `loggedIn` says whether the request carries a valid session. |
+| GET | `/api/public/status` | `PublicSnapshot` |
+| GET | `/api/public/events` | SSE (below). `429` over the per-address cap (4 connections), `503` over the global cap (200). |
+
+```json
+PublicSnapshot = {
+  "title": "N0AAD AllStarLink node 2001",   // setting, else "<callsign> AllStarLink node <n>", else "AllStarLink node status"
+  "now": 1794725912,                          // server time, unix seconds
+  "callsigns": true, "showNetwork": true, "showActivity": true,
+  "nodes": [{
+    "node": "2001", "info": {"callsign","description","location"} | null,
+    "stale": false, "txKeyed": false, "rxKeyed": false, "numLinks": 27,
+    "links": [{"node": "50241", "kind": "allstar", "info": {...} /* omitted when callsigns are hidden */,
+               "direction": "OUT", "mode": "T"|"R"|"L"|"C", "connected": 64, "keyed": false,
+               "sinceKey": 12 | null, "sinceUnkey": 3 | null}],
+    "network": [{"node": "1021", "callsign": "N0AAA" /* omitted when hidden */}]   // omitted when disabled or empty
+  }],
+  "activity": [{"node": "2001", "link": "50241" | "local", "callsign"?: "N0AAF", "at": 1794725900, "duration": 7, "kerchunk": false}]   // newest first, at most 25; omitted when disabled
+}
+```
+
+Ages (`connected`, `sinceKey`, `sinceUnkey`) are as of `now`; the page advances them locally. Link nodes that are not node numbers, callsigns or EchoLink numbers (an address, for example) are published as `"unknown"`.
+
+SSE events: `snapshot` (`PublicSnapshot`; on connect, after a stale/recovered transition, and when an admin changes the settings), `node` (one node without `network`), `network` (`{"node", "network": [...]}`), `activity` (`{"now", "activity": [...]}`). A comment line (`: ping`) is sent every 20 s and a stream is closed after 6 hours (the page reconnects). If SSE is unavailable the page polls `/api/public/status` every 10 s.
+
+### Public page settings (admin)
+
+`PublicSettings = {"enabled", "title", "nodes": [str], "showCallsigns", "showNetwork", "showActivity", "allowEmbedding", "trustProxy", "defaultTitle", "localNodes": [{"node","info"}], "clients": int}`. Defaults: disabled, empty title (automatic), `nodes: []` (all local nodes), callsigns/network/activity on, embedding off, trust proxy off. Stored as settings `public.*`.
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/public` | | `200` `PublicSettings` (admin) |
+| PUT | `/api/public` | any subset of `enabled`, `title` (at most 80 characters, no control characters), `nodes` (local node numbers; all of them or `[]` means all), `showCallsigns`, `showNetwork`, `showActivity`, `allowEmbedding`, `trustProxy` | `200` `PublicSettings`; `400 {"code":"bad_request"}` for invalid input. Applies immediately to connected visitors; disabling closes their streams. |
+
+`trustProxy`: use the last `X-Forwarded-For` entry as the client address for the rate limit and connection caps (only behind a reverse proxy or tunnel that sets it; otherwise clients could forge it).
+
+**Embedding.** `/embed` serves the same app as a chrome-less public view. Only `/embed` gets `Content-Security-Policy: frame-ancestors *` (and no `X-Frame-Options`), and only while the page is enabled and `allowEmbedding` is on. All other paths, the login page included, send `frame-ancestors 'none'` and `X-Frame-Options: DENY`.
+
+### Activity (all roles)
+
+`GET /api/activity?node=&limit=` returns recorded transmissions, newest first (`limit` 1-500, default 50; `node` filters by local node): `[{"id", "node", "link": "50241"|"local", "info": NodeInfo|null, "start": RFC3339, "duration": 7.4 /* seconds */, "kerchunk": false}]`. The server records a row when a link or the local receiver unkeys (keyups under 0.5 s are ignored, under 1.5 s are flagged `kerchunk`); rows older than 7 days are deleted daily and the table is capped at 10,000 rows.
+
+### Favorites activity scan
+
+`FavStats = {"enabled": bool, "rate": int, "effRate": int, "backoff": bool, "retryAt": RFC3339 | null, "backoffReason": "rate-limit" | "service-error" | "network-error" | "", "updated": RFC3339 | null, "checking": "<node>" | "", "next": "<node>" | "", "nextAt": RFC3339 | null, "checked": int, "total": int, "checkedAt": {"<node>": RFC3339}, "stats": {"<node>": Activity}, "removed": ["<node>"]}` (`removed` is always `[]` in the snapshot; `checking` is the node being requested now (kept for compatibility), `next` the node that will be requested next (same ordering as the poller; `""` when off, nobody is watching, nothing is eligible or all are in their skip period), `nextAt` when the next request is due, `total` the eligible favorites, `checked` how many have an answer in the current pass, `checkedAt` each node's last attempt including offline ones; `updated` is kept for compatibility) with `Activity = {"rxPct": int | null, "linkCnt": int, "active": bool, "webTx": bool, "keyed": bool, "txAvg": int, "lastSeen": RFC3339}`. See `docs/FAVSCAN.md`.
+
+One server-side poller queries `https://stats.allstarlink.org/api/stats/<node>` (base URL: `[favstats] url`) for each distinct favorite in 2000..999999 (regular node numbers; EchoLink numbers 3000000..3999999 and private numbers below 2000 are skipped and show no values) that is not one of this machine's nodes, round robin, one request at a time. It runs only while the scan is on and at least one logged-in SSE client is connected (public-page visitors do not count); values are kept 10 minutes after the last viewer leaves. Requests are evenly paced, one every 60/rate seconds from the first one (`[favstats] rate`, default 20 per minute = one every 3 s, at most 25; never closer than 3 s) and paused with exponential backoff (15 s up to 5 min, `Retry-After` honoured) after HTTP 429 or an error. The rate is adaptive: each 429 halves the rate in use (`effRate`, not below 3 per minute) and every 20 consecutive successful requests raise it by 1 per minute, up to `rate`. A 429 never replaces or clears a node's values. Nodes never queried go first, then the one queried longest ago. `retryAt` is when the current backoff ends (`null` otherwise). `[favstats] log = true` logs one line per request (node, status, duration, rate, gap, Retry-After) and each rate change to the journal. `rxPct` is `round(100*totaltxtime/apprptuptime)` and is `null` unless uptime is over 60 s and TX time over 10 s. `keyed` is derived from changes of `totalkeyups` / `totaltxtime` between polls (the API's own `keyed` flag is only used for the first sample); counter resets and implausible jumps count as no activity. `txAvg` is a moving average of the recent TX share. `active` / `webTx` are the node's own `Status == "Active"` and `access_webtransceiver`. `backoff` is true while polling is paused and `backoffReason` says why (`rate-limit` = HTTP 429, `service-error` = HTTP 5xx, `network-error` = timeout or connection error; `""` otherwise); `updated` is the time of the last successful poll. Only the fields above are read from the response; it is never stored, logged or forwarded.
+
+## Server-Sent Events: `GET /api/events`
+
+Every `/api/` response carries `X-ASLCP-Instance`, a random id generated when the server process starts (also sent as `hello.instance`); the UI compares it to detect that the panel restarted.
+
+Requires a session. Each message has an `event:` name and a JSON `data:` line. On connect the server sends `hello`, then a full state; afterwards only changes.
+
+| event | data |
+|---|---|
+| `hello` | `{"user": User, "version": str, "instance": str, "settings": Settings}` |
+| `nodes` | `[NodeStatus]`: full state (sent on connect and after AMI reconnects) |
+| `node` | `NodeStatus`: one node changed |
+| `system` | `System` (including `updateAvailable` / `updateVersion`) |
+| `updates` | Admin clients only: `{"aslcp": bool, "aslcpVersion": str, "os": n, "security": n, "reboot": bool}`: counts for the header badge, never package names. Sent on connect and whenever they change. |
+| `favorites` | `[Favorite]`: favorites changed (any client) |
+| `favstats` | `FavStats` with only the changed nodes in `stats` and, in `removed`, the nodes whose values were just cleared (offline, no data, 404, no longer a favorite; clients delete them and show an empty row): sent when a request starts (`checking` set, `next` moved on) and when it ends, and whenever the favorites change the `next` node (`checking` cleared, the node's `checkedAt` and the progress updated; `stats` only if its values changed), and when the scan is switched on or off (then `enabled` says which; off clears all values). `checkedAt` also carries only the changed nodes. Clients merge it into the snapshot. |
+
+The server sends a comment line (`: ping`) every 15 s. While at least one client is connected the server polls node status about once per second; otherwise it slows down.
+
+## Configuration file
+
+`/etc/aslcp/aslcp.conf`, Asterisk-style INI (parsed with `internal/astconf`):
+
+```ini
+[server]
+listen = :8080
+datadir = /var/lib/aslcp
+
+[ami]
+; "auto" reads the first user from /etc/asterisk/manager.conf
+host = 127.0.0.1
+port = 5038
+username = auto
+secret = auto
+
+[nodelist]
+url = https://allmondb.allstarlink.org/
+refresh = 24h
+
+[helper]
+; unix socket of the privileged helper (aslcp-helper.socket)
+socket = /run/aslcp/helper.sock
+
+[favstats]
+; favorites activity scan: base URL of the stats API and requests per minute (1..25, default 20), and whether to log each request
+;url = https://stats.allstarlink.org
+;rate = 20
+;log = false
+
+[updates]
+; base URL of the apt repository; <url>/latest.json = {"version","notes","date"}
+; (empty disables release notes)
+; optional override; the built-in default is https://artw1.github.io/aslcp
+;url = https://artw1.github.io/aslcp
+```
+
+### Helper protocol (internal)
+
+`aslcp-helper` listens on the socket (mode 0660, group `aslcp`) and also checks the peer uid (`SO_PEERCRED`: root or user `aslcp`). One JSON request per connection, one JSON response; operations are fixed and take no arguments: `update-status`, `update-check`, `update-apply` (`update-status` runs only `dpkg-query` and `systemctl show`, and reads the journal only while the job runs or once per finished job; `update-check` is kept for older servers and is the same as `update-status`, it no longer runs apt; `candidate` and `upgradable` are always empty/false; reply: `{"installed","candidate","upgradable","job","jobLog"}`) and `firewall-status`, `firewall-open` (reply: `{"present","running","serviceEnabled"}`). Failures reply `{"error": "..."}`.
+
+Configuration operations (`config-list`, `config-read`, `config-apply`, `config-log`, `config-show`, `config-restore`) carry the arguments in a `config` object; any other operation with a `config` field is rejected. Requests may be up to 4 MiB (others 4 KiB). The helper validates every path itself, runs `git` with a fixed argv and hardening options (history in `/var/lib/aslcp-config-history`, root only), preserves owner/mode, writes atomically and rolls back on error. `config-apply` fails with `conflict: <files>` when a `base` hash no longer matches. `asterisk-restart` runs `systemctl restart asterisk`.
+
+System update operations (fixed apt/systemd commands, no arguments and no package names from the web process): `os-check` (`apt-get -q update`, then `apt-get -q -s upgrade`, both `LC_ALL=C`, noninteractive; reply `OSStatus`: `packages`, `keptBack`, `rebootRequired`, `rebootPkgs`, `job`, `jobLog`; a held lock answers `apt is busy`), `os-status` (no apt), `os-apply` (transient unit `aslcp-osupgrade`), `reboot` (`systemctl --no-block reboot`) and `aslcp-restart` (`systemctl --no-block restart aslcp.service`). `os-check`, `os-apply`, `reboot`, the ASLCP update and the channel switch are refused while an apt job runs.
+
+Backup operations: `backup-info` (plain request/response: `{parts:[{id,present,size}],sa818}`), `backup-create` and `backup-restore` (streaming). `backup-create` takes `backup:{history,allmon3,sounds}` and answers with one JSON line, the header (`arch`, `asl3Version`, `asteriskVersion`, `osId`, `osCodename`, `osName`, `channel`, `nodes`, `packages`, `parts`, `missingStock`, `skipped`, `entries` with per-file type, size and sha256), followed by a plain tar stream of the system files and EOF; an error before the header is an `{"error"}` line, a later failure cuts the stream short. `backup-restore` takes `restore:{dryRun,deleteMissing}` and is followed on the same connection by the gzip archive; the client half-closes after the last byte and reads one JSON result (`ok`, `files`, `steps`, node versions and Debian release, `sa818Port`/`sa818PortPresent`). The helper re-validates the archive as root, classifies conffiles with `dpkg-query` (never a shell), writes to fixed destinations only (including `/etc/aslcp/aslcp.conf`, since the server cannot write there), and undoes config changes if a step fails. Streaming requests may take up to 20 minutes; the helper stays alive while one runs.

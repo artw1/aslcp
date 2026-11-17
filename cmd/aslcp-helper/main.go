@@ -1,0 +1,67 @@
+// Command aslcp-helper is the privileged helper of ASLCP. It runs as root,
+// socket-activated by systemd, and performs a fixed set of operations for the
+// unprivileged aslcp server (see internal/helper).
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"log"
+	"net"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/artw1/aslcp/internal/helper"
+)
+
+var version = "dev"
+
+type uidList []uint32
+
+func (u *uidList) String() string { return fmt.Sprint(*u) }
+func (u *uidList) Set(s string) error {
+	var n uint32
+	if _, err := fmt.Sscanf(s, "%d", &n); err != nil {
+		return err
+	}
+	*u = append(*u, n)
+	return nil
+}
+
+func main() {
+	listen := flag.String("listen", "", "listen on this unix socket path instead of using systemd socket activation (testing)")
+	var allow uidList
+	flag.Var(&allow, "allow-uid", "additionally allow this uid (testing; repeatable)")
+	showVersion := flag.Bool("version", false, "print version and exit")
+	flag.Parse()
+	if *showVersion {
+		fmt.Println("aslcp-helper", version)
+		return
+	}
+	logger := log.New(os.Stderr, "aslcp-helper: ", 0) // journald adds timestamps
+
+	var ln net.Listener
+	var err error
+	if *listen != "" {
+		ln, err = helper.ListenUnix(*listen)
+	} else {
+		ln, err = helper.ListenerFromSystemd()
+		if err == nil && ln == nil {
+			err = fmt.Errorf("not socket-activated (LISTEN_FDS unset); use --listen PATH for manual runs")
+		}
+	}
+	if err != nil {
+		logger.Fatal(err)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	go func() { <-ctx.Done(); ln.Close() }()
+
+	srv := helper.NewServer(logger, allow...)
+	logger.Printf("%s serving on %s", version, ln.Addr())
+	if err := srv.Serve(ctx, ln); err != nil {
+		logger.Fatal(err)
+	}
+}

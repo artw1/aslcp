@@ -1,0 +1,25 @@
+Response: Success
+ActionID: test-2
+Node: 1999
+LinkedNodes: <NONE>
+Var: RPT_RXKEYED=0
+Var: RPT_TXKEYED=0
+Var: RPT_ETXKEYED=0
+Var: RPT_NUMLINKS=0
+Var: RPT_LINKS=
+Var: RPT_NUMALINKS=0
+Var: RPT_ALINKS=
+parrot_ena: 1
+sys_ena: 1
+tot_ena: 1
+link_ena: 1
+patch_ena: 0
+patch_state: 2
+sch_ena: 1
+user_funs: 1
+tail_type: 1
+iconns: 1
+tot_state: 0
+ider_state: 0
+tel_mode: 3
+

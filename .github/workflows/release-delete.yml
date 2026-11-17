@@ -1,0 +1,88 @@
+name: Delete releases
+
+# One-off cleanup of GitHub releases (the release pages and their attached
+# debs), for example the old v2.0.0-beta.* releases whose tags are already
+# gone. DRY RUN BY DEFAULT: without "apply" it only lists what would be deleted.
+#
+# Only pre-releases are deleted; full releases are listed as skipped and never
+# touched. With "delete_tags" the matching git tags are deleted too (also tags
+# left over without a release), except the tag of any full release. This does
+# not touch the apt repository: use "Remove from beta" (apt-remove.yml) for
+# packages.
+on:
+  workflow_dispatch:
+    inputs:
+      glob:
+        description: 'Tag name glob (bash pattern) of the pre-releases to delete'
+        required: true
+        default: 'v2.0.0-beta.*'
+        type: string
+      delete_tags:
+        description: 'Also delete the matching git tags (never the tag of a full release)'
+        required: false
+        default: false
+        type: boolean
+      apply:
+        description: 'Really delete (leave off for a dry run that only lists)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete matching pre-releases (dry run unless apply is ticked)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GLOB: ${{ inputs.glob }}
+          APPLY: ${{ inputs.apply }}
+          DELETE_TAGS: ${{ inputs.delete_tags }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GLOB" ] || [ "$GLOB" = "*" ] || [ "$GLOB" = "v*" ]; then
+            echo "::error::refusing a glob that matches everything: '$GLOB'"; exit 1
+          fi
+          matched=0
+          protected=" "
+          while IFS=$'\t' read -r id tag pre; do
+            # shellcheck disable=SC2053  # GLOB is a pattern on purpose
+            [[ "$tag" == $GLOB ]] || continue
+            if [ "$pre" != "true" ]; then
+              echo "skip   $tag (full release, never deleted)"
+              protected+="$tag "; continue
+            fi
+            matched=$((matched + 1))
+            if [ "$APPLY" = "true" ]; then
+              # by id: works even when the tag no longer exists
+              gh api -X DELETE "repos/$GH_REPO/releases/$id"
+              echo "delete $tag (done)"
+            else
+              echo "delete $tag (dry run)"
+            fi
+          done < <(gh api --paginate "repos/$GH_REPO/releases" --jq '.[] | [(.id|tostring), .tag_name, (.prerelease|tostring)] | @tsv')
+          echo "$matched pre-release(s) matched '$GLOB'."
+          if [ "$DELETE_TAGS" = "true" ]; then
+            tags=0
+            while read -r tag; do
+              [ -n "$tag" ] || continue
+              # shellcheck disable=SC2053
+              [[ "$tag" == $GLOB ]] || continue
+              if [[ "$protected" == *" $tag "* ]]; then
+                echo "skip   tag $tag (belongs to a full release)"; continue
+              fi
+              tags=$((tags + 1))
+              if [ "$APPLY" = "true" ]; then
+                gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$tag"
+                echo "delete tag $tag (done)"
+              else
+                echo "delete tag $tag (dry run)"
+              fi
+            done < <(gh api --paginate "repos/$GH_REPO/git/matching-refs/tags/" --jq '.[].ref | sub("^refs/tags/"; "")')
+            echo "$tags tag(s) matched '$GLOB'."
+          fi
+          if [ "$APPLY" != "true" ]; then echo "Dry run: nothing deleted. Run again with apply ticked."; fi

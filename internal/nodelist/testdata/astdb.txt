@@ -1,0 +1,10 @@
+1999|N0AAA|Test Hub|Springfield, ST
+27339|N0AAB|East Reflector|Nowhere, XX   
+50241|N0AAC||Metropolis, ST
+garbage line
+abc|N0ZZZ|Bad node|Nowhere
+1997|N0AAD|My node|Home, ST
+1997|N0AAD|My node (dup, later wins)|Home, ST
+123
+|N0NOP|empty node|x
+2000|N0AAE|Hub|
