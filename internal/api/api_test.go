@@ -164,6 +164,7 @@ type opts struct {
 	updates   *updates.Manager
 	updatesFn func(st *store.Store) *updates.Manager
 	power     api.Power
+	dvswitch  api.DVSwitch
 	config    *configsvc.Service
 	configFn  func(rpt.API) *configsvc.Service
 	log       *diag.Ring
@@ -223,6 +224,7 @@ func newEnv(t *testing.T, o opts) *env {
 		deps.Updates = o.updatesFn(st)
 	}
 	deps.Power = o.power
+	deps.DVSwitch = o.dvswitch
 	if o.backupFn != nil {
 		deps.Backup = o.backupFn(st)
 		deps.Restart = o.restart

@@ -187,6 +187,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 	var power api.Power
 	var cfgHelper configsvc.Helper
 	var bkHelper backupsvc.Helper
+	var dvsw api.DVSwitch
 	var restart func()
 	var restartReq atomic.Bool
 	var firewall func(context.Context) (helper.Firewall, error)
@@ -222,6 +223,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 		upd.OS = updates.NewOS(dh, st)
 		upd.OS.FirstCheck, upd.OS.Tick = time.Second, time.Second
 		power = dh
+		dvsw = helper.NewDemoDVSwitch()
 		bg(func() { upd.Run(ctx) })
 		bg(func() { upd.OS.Run(ctx) })
 	} else {
@@ -235,6 +237,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 		upd.OS = updates.NewOS(hc, st)
 		upd.OS.Logger = logger
 		power = hc
+		dvsw = hc
 		bg(func() { upd.Run(ctx) })
 		bg(func() { upd.OS.Run(ctx) })
 	}
@@ -277,7 +280,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 		RescanNodes:  func() { kick(rescan) },
 		Tuning:       tune,
 		ConfigEditor: cfgSvc,
-		Auth:         as, Store: st, AMI: proxy, Nodelist: nl, System: sys, Updates: upd, Power: power, Version: version,
+		Auth:         as, Store: st, AMI: proxy, Nodelist: nl, System: sys, Updates: upd, Power: power, DVSwitch: dvsw, Version: version,
 		UI: webui.Handler(), AllowedOrigins: origins, AllScanDirs: allscan.DefaultDirs, Logger: logger,
 		Log: ring, Config: cfg, ConfigPath: cfgPath, Firewall: firewall,
 		PublicDefaultEnabled: demoMode,

@@ -811,3 +811,32 @@ func TestDVErrorsRoundTripPrefixes(t *testing.T) {
 		}
 	}
 }
+
+func TestDemoDVSwitch(t *testing.T) {
+	d := NewDemoDVSwitch()
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	d.now = func() time.Time { return now }
+	ctx := context.Background()
+	if _, err := d.DVSwitchUninstall(ctx); !errors.Is(err, ErrDVOutsideASLCP) {
+		t.Fatal(err)
+	}
+	if st, err := d.DVSwitchInstall(ctx); err != nil || st.Install.Job != JobRunning || st.CanInstall {
+		t.Fatalf("%+v %v", st, err)
+	}
+	if _, err := d.DVSwitchInstall(ctx); !errors.Is(err, ErrBusy) {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Minute)
+	st, _ := d.DVSwitchStatus(ctx)
+	if !st.Installed || !st.CanUninstall || st.Install.Job != JobSucceeded || st.InstalledBy != "aslcp" {
+		t.Fatalf("%+v", st)
+	}
+	if _, err := d.DVSwitchInstall(ctx); !errors.Is(err, ErrDVAlreadyInstalled) {
+		t.Fatal(err)
+	}
+	d.DVSwitchUninstall(ctx)
+	now = now.Add(time.Minute)
+	if st, _ := d.DVSwitchStatus(ctx); st.Installed || !st.CanInstall || st.Uninstall.Job != JobSucceeded {
+		t.Fatalf("%+v", st)
+	}
+}

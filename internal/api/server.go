@@ -45,6 +45,9 @@ type Deps struct {
 	// Power restarts the panel and reboots the machine through the helper
 	// (nil: 503 updates_unavailable).
 	Power Power
+	// DVSwitch reports, installs and removes DVSwitch (nil: 503
+	// dvswitch_unavailable).
+	DVSwitch DVSwitch
 	// ConfigEditor is the configuration editing service (nil: 503
 	// config_unavailable).
 	ConfigEditor *configsvc.Service
@@ -328,6 +331,7 @@ func (s *Server) routes() {
 	s.configRoutes()
 	s.backupRoutes()
 	s.radioRoutes()
+	s.dvswitchRoutes()
 	m.HandleFunc("GET /api/updates", s.authed(store.RoleAdmin, s.handleUpdatesGet))
 	m.HandleFunc("POST /api/updates/check", s.authed(store.RoleAdmin, s.handleUpdatesCheck))
 	m.HandleFunc("POST /api/updates/apply", s.authed(store.RoleAdmin, s.handleUpdatesApply))
