@@ -1,0 +1,5 @@
+{
+  "version": "1.1.20",
+  "notes": "ASLCP 1.1.20: open source under GPL-3.0-or-later\n\nA web control panel for AllStarLink 3 nodes. Earlier history was\ndeveloped privately; this is the first public commit of the source.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01WyFLnHQojhM4Jvfwzs5euQ",
+  "date": "2026-11-17"
+}

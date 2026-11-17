@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ASLCP - web control panel for AllStarLink 3</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem}pre{background:#8881;padding:.75rem;overflow:auto;border-radius:6px}code{font-family:ui-monospace,monospace}</style>
+</head><body>
+<h1>ASLCP</h1>
+<p>A modern web control panel for AllStarLink 3 nodes: connect, monitor and manage favorites with live status. For Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS on arm64, armhf and amd64.</p>
+<p>Latest release: <strong>none yet</strong>. Latest beta: <strong>1.1.20</strong>.</p>
+<p><a href="https://github.com/artw1/aslcp">Documentation, screenshots and bug reports on GitHub</a></p>
+<h2>Install</h2>
+<pre><code>curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo sh</code></pre>
+<h2>Manual setup</h2>
+<pre><code>sudo curl -fsSL -o /usr/share/keyrings/aslcp-archive-keyring.gpg https://artw1.github.io/aslcp/aslcp-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/aslcp-archive-keyring.gpg] https://artw1.github.io/aslcp stable main" | sudo tee /etc/apt/sources.list.d/aslcp.list
+sudo apt update &amp;&amp; sudo apt install aslcp</code></pre>
+<p>Signing key fingerprint: <code>9BA6A82745D8B69A9812848FAB83EBF1976B5855</code> (<a href="aslcp-archive-keyring.asc">armored key</a>)</p>
+<h2>Beta channel</h2>
+<p>Every new version is published to the <code>beta</code> suite as soon as it is built. It becomes a release (suite <code>stable</code>) when it is promoted after testing: the same package, not a rebuild. The <code>beta</code> suite also carries every release, so beta users are never behind. Betas may be less stable. To use it, put <code>beta</code> instead of <code>stable</code> in the line above, or install with <code>curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_CHANNEL=beta sh</code>, or switch in Settings &rarr; Updates in the web UI (the same setting: it changes the suite in <code>/etc/apt/sources.list.d/aslcp.list</code>). Going back to <code>stable</code> does not downgrade: the node stays on the installed version until a release newer than it is promoted.</p>
+<p>After installing, open <code>http://&lt;your-node&gt;:8080</code>. Later updates: Settings &rarr; Updates in the web UI, or <code>sudo apt update &amp;&amp; sudo apt upgrade</code>.</p>
+</body></html>
