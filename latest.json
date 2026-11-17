@@ -1,5 +1,5 @@
 {
   "version": "1.1.20",
-  "notes": "ASLCP 1.1.20: open source under GPL-3.0-or-later\n\nA web control panel for AllStarLink 3 nodes. Earlier history was\ndeveloped privately; this is the first public commit of the source.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01WyFLnHQojhM4Jvfwzs5euQ",
+  "notes": "### Changed\n- ASLCP is now open source under the GNU GPL v3.0 or later; source code at https://github.com/artw1/aslcp.\n- The apt repository moved to the gh-pages branch of the same repository; the URL https://artw1.github.io/aslcp is unchanged, no action needed.",
   "date": "2026-11-17"
 }

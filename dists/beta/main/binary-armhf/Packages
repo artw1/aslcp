@@ -1,5 +1,26 @@
 Package: aslcp
 Architecture: armhf
+Version: 1.1.21
+Priority: optional
+Section: net
+Maintainer: ASLCP <noreply@users.noreply.github.com>
+Installed-Size: 20085
+Depends: systemd, adduser, git
+Recommends: asl3
+Filename: pool/beta/a/aslcp/aslcp_1.1.21_armhf.deb
+Size: 7421402
+MD5sum: 74e4680c44496a950b5dbd334ff16fc9
+SHA1: d4e8afad54093e68df676559c9fed72d85f85112
+SHA256: 525863f037e478761f030dc3f77e11bd1e03611f612c5aa51c6797ed6025b3a8
+SHA512: af0b4ba3f53494852c91241319fca4bf134640ac8921af1b59bc23ec404e2fc2aad5bfa28096829d2b14751c3e5311cff5ed89c041868b62c463ef499ce55751
+Homepage: https://artw1.github.io/aslcp/
+Description: Web control panel for AllStarLink 3 nodes.
+ Connect and disconnect links, watch live node status and manage favorites
+ from a browser. Runs as an unprivileged service next to Asterisk and talks
+ to it over AMI. A small root helper performs package updates on request.
+
+Package: aslcp
+Architecture: armhf
 Version: 1.1.20
 Priority: optional
 Section: net
