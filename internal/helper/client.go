@@ -361,3 +361,55 @@ func (c *Client) DVSwitchUninstall(ctx context.Context) (DVSwitchStatus, error) 
 	var s DVSwitchStatus
 	return s, c.Do(ctx, OpDVSwitchUninstall, &s)
 }
+
+// DVSwitchSetup calls dvswitch-setup.
+func (c *Client) DVSwitchSetup(ctx context.Context) (DVSwitchSetup, error) {
+	var s DVSwitchSetup
+	return s, c.Do(ctx, OpDVSwitchSetup, &s)
+}
+
+// DVSwitchInfo calls dvswitch-info.
+func (c *Client) DVSwitchInfo(ctx context.Context) (DVSwitchInfo, error) {
+	var s DVSwitchInfo
+	return s, c.Do(ctx, OpDVSwitchInfo, &s)
+}
+
+func (c *Client) dvCall(ctx context.Context, op string, req DVSwitchRequest, out any) error {
+	return c.do(ctx, Request{Op: op, DVSwitch: &req}, out, 1<<20)
+}
+
+// DVSwitchIdentity calls dvswitch-identity.
+func (c *Client) DVSwitchIdentity(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
+	var r DVApplyResult
+	return r, c.dvCall(ctx, OpDVSwitchIdentity, req, &r)
+}
+
+// DVSwitchCredentials calls dvswitch-credentials.
+func (c *Client) DVSwitchCredentials(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
+	var r DVApplyResult
+	return r, c.dvCall(ctx, OpDVSwitchCredentials, req, &r)
+}
+
+// DVSwitchModes calls dvswitch-modes.
+func (c *Client) DVSwitchModes(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
+	var r DVApplyResult
+	return r, c.dvCall(ctx, OpDVSwitchModes, req, &r)
+}
+
+// DVSwitchStartup calls dvswitch-startup.
+func (c *Client) DVSwitchStartup(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
+	var r DVApplyResult
+	return r, c.dvCall(ctx, OpDVSwitchStartup, req, &r)
+}
+
+// DVSwitchRollback calls dvswitch-rollback.
+func (c *Client) DVSwitchRollback(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
+	var r DVApplyResult
+	return r, c.dvCall(ctx, OpDVSwitchRollback, req, &r)
+}
+
+// DVSwitchRestart calls dvswitch-restart (restart or start).
+func (c *Client) DVSwitchRestart(ctx context.Context, req DVSwitchRequest) (DVRestartResult, error) {
+	var r DVRestartResult
+	return r, c.dvCall(ctx, OpDVSwitchRestart, req, &r)
+}

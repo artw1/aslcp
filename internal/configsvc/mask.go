@@ -10,7 +10,10 @@ const Masked = "********"
 
 var (
 	reSecretKey = regexp.MustCompile(`(?i)^(\s*)(secret|password|passwd|pass|md5secret|dbsecret)(\s*=>?\s*)(.*)$`)
-	reRegister  = regexp.MustCompile(`(?i)^(\s*register)(\s*=>?\s*)(.*)$`)
+	// Any key with "password" in its name (DVSwitch inis: Password,
+	// RemotePassword, ...).
+	rePasswordKey = regexp.MustCompile(`(?i)^(\s*)(\w*password\w*)(\s*=>?\s*)(.*)$`)
+	reRegister    = regexp.MustCompile(`(?i)^(\s*register)(\s*=>?\s*)(.*)$`)
 )
 
 // maskRest masks a value (the text after the operator). A trailing ';'
@@ -37,6 +40,9 @@ func maskRest(rest string, register bool) string {
 // MaskLine masks the secret value of one config line (no line ending).
 func MaskLine(line string) string {
 	if m := reSecretKey.FindStringSubmatch(line); m != nil {
+		return m[1] + m[2] + m[3] + maskRest(m[4], false)
+	}
+	if m := rePasswordKey.FindStringSubmatch(line); m != nil {
 		return m[1] + m[2] + m[3] + maskRest(m[4], false)
 	}
 	if m := reRegister.FindStringSubmatch(line); m != nil {

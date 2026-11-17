@@ -76,6 +76,11 @@ type Ops struct {
 	DVSourceList string
 	DVStateDir   string
 	DVHostDir    string
+	// DVSwitch config (dvswitch_cfg.go): the dir holding Analog_Bridge and
+	// the others, the history dir and the /proc root for ABInfo.
+	DVOptDir     string
+	DVHistoryDir string
+	DVProcDir    string
 	// SelfPath is the helper binary the install and uninstall units call for
 	// their steps (default: this executable).
 	SelfPath string
@@ -109,10 +114,29 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 	if req.Config != nil {
 		return nil, errors.New("invalid request: unexpected config field")
 	}
+	if req.DVSwitch != nil && !isDVConfigOp(op) {
+		return nil, errors.New("invalid request: unexpected dvswitch field")
+	}
 	if req.Backup != nil && op != OpBackupCreate || req.Restore != nil && op != OpBackupRestore {
 		return nil, errors.New("invalid request: unexpected field")
 	}
 	switch op {
+	case OpDVSwitchSetup:
+		return o.DVSwitchSetup(ctx)
+	case OpDVSwitchInfo:
+		return o.DVSwitchInfo(ctx)
+	case OpDVSwitchIdentity:
+		return o.DVSwitchIdentity(ctx, req.DVSwitch)
+	case OpDVSwitchCredentials:
+		return o.DVSwitchCredentials(ctx, req.DVSwitch)
+	case OpDVSwitchModes:
+		return o.DVSwitchModes(ctx, req.DVSwitch)
+	case OpDVSwitchStartup:
+		return o.DVSwitchStartup(ctx, req.DVSwitch)
+	case OpDVSwitchRollback:
+		return o.DVSwitchRollback(ctx, req.DVSwitch)
+	case OpDVSwitchRestart:
+		return o.DVSwitchRestart(ctx, req.DVSwitch)
 	case OpBackupInfo:
 		return o.BackupInfo(ctx)
 	case OpAsteriskRestart:

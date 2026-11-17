@@ -16,6 +16,15 @@ type DVSwitch interface {
 	DVSwitchJob(ctx context.Context) (helper.DVSwitchJobs, error)
 	DVSwitchInstall(ctx context.Context) (helper.DVSwitchStatus, error)
 	DVSwitchUninstall(ctx context.Context) (helper.DVSwitchStatus, error)
+	// Credentials and ini config (M4).
+	DVSwitchSetup(ctx context.Context) (helper.DVSwitchSetup, error)
+	DVSwitchInfo(ctx context.Context) (helper.DVSwitchInfo, error)
+	DVSwitchIdentity(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
+	DVSwitchCredentials(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
+	DVSwitchModes(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
+	DVSwitchStartup(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
+	DVSwitchRollback(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
+	DVSwitchRestart(ctx context.Context, req helper.DVSwitchRequest) (helper.DVRestartResult, error)
 }
 
 // dvswitchRoutes registers the DVSwitch endpoints. All are admin only: they
@@ -26,6 +35,13 @@ func (s *Server) dvswitchRoutes() {
 	m.HandleFunc("GET /api/dvswitch/job", s.authed(store.RoleAdmin, s.handleDVSwitchJob))
 	m.HandleFunc("POST /api/dvswitch/install", s.authed(store.RoleAdmin, s.handleDVSwitchInstall))
 	m.HandleFunc("POST /api/dvswitch/uninstall", s.authed(store.RoleAdmin, s.handleDVSwitchUninstall))
+	m.HandleFunc("GET /api/dvswitch/setup", s.authed(store.RoleAdmin, s.handleDVSwitchSetup))
+	m.HandleFunc("PUT /api/dvswitch/identity", s.authed(store.RoleAdmin, s.handleDVSwitchIdentity))
+	m.HandleFunc("PUT /api/dvswitch/credentials", s.authed(store.RoleAdmin, s.handleDVSwitchCredentials))
+	m.HandleFunc("PUT /api/dvswitch/modes", s.authed(store.RoleAdmin, s.handleDVSwitchModes))
+	m.HandleFunc("PUT /api/dvswitch/startup", s.authed(store.RoleAdmin, s.handleDVSwitchStartup))
+	m.HandleFunc("POST /api/dvswitch/restart", s.authed(store.RoleAdmin, s.handleDVSwitchRestart))
+	m.HandleFunc("POST /api/dvswitch/rollback", s.authed(store.RoleAdmin, s.handleDVSwitchRollback))
 }
 
 func (s *Server) handleDVSwitchStatus(w http.ResponseWriter, r *http.Request, _ store.User) {
@@ -85,7 +101,10 @@ func (s *Server) dvswitchStart(w http.ResponseWriter, r *http.Request, u store.U
 var errDVUnavailable = errors.New("dvswitch unavailable")
 
 func (s *Server) dvswitchError(w http.ResponseWriter, err error) {
-	var ue *helper.UnavailableError
+	var (
+		ue *helper.UnavailableError
+		ce *helper.ConflictError
+	)
 	switch {
 	case errors.Is(err, errDVUnavailable):
 		writeErr(w, http.StatusServiceUnavailable, "dvswitch_unavailable", "DVSwitch management is not available")
@@ -103,6 +122,17 @@ func (s *Server) dvswitchError(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusConflict, "clock_unset", err.Error())
 	case errors.Is(err, helper.ErrDVOutsideASLCP):
 		writeErr(w, http.StatusConflict, "not_aslcp_installed", err.Error())
+	case errors.Is(err, helper.ErrDVInvalid):
+		// the helper names file/section/key, never a value
+		writeErr(w, http.StatusBadRequest, "invalid_field", err.Error())
+	case errors.Is(err, helper.ErrDVNotInstalled):
+		writeErr(w, http.StatusConflict, "not_installed", err.Error())
+	case errors.Is(err, helper.ErrDVNoHistory):
+		writeErr(w, http.StatusNotFound, "no_history", err.Error())
+	case errors.Is(err, helper.ErrDVNoInfo):
+		writeErr(w, http.StatusConflict, "no_info", err.Error())
+	case errors.As(err, &ce):
+		writeErr(w, http.StatusConflict, "conflict", "a file changed on disk since it was read: reload and try again")
 	case errors.Is(err, helper.ErrDVKeyMismatch):
 		s.d.Logger.Printf("dvswitch: %v", err)
 		writeErr(w, http.StatusBadGateway, "key_mismatch", err.Error())

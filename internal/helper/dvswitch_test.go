@@ -140,8 +140,11 @@ func TestDVUninstallPathsFixed(t *testing.T) {
 	if !strings.Contains(lines[len(lines)-2], o.dvMarkerPath()) {
 		t.Errorf("marker not removed last: %q", lines[len(lines)-2])
 	}
-	if !strings.Contains(s, "TODO(M2/M4)") {
-		t.Error("M2/M4 hook missing")
+	if !strings.Contains(s, "TODO(M2)") {
+		t.Error("M2 hook missing")
+	}
+	if !strings.Contains(s, "rm -rf -- "+shQuote(o.dvHistoryDir())) {
+		t.Error("history dir not removed")
 	}
 	if !strings.HasSuffix(strings.Split(s, "\n")[1], "dvswitch-step uninstall-plan") {
 		t.Error("plan step must run before anything is changed")

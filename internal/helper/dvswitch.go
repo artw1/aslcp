@@ -96,7 +96,7 @@ var (
 	ErrDVOutsideASLCP     = errors.New("not_aslcp_installed: DVSwitch was installed outside ASLCP; ASLCP only removes what it installed")
 )
 
-var dvErrors = []error{ErrDVAlreadyInstalled, ErrDVUnsupported, ErrDVClockUnset, ErrDVKeyMismatch, ErrDVOutsideASLCP}
+var dvErrors = []error{ErrDVAlreadyInstalled, ErrDVUnsupported, ErrDVClockUnset, ErrDVKeyMismatch, ErrDVOutsideASLCP, ErrDVInvalid, ErrDVNotInstalled, ErrDVNoHistory, ErrDVNoInfo}
 
 // DVSwitchPkg is one package of the install set.
 type DVSwitchPkg struct {
@@ -263,10 +263,13 @@ func (o *Ops) dvUninstallScript() string {
 	}
 	b = append(b,
 		"rm -f "+dvABInfoGlob,
+		// The ini edits and their history copies (M4): the purge removes the
+		// inis, the history dir is ours.
+		"rm -rf -- "+shQuote(o.dvHistoryDir()),
 		// The comment below is part of the script on purpose (visible in the
-		// unit): M2/M4 must hook their revert in here.
-		"# TODO(M2/M4): revert what the private node, the USRP link and the credentials changed",
-		"# (rpt.conf node stanza, modules.conf chan_usrp, the ini edits and their history copies) before the marker goes.",
+		// unit): M2 must hook its revert in here.
+		"# TODO(M2): revert what the private node and the USRP link changed",
+		"# (rpt.conf node stanza, modules.conf chan_usrp) before the marker goes.",
 		"rm -f -- "+purge,
 		"rm -f -- "+shQuote(o.dvMarkerPath()),
 		"echo 'dvswitch uninstall finished'",

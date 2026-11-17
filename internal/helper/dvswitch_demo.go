@@ -17,6 +17,7 @@ type DemoDVSwitch struct {
 	kind      string // "install" or "uninstall" while a job runs or after one
 	started   time.Time
 	finished  bool
+	c         *demoDVCfg // M4 config (dvswitch_demo_cfg.go)
 }
 
 // NewDemoDVSwitch returns a demo node without DVSwitch.

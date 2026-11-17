@@ -77,6 +77,8 @@ type Request struct {
 	// only (see backup_proto.go).
 	Backup  *BackupRequest  `json:"backup,omitempty"`
 	Restore *RestoreRequest `json:"restore,omitempty"`
+	// DVSwitch is accepted by the dvswitch config ops only (dvswitch_cfg.go).
+	DVSwitch *DVSwitchRequest `json:"dvswitch,omitempty"`
 }
 
 // Status is the response of the update-* operations. Candidate and
