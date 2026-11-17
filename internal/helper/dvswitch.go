@@ -64,7 +64,7 @@ var dvUnits = []string{"analog_bridge", "mmdvm_bridge", "netcheck", "ysfgateway"
 
 // dvHostFiles are the host files in the host dir that must be non-empty
 // after an install (DVSM_Update.sh exits 0 even when its downloads fail).
-var dvHostFiles = []string{"YSFHosts.txt", "P25Hosts.txt", "NXDNHosts.txt"}
+var dvHostFiles = []string{"DMRIds.dat", "YSFHosts.txt", "P25Hosts.txt", "NXDNHosts.txt"}
 
 // Fixed uninstall paths. The only pattern is the ABInfo glob.
 var (

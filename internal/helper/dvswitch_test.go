@@ -420,6 +420,7 @@ func TestInstallCheckWarns(t *testing.T) {
 	o := dvOps(t, &fakeRunner{})
 	os.MkdirAll(o.DVHostDir, 0o755)
 	os.WriteFile(filepath.Join(o.DVHostDir, "YSFHosts.txt"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(o.DVHostDir, "DMRIds.dat"), []byte("x"), 0o644)
 	os.WriteFile(filepath.Join(o.DVHostDir, "P25Hosts.txt"), nil, 0o644)
 	var w bytes.Buffer
 	if err := o.RunDVSwitchStep(context.Background(), StepInstallCheck, &w); err != nil {

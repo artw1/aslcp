@@ -29,7 +29,7 @@ function status() {
     repoPresent: installed, keyPresent: installed, keyOk: installed, ...(installed ? { keyFingerprint: FP } : {}),
     packages: PKGS.map((name) => ({ name, installed, ...(installed ? { version: '1.7.0' } : {}) })),
     units: UNITS.map((name) => ({ name, loaded: installed, active: installed ? 'active' : 'inactive', enabled: installed ? 'enabled' : '' })),
-    hostFiles: ['YSFHosts.txt', 'P25Hosts.txt', 'NXDNHosts.txt'].map((name) => ({ name, present: installed, size: installed ? 4096 : 0 })), hostFilesOk: installed,
+    hostFiles: ['DMRIds.dat', 'YSFHosts.txt', 'P25Hosts.txt', 'NXDNHosts.txt'].map((name) => ({ name, present: installed, size: installed ? 4096 : 0 })), hostFilesOk: installed,
     marker: installed ? { version: 1, installedAt: new Date().toISOString(), wgetPreinstalled: false, packages: ['qemu-user-static', 'wget'] } : null,
     canInstall: !installed && !running, canUninstall: installed && !running,
     uninstallPackages: installed ? [...PKGS, 'qemu-user-static'] : [], uninstallPaths: PATHS, uninstallUnits: UNITS, ...j,

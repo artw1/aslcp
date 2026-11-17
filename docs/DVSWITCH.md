@@ -154,7 +154,7 @@ Code: `internal/helper/dvswitch.go` (status, install, uninstall, scripts, marker
 - **Helper sandbox:** no change to `packaging/systemd/aslcp-helper.service`. It has no `ProtectSystem`, so writing `/etc/apt/sources.list.d` and `/usr/share/keyrings` is allowed; the transient units run outside the helper's namespace (they see the host `/tmp`).
 - **Install is refused over a hand install** (`already_installed`): a set that is installed without a marker is never adopted, so a later uninstall can never purge packages ASLCP did not install. A partial set with a marker (an interrupted install) can be resumed; the marker then merges.
 - **Admin only:** `GET /api/dvswitch` and `/api/dvswitch/job` are admin here (the design's viewer snapshot of M1 will need to extend this reply or take another path).
-- **Host files checked:** `YSFHosts.txt`, `P25Hosts.txt`, `NXDNHosts.txt` in `/var/lib/mmdvm`. This list is a guess (see the checklist); a missing file only warns in the log and shows in the status, it never fails the install.
+- **Host files checked:** `DMRIds.dat`, `YSFHosts.txt`, `P25Hosts.txt`, `NXDNHosts.txt` in `/var/lib/mmdvm`. Names verified 2026-11-17 against `dvswitch.sh` 1.6.2 (`update`: `downloadAndValidate` saves to `$MMDVM_DIR/<first arg>`, `MMDVM_DIR` defaults to `/var/lib/mmdvm`; `DMRIds.dat` comes from radioid.net). A missing file only warns in the log and shows in the status, it never fails the install.
 
 ### Uninstall (M3)
 
