@@ -1,5 +1,5 @@
 {
-  "version": "1.1.23",
-  "notes": "Favorites scan: clear keyed once node data is stale\n\nA node that stopped reporting mid-transmission stayed red forever: the\nsame-report early return repeated the stored keyed state even when the\nreport was older than liveWindow. Keyed is now false whenever the data\nis stale, on every path. Existing keyed tests use fresh DataTime values\nrelative to the test clock.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01WyFLnHQojhM4Jvfwzs5euQ",
+  "version": "1.1.24",
+  "notes": "CHANGELOG and HANDOVER: 1.1.23 released, 1.1.24 prepared\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01WyFLnHQojhM4Jvfwzs5euQ",
   "date": "2026-11-17"
 }
