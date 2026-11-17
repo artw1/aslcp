@@ -1,0 +1,390 @@
+# DVSwitch (digital voice modes)
+
+Design only, nothing is implemented. Goal: an admin can install DVSwitch Server from the panel, give the node a private "bridge" node wired to it through chan_usrp, and operators can switch the mode (DMR, YSF, P25, NXDN) and tune talkgroups and reflectors from the dashboard.
+
+Placeholders used below: callsign `N0CALL`, DMR ID `1234567`, private bridge node `1999`, local node `2006`, documentation IPs from RFC 5737 (`192.0.2.x`).
+
+## Scope
+
+| In v1 | Out of v1 |
+|---|---|
+| Modes DMR, YSF, P25, NXDN | D-Star (needs a different gateway, ircDDBGateway or DStarGateway, config not examined; later), M17, STFU/ODMRT terminal mode, Quantar |
+| Detect, status, mode switch, tune, unlink, favourites, reflector pickers | Last-heard from digital modes (no source in `dvswitch.sh`; would need the bridge logs) |
+| Private bridge node + USRP ports, permanent or on-demand link | More than one bridge per node (one USRP port pair serves one Analog_Bridge) |
+| Admin-initiated install from the official DVSwitch apt repo | Bundling, depending on, or recommending DVSwitch packages (closed binaries, licence unverified) |
+| Identity and network credentials through typed forms | Editing arbitrary lines of the DVSwitch ini files |
+
+Roles: viewer sees status; operator and admin switch mode, tune, unlink, manage favourites; admin only: install, node setup, credentials, service restarts.
+
+## Architecture
+
+```
+ radio / links (app_rpt, node 2006)
+        |  link 2006 <-> 1999 (permanent or on demand)
+ +------+--------------------------------+
+ | Asterisk                              |
+ |   node 1999  rxchannel =              |
+ |   USRP/127.0.0.1:34001:32001          |
+ |   (chan_usrp: sends to 34001,         |
+ |    listens on 32001)                  |
+ +------+--------------------------------+
+        | UDP USRP audio, loopback
+        |   Asterisk -> AB: 34001      AB -> Asterisk: 32001
+ +------+--------------------------------+          +------------------------+
+ | Analog_Bridge   [USRP] rxPort=34001   |  TLV     | MMDVM_Bridge           |
+ |                        txPort=32001   +----------+  -> BrandMeister/TGIF  |
+ | [AMBE_AUDIO] per-mode TLV ports       |  AMBE    +------------------------+
+ |  DMR 31100/31103  YSF 35100/35103     |          | YSFGateway  P25Gateway |
+ |  P25 34100/34103  NXDN 33100/33103    +----------+ NXDNGateway            |
+ +------^--------------+-----------------+          +------------------------+
+        |              | writes /tmp/ABInfo_<port>.json (state)
+        | UDP TLV      v
+        | command      aslcp-helper (root): dvswitch-info -> parsed JSON
+ +------+--------------+
+ | aslcp (unprivileged) |  sends 0x05,len,"key=value" to AB's TLV rx port
+ +----------------------+
+```
+
+USRP direction (re-checked against `chan_usrp.c`): `rxchannel = USRP/HISIP:HISPORT[:MYPORT]` means Asterisk **sends** to `HISIP:HISPORT` and **binds** `MYPORT` (default `HISPORT`). So `USRP/127.0.0.1:34001:32001` gives:
+
+| Side | Setting | Value | Role |
+|---|---|---|---|
+| Asterisk | HISPORT | 34001 | Asterisk sends audio here |
+| Asterisk | MYPORT | 32001 | Asterisk listens here |
+| Analog_Bridge `[USRP]` | `rxPort` | 34001 | AB listens (receives from Asterisk) |
+| Analog_Bridge `[USRP]` | `txPort` | 32001 | AB sends (to Asterisk) |
+| Analog_Bridge `[USRP]` | `address` | 127.0.0.1 | |
+
+The stock Analog_Bridge.ini has 31001/31001 (and the DVSwitch dashboard also assumes 31001); the ASL convention above must be written by ASLCP, never assumed. The admin may pick any pair; ASLCP validates 1024-65535, `rx != tx`, and no clash with the DVSwitch TLV ports above or another `USRP/` rxchannel in rpt.conf.
+
+## Detection and status
+
+`dvswitch-status` (helper, read-only, cached 30 s in the server) reports what is there; the server never probes `/opt` itself.
+
+| Field | Source |
+|---|---|
+| `installed`, `version`, `arch`, `osCodename` | `dpkg-query -W dvswitch-server`, `/etc/os-release` |
+| `units[]` (`name`, `loaded`, `active`, `enabled`) | `systemctl show` for `analog_bridge`, `mmdvm_bridge`, `ysfgateway`, `p25gateway`, `nxdngateway`, `md380-emu` |
+| `files[]` (`id`, `present`) | the allowlisted ini files (see Credentials) |
+| `modes.enabled[]` | `Enable=1` and the matching `... Network` `Enable=1` in MMDVM_Bridge.ini (what `dvswitch.sh getEnabledModes` reads) |
+| `usrp` (`address`, `rxPort`, `txPort`) | Analog_Bridge.ini `[USRP]` |
+| `modePorts{}` | DVSwitch.ini `[DMR] [YSF] [P25] [NXDN]` TXPort/RXPort (no other keys, in particular no `[STFU]`) |
+| `hostFiles[]` | existence and mtime of the reflector/TG data files |
+| `job`, `jobLog` | install job (M3) |
+
+Never present in any reply: passwords, tokens. The reply is built from an explicit field list, not by forwarding file content.
+
+`dvswitch-info` (helper, read-only, cheap) returns the parsed ABInfo: `{found, mtime, mode, tune, slot, muted, tlvRxPort, tlvTxPort, usrpRxPort, abVersion}` from `tlv.ambe_mode`, `last_tune`, `digital.ts`, `mute`, `tlv.rx_port`, `tlv.tx_port`, `usrp.rx_port`, `ab.version`. Fields missing in the JSON stay absent (the schema is inferred from `dvswitch.sh`; no real sample was seen).
+
+"Configured" (the dashboard card shows) = a local node whose `rxchannel` starts with `USRP/` (astconf, effective values through templates) and `analog_bridge.service` loaded. `dvswitch.node` (setting) overrides the choice when several nodes match.
+
+### The ABInfo and PrivateTmp problem
+
+Analog_Bridge writes `/tmp/ABInfo_<port>.json` (neither bridge unit sets PrivateTmp). `aslcp.service` and `aslcp-helper.service` both have `PrivateTmp=yes`, so neither sees it.
+
+| Option | Trade-off |
+|---|---|
+| **A (recommended): helper reads it through the bridge's own mount namespace**: `systemctl show -p MainPID analog_bridge`, then open `/proc/<pid>/root/tmp/ABInfo_*.json` as root | Keeps both sandboxes. Needs the helper to be allowed to read `/proc/<pid>/root` (root plus default caps should do; to verify). Also works if a future AB unit adds PrivateTmp. Slightly unusual, so isolated in one function with `O_NOFOLLOW`, regular-file check, 64 KiB cap, strict JSON into a typed struct. |
+| B: `PrivateTmp=no` on `aslcp-helper.service`, read `/tmp/ABInfo_*.json` | One-line packaging change, but world-writable `/tmp` becomes visible to a root process (a local user can plant a fake file; mitigated by owner check). Helper currently needs no /tmp (temp dirs are chosen by `tempDirRoot`). Fallback if A fails. |
+| C: redirect via `transferRootDir`/`ABINFO` to `/run/dvswitch` | Cleanest if AB honours it, but whether AB writes ABInfo there is unverified, and it edits AB config on existing installs. Not for v1. |
+| D: no ABInfo, remember the last commanded mode/tune | Wrong after an AB restart (back to ini values) or a change from DVSwitch Mobile/`dvswitch.sh`. Kept only as the degraded display ("last set by ASLCP, unverified"). |
+
+File choice mirrors `dvswitch.sh`: newest `ABInfo_*.json` by mtime, ignored if older than `analog_bridge`'s `ActiveEnterTimestamp` (the port in the file name changes with the mode, so stale files exist). After every own command the server sends `info` and re-reads after 300 ms; while SSE clients are connected it sends `info` at most every 30 s to catch external changes (whether AB refreshes the file by itself is to verify).
+
+## Runtime control (native Go, no shell)
+
+Replicates `dvswitch.sh` v1.6.2 `remoteControlCommand`: one UDP datagram to `127.0.0.1:<tlv.rx_port>` (the port AB listens on for TLV, from `dvswitch-info`; fallback Analog_Bridge.ini `[AMBE_AUDIO] rxPort`):
+
+| Byte | Meaning |
+|---|---|
+| 0 | `0x05` (TLV tag: remote command) |
+| 1 | length `n` of the command string, 1-255 |
+| 2..n+1 | ASCII `key=value` command |
+
+The server sends only the commands below, built from validated values, so nothing from a client is forwarded verbatim. `RestrictAddressFamilies` already allows UDP to loopback; no unit change.
+
+| Action | Commands (from `dvswitch.sh`) |
+|---|---|
+| mode `X` | `rxport=30000`, then (using `DVSwitch.ini [X]` TXPort/RXPort from `modePorts`) `ambeMode=X`, `txport=<RXPort>`, `rxport=<TXPort>`, then `info` |
+| tune `T` | `txTg=T`, then `info` |
+| unlink | tune with the mode's unlink value: DMR `4000`, YSF `disconnect`, P25 `9999`, NXDN `9999` |
+
+Mode names sent are `DMR`, `YSF`, `P25`, `NXDN`, as the script does (AB also knows `YSFN`/`YSFW`/`DMR_IPSC`; not used). Tune value validation per mode (all also `^[A-Za-z0-9.:_-]{1,64}$`, which excludes `=` and control characters):
+
+| Mode | Tune value | List source (read directly by the server, data files only) |
+|---|---|---|
+| DMR | `^[0-9]{1,8}$` (TG) | optional `TGList_BM.txt` / `TGList_TGIF.txt` in `/var/lib/mmdvm`; favourites |
+| YSF | `host:port` (hosts file fields 4:5) or `disconnect` | `/var/lib/mmdvm/YSFHosts.txt` (`;`-separated), optional `FCSRooms.txt` later |
+| P25 | `^[0-9]{1,5}$` | `/var/lib/mmdvm/P25Hosts.txt` (`id host port`) |
+| NXDN | `^[0-9]{1,5}$` | `/var/lib/mmdvm/NXDNHosts.txt` |
+
+Behaviour rules:
+
+- One control mutex; the mode sequence is serialised with the spacing the script uses (measure it, see "Verify"). Rate limit: one mode switch per 2 s, tune per 1 s, per server.
+- The sequence is data in `internal/dvswitch/tlv.go` and a conformance test replays it against a fake UDP listener; a fixture captured from the real script (tcpdump, see Verify) is the reference.
+- A mode must be in `modes.enabled`, else `409 mode_disabled`.
+- `tune` changes AB's memory only, not Analog_Bridge.ini (as `dvswitch.sh`). Persisting is an explicit admin action ("Use current mode and talkgroup as startup", M4: writes `ambeMode`, `txTg`).
+- An Analog_Bridge restart resets mode and TG to the ini values; the UI says so before any restart.
+- The audit log records mode, tune value and user (no secrets involved).
+
+## Install (M3)
+
+Helper op `dvswitch-install`, no arguments, same pattern as `osupdate.go`: fixed script in a transient unit, log from the journal, busy lock shared with apt jobs.
+
+| Item | Decision |
+|---|---|
+| Unit | `systemd-run --no-block --unit=aslcp-dvswitch-install --collect --property=Type=oneshot --setenv=DEBIAN_FRONTEND=noninteractive --setenv=APT_LISTCHANGES_FRONTEND=none /bin/sh -c <fixed script>`; state and log via `jobUnit` like `osUpgradeUnit` |
+| Refusals | `aptJobRunning` (shared with ASLCP/OS jobs, `ErrBusy`), already installed, unsupported platform (arch/codename not in the verified matrix, see Unverified) |
+| Script | Adds the DVSwitch apt source and key, `apt-get update`, `apt-get install -y dvswitch-server` with conffile options as in `osUpgradeScript`. **Not** `wget http://dvswitch.org/bookworm; ./bookworm` as root (plain HTTP script executed as root, content not reviewed): once the script is read, replicate its apt-source and key steps as fixed content, pin the key fingerprint, use https if the host supports it. Exact content in M3 after verification |
+| Dependencies | The community recipe first installs `php-cgi libapache2-mod-php` for the DVSwitch web dashboard. ASLCP does not use that dashboard; check `apt-cache depends dvswitch-server` and, if it drags in a web server, try `--no-install-recommends`, else warn in the confirm dialog (a new listener on port 80). The dialog lists the packages to be installed from `apt-get -s install` |
+| After | Do not start or configure anything beyond what the packages do. The status shows units, and "Not configured" until node setup (M2) and identity (M4) are done |
+| Not done | No change to Asterisk config, no `sed` of the DVSwitch dashboard ports (`/usr/share/dvswitch/include/config.php` keeps 31001; documented, not touched) |
+| Removal | Not offered in v1 (`apt-get remove` and leftovers are the user's call) |
+| Packaging | ASLCP gains no Depends/Recommends/Suggests on any DVSwitch package; the install is a runtime action |
+
+## Private node and USRP (M2)
+
+Admin chooses `node` (1 to 1999, private, must not exist in rpt.conf; the stock ASL3 config already ships a `[1999]` stanza, so the form suggests the first free number in 1900-1997 and warns that 1998/1999 are commonly used in examples and loop protection can bite when linking to public nodes), `rxPort`/`txPort`, and the link mode.
+
+One apply (preview first, like Config): the rpt.conf and modules.conf parts go through the existing `configsvc` pipeline (history, conflict check, health, rollback); ini ports go through the helper.
+
+| Step | What | How |
+|---|---|---|
+| 1 | rpt.conf: `[1999](node-main)` with `rxchannel = USRP/127.0.0.1:34001:32001`, `duplex = 0`, `callerid = "DVSwitch 1999" <0000000000>`; `[nodes]` line `1999 = radio@127.0.0.1/1999,NONE` | `astconf.AddSection(name, template, parents)` using the template the existing local node inherits (stock: `node-main`). Without a template (flat layout) a self-contained minimal stanza is written (`rxchannel`, `duplex`, `context`, `callerid`, the stanza names of `functions`, `telemetry`, `morse`, `wait_times` copied from the linked local node). Inherited keys that make no sense on a bridge (`idrecording`, `idtalkover`, tail messages) are unset in the stanza, list to verify |
+| 2 | modules.conf: `noload = chan_usrp.so` becomes `load = chan_usrp.so` | `astconf` entry edit; if the line is absent, add `load = chan_usrp.so`. `ReloadMap` has no `modules.conf` entry, so `PlanReload` already returns `restart: true`: the plan says "Restart Asterisk (links drop)" and requires explicit confirmation |
+| 3 | Analog_Bridge.ini `[USRP]` `address`, `rxPort`, `txPort` | helper `dvswitch-config-apply` (typed, see below) |
+| 4 | restart | Asterisk (existing `asterisk-restart`), then `dvswitch-restart` scope `bridge` |
+| 5 | health | existing configsvc health check plus `dvswitch-status` units active; failure offers rollback of rpt.conf/modules.conf (existing) and of the ini (`dvswitch-config-rollback`) |
+
+The order protects against a half state: Asterisk config first (it is the only part with history and rollback), then the ini, then restarts.
+
+Duplex: no official recommendation. Default `0` (half duplex, no telemetry or hang time, "preferred when interfacing with an external multiport controller" per the stock comment); unverified, see below.
+
+### Link mode
+
+| Mode | Behaviour |
+|---|---|
+| `ondemand` (default) | The bridge node is a normal local node: connect it from the dashboard like any link (ConnectBar). The DVSwitch card has "Link bridge to 2006" / "Unlink" for convenience, using the existing connect code (`rpt.Client`) |
+| `permanent` | ASLCP issues a permanent connect (`ilink 13`, transceive) from the chosen local node (`dvswitch.link_node`, `2006`) to `1999`; app_rpt restores permanent links itself on restart. A reconciler (injectable `Linker` interface like `schedules`) re-issues it when the link is missing at ASLCP start, after Asterisk restarts, and after a setup change. It does **not** fight a manual disconnect: a disconnect of that link made through the panel API pauses the reconciler (setting `dvswitch.link_paused`, cleared by saving setup or by an Asterisk restart), exactly like `Schedules.ManualAction` treats manual actions. Its own commands never count as manual actions. See open question 1 |
+
+Terminology in the UI: "Unlink" on the DVSwitch card sends the mode's unlink talkgroup/reflector; it never touches the app_rpt link. The bridge node also shows up in the dashboard's status table; it is tagged "DVSwitch bridge" there.
+
+## Credentials and ini files (M4; M2 uses the ports subset)
+
+Only a typed helper op writes these files; the server never does.
+
+### Allowlist (file id, section, key)
+
+| File id | Path | Section | Keys | Validation |
+|---|---|---|---|---|
+| `analog_bridge` | `/opt/Analog_Bridge/Analog_Bridge.ini` | `USRP` | `address`, `rxPort`, `txPort` | `127.0.0.1` only; ports 1024-65535 |
+| | | `AMBE_AUDIO` | `gatewayDmrId` (DMR ID, 7 digits), `repeaterID` (DMR ID + 2-digit ESSID, 9 digits), `ambeMode` (startup mode), `txTg`, `txTs`, `colorCode` | digits; `ambeMode` in the v1 modes; ts 1-2; cc 0-15 |
+| `mmdvm_bridge` | `/opt/MMDVM_Bridge/MMDVM_Bridge.ini` | `General` | `Callsign`, `Id` | callsign `^[A-Z0-9/]{3,10}$`; `Id` 7 digits (ESSID rules as above, verify) |
+| | | `DMR Network` | `Address`, `Port`, **`Password`**, `Options` | host `^[A-Za-z0-9.-]{1,253}$` or IPv4; port; password: printable ASCII 0x21-0x7E, 1-64, none of `" # ;`; options: no control chars, <= 200 |
+| | | `DMR`, `System Fusion`, `P25`, `NXDN` and their `... Network` sections | `Enable` | `0`/`1`; a mode is switched on or off in both sections together |
+| `ysfgateway` | `/opt/YSFGateway/YSFGateway.ini` | `General` | `Callsign`, `Id` | as above |
+| | | `Network` | `Startup` | same charset as the YSF tune value |
+| `p25gateway` | `/opt/P25Gateway/P25Gateway.ini` | `Network` | `Startup` | digits |
+| `nxdngateway` | `/opt/NXDNGateway/NXDNGateway.ini` | `Network` | `Startup` | digits |
+
+DMR ID and callsign live in three places (AB `gatewayDmrId`/`repeaterID`, MMDVM_Bridge `Callsign`/`Id`, YSFGateway `Callsign`/`Id`); the Identity form writes all of them in one op so they cannot drift. `DVSwitch.ini` is read only (ports); its `[STFU] BMPassword` is not editable in v1 (DMR goes through MMDVM_Bridge). The callsign/ID keys of P25Gateway and NXDNGateway are not verified; they are added to the allowlist only after the node check below.
+
+`file` in the request is an enum id, never a path; the helper maps it to the fixed path and refuses symlinks and non-regular files (`Lstat`).
+
+### Edit semantics
+
+- Line-oriented, lossless editor (`internal/dvswitch/ini`, shared by helper and tests): finds `[section]`, then `key` (MMDVM files `Key=Value`, AB file `key = value`; spacing style preserved), replaces only the value, keeps comments and everything else byte for byte. A missing key in an existing section is appended to the section; a missing section is an error (no file restructuring).
+- Optimistic concurrency: request carries `base` (sha256 of the file as read by `dvswitch-info`-style status, which exposes hashes only); mismatch is `conflict`.
+- Atomic write (temp file in the same directory, owner/mode copied, rename), like `ops.go`.
+- Previous version kept in `/var/lib/aslcp-dvswitch-history/<file id>/<UTC stamp>` (root 0700, last 10 per file; same reason as the config history: not writable by the `aslcp` user). `dvswitch-config-rollback` restores the newest copy. No git for this.
+- Caveat to verify: `analog_bridge.service` has `ExecStartPost=-/usr/local/sbin/update-config.sh`; if that script rewrites ini values at each start it can undo our edits.
+
+### Secrets handling
+
+| Surface | Rule |
+|---|---|
+| API | Passwords are write-only: GET returns `passwordSet: true/false`, never a value; no reveal feature (unlike the Asterisk config editor) because the DVSwitch files are never shown raw. DMR ID and callsign are public identifiers (RadioID), returned to admin only; viewers/operators see only whether the node is configured |
+| Helper replies | `dvswitch-status`/`-info` use explicit field lists; there is no op that returns file content |
+| Audit | Records file id, section, key; values only for non-secret keys; never for `Password` |
+| Logs | Request bodies are not logged; the helper logs op names only |
+| Diagnostics | `internal/diag/redact.go` already redacts any key containing `password`/`secret`/`token` (`BMPassword`, `Password=` included) and callsigns. The ASLCP report does not read DVSwitch files in v1; the status section only lists unit states |
+| `configsvc/mask.go` | Gap: `reSecretKey` matches only a key that is exactly `secret\|password\|passwd\|pass\|md5secret\|dbsecret`, so `BMPassword` and `DMRPassword` would not be masked. DVSwitch inis never pass through configsvc, but add a `\w*password\w*` rule with a test now as defence in depth (a raw-editor user can create such keys in custom files too) |
+| Backup | See below |
+
+### Backups
+
+Backups currently contain every secret in plain text, unencrypted, with a warning (docs/BACKUP.md). DVSwitch is treated the same way: new optional part "DVSwitch" (default on when `/opt/Analog_Bridge` exists), containing the allowlisted ini files plus `dvsm.macro`, stored under `dvswitch/opt/...` with owner/group/mode in the manifest, and the download dialog's secrets warning names the DVSwitch password. No redaction (a redacted backup could not restore the node, the same reason the Asterisk secrets are kept). Restore writes them only when the target directory exists (DVSwitch installed); otherwise the restore page lists "install DVSwitch, then restore this part again" and the manifest already records `dvswitch*` package names. Lands in M2, before ASLCP writes any of these files.
+
+## Service restarts
+
+`dvswitch-restart` takes an enum scope, no names from clients; one fixed `systemctl restart` argv, only units that exist and are enabled or active.
+
+| Change | Restart |
+|---|---|
+| AB `[USRP]` ports, `gatewayDmrId`, `repeaterID`, startup `ambeMode`/`txTg` | `analog_bridge` |
+| MMDVM_Bridge Callsign/Id/`DMR Network`/Enable flags | `mmdvm_bridge` (and `analog_bridge` when the mode enable set changed) |
+| Gateway ini | that gateway only |
+| rpt.conf node stanza | `module reload app_rpt.so` (existing map) |
+| modules.conf (`chan_usrp` load) | Asterisk restart, then `analog_bridge` |
+
+Scopes: `bridge` (analog_bridge, mmdvm_bridge), `gateways` (ysf/p25/nxdn), `all`. A failure state (`analog_bridge` exits 252/253/254 and is not restarted) is shown in the status with the unit state; `dvswitch-config-apply` checks the units 10 s after the restart and returns `unitFailed` so the UI can offer the rollback. Unit relationships (`Requires`) between the bridge units are to verify; until then the order is analog_bridge, mmdvm_bridge, gateways.
+
+## Helper ops
+
+New file `internal/helper/dvswitch.go`; constants in `proto.go`; dispatch in `Ops.HandleRequest`. A new optional typed field `DVSwitch *DVSwitchRequest` in `Request` (rejected on every other op, like `Config`). All ops take no free-form paths or command lines.
+
+| Op | Arguments (`dvswitch` object) | Reply | Notes |
+|---|---|---|---|
+| `dvswitch-status` | none | status fields (see Detection) | read-only, no secrets |
+| `dvswitch-info` | none | parsed ABInfo | option A above |
+| `dvswitch-install` | none | `{job, jobLog}` | M3, transient unit, refuses busy/installed/unsupported |
+| `dvswitch-install-status` | none | `{job, jobLog}` | like `os-status`; may be folded into `dvswitch-status` |
+| `dvswitch-config-apply` | `changes: [{file, section, key, value}]` (max 32), `base: {file: sha256}`, `author` | `{files, restartHint[]}` | allowlist + validators; atomic; keeps history copy; `conflict`, `invalid: <file/section/key>` errors never echo values |
+| `dvswitch-config-rollback` | `file` (enum) | `{file}` | restores the newest history copy |
+| `dvswitch-restart` | `scope: bridge\|gateways\|all` | `{units: [{name, active}]}` | fixed argv |
+
+Request size stays at the default small limit. Rollback granularity per file; apply across files is best effort (same stance as DESIGN 6).
+
+## API
+
+Base `/api/dvswitch`. Errors `{error, code}` as everywhere; all non-GET need `X-ASLCP: 1`. `503 dvswitch_unavailable` when the service or helper is not wired (`Deps.DVSwitch == nil`).
+
+| Method | Path | Role | Body | Response / errors |
+|---|---|---|---|---|
+| GET | `/api/dvswitch` | viewer | | `200` Snapshot (below) |
+| POST | `/api/dvswitch/mode` | operator | `{"mode": "dmr\|ysf\|p25\|nxdn"}` | `200` Snapshot plus `confirmed: bool` (ABInfo shows the new mode); `400 bad_request`; `409 mode_disabled`; `409 not_configured`; `502 bridge_unreachable` (no ABInfo/TLV port) |
+| POST | `/api/dvswitch/tune` | operator | `{"mode": "ysf", "target": "192.0.2.10:42000"}` | `200` Snapshot + `confirmed`; `400 bad_target` (validator); `409 mode_mismatch` (bridge is in another mode now) |
+| POST | `/api/dvswitch/unlink` | operator | `{}` | `200` Snapshot; sends the unlink value of the current mode |
+| GET | `/api/dvswitch/lists?mode=ysf` | viewer | | `200` `{"mode", "items": [{"value", "name", "detail"}], "updated"}` (max 5000, `ETag`); `404 no_list` when the file is missing (the UI falls back to free input) |
+| GET | `/api/dvswitch/favorites` | viewer | | `200` `[{"id","mode","value","name","sort"}]` |
+| POST | `/api/dvswitch/favorites` | operator | `{"mode","value","name"}` | `201` favourite; `400`; `409 duplicate` (mode+value) |
+| PUT | `/api/dvswitch/favorites/{id}` | operator | `{"name","sort"}` | `200`; `404 not_found` |
+| DELETE | `/api/dvswitch/favorites/{id}` | operator | | `204`; `404` |
+| GET | `/api/dvswitch/setup` | admin | | `200` Setup view (below) |
+| POST | `/api/dvswitch/install` | admin | `{}` | `202` Snapshot (job running); `409 busy`, `409 already_installed`, `409 unsupported_platform`, `503` |
+| PUT | `/api/dvswitch/private-node` | admin | `{"node": "1999", "rxPort": 34001, "txPort": 32001, "duplex": 0, "link": {"mode": "permanent\|ondemand", "node": "2006"}, "dryRun": bool, "restart": bool}` | `dryRun`: `200` plan `{files:[{path, diff}], restartAsterisk, restarts[]}`; apply (needs `restart: true` when the plan restarts Asterisk, else `409 restart_required`): `200` `{applied, health}`; `400 invalid_node` (>= 2000 or not a number), `409 node_in_use`, `409 port_conflict`, `409 conflict` (file changed on disk), `422 syntax_error` |
+| PUT | `/api/dvswitch/identity` | admin | `{"callsign": "N0CALL", "dmrId": "1234567", "essid": "01"}` | `200` Setup view; `400` (field in message) |
+| PUT | `/api/dvswitch/credentials` | admin | `{"dmrAddress"?, "dmrPort"?, "dmrPassword"?: "..."}` | `200` Setup view (password only as `passwordSet`); empty password `400`; write-only |
+| PUT | `/api/dvswitch/modes` | admin | `{"dmr": true, "ysf": true, "p25": false, "nxdn": false}` | `200` Setup view; restarts proposed, not forced |
+| PUT | `/api/dvswitch/startup` | admin | `{"useCurrent": true}` | `200`; writes `ambeMode`/`txTg` |
+| POST | `/api/dvswitch/restart` | admin | `{"scope": "bridge\|gateways\|all"}` | `200` `{units}` |
+| POST | `/api/dvswitch/rollback` | admin | `{"file": "analog_bridge"}` | `200`; `404 no_history` |
+
+Snapshot (also the SSE payload):
+
+```json
+{
+  "supported": true,
+  "installed": true,
+  "configured": true,
+  "version": "1.0.0",
+  "node": "1999",
+  "link": { "mode": "permanent", "localNode": "2006", "linked": true, "paused": false },
+  "bridge": { "mode": "ysf", "target": "192.0.2.10:42000", "targetName": "Example room", "slot": 2, "muted": false,
+              "source": "abinfo", "updated": "2026-11-17T18:42:00+01:00" },
+  "modes": [ { "id": "dmr", "enabled": true, "unlink": "4000" }, { "id": "ysf", "enabled": true, "unlink": "disconnect" } ],
+  "services": [ { "unit": "analog_bridge", "active": true, "enabled": true } ],
+  "install": { "job": "idle", "jobLog": "" }
+}
+```
+
+`bridge.source` is `abinfo`, `commanded` (option D, unverified) or `none`. `supported` is false when arch/codename are not in the verified matrix (the setup page hides Install then). Setup view (admin): `{identity: {callsign, dmrId, essid}, dmr: {address, port, passwordSet}, usrp: {rxPort, txPort}, privateNode: {node, exists, moduleLoaded}, link, modes, gateways: {ysf: {present, startup}, ...}, files: [{id, present, writable}]}`; no secret values anywhere.
+
+SSE: event `dvswitch` (all roles) carries the Snapshot, sent on change (own commands, service state changes, job log lines) and not in the initial state: the client fetches `GET /api/dvswitch` after login, like schedules.
+
+## Settings and storage
+
+| Key / table | Content |
+|---|---|
+| `dvswitch.node` | optional override of the detected bridge node |
+| `dvswitch.link_mode` | `ondemand` (default) or `permanent` |
+| `dvswitch.link_node` | local node the permanent link starts from |
+| `dvswitch.link_paused` | reconciler pause after a manual disconnect |
+| `dvswitch.last_cmd` | JSON `{mode, target, at, by}` for the degraded display |
+| table `dvswitch_favorites` (new migration, appended to `migrations`) | `id INTEGER PRIMARY KEY, mode TEXT, value TEXT, name TEXT, sort INTEGER, created INTEGER`, `UNIQUE(mode, value)`; part of the ASLCP database, so already in backups |
+
+The source of truth for node, ports and identity is always the config files, never these settings.
+
+## Package layout
+
+| Path | Content |
+|---|---|
+| `internal/dvswitch/` | `Service` (poller, snapshot, SSE `OnChange`, link reconciler), `Backend` interface (`Info`, `Status`, `Send`, helper calls), `tlv.go` (encoder, validators, mode sequences), `lists.go` (host and TG file parsers), `state.go` (ABInfo types), `favorites` store interface |
+| `internal/dvswitch/ini/` | lossless ini editor shared by helper and tests |
+| `internal/dvswitch/fake/` | in-memory backend for demo and tests |
+| `internal/helper/dvswitch.go` | ops, allowlist table, install script, history copies; `backup*.go` gains the DVSwitch part |
+| `internal/astconf` | helpers `AddBridgeNode`, `SetModuleLoad` (pure edits, with corpus-based tests) |
+| `internal/configsvc` | optional `ApplyFiles` entry reused by the DVSwitch plan (no new reload logic; modules.conf stays "restart") |
+| `internal/api/handlers_dvswitch.go` | `dvswitchRoutes()`, `Deps.DVSwitch` |
+| `internal/store` | favourites CRUD, migration |
+| `web/src/components/DvswitchCard.svelte`, `DvswitchSetup.svelte`, `web/src/lib/dvswitch.ts`, `types.ts`, `api.ts`, `store.svelte.ts` | UI |
+| `web/mock/dvswitch.ts` | mock API |
+
+Docs touched at implementation time: `docs/API.md`, `docs/BACKUP.md`, `docs/CONFIG.md` (pointer), changelog; `packaging/` only for the optional option B unit change.
+
+## UI
+
+### Dashboard card
+
+`DvswitchCard.svelte` after `SchedulesCard`, rendered only when `snapshot.configured`.
+
+- Header "DVSwitch" with service dots (analog_bridge, mmdvm_bridge, active gateways); amber when a unit is down or the state is unknown.
+- Line: "Mode YSF, tuned to Example room (192.0.2.10:42000)", name resolved from the lists or a favourite; "Mode unknown" when `source` is `none`.
+- Mode buttons DMR / YSF / P25 / NXDN (current one highlighted; disabled with a tooltip when the mode is not enabled in MMDVM_Bridge). Pending state until the SSE snapshot confirms; "Not confirmed" toast if it does not within 5 s.
+- Tune: input with per-mode validation and "Go"; picker (search over `lists` for YSF/P25/NXDN, TG list or free number for DMR); favourites as chips for the current mode (star button saves the current target, long-press or menu to rename/delete); "Unlink" button.
+- Link line: "Bridge node 1999 linked to 2006 (permanent)" or, on demand, a Link/Unlink-node button.
+- Operator/admin get controls; viewers get text only. Admin sees a "Setup" link to the DVSwitch tab.
+
+### Setup page
+
+Recommendation: **its own top-level tab "DVSwitch" (`#/dvswitch`, admin, lazy-loaded)** next to Config, not inside Config. Config is the `/etc/asterisk` editor and snapshot history; DVSwitch spans non-Asterisk files, services and an apt install, which that scope (and its history) does not cover. The tab is visible to admins even before anything is installed (so Install is discoverable) unless `supported` is false. Sections: 1 Install (button, confirm dialog, live log), 2 Node and link (M2), 3 Identity and network (M4: callsign, DMR ID, ESSID, DMR master and password write-only field showing "set"/"not set", enabled modes, startup mode), 4 Services (status, restart buttons with the "mode resets to startup values" warning, rollback). If the guided node actions of CONFIG beta.5 ship, section 2 gets a link from there; the page stays.
+
+## Demo mode and mock
+
+- `--demo`: `Deps.DVSwitch` is a `Service` over `internal/dvswitch/fake`: configured, in-memory state (mode, target, slot), commands applied by parsing the same `key=value` strings the real path builds (so the TLV encoder and validators are exercised), embedded sample host lists with placeholder entries on `192.0.2.x`, a few favourites, services all green, an install job that replays scripted log lines over ~10 s, setup forms that mutate the fake and report `passwordSet`. A demo switch needs no helper.
+- `web/mock/dvswitch.ts` implements the same endpoints for the Vite mock; one fixture is "installed but not configured" to show the setup flow.
+- Go tests: conformance test of the TLV sequence against a loopback UDP listener; ABInfo parsing against a fixture; ini editor round-trip (comments, spacing styles); allowlist table tests (traversal impossible by enum, bad keys, bad values never echoed); astconf bridge-node edit on the `asl3-dist` corpus; reconciler with a fake `Linker`.
+
+## Phasing
+
+Each milestone is shippable alone and useful on a node where DVSwitch was installed by hand.
+
+| M | Content | Must be verified on a real node first |
+|---|---|---|
+| **M1 Panel** | `dvswitch-status`, `dvswitch-info`, native TLV control, snapshot/SSE, lists, favourites, card, demo/mock, API docs. Configured = a USRP node exists and `analog_bridge` is loaded; nothing is written to any config | ABInfo sample, option A works (or B), exact datagram sequence and timing of `mode`, a real mode switch and tune per mode, host file formats and permissions |
+| **M2 Private node + USRP** | astconf node and modules edits, preview/apply plan, ports through `dvswitch-config-apply` (USRP keys only), `dvswitch-restart`, link toggle + reconciler, DVSwitch tab (Node section), DVSwitch part in backups, mask.go rule | Stanza and `duplex` on a working bridge, chan_usrp load behaviour, `update-config.sh` effect, unit dependencies, backup/restore round trip |
+| **M3 Installer** | `dvswitch-install`, job UI, platform gating | Installer content, repo/key, packages pulled in, trixie and armhf matrix, licence, whether Asterisk config is touched |
+| **M4 Credentials and config** | Identity, DMR network password, enabled modes, startup values, gateway startup reflectors, rollback | Which keys exist in P25/NXDN gateway ini, password character handling, DMR connect with a test hotspot account, restarts per change |
+
+## Unverified / to check on a real node
+
+Research could not reach `dvswitch.org`; everything about the installer and the closed binaries is second-hand. Each item lists what the maintainer can run. All commands are read-only; where output may contain a secret or a callsign, replace it by hand (`N0CALL`, `1234567`) before sharing. Never paste a password.
+
+| Item | Why | Commands |
+|---|---|---|
+| Installer script content | design of `dvswitch-install` (apt source, key, packages) | `curl -fsSL -o /tmp/dvs.sh http://dvswitch.org/bookworm && wc -c /tmp/dvs.sh && sha256sum /tmp/dvs.sh && cat /tmp/dvs.sh` (a public file; do not run it) |
+| Repo, packages, dependencies, arch | matrix, web server pull-in, `--no-install-recommends` | after an install: `grep -rh '^deb' /etc/apt/sources.list.d/ \| grep -i dvswitch`; `apt-cache policy dvswitch-server`; `apt-cache show dvswitch-server \| grep -E '^(Package\|Version\|Architecture\|Depends\|Recommends\|Homepage\|License)'`; `apt-get -s install dvswitch-server \| grep ^Inst` (before installing); `dpkg --print-architecture; . /etc/os-release; echo $VERSION_CODENAME; uname -m` |
+| trixie and armhf | `supported` gating | run the two lines above on a trixie node and on a 32-bit Pi; `apt-cache policy dvswitch-server` showing a candidate is the answer (or "N: Unable to locate package") |
+| Postinst touching Asterisk | "does the installer change Asterisk config" | `ls /var/lib/dpkg/info/dvswitch*`; `cat /var/lib/dpkg/info/dvswitch-server.postinst`; `dpkg -L dvswitch-server \| grep -i -E 'asterisk\|rpt'`; with ASLCP's history repo: `sudo git --git-dir=/var/lib/aslcp-config-history --work-tree=/etc/asterisk status --short` right after an install |
+| Real ABInfo sample | schema, field presence, freshness | `ls -l --time-style=full-iso /tmp/ABInfo_*.json`; `python3 -m json.tool /tmp/ABInfo_*.json` (it should hold no secrets; check for the string "pass" first: `grep -ci pass /tmp/ABInfo_*.json`); `grep -nE '^\s*(transferRootDir\|exportMetadata)' /opt/Analog_Bridge/Analog_Bridge.ini` |
+| Does AB refresh ABInfo by itself | `info` polling rate | `stat -c %y /tmp/ABInfo_*.json; sleep 60; stat -c %y /tmp/ABInfo_*.json` while idle, then again after `/opt/MMDVM_Bridge/dvswitch.sh tune 91` (use any harmless TG) |
+| Option A (helper reads via /proc) | sandbox decision | `systemctl show analog_bridge -p MainPID -p PrivateTmp -p ActiveEnterTimestamp`; `sudo ls -l /proc/$(systemctl show -p MainPID --value analog_bridge)/root/tmp/ \| grep ABInfo`; as the helper's sandbox: `sudo systemd-run --wait --pipe -p PrivateTmp=yes -p ProtectHome=yes sh -c 'ls -l /proc/$(systemctl show -p MainPID --value analog_bridge)/root/tmp/ \| grep ABInfo'` |
+| Exact datagrams and timing of `mode`/`tune` | conformance fixture | run the capture while the bridge is idle (audio frames would also show): `sudo timeout 30 tcpdump -i lo -nn -tt -X 'udp and portrange 30000-36000'` in one shell, and in another `/opt/MMDVM_Bridge/dvswitch.sh mode YSF; /opt/MMDVM_Bridge/dvswitch.sh tune 192.0.2.10:42000; /opt/MMDVM_Bridge/dvswitch.sh mode DMR`; plus `grep -n -E 'rxport\|txport\|ambeMode\|remoteControlCommand\|sleep' /opt/MMDVM_Bridge/dvswitch.sh` |
+| Ini file modes and owners | who can read/write, helper vs server | `stat -c '%U:%G %a %n' /opt/Analog_Bridge/*.ini /opt/MMDVM_Bridge/*.ini /opt/*Gateway/*.ini /var/lib/mmdvm/* /var/lib/dvswitch/* 2>/dev/null`; `ls -ld /opt/Analog_Bridge /opt/MMDVM_Bridge` |
+| Unit details and dependencies | restart order, PrivateTmp, `update-config.sh` | `systemctl cat analog_bridge mmdvm_bridge ysfgateway p25gateway nxdngateway`; `systemctl list-dependencies analog_bridge mmdvm_bridge`; `systemctl list-unit-files \| grep -i -E 'analog\|mmdvm\|gateway\|md380\|dvswitch'`; `cat /usr/local/sbin/update-config.sh` |
+| Gateway ini keys | allowlist for P25/NXDN | `grep -n -E '^\[\|^(Callsign\|Id\|Suffix\|Startup\|HostsFile1)\s*=' /opt/YSFGateway/YSFGateway.ini /opt/P25Gateway/P25Gateway.ini /opt/NXDNGateway/NXDNGateway.ini` (replace the callsign and ID values in the output) |
+| MMDVM_Bridge keys | allowlist, password character rules | `grep -n -E '^\[\|^(Callsign\|Id\|Enable\|Address\|Port\|Local\|Options\|Duplex)\s*=' /opt/MMDVM_Bridge/MMDVM_Bridge.ini` (this pattern deliberately excludes `Password`; test special characters on a spare setup, not by posting values) |
+| Host and TG file formats | picker parsers | `ls -l /var/lib/mmdvm/`; `head -n 4 /var/lib/mmdvm/YSFHosts.txt /var/lib/mmdvm/P25Hosts.txt /var/lib/mmdvm/NXDNHosts.txt /var/lib/mmdvm/TGList_BM.txt 2>&1`; `wc -l /var/lib/mmdvm/*Hosts.txt` |
+| Bridge node stanza and `duplex` | M2 defaults | `awk '/^\[1999\]/,/^\[[^1]/' /etc/asterisk/rpt.conf \| grep -v -i -E 'pass\|secret'` (use your bridge node's number); `grep -n usrp /etc/asterisk/modules.conf`; `asterisk -rx 'module show like usrp'`; the stock `[node-main]` comment recommends `duplex = 0` for external controllers, check what works with real traffic |
+| Inherited template keys on a bridge | which keys to unset | `asterisk -rx 'rpt show variables 1999' 2>&1 \| head -40` and compare `idrecording`, `idtalkover`, `tailmessagetime` against the stock `[node-main]` |
+| Licence | whether ASLCP may even mention/offer the install | `dpkg -S /opt/Analog_Bridge/Analog_Bridge /opt/MMDVM_Bridge/MMDVM_Bridge`; then `ls /usr/share/doc/<package>/` and `head -n 60 /usr/share/doc/<package>/copyright` for each owning package |
+| Services after a fresh install | "Not configured" state | `systemctl is-enabled analog_bridge mmdvm_bridge; systemctl is-active analog_bridge mmdvm_bridge; journalctl -u analog_bridge -n 20 --no-pager \| sed -E 's/[0-9]{7,9}/1234567/g'` (exit 252/253/254 meanings) |
+
+## Open questions
+
+1. **Permanent link and manual disconnect.** When an operator disconnects the permanent bridge link from the dashboard, should ASLCP pause its maintenance until setup is saved or Asterisk restarts (recommended, matches the schedules manual-action behaviour), or always restore the link within a minute?
+2. **Startup values.** Analog_Bridge resets to the ini mode/TG on restart. Recommended: explicit "Use current mode and talkgroup as startup" button only. Alternative: ASLCP writes the ini on every tune (wears the SD card, surprises people editing the file by hand).
+3. **Sandbox change if option A fails.** If `/proc/<pid>/root` is not readable from the helper's sandbox, accept `PrivateTmp=no` on `aslcp-helper.service` (option B) or give up live state and ship option D only?
+4. **Installer trust.** Replicate the apt source and pinned key as fixed helper content after review (recommended), or run DVSwitch's remote script as root as the community does (plain HTTP, content can change at any time)?
+5. **Backups.** Include the DVSwitch inis (BrandMeister/TGIF password) in the existing unencrypted backup like every other secret (recommended, consistent), or make the part opt-in and off by default?
+6. **Unsupported platforms.** If the repo has no armhf or trixie build, hide Install and show a pointer (recommended), or show it and let the apt error speak?
