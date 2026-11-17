@@ -7,7 +7,7 @@ Maintainer: ASLCP <noreply@users.noreply.github.com>
 Installed-Size: 20577
 Depends: systemd, adduser, git
 Recommends: asl3
-Filename: pool/beta/a/aslcp/aslcp_1.1.20_amd64.deb
+Filename: pool/main/a/aslcp/aslcp_1.1.20_amd64.deb
 Size: 8331960
 MD5sum: 987d518c5395bc8a79c1c690b16e66b1
 SHA1: 1bb9dbd282170470e0e75ed5e2c18b1bc000dbb3
