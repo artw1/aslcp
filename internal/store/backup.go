@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+
+	"github.com/artw1/aslcp/internal/schedules"
 )
 
 // SchemaVersion is the schema version of this build.
@@ -39,6 +41,7 @@ type Inspection struct {
 	Version   int
 	Users     []InspectedUser
 	Favorites int
+	Schedules int
 }
 
 // ErrSchemaNewer means the database file has a newer schema than this build.
@@ -96,14 +99,26 @@ func Inspect(path string) (Inspection, error) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM favorites`).Scan(&in.Favorites); err != nil {
 		return in, fmt.Errorf("not an ASLCP database: %w", err)
 	}
+	// The schedules table exists from migration 4; older backups have none.
+	if in.Version >= 4 {
+		if err := db.QueryRow(`SELECT COUNT(*) FROM schedules`).Scan(&in.Schedules); err != nil {
+			return in, fmt.Errorf("not an ASLCP database: %w", err)
+		}
+	}
 	return in, nil
 }
 
 // MigrateFile opens the database file at path (migrating it forward),
 // optionally appends an audit entry, and closes it cleanly (WAL merged).
+// It also removes the schedules.state setting (a running-window record), so
+// a restored database never acts on a window of the backed-up node.
 func MigrateFile(path string, audit *Audit) error {
 	s, err := Open(path)
 	if err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`DELETE FROM settings WHERE k=?`, schedules.KeyState); err != nil {
+		s.Close()
 		return err
 	}
 	if audit != nil {

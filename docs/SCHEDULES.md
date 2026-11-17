@@ -47,6 +47,7 @@ DST: a start time that does not exist on a given day (spring forward gap) runs a
 
 - Table `schedules` (migration 4): `id INTEGER PRIMARY KEY, name TEXT, enabled INTEGER, node TEXT, target TEXT, action TEXT, mode TEXT, permanent INTEGER, exclusive INTEGER, days TEXT` (comma-separated, `""` for once), `date TEXT, start TEXT, end_time TEXT, last_run INTEGER` (unix, 0 = never), `last_result TEXT, created INTEGER, updated INTEGER`.
 - Settings keys: `schedules.enabled` (`true`/`false`), `schedules.paused_reason`, `schedules.paused_at` (RFC3339), `schedules.state` (JSON list of occurrences: `{id, start, end, status}` with `status` `connected` | `cancelled`, `start`/`end` RFC3339). Entries are removed once their end has passed (after any disconnect).
+- Backups include schedules (the whole ASLCP database); a restore drops `schedules.state`, so a window running at backup time is not acted on.
 
 ## Engine (`internal/schedules`)
 

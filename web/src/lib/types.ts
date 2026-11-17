@@ -112,6 +112,7 @@ export interface RestorePreview {
   files: { path: string; action: RestoreAction; note?: string }[];
   users: { username: string; role: string }[];
   favorites: number;
+  schedules: number;
   missingPackages: string[];
   installCommand: string;
   checklist: { item: string; value: string }[];

@@ -8,7 +8,7 @@ Goal: download one file from a working node, re-image the SD card with a fresh A
 |---|---|---|---|
 | Asterisk configuration | all of `/etc/asterisk` (every file and subdirectory, not only `*.conf`: `allmon.ini.php`, `extensions.ael`, `custom/`, `broadcastify/`, ...) | always | Owner, group and mode are kept as names plus mode. Each file is also classified as stock or changed (see "Restoring onto a newer ASL3"). |
 | AstDB | `/var/lib/asterisk/astdb.sqlite3` (confirmed on ASL3, asterisk:asterisk 0644, ~12 KB) | always | Allow/deny lists and other state `app_rpt` keeps in AstDB. Copied consistently (SQLite backup API, read-only) while Asterisk runs. |
-| ASLCP database | `/var/lib/aslcp/aslcp.db` | always | Users (password hashes), roles, favorites, settings, public page, audit log. Snapshot with `VACUUM INTO`. Sessions are not restored (everyone logs in again). |
+| ASLCP database | `/var/lib/aslcp/aslcp.db` | always | Users (password hashes), roles, favorites, schedules, settings, public page, audit log. Snapshot with `VACUUM INTO`. Sessions are not restored (everyone logs in again). |
 | ASLCP config file | `/etc/aslcp/aslcp.conf` | always | Port, AMI settings, update URL. |
 | Config history | `/var/lib/aslcp-config-history` | on | The git history of config changes, so history and Restore keep working after the re-image. Can be unticked to make the file smaller. |
 | Other AMI clients | `/etc/allmon3/` if present | on when present | Allmon3 config (it shares the AMI login). |
@@ -87,7 +87,7 @@ Later (not in beta.3): scheduled automatic backups kept on the node (last N) and
 2. **Preview.** The page shows:
    - Node numbers, hostname, creation date and ASLCP version of the backup.
    - `/etc/asterisk`: per file what will happen (restored, kept as the new stock version, restored with a `.dpkg-dist` beside it, kept because it is new), following the rules in "Restoring onto a newer ASL3".
-   - ASLCP: the users that will exist after the restore (you will log in with your old password), number of favorites.
+   - ASLCP: the users that will exist after the restore (you will log in with your old password), number of favorites and of schedules. A schedule window that was running when the backup was taken is not acted on after the restore (the `schedules.state` setting is dropped).
    - Packages present in the backup but missing now (for example `allmon3`), with the `apt install` command to run.
    - The "set up separately" checklist (network, hostname, timezone, ...).
 3. **Apply** (helper op `backup-restore`, the server streams the checked archive back to the helper; nothing outside the fixed destinations can be written):

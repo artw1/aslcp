@@ -101,6 +101,7 @@ type Preview struct {
 	Files           []File          `json:"files"`
 	Users           []User          `json:"users"`
 	Favorites       int             `json:"favorites"`
+	Schedules       int             `json:"schedules"`
 	MissingPackages []string        `json:"missingPackages"`
 	InstallCommand  string          `json:"installCommand"`
 	Checklist       []ChecklistItem `json:"checklist"`
@@ -314,6 +315,7 @@ func (s *Service) preview(m *backup.Manifest, plan helper.RestoreResult, insp st
 			OSID: plan.OSID, OSCodename: backup.ReleaseOf(plan.OSCodename, plan.ASL3Version, plan.AsteriskVersion), OSName: plan.OSName},
 		Warnings: []Warning{}, Files: []File{}, Users: []User{}, MissingPackages: []string{}, Checklist: []ChecklistItem{},
 		Favorites: insp.Favorites,
+		Schedules: insp.Schedules,
 		Parts:     PartsPresent{History: m.Parts.History, Allmon3: m.Parts.Allmon3, Sounds: len(m.Parts.Sounds) > 0, SA818: m.Parts.SA818},
 	}
 	offered := map[string]bool{}

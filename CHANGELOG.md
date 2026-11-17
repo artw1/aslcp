@@ -6,6 +6,7 @@ Release notes are taken from the section of the tag being released
 ## [1.1.21] - Unreleased
 
 ### Added
+- Backups include schedules; the restore page shows how many; a window running at backup time is not acted on after a restore.
 - Schedules: scheduled connects and disconnects, for example a weekly net. New Schedules tab (`#/schedules`, visible to all roles, editing for operators and admins) and a one-line dashboard card between the connect bar and the favorites with the on/off switch, the next event with a countdown ("Running: ... until 20:30" during a window) and the pause reason.
 - A schedule has a local node, a target, an action (connect or disconnect), the mode, "permanent" and "disconnect others first" like the manual Connect, weekly days or a single date, a start time and, for connects, an optional end time: the link is disconnected at the end (also when it was already linked at the start); an end before the start crosses midnight. A one-off schedule switches itself off after its last event.
 - Times are node time (the time zone of the machine, DST included; a time skipped by the clock change runs at the first valid minute). The Schedules tab shows the zone name and notes it when the browser is in another zone.

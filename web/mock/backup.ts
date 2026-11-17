@@ -32,6 +32,7 @@ const preview = () => ({
   files,
   users: [{ username: 'admin', role: 'admin' }, { username: 'op', role: 'operator' }, { username: 'guest', role: 'viewer' }],
   favorites: 5,
+  schedules: 2,
   missingPackages: ['allmon3', 'asl3-tts'],
   installCommand: 'sudo apt install allmon3 asl3-tts',
   checklist: [
