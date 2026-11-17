@@ -22,7 +22,7 @@ type demoDVCfg struct {
 func newDemoDVCfg() *demoDVCfg {
 	return &demoDVCfg{
 		set:      true,
-		identity: DVIdentityView{Callsign: "N0CALL", DMRID: "1234567", ESSID: "01", Consistent: true},
+		identity: DVIdentityView{Callsign: "N0CALL", DMRID: "1234567", ESSID: "01", NXDNID: "12346", Consistent: true},
 		dmr:      DVDMRView{Address: "192.0.2.10", Port: 62031},
 		modes:    DVModesView{DMR: true, YSF: true},
 		startup:  DVStartupView{AmbeMode: "DMR", TxTg: "9", TxTs: 2, ColorCode: 1},
@@ -58,6 +58,7 @@ func (d *DemoDVSwitch) setup() DVSwitchSetup {
 	v := DVSwitchSetup{Identity: c.identity, DMR: c.dmr, Modes: c.modes, Startup: c.startup, Gateways: c.gw,
 		USRP: DVUSRPView{Address: "127.0.0.1", RxPort: 34001, TxPort: 32001}, Files: []DVFileView{}}
 	v.DMR.PasswordSet = c.set
+	v.Warnings = dvWarnings(v.Modes, v.Identity)
 	for i, id := range DVFileIDs() {
 		v.Files = append(v.Files, DVFileView{ID: id, Present: d.installed, Writable: d.installed,
 			SHA256: "demo" + strconv.Itoa(i) + "-" + strconv.Itoa(c.times), History: c.hist[id]})
@@ -108,8 +109,15 @@ func (d *DemoDVSwitch) DVSwitchIdentity(_ context.Context, r DVSwitchRequest) (D
 	if !reDVESSID.MatchString(id.ESSID) {
 		return DVApplyResult{}, dvInvalid("identity/essid")
 	}
+	if id.NXDNID != "" && !vNXDNID(id.NXDNID) {
+		return DVApplyResult{}, dvInvalid("identity/nxdnId")
+	}
 	return d.demoWrite(DVFileIDs(), []string{"analog_bridge", "mmdvm_bridge", "ysfgateway", "p25gateway", "nxdngateway"}, func(c *demoDVCfg) error {
-		c.identity = DVIdentityView{Callsign: id.Callsign, DMRID: id.DMRID, ESSID: id.ESSID, Consistent: true}
+		nx := c.identity.NXDNID
+		if id.NXDNID != "" {
+			nx = id.NXDNID
+		}
+		c.identity = DVIdentityView{Callsign: id.Callsign, DMRID: id.DMRID, ESSID: id.ESSID, NXDNID: nx, Consistent: true}
 		return nil
 	})
 }
@@ -183,7 +191,7 @@ func (d *DemoDVSwitch) DVSwitchStartup(_ context.Context, r DVSwitchRequest) (DV
 	for _, g := range []struct {
 		v  *string
 		re func(string) bool
-	}{{s.YSF, vOrEmpty(reDVTune)}, {s.P25, vOrEmpty(reDVRefl)}, {s.NXDN, vOrEmpty(reDVRefl)}} {
+	}{{s.YSF, func(x string) bool { return x == "" || vYSFStartup(x) }}, {s.P25, vOrEmpty(reDVRefl)}, {s.NXDN, vOrEmpty(reDVRefl)}} {
 		if g.v != nil && !g.re(*g.v) {
 			return DVApplyResult{}, dvInvalid("Network/Startup")
 		}

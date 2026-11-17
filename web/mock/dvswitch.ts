@@ -40,7 +40,7 @@ function status() {
 const FILES = ['analog_bridge', 'mmdvm_bridge', 'ysfgateway', 'p25gateway', 'nxdngateway'];
 const UNIT_OF: Record<string, string> = { analog_bridge: 'analog_bridge', mmdvm_bridge: 'mmdvm_bridge', ysfgateway: 'ysfgateway', p25gateway: 'p25gateway', nxdngateway: 'nxdngateway' };
 const cfg = {
-  identity: { callsign: 'N0CALL', dmrId: '1234567', essid: '01', consistent: true },
+  identity: { callsign: 'N0CALL', dmrId: '1234567', essid: '01', nxdnId: '12346', consistent: true },
   dmr: { address: '192.0.2.10', port: 62031, passwordSet: false },
   usrp: { address: '127.0.0.1', rxPort: 34001, txPort: 32001 },
   modes: { dmr: true, ysf: false, p25: false, nxdn: false },
@@ -52,6 +52,7 @@ const hash = (id: string) => `mock${id.length}${(rev[id] ?? 0).toString(16).padS
 function setup(extra: Record<string, unknown> = {}) {
   return {
     ...JSON.parse(JSON.stringify(cfg)),
+    warnings: cfg.modes.nxdn && !cfg.identity.nxdnId ? ['NXDN needs your NXDN ID from radioid.net'] : [],
     files: FILES.map((id) => ({ id, present: installed, writable: installed, sha256: installed ? hash(id) : '', history: hist[id] ?? 0 })),
     current: { found: installed, version: '1.6.4', mode: cfg.startup.ambeMode, tg: cfg.startup.txTg, slot: String(cfg.startup.txTs), colorCode: String(cfg.startup.colorCode), tune: '', mute: 'OFF', gatewayId: cfg.identity.dmrId, repeaterId: cfg.identity.dmrId + cfg.identity.essid, updated: new Date().toISOString() },
     ...extra,
@@ -70,11 +71,12 @@ function write(c: DVCtx, body: Body): boolean {
   if (stale(touched, base)) { c.err(409, 'a file changed on disk since it was read: reload and try again', 'conflict'); return true; }
   const done = (files: string[], hint: string[]) => { touch(files); c.json(200, setup({ changed: files, skipped: [], restartHint: hint })); };
   if (c.p === '/dvswitch/identity') {
-    const { callsign, dmrId, essid } = body as { callsign: string; dmrId: string; essid: string };
+    const { callsign, dmrId, essid, nxdnId } = body as { callsign: string; dmrId: string; essid: string; nxdnId?: string };
     if (!/^[A-Z0-9/]{3,10}$/.test(callsign ?? '')) return bad(c, 'identity/callsign'), true;
     if (!/^[0-9]{7}$/.test(dmrId ?? '')) return bad(c, 'identity/dmrId'), true;
     if (!/^[0-9]{2}$/.test(essid ?? '')) return bad(c, 'identity/essid'), true;
-    cfg.identity = { callsign, dmrId, essid, consistent: true };
+    if (nxdnId) { const n = Number(nxdnId); if (!/^[0-9]{1,5}$/.test(nxdnId) || nxdnId[0] === '0' || n > 65519) return bad(c, 'identity/nxdnId'), true; }
+    cfg.identity = { callsign, dmrId, essid, nxdnId: nxdnId || (cfg.identity.nxdnId === '12345' ? '' : cfg.identity.nxdnId), consistent: true };
     done(FILES, FILES.map((f) => UNIT_OF[f]));
   } else if (c.p === '/dvswitch/credentials') {
     const { dmrAddress, dmrPort, dmrPassword } = body as { dmrAddress?: string; dmrPort?: number; dmrPassword?: string };

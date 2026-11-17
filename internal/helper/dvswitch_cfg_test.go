@@ -177,7 +177,7 @@ func TestDVValidationNeverEchoes(t *testing.T) {
 		}
 	}
 	for _, s := range []DVStartup{{AmbeMode: sp("DSTAR")}, {TxTg: sp("123456789")}, {TxTs: ip(3)}, {ColorCode: ip(16)},
-		{YSF: sp("a b")}, {P25: sp("abc")}, {NXDN: sp("123456")}, {}} {
+		{YSF: sp(" ab")}, {YSF: sp("a;b")}, {P25: sp("abc")}, {NXDN: sp("123456")}, {}} {
 		s := s
 		if _, err := o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &s}); !errors.Is(err, ErrDVInvalid) {
 			t.Errorf("%+v: %v", s, err)
@@ -595,5 +595,94 @@ func TestDemoDVSwitchCfg(t *testing.T) {
 	}
 	if r, err := d.DVSwitchRestart(ctx, DVSwitchRequest{Scope: "gateways"}); err != nil || len(r.Units) != 3 {
 		t.Fatalf("%+v %v", r, err)
+	}
+}
+
+func TestDVNXDNID(t *testing.T) {
+	o, _ := cfgOps(t)
+	ctx := context.Background()
+	v, _ := o.DVSwitchSetup(ctx)
+	if v.Identity.NXDNID != "" {
+		t.Fatalf("stock 12345 must read as not set: %q", v.Identity.NXDNID)
+	}
+	if len(v.Warnings) != 0 {
+		t.Fatalf("NXDN disabled, no warning expected: %v", v.Warnings)
+	}
+	// NXDN on without an ID: warning, nothing blocked
+	if _, err := o.DVSwitchModes(ctx, &DVSwitchRequest{Modes: &DVModes{NXDN: bp(true)}}); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ = o.DVSwitchSetup(ctx); !v.Modes.NXDN || len(v.Warnings) != 1 || v.Warnings[0] != DVNXDNWarning {
+		t.Fatalf("%+v %v", v.Modes, v.Warnings)
+	}
+	before := readDV(t, o, DVFileMMDVMBridge)
+	// empty NXDN ID leaves the file value alone
+	if _, err := o.DVSwitchIdentity(ctx, &DVSwitchRequest{Identity: &DVIdentity{Callsign: "N0CALL", DMRID: "1234567", ESSID: "01"}}); err != nil {
+		t.Fatal(err)
+	}
+	if after := readDV(t, o, DVFileMMDVMBridge); !strings.Contains(after, "[NXDN]\nEnable=1\nRAN=1\nId=12345\n") || lineDiff(before, after) > 1 {
+		t.Fatalf("NXDN section changed:\n%s", after)
+	}
+	// a valid ID is written to [NXDN] Id only, with a history copy
+	before = readDV(t, o, DVFileMMDVMBridge)
+	if _, err := o.DVSwitchIdentity(ctx, &DVSwitchRequest{Identity: &DVIdentity{Callsign: "N0CALL", DMRID: "1234567", ESSID: "01", NXDNID: "65519"}}); err != nil {
+		t.Fatal(err)
+	}
+	after := readDV(t, o, DVFileMMDVMBridge)
+	if !strings.Contains(after, "[NXDN]\nEnable=1\nRAN=1\nId=65519\n") || lineDiff(before, after) != 1 {
+		t.Fatalf("NXDN Id not written:\n%s", after)
+	}
+	if !strings.Contains(after, "Id=123456701") {
+		t.Error("General Id lost")
+	}
+	v, _ = o.DVSwitchSetup(ctx)
+	if v.Identity.NXDNID != "65519" || len(v.Warnings) != 0 {
+		t.Fatalf("%+v %v", v.Identity, v.Warnings)
+	}
+	// invalid values: refused, nothing written, value not echoed
+	snap := readDV(t, o, DVFileMMDVMBridge)
+	for _, bad := range []string{"0", "00012", "012345", "65520", "99999", "100000", "-5", "+5", "1.5", "12 3", "abc", "１２３", "1234567890123456789012"} {
+		_, err := o.DVSwitchIdentity(ctx, &DVSwitchRequest{Identity: &DVIdentity{Callsign: "N0CALL", DMRID: "1234567", ESSID: "01", NXDNID: bad}})
+		if !errors.Is(err, ErrDVInvalid) || strings.Contains(err.Error(), bad) {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+	if readDV(t, o, DVFileMMDVMBridge) != snap {
+		t.Error("file changed by a refused request")
+	}
+	for _, ok := range []string{"1", "12345", "65519"} {
+		if !vNXDNID(ok) {
+			t.Errorf("%q refused", ok)
+		}
+	}
+}
+
+func TestDVYSFStartupValidator(t *testing.T) {
+	good := []string{"12345", "00001", "US-Example", "Example Reflector 1", "a", strings.Repeat("x", 32), "Ünï Test", "FCS00120"}
+	bad := []string{"", " lead", "trail ", "a;b", "a#b", "a=b", "tab\there", "new\nline", "nul\x00", strings.Repeat("x", 33), "bad\xffutf"}
+	for _, s := range good {
+		if !vYSFStartup(s) {
+			t.Errorf("%q refused", s)
+		}
+	}
+	for _, s := range bad {
+		if vYSFStartup(s) {
+			t.Errorf("%q accepted", s)
+		}
+	}
+	// reDVTune is unchanged: still no spaces
+	if reDVTune.MatchString("a b") || !reDVTune.MatchString("US-Example") {
+		t.Error("reDVTune changed")
+	}
+	o, _ := cfgOps(t)
+	ctx := context.Background()
+	if _, err := o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &DVStartup{YSF: sp("Example Reflector 1")}}); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := o.DVSwitchSetup(ctx); v.Gateways.YSF.Startup != "Example Reflector 1" {
+		t.Fatalf("%+v", v.Gateways.YSF)
+	}
+	if _, err := o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &DVStartup{YSF: sp("a;b")}}); !errors.Is(err, ErrDVInvalid) {
+		t.Fatal(err)
 	}
 }

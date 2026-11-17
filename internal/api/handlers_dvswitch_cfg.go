@@ -74,14 +74,15 @@ func (s *Server) handleDVSwitchIdentity(w http.ResponseWriter, r *http.Request, 
 		Callsign string            `json:"callsign"`
 		DMRID    string            `json:"dmrId"`
 		ESSID    string            `json:"essid"`
+		NXDNID   string            `json:"nxdnId"`
 		Base     map[string]string `json:"base"`
 	}
 	if !decode(w, r, &b, false) {
 		return
 	}
-	s.dvWrite(w, r, u, "dvswitch.identity", []string{"callsign", "dmrId", "essid"}, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
+	s.dvWrite(w, r, u, "dvswitch.identity", []string{"callsign", "dmrId", "essid", "nxdnId"}, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
 		return s.d.DVSwitch.DVSwitchIdentity(r.Context(), helper.DVSwitchRequest{Base: b.Base, Author: u.Username,
-			Identity: &helper.DVIdentity{Callsign: b.Callsign, DMRID: b.DMRID, ESSID: b.ESSID}})
+			Identity: &helper.DVIdentity{Callsign: b.Callsign, DMRID: b.DMRID, ESSID: b.ESSID, NXDNID: b.NXDNID}})
 	})
 }
 

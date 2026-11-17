@@ -212,6 +212,31 @@ func TestDVSwitchPasswordNeverEchoed(t *testing.T) {
 	}
 }
 
+func TestDVSwitchIdentityNXDNID(t *testing.T) {
+	f := &fakeDV{}
+	e := newEnv(t, opts{dvswitch: f})
+	body := map[string]any{"callsign": "N0CALL", "dmrId": "1234567", "essid": "01", "nxdnId": "12346"}
+	if code, raw, _ := e.raw("PUT", "/api/dvswitch/identity", body, e.ck["admin"], nil); code != 200 {
+		t.Fatalf("%d %s", code, raw)
+	}
+	if f.last.Identity == nil || f.last.Identity.NXDNID != "12346" {
+		t.Fatalf("%+v", f.last.Identity)
+	}
+	delete(body, "nxdnId")
+	e.raw("PUT", "/api/dvswitch/identity", body, e.ck["admin"], nil)
+	if f.last.Identity == nil || f.last.Identity.NXDNID != "" {
+		t.Fatalf("%+v", f.last.Identity)
+	}
+	aud, _ := e.st.ListAudit(50)
+	found := false
+	for _, a := range aud {
+		found = found || a.Action == "dvswitch.identity" && strings.Contains(a.Detail, "nxdnId") && !strings.Contains(a.Detail, "12346")
+	}
+	if !found {
+		t.Error("audit lacks the key name")
+	}
+}
+
 func TestDVSwitchCfgErrors(t *testing.T) {
 	cases := []struct {
 		err    error

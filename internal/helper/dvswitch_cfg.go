@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/artw1/aslcp/internal/dvswitch/ini"
 )
@@ -28,7 +30,7 @@ import (
 const (
 	OpDVSwitchSetup       = "dvswitch-setup"       // read-only view of the editable values
 	OpDVSwitchInfo        = "dvswitch-info"        // parsed ABInfo (read-only)
-	OpDVSwitchIdentity    = "dvswitch-identity"    // callsign, DMR ID, ESSID everywhere
+	OpDVSwitchIdentity    = "dvswitch-identity"    // callsign, DMR ID, ESSID everywhere, optional NXDN ID
 	OpDVSwitchCredentials = "dvswitch-credentials" // DMR master address, port, password
 	OpDVSwitchModes       = "dvswitch-modes"       // enable flags
 	OpDVSwitchStartup     = "dvswitch-startup"     // ambeMode/txTg/txTs/colorCode, gateway Startup
@@ -117,7 +119,34 @@ var (
 	reDVTG      = regexp.MustCompile(`^[0-9]{1,8}$`)
 	reDVRefl    = regexp.MustCompile(`^[0-9]{1,5}$`)
 	reDVTune    = regexp.MustCompile(`^[A-Za-z0-9.:_-]{1,64}$`)
+	reDVYSFID   = regexp.MustCompile(`^[0-9]{5}$`)
 )
+
+// dvStockNXDNID is the stock [NXDN] Id of MMDVM_Bridge.ini: it counts as "not set".
+const dvStockNXDNID = "12345"
+
+// vNXDNID: digits only, 1-65519 (16-bit; 65520 and above are reserved), no
+// leading zeros.
+var vNXDNID = vInt(1, 65519)
+
+// vYSFStartup: the YSFGateway Startup value, a 5-digit reflector id or a
+// reflector name as in YSFHosts.txt: 1-32 printable characters, inner spaces
+// allowed, no ; # = (ini comment and assignment characters), no control
+// characters, no leading or trailing space.
+func vYSFStartup(s string) bool {
+	if reDVYSFID.MatchString(s) {
+		return true
+	}
+	if s == "" || s != strings.TrimSpace(s) || utf8.RuneCountInString(s) > 32 {
+		return false
+	}
+	for _, r := range s {
+		if r == utf8.RuneError || !unicode.IsPrint(r) || r == ';' || r == '#' || r == '=' {
+			return false
+		}
+	}
+	return true
+}
 
 // dvAmbeModes are the values Analog_Bridge.ini accepts for ambeMode in v1
 // (its own comment lists DMR, DMR_IPSC, DSTAR, NXDN, P25, YSFN, YSFW).
@@ -166,12 +195,13 @@ var dvAllow = func() map[dvKey]func(string) bool {
 
 		{DVFileMMDVMBridge, "General", "Callsign"}:     vMatch(reDVCall),
 		{DVFileMMDVMBridge, "General", "Id"}:           vMatch(reDVDigits9),
+		{DVFileMMDVMBridge, "NXDN", "Id"}:              vNXDNID,
 		{DVFileMMDVMBridge, "DMR Network", "Address"}:  vMatch(reDVHost),
 		{DVFileMMDVMBridge, "DMR Network", "Port"}:     vInt(1, 65535),
 		{DVFileMMDVMBridge, "DMR Network", "Password"}: vPassword,
 		{DVFileYSFGateway, "General", "Callsign"}:      vMatch(reDVCall),
 		{DVFileYSFGateway, "General", "Id"}:            vMatch(reDVDigits7),
-		{DVFileYSFGateway, "Network", "Startup"}:       vOrEmpty(reDVTune),
+		{DVFileYSFGateway, "Network", "Startup"}:       func(s string) bool { return s == "" || vYSFStartup(s) },
 		{DVFileP25Gateway, "General", "Callsign"}:      vMatch(reDVCall),
 		{DVFileP25Gateway, "Network", "Startup"}:       vOrEmpty(reDVRefl),
 		{DVFileNXDNGateway, "General", "Callsign"}:     vMatch(reDVCall),
@@ -205,11 +235,13 @@ type DVSwitchRequest struct {
 	Action string `json:"action,omitempty"`
 }
 
-// DVIdentity: callsign, 7-digit DMR ID, 2-digit ESSID.
+// DVIdentity: callsign, 7-digit DMR ID, 2-digit ESSID and the optional NXDN
+// ID (radioid.net, separate from the DMR ID; empty leaves the file alone).
 type DVIdentity struct {
 	Callsign string `json:"callsign"`
 	DMRID    string `json:"dmrId"`
 	ESSID    string `json:"essid"`
+	NXDNID   string `json:"nxdnId,omitempty"`
 }
 
 // DVCredentials: the DMR master. Nil fields are left alone. The password is
@@ -594,6 +626,9 @@ func (o *Ops) DVSwitchIdentity(ctx context.Context, req *DVSwitchRequest) (DVApp
 	if !reDVESSID.MatchString(id.ESSID) {
 		return DVApplyResult{}, dvInvalid("identity/essid")
 	}
+	if id.NXDNID != "" && !vNXDNID(id.NXDNID) {
+		return DVApplyResult{}, dvInvalid("identity/nxdnId")
+	}
 	full := id.DMRID + id.ESSID
 	ch := []dvChange{
 		{DVFileAnalogBridge, "AMBE_AUDIO", "gatewayDmrId", id.DMRID},
@@ -604,6 +639,9 @@ func (o *Ops) DVSwitchIdentity(ctx context.Context, req *DVSwitchRequest) (DVApp
 		{DVFileYSFGateway, "General", "Id", id.DMRID},
 		{DVFileP25Gateway, "General", "Callsign", id.Callsign},
 		{DVFileNXDNGateway, "General", "Callsign", id.Callsign},
+	}
+	if id.NXDNID != "" {
+		ch = append(ch, dvChange{DVFileMMDVMBridge, "NXDN", "Id", id.NXDNID})
 	}
 	return o.dvApply(ctx, ch, req.Base)
 }
@@ -808,6 +846,8 @@ type DVSwitchSetup struct {
 	Startup  DVStartupView  `json:"startup"`
 	Gateways DVGateways     `json:"gateways"`
 	Files    []DVFileView   `json:"files"`
+	// Warnings: non-blocking hints, e.g. NXDN enabled without an NXDN ID.
+	Warnings []string `json:"warnings"`
 }
 
 // DVIdentityView: Consistent is false when the places that hold the identity
@@ -816,6 +856,7 @@ type DVIdentityView struct {
 	Callsign   string `json:"callsign"`
 	DMRID      string `json:"dmrId"`
 	ESSID      string `json:"essid"`
+	NXDNID     string `json:"nxdnId"` // empty: not set (also the stock 12345)
 	Consistent bool   `json:"consistent"`
 }
 
@@ -927,7 +968,28 @@ func (o *Ops) DVSwitchSetup(ctx context.Context) (DVSwitchSetup, error) {
 		return DVGatewayView{Present: parsed[file] != nil, Startup: get(file, "Network", "Startup")}
 	}
 	v.Gateways = DVGateways{YSF: gw(DVFileYSFGateway), P25: gw(DVFileP25Gateway), NXDN: gw(DVFileNXDNGateway)}
+	v.Identity.NXDNID = dvNXDNIDView(get(DVFileMMDVMBridge, "NXDN", "Id"))
+	v.Warnings = dvWarnings(v.Modes, v.Identity)
 	return v, nil
+}
+
+// dvNXDNIDView reports the stock value and anything invalid as "not set".
+func dvNXDNIDView(id string) string {
+	if id == dvStockNXDNID || !vNXDNID(id) {
+		return ""
+	}
+	return id
+}
+
+// DVNXDNWarning is the setup-view warning for NXDN enabled without an ID.
+const DVNXDNWarning = "NXDN needs your NXDN ID from radioid.net"
+
+func dvWarnings(m DVModesView, id DVIdentityView) []string {
+	w := []string{}
+	if m.NXDN && id.NXDNID == "" {
+		w = append(w, DVNXDNWarning)
+	}
+	return w
 }
 
 var _ = time.Second

@@ -14,7 +14,7 @@
 
   let v = $state<DVSwitchSetup | null>(null), err = $state(''), busy = $state(false);
   let hint = $state<string[]>([]);
-  let id = $state({ callsign: '', dmrId: '', essid: '' });
+  let id = $state({ callsign: '', dmrId: '', essid: '', nxdnId: '' });
   let net = $state({ address: '', port: '', password: '' });
   let modes = $state({ dmr: false, ysf: false, p25: false, nxdn: false });
   let st = $state({ ambeMode: 'DMR', txTg: '', txTs: '2', colorCode: '1', ysf: '', p25: '', nxdn: '' });
@@ -23,7 +23,7 @@
 
   function fill(s: DVSwitchSetup) {
     v = s;
-    id = { callsign: s.identity.callsign, dmrId: s.identity.dmrId, essid: s.identity.essid };
+    id = { callsign: s.identity.callsign, dmrId: s.identity.dmrId, essid: s.identity.essid, nxdnId: s.identity.nxdnId ?? '' };
     net = { address: s.dmr.address, port: s.dmr.port ? String(s.dmr.port) : '', password: '' };
     modes = { ...s.modes };
     st = { ambeMode: s.startup.ambeMode || 'DMR', txTg: s.startup.txTg, txTs: String(s.startup.txTs || 2), colorCode: String(s.startup.colorCode), ysf: s.gateways.ysf.startup, p25: s.gateways.p25.startup, nxdn: s.gateways.nxdn.startup };
@@ -45,7 +45,7 @@
       else toastError(e);
     } finally { busy = false; }
   }
-  const saveIdentity = () => save('Identity', () => api.dvswitchIdentity({ ...id, base: base() }));
+  const saveIdentity = () => save('Identity', () => api.dvswitchIdentity({ ...id, nxdnId: id.nxdnId.trim() || undefined, base: base() }));
   function saveNet() {
     const b: { dmrAddress?: string; dmrPort?: number; dmrPassword?: string; base: Record<string, string> } = { base: base() };
     if (net.address !== v?.dmr.address) b.dmrAddress = net.address;
@@ -87,11 +87,13 @@
   <div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
     <section class="card space-y-3 p-4" aria-label="Identity and network">
       <h2 class="text-base font-semibold">Identity and network</h2>
+      {#each v.warnings ?? [] as w}<p class="text-xs text-warn" role="status">{w}</p>{/each}
       {#if !v.identity.consistent}<p class="text-xs text-warn" role="status">The identity differs between the ini files (edited by hand?). Saving writes it to all of them.</p>{/if}
       <form class="grid grid-cols-1 gap-2 sm:grid-cols-3" onsubmit={(e) => { e.preventDefault(); saveIdentity(); }}>
         <div><label class="label" for="dv-call">Callsign</label><input id="dv-call" class="input font-mono" bind:value={id.callsign} maxlength="10" autocapitalize="characters" /></div>
         <div><label class="label" for="dv-id">DMR ID</label><input id="dv-id" class="input font-mono" bind:value={id.dmrId} inputmode="numeric" maxlength="7" placeholder="1234567" /></div>
         <div><label class="label" for="dv-essid">ESSID</label><input id="dv-essid" class="input font-mono" bind:value={id.essid} inputmode="numeric" maxlength="2" placeholder="01" /></div>
+        <div class="sm:col-span-3"><label class="label" for="dv-nxdnid">NXDN ID</label><input id="dv-nxdnid" class="input font-mono sm:w-40" bind:value={id.nxdnId} inputmode="numeric" maxlength="5" placeholder="12345" aria-describedby="dv-nxdnid-hint" /><p id="dv-nxdnid-hint" class="mt-1 text-xs text-muted">from radioid.net, separate from the DMR ID</p></div>
         <div class="sm:col-span-3"><button class="btn btn-primary" disabled={busy}>Save identity</button><span class="ml-2 text-xs text-muted">Written to every place that holds it.</span></div>
       </form>
       <form class="grid grid-cols-1 gap-2 border-t border-line pt-3 sm:grid-cols-3" onsubmit={(e) => { e.preventDefault(); saveNet(); }}>
@@ -122,7 +124,7 @@
         <div><label class="label" for="dv-tg">Talkgroup</label><input id="dv-tg" class="input font-mono" bind:value={st.txTg} inputmode="numeric" maxlength="8" /></div>
         <div><label class="label" for="dv-ts">Slot</label><select id="dv-ts" class="input" bind:value={st.txTs}><option value="1">1</option><option value="2">2</option></select></div>
         <div><label class="label" for="dv-cc">Color code</label><input id="dv-cc" class="input font-mono" bind:value={st.colorCode} inputmode="numeric" maxlength="2" /></div>
-        {#if v.gateways.ysf.present}<div class="col-span-2"><label class="label" for="dv-ysf">YSF reflector</label><input id="dv-ysf" class="input font-mono" bind:value={st.ysf} /></div>{/if}
+        {#if v.gateways.ysf.present}<div class="col-span-2"><label class="label" for="dv-ysf">YSF reflector</label><input id="dv-ysf" class="input font-mono" bind:value={st.ysf} maxlength="32" aria-describedby="dv-ysf-hint" /><p id="dv-ysf-hint" class="mt-1 text-xs text-muted">reflector ID (5 digits, e.g. 12345) or name exactly as in YSFHosts.txt</p></div>{/if}
         {#if v.gateways.p25.present}<div><label class="label" for="dv-p25">P25 reflector</label><input id="dv-p25" class="input font-mono" bind:value={st.p25} inputmode="numeric" maxlength="5" /></div>{/if}
         {#if v.gateways.nxdn.present}<div><label class="label" for="dv-nxdn">NXDN reflector</label><input id="dv-nxdn" class="input font-mono" bind:value={st.nxdn} inputmode="numeric" maxlength="5" /></div>{/if}
         <div class="col-span-2 flex flex-wrap items-center gap-2 sm:col-span-4">

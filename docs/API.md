@@ -363,7 +363,7 @@ Design: docs/DVSWITCH.md (M4). All endpoints are admin only (`403 forbidden` oth
 | Method | Path | Body | Response / errors |
 |---|---|---|---|
 | GET | `/api/dvswitch/setup` | | `200` Setup |
-| PUT | `/api/dvswitch/identity` | `{"callsign","dmrId","essid","base"?}` | `200` Setup |
+| PUT | `/api/dvswitch/identity` | `{"callsign","dmrId","essid","nxdnId"?,"base"?}` (`nxdnId`: digits, 1-65519, no leading zeros; omitted or empty leaves the NXDN ID alone) | `200` Setup |
 | PUT | `/api/dvswitch/credentials` | `{"dmrAddress"?,"dmrPort"?,"dmrPassword"?,"base"?}` | `200` Setup |
 | PUT | `/api/dvswitch/modes` | `{"dmr"?,"ysf"?,"p25"?,"nxdn"?,"base"?}` (booleans) | `200` Setup |
 | PUT | `/api/dvswitch/startup` | `{"useCurrent":true}` or `{"ambeMode"?,"txTg"?,"txTs"?,"colorCode"?,"ysf"?,"p25"?,"nxdn"?,"base"?}` | `200` Setup |
@@ -374,12 +374,13 @@ Errors of the writes: `400 invalid_field` (message names `file/section/key` or t
 
 ```json
 Setup = {
-  "identity": { "callsign": "N0CALL", "dmrId": "1234567", "essid": "01", "consistent": true },
+  "identity": { "callsign": "N0CALL", "dmrId": "1234567", "essid": "01", "nxdnId": "12346", "consistent": true },   // nxdnId "" = not set (also the stock 12345)
   "dmr": { "address": "192.0.2.10", "port": 62031, "passwordSet": true },
   "usrp": { "address": "127.0.0.1", "rxPort": 34001, "txPort": 32001 },
   "modes": { "dmr": true, "ysf": false, "p25": false, "nxdn": false },
   "startup": { "ambeMode": "DMR", "txTg": "9", "txTs": 2, "colorCode": 1 },
   "gateways": { "ysf": { "present": true, "startup": "" }, "p25": { "present": true, "startup": "" }, "nxdn": { "present": true, "startup": "" } },
+  "warnings": [],   // e.g. ["NXDN needs your NXDN ID from radioid.net"] when NXDN is enabled without an ID; never blocks
   "files": [ { "id": "analog_bridge", "present": true, "writable": true, "sha256": "...", "history": 2 } ],
   "current": { "found": true, "version": "1.6.4", "mode": "DMR", "tg": "9", "slot": "2", "colorCode": "1", "tune": "", "mute": "OFF", "gatewayId": "1234567", "repeaterId": "123456701", "updated": "2026-11-17T12:00:00Z" },
   "changed": ["mmdvm_bridge"], "skipped": [], "restartHint": ["mmdvm_bridge"]   // after a write only

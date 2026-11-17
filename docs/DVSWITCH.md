@@ -306,10 +306,11 @@ Only a typed helper op writes these files; the server never does.
 | `analog_bridge` | `/opt/Analog_Bridge/Analog_Bridge.ini` | `USRP` | `address`, `rxPort`, `txPort` | `127.0.0.1` only; ports 1024-65535 |
 | | | `AMBE_AUDIO` | `gatewayDmrId` (DMR ID, 7 digits), `repeaterID` (DMR ID + 2-digit ESSID, 9 digits), `ambeMode` (startup mode), `txTg`, `txTs`, `colorCode` | digits; `ambeMode` in the v1 modes; ts 1-2; cc 0-15 |
 | `mmdvm_bridge` | `/opt/MMDVM_Bridge/MMDVM_Bridge.ini` | `General` | `Callsign`, `Id` | callsign `^[A-Z0-9/]{3,10}$`; `Id` DMR ID + 2-digit ESSID, 9 digits (same as `repeaterID`; the stock file has the 7-digit `1234567`; **verify on a node** that BrandMeister takes the 9-digit form, see the M4 checklist) |
+| | | `NXDN` | `Id` | the NXDN ID from radioid.net (separate from the DMR ID): digits only, 1-65519 (16-bit; 65520 and above are reserved), no leading zeros. Optional in the identity form: omitted or empty leaves the value alone. The stock `12345` is reported as "not set" |
 | | | `DMR Network` | `Address`, `Port`, **`Password`** (`Options` is not editable in M4) | host `^[A-Za-z0-9.-]{1,253}$` or IPv4; port 1-65535; password: printable ASCII 0x21-0x7E, 1-64, none of `" # ;` |
 | | | `DMR`, `System Fusion`, `P25`, `NXDN` and their `... Network` sections | `Enable` | `0`/`1`; a mode is switched on or off in both sections together |
 | `ysfgateway` | `/opt/YSFGateway/YSFGateway.ini` | `General` | `Callsign`, `Id` | callsign as above; `Id` is the 7-digit DMR ID |
-| | | `Network` | `Startup` | empty, or `^[A-Za-z0-9.:_-]{1,64}$` (the YSF tune value) |
+| | | `Network` | `Startup` | empty, a 5-digit reflector id, or a reflector name as in `YSFHosts.txt`: 1-32 printable characters, inner spaces allowed, no `;` `#` `=` or control characters, no leading or trailing space |
 | `p25gateway` | `/opt/P25Gateway/P25Gateway.ini` | `General` | `Callsign` | as above (the file has no `Id` key) |
 | | | `Network` | `Startup` | empty, or 1-5 digits (reflector) |
 | `nxdngateway` | `/opt/NXDNGateway/NXDNGateway.ini` | `General` | `Callsign` | as above (the file has no `Id` key) |
@@ -410,7 +411,7 @@ New file `internal/helper/dvswitch.go`; constants in `proto.go`; dispatch in `Op
 | `dvswitch-uninstall` | none | status (job running) | M3, transient unit `aslcp-dvswitch-uninstall`; refuses `busy`, `not_aslcp_installed` |
 | `dvswitch-job` | none | `{install:{job,log}, uninstall:{job,log}}` | M3, polled while a job runs (replaces the planned `dvswitch-install-status`) |
 | `dvswitch-setup` | none | values, `passwordSet`, file hashes, present flags, history counts | M4, read-only; no secret value, no file content |
-| `dvswitch-identity` | `identity: {callsign, dmrId, essid}`, `base` | `{files, skipped, restartHint, hashes}` | M4; writes AB `gatewayDmrId`/`repeaterID`, MMDVM `Callsign`/`Id`, the gateways' `Callsign` and YSF `Id` in one op; allowlist + validators; atomic; history copy first; `invalid_field (file/section/key)` never echoes a value |
+| `dvswitch-identity` | `identity: {callsign, dmrId, essid, nxdnId?}`, `base` | `{files, skipped, restartHint, hashes}` | M4; writes AB `gatewayDmrId`/`repeaterID`, MMDVM `Callsign`/`Id`, the gateways' `Callsign` and YSF `Id` in one op; allowlist + validators; atomic; history copy first; `invalid_field (file/section/key)` never echoes a value |
 | `dvswitch-credentials` | `credentials: {address?, port?, password?}`, `base` | as above | M4; the password is write-only |
 | `dvswitch-modes` | `modes: {dmr?, ysf?, p25?, nxdn?}`, `base` | as above | M4; `Enable` in the mode section and its Network section together |
 | `dvswitch-startup` | `startup: {useCurrent}` or `{ambeMode?, txTg?, txTs?, colorCode?, ysf?, p25?, nxdn?}`, `base` | as above | M4; `useCurrent` reads ABInfo (`ErrDVNoInfo` when the bridge is not running); the gateway `Startup` of a missing gateway is skipped |
@@ -440,7 +441,7 @@ Base `/api/dvswitch`. Errors `{error, code}` as everywhere; all non-GET need `X-
 | POST | `/api/dvswitch/uninstall` | admin | none | M3, implemented: `202` status; `409 not_aslcp_installed`, `409 job_running`, `409 apt_busy`, `503` |
 | GET | `/api/dvswitch/job` | admin | | M3, implemented: `{install:{job,log}, uninstall:{job,log}}` |
 | PUT | `/api/dvswitch/private-node` | admin | `{"node": "1999", "rxPort": 34001, "txPort": 32001, "duplex": 0, "link": {"mode": "permanent\|ondemand", "node": "2006"}, "dryRun": bool, "restart": bool}` | `dryRun`: `200` plan `{files:[{path, diff}], restartAsterisk, restarts[]}`; apply (needs `restart: true` when the plan restarts Asterisk, else `409 restart_required`): `200` `{applied, health}`; `400 invalid_node` (>= 2000 or not a number), `409 node_in_use`, `409 port_conflict`, `409 conflict` (file changed on disk), `422 syntax_error` |
-| PUT | `/api/dvswitch/identity` | admin | `{"callsign": "N0CALL", "dmrId": "1234567", "essid": "01"}` | M4, implemented: `200` Setup view; `400 invalid_field` (field in message, never the value); `409 not_installed`, `409 conflict`, `409 job_running` |
+| PUT | `/api/dvswitch/identity` | admin | `{"callsign": "N0CALL", "dmrId": "1234567", "essid": "01", "nxdnId": "12346"}` (`nxdnId` optional) | M4, implemented: `200` Setup view; `400 invalid_field` (field in message, never the value); `409 not_installed`, `409 conflict`, `409 job_running` |
 | PUT | `/api/dvswitch/credentials` | admin | `{"dmrAddress"?, "dmrPort"?, "dmrPassword"?: "..."}` | M4, implemented: `200` Setup view (password only as `passwordSet`); empty or invalid password `400 invalid_field`; write-only. The body keys are `dmrAddress`, `dmrPort`, `dmrPassword` |
 | PUT | `/api/dvswitch/modes` | admin | `{"dmr": true, "ysf": true, "p25": false, "nxdn": false}` | M4, implemented: `200` Setup view with `restartHint`; restarts proposed, not forced |
 | PUT | `/api/dvswitch/startup` | admin | `{"useCurrent": true}` | M4, implemented: `200` Setup view; `useCurrent` writes `ambeMode`/`txTg`/`txTs`/`colorCode` (DMR) or the gateway `Startup` of the current mode; `409 no_info` when the bridge does not run. Explicit values: `ambeMode`, `txTg`, `txTs`, `colorCode`, `ysf`, `p25`, `nxdn` |
