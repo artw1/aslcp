@@ -95,8 +95,11 @@
     scanBusy = true;
     try { await setFavScan(on); } catch (e) { toastError(e); } finally { scanBusy = false; }
   }
+  // The local link state is current; the scan's keyed state lags (reports come about every 30 s).
+  const localKeyed = (n: string) => scan && !!linked.get(n)?.keyed;
   const cellClass = (n: string) => {
     const a = act(n);
+    if (localKeyed(n) || a?.keyed) return 'row-tx-cell';
     if (!a) return 'text-muted';
     if (a.keyed) return 'row-tx-cell';
     if (a.active) return a.webTx ? 'row-rx-cell act-web' : 'row-rx-cell';
@@ -104,8 +107,8 @@
   };
   const cellTitle = (n: string) => {
     const a = act(n);
-    if (!a) return undefined;
-    return [a.keyed ? 'Keyed' : '', a.active ? 'Active' : 'Not active', a.webTx ? 'WebTransceiver' : ''].filter(Boolean).join(', ');
+    if (!a) return localKeyed(n) ? 'Keyed' : undefined;
+    return [a.keyed || localKeyed(n) ? 'Keyed' : '', a.active ? 'Active' : 'Not active', a.webTx ? 'WebTransceiver' : ''].filter(Boolean).join(', ');
   };
   // Named groups first, ungrouped last.
   const groups = $derived.by(() => {

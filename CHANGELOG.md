@@ -3,7 +3,12 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
-## [1.1.22] - Unreleased
+## [1.1.23] - Unreleased
+
+### Fixed
+- Favorites scan showed a node that was transmitting continuously green (active) instead of red (keyed), because the stats service publishes a new report only about every 30 s; linked favorites now also turn red immediately from the local link.
+
+## [1.1.22] - 2026-11-17
 
 ### Fixed
 - Updates tab: the System packages list missed packages whose line in apt's simulated upgrade ends with an extra `[]` (seen with Raspberry Pi mesa updates), so it could show fewer packages than `apt list --upgradable`.

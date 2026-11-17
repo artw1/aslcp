@@ -65,7 +65,7 @@ type Activity struct {
 	// "Active", access_webtransceiver).
 	Active bool `json:"active"`
 	WebTx  bool `json:"webTx"`
-	// Keyed is derived from changes of the TX counters between polls.
+	// Keyed is derived from changes of the TX counters between distinct reports.
 	Keyed bool `json:"keyed"`
 	// TxAvg is a moving average (0..100) of the recent TX share.
 	TxAvg    int       `json:"txAvg"`
@@ -226,6 +226,8 @@ type counters struct {
 	tx, ku float64
 	at     time.Time
 	avg    int
+	dtime  float64 // DataTime of the report the counters came from (0: unknown)
+	keyed  bool    // derived keyed state for that report, repeated for the same report
 }
 
 // New builds a Service (disabled, no viewers).
@@ -832,13 +834,19 @@ func (s *Service) compute(node string, smp Sample, now time.Time) Activity {
 	}
 	a.RxPct = RxPct(smp.Uptime, smp.TxTime)
 	p, had := s.prev[node]
-	c := counters{tx: smp.TxTime, ku: smp.KeyUps, at: now, avg: p.avg}
+	c := counters{tx: smp.TxTime, ku: smp.KeyUps, at: now, avg: p.avg, dtime: smp.DataTime}
 	switch {
 	case !smp.HaveCounters:
 		// Nothing to derive from; fall back to the reported flag.
 		a.Keyed = smp.Keyed
 		c = p
 		c.at = p.at
+	case had && smp.DataTime > 0 && smp.DataTime == p.dtime:
+		// The service publishes a new report only about every 30 s: the same
+		// report again. Repeat the derived state and keep the stored counters.
+		a.Keyed = p.keyed
+		a.TxAvg = p.avg
+		return a
 	case !had:
 		// First sample: no deltas yet; the reported flag is all there is.
 		a.Keyed = smp.Keyed
@@ -847,6 +855,9 @@ func (s *Service) compute(node string, smp Sample, now time.Time) Activity {
 		}
 	default:
 		dt := now.Sub(p.at).Seconds()
+		if smp.DataTime > 0 && p.dtime > 0 {
+			dt = smp.DataTime - p.dtime // time between the two reports
+		}
 		dTx, dKu := smp.TxTime-p.tx, smp.KeyUps-p.ku
 		if dTx < 0 || dKu < 0 || dt <= 0 || dTx > dt+maxTxPlaus {
 			// Counter reset or an implausible jump: count as no activity.
@@ -864,6 +875,7 @@ func (s *Service) compute(node string, smp Sample, now time.Time) Activity {
 		}
 	}
 	a.TxAvg = c.avg
+	c.keyed = a.Keyed
 	if smp.HaveCounters || had {
 		s.prev[node] = c
 	}
