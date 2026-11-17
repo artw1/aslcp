@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -138,6 +139,10 @@ type DVSwitchMarker struct {
 type DVSwitchJob struct {
 	Job string `json:"job"`
 	Log string `json:"log"`
+	// At is the Unix time of the job's last journal line (0 when unknown).
+	// The UI shows the newer of the two jobs, so an old uninstall log does
+	// not hide a later install.
+	At int64 `json:"at,omitempty"`
 }
 
 // DVSwitchJobs is the reply of dvswitch-job.
@@ -659,7 +664,32 @@ func (o *Ops) dvJobs(ctx context.Context) (DVSwitchJob, DVSwitchJob) {
 	var in, un DVSwitchJob
 	in.Job, in.Log = o.jobUnit(ctx, dvInstallUnit)
 	un.Job, un.Log = o.jobUnit(ctx, dvUninstallUnit)
+	in.At = o.dvJobTime(ctx, dvInstallUnit, in.Job)
+	un.At = o.dvJobTime(ctx, dvUninstallUnit, un.Job)
 	return in, un
+}
+
+// dvJobTime returns the Unix time of the unit's last journal line, or the
+// time the job was started by this helper while it has no line yet.
+func (o *Ops) dvJobTime(ctx context.Context, unit, job string) int64 {
+	if job == JobIdle {
+		return 0
+	}
+	out, code, err := o.Run.Run(ctx, "journalctl", "-u", unit, "-n", "1", "-o", "short-unix", "-q", "--no-pager")
+	if err == nil && code == 0 {
+		if f := strings.Fields(out); len(f) > 0 {
+			if v, perr := strconv.ParseFloat(f[0], 64); perr == nil && v > 0 {
+				return int64(v)
+			}
+		}
+	}
+	o.jobMu.Lock()
+	t := o.startedAt[unit]
+	o.jobMu.Unlock()
+	if t.IsZero() {
+		return 0
+	}
+	return t.Unix()
 }
 
 // DVSwitchJob reports the two jobs only (cheap, polled while one runs).

@@ -12,8 +12,18 @@
   let st = $state<DVSwitchStatus | null>(null), err = $state(''), busy = $state(false);
   let installOpen = $state(false), uninstallOpen = $state(false);
   const running = $derived(st?.install.job === 'running' || st?.uninstall.job === 'running');
-  const log = $derived(st ? (st.uninstall.job !== 'idle' ? st.uninstall : st.install) : null);
-  const logTitle = $derived(st && st.uninstall.job !== 'idle' ? 'Uninstall log' : 'Install log');
+  // Show the running job, else the newer of the two (an old uninstall log
+  // must not hide a later install).
+  const showUninstall = $derived.by(() => {
+    if (!st) return false;
+    const i = st.install, u = st.uninstall;
+    if (u.job === 'running') return true;
+    if (i.job === 'running' || u.job === 'idle') return false;
+    if (i.job === 'idle') return true;
+    return (u.at ?? 0) > (i.at ?? 0);
+  });
+  const log = $derived(st ? (showUninstall ? st.uninstall : st.install) : null);
+  const logTitle = $derived(showUninstall ? 'Uninstall log' : 'Install log');
 
   async function load() { try { st = await api.dvswitch(); err = ''; } catch (e) { err = e instanceof Error ? e.message : String(e); } }
   onMount(load);

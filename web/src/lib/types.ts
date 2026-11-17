@@ -172,7 +172,7 @@ export interface SchedulesSnapshot {
 }
 
 /** GET /api/dvswitch (admin only; docs/API.md "DVSwitch"). */
-export interface DVSwitchJob { job: 'idle' | 'running' | 'succeeded' | 'failed'; log: string }
+export interface DVSwitchJob { job: 'idle' | 'running' | 'succeeded' | 'failed'; log: string; at?: number }
 export interface DVSwitchStatus {
   installed: boolean;
   /** "aslcp": ASLCP installed it (marker); "external": installed outside ASLCP; "": not installed. */
@@ -193,7 +193,8 @@ export interface DVSwitchJobs { install: DVSwitchJob; uninstall: DVSwitchJob }
 export interface DVFileView { id: string; present: boolean; writable: boolean; sha256: string; history: number }
 export interface DVSwitchInfo { found: boolean; version: string; mode: string; tg: string; slot: string; colorCode: string; tune: string; mute: string; gatewayId: string; repeaterId: string; updated: string }
 export interface DVSwitchSetup {
-  identity: { callsign: string; dmrId: string; essid: string; consistent: boolean };
+  identity: { callsign: string; dmrId: string; essid: string; nxdnId: string; consistent: boolean };
+  warnings?: string[];
   dmr: { address: string; port: number; passwordSet: boolean };
   usrp: { address: string; rxPort: number; txPort: number };
   modes: { dmr: boolean; ysf: boolean; p25: boolean; nxdn: boolean };

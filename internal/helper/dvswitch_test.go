@@ -844,3 +844,57 @@ func TestDemoDVSwitch(t *testing.T) {
 		t.Fatalf("%+v", st)
 	}
 }
+
+func TestDemoDVSwitchNXDNID(t *testing.T) {
+	d := NewDemoDVSwitch()
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	d.now = func() time.Time { return now }
+	ctx := context.Background()
+	d.DVSwitchInstall(ctx)
+	now = now.Add(time.Minute)
+	v, _ := d.DVSwitchSetup(ctx)
+	if v.Identity.NXDNID == "" || len(v.Warnings) != 0 {
+		t.Fatalf("%+v %v", v.Identity, v.Warnings)
+	}
+	id := DVIdentity{Callsign: "N0CALL", DMRID: "1234567", ESSID: "01", NXDNID: "70000"}
+	if _, err := d.DVSwitchIdentity(ctx, DVSwitchRequest{Identity: &id}); !errors.Is(err, ErrDVInvalid) {
+		t.Fatal(err)
+	}
+	id.NXDNID = "23456"
+	if _, err := d.DVSwitchIdentity(ctx, DVSwitchRequest{Identity: &id}); err != nil {
+		t.Fatal(err)
+	}
+	id.NXDNID = ""
+	d.DVSwitchIdentity(ctx, DVSwitchRequest{Identity: &id})
+	if v, _ = d.DVSwitchSetup(ctx); v.Identity.NXDNID != "23456" {
+		t.Fatalf("empty must keep the value: %+v", v.Identity)
+	}
+	on := true
+	d.DVSwitchModes(ctx, DVSwitchRequest{Modes: &DVModes{NXDN: &on}})
+	if v, _ = d.DVSwitchSetup(ctx); len(v.Warnings) != 0 {
+		t.Fatalf("%v", v.Warnings)
+	}
+	if _, err := d.DVSwitchStartup(ctx, DVSwitchRequest{Startup: &DVStartup{YSF: sp("Example Reflector 1")}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.DVSwitchStartup(ctx, DVSwitchRequest{Startup: &DVStartup{YSF: sp("a=b")}}); !errors.Is(err, ErrDVInvalid) {
+		t.Fatal(err)
+	}
+}
+
+func TestDVJobTime(t *testing.T) {
+	f := &fakeRunner{rules: map[string]resp{
+		"journalctl -u " + dvInstallUnit + " -n 1 -o short-unix":   {out: "1794950400.123456 node sh[1]: dvswitch install finished\n"},
+		"journalctl -u " + dvUninstallUnit + " -n 1 -o short-unix": {out: "1794940000.5 node sh[1]: dvswitch uninstall finished\n"},
+	}}
+	o := dvOps(t, f)
+	if got := o.dvJobTime(context.Background(), dvInstallUnit, JobSucceeded); got != 1794950400 {
+		t.Errorf("install at = %d", got)
+	}
+	if got := o.dvJobTime(context.Background(), dvUninstallUnit, JobSucceeded); got != 1794940000 {
+		t.Errorf("uninstall at = %d", got)
+	}
+	if got := o.dvJobTime(context.Background(), dvInstallUnit, JobIdle); got != 0 {
+		t.Errorf("idle at = %d", got)
+	}
+}
