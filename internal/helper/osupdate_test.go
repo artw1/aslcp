@@ -68,6 +68,45 @@ func TestParseUpgradeSim(t *testing.T) {
 	}
 }
 
+// Debian 13 / Raspberry Pi OS: some Inst lines end with an extra "[]" group.
+const simUpgradeTrailingBrackets = `Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+Calculating upgrade... Done
+The following packages will be upgraded:
+  libgbm1 libgl1-mesa-dri libglx-mesa0 mesa-libgallium mesa-vulkan-drivers
+5 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+Inst libgl1-mesa-dri [26.2.6-1~bpo13+0~rpt2] (26.2.7-1~bpo13+0~rpt1 Raspberry Pi Foundation:stable [arm64]) []
+Inst libglx-mesa0 [26.2.6-1~bpo13+0~rpt2] (26.2.7-1~bpo13+0~rpt1 Raspberry Pi Foundation:stable [arm64]) []
+Inst libgbm1 [26.2.6-1~bpo13+0~rpt2] (26.2.7-1~bpo13+0~rpt1 Raspberry Pi Foundation:stable [arm64]) []
+Inst mesa-libgallium [26.2.6-1~bpo13+0~rpt2] (26.2.7-1~bpo13+0~rpt1 Raspberry Pi Foundation:stable [arm64])
+Inst mesa-vulkan-drivers [26.2.6-1~bpo13+0~rpt2] (26.2.7-1~bpo13+0~rpt1 Raspberry Pi Foundation:stable [arm64])
+Conf libgl1-mesa-dri (26.2.7-1~bpo13+0~rpt1 Raspberry Pi Foundation:stable [arm64])
+Conf libglx-mesa0 (26.2.7-1~bpo13+0~rpt1 Raspberry Pi Foundation:stable [arm64])
+Conf libgbm1 (26.2.7-1~bpo13+0~rpt1 Raspberry Pi Foundation:stable [arm64])
+Conf mesa-libgallium (26.2.7-1~bpo13+0~rpt1 Raspberry Pi Foundation:stable [arm64])
+Conf mesa-vulkan-drivers (26.2.7-1~bpo13+0~rpt1 Raspberry Pi Foundation:stable [arm64])
+`
+
+func TestParseUpgradeSimTrailingBrackets(t *testing.T) {
+	pkgs, kept := ParseUpgradeSim(simUpgradeTrailingBrackets)
+	names := []string{"libgbm1", "libgl1-mesa-dri", "libglx-mesa0", "mesa-libgallium", "mesa-vulkan-drivers"}
+	if len(pkgs) != len(names) {
+		t.Fatalf("got %d packages, want %d: %+v", len(pkgs), len(names), pkgs)
+	}
+	for i, p := range pkgs {
+		if p.Name != names[i] {
+			t.Fatalf("package %d: name %q, want %q", i, p.Name, names[i])
+		}
+		if p.From != "26.2.6-1~bpo13+0~rpt2" || p.To != "26.2.7-1~bpo13+0~rpt1" || p.Origin != "Raspberry Pi Foundation:stable" || p.Security {
+			t.Fatalf("%s: %+v", p.Name, p)
+		}
+	}
+	if len(kept) != 0 {
+		t.Fatalf("kept back: %v", kept)
+	}
+}
+
 func TestReadReboot(t *testing.T) {
 	dir := t.TempDir()
 	flag, pkgs := filepath.Join(dir, "reboot-required"), filepath.Join(dir, "reboot-required.pkgs")

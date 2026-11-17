@@ -15,6 +15,9 @@ Release notes are taken from the section of the tag being released
 - API: `GET/POST /api/schedules`, `PUT/DELETE /api/schedules/{id}`, `PUT /api/schedules/enabled` (operator for writes), SSE event `schedules` with the snapshot, new `schedules` table (database migration 4) and `docs/SCHEDULES.md`. Demo mode (two example schedules on node 2006) and `web/mock` simulate the feature.
 - Tests: the occurrence calculation (midnight crossing, one-off dates, DST gap and repeated hour, cancelled occurrences), the engine with a fake clock (window, skip, retries, catch-up, pause, restart, ordering, one-off), time zone name detection, the store, the REST endpoints with roles and validation, manual actions pausing, and an end-to-end run against the fake node.
 
+### Fixed
+- Updates tab: the System packages list missed packages whose line in apt's simulated upgrade ends with an extra `[]` (seen with Raspberry Pi mesa updates), so it could show fewer packages than `apt list --upgradable`.
+
 ## [1.1.20] - 2026-11-17
 
 ### Changed

@@ -152,9 +152,11 @@ func aptFailure(what, out string) error {
 	return fmt.Errorf("%s failed: %s", what, LastLines(out, 4))
 }
 
-// instRe matches "Inst name [current] (new origin [arch])"; the bracketed
-// current version is absent for a new install.
-var instRe = regexp.MustCompile(`^Inst (\S+)(?: \[([^\]]*)\])? \((\S+)(?: (.*))?\)\s*$`)
+// instRe matches "Inst name [current] (new origin [arch])" and, on some
+// systems (Raspberry Pi OS), a trailing " []" group after the closing paren:
+// "Inst name [current] (new origin [arch]) []". The bracketed current version
+// is absent for a new install.
+var instRe = regexp.MustCompile(`^Inst (\S+)(?: \[([^\]]*)\])? \((\S+)(?: (.*))?\)(?: \[[^\]]*\])?\s*$`)
 
 var archRe = regexp.MustCompile(`\s*\[[^\]]*\]\s*$`)
 
