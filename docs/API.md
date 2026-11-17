@@ -324,6 +324,37 @@ Channels: the apt repository has two suites, `stable` (releases `X.Y.Z`) and `be
 
 `503 {"code":"updates_unavailable"}` when updates cannot be used (see `reason` of `GET`) or the helper cannot be used for `apply`, `502 {"code":"helper_error"}` when the helper reports a failure. While the upgrade runs the server restarts, so the SSE stream drops; the UI reconnects and reloads when `hello.version` changes.
 
+## DVSwitch install and uninstall (admin)
+
+Design and checklist: docs/DVSWITCH.md (M3). All four endpoints are admin only; operator and viewer get `403 forbidden`. `503 dvswitch_unavailable` when the helper cannot be reached. Every POST needs `X-ASLCP: 1`, takes no body, is audited (`dvswitch.install`, `dvswitch.uninstall`, and `.refused` with the error) and answers `202` with the status while the job runs. The package list, the uninstall paths and the units are constants in the helper; nothing in a request reaches a command line.
+
+| Method | Path | Response / errors |
+|---|---|---|
+| GET | `/api/dvswitch` | `200` DVSwitchStatus (below) |
+| GET | `/api/dvswitch/job` | `200` `{"install": Job, "uninstall": Job}`, cheap, polled every 2 s while a job runs |
+| POST | `/api/dvswitch/install` | `202` DVSwitchStatus with `install.job = "running"`. Errors: `409 job_running` (an install, uninstall or system update runs), `409 apt_busy`, `409 already_installed` (also when a hand install exists), `409 unsupported_platform`, `409 clock_unset`, `502 key_mismatch` (the downloaded keyring does not hold exactly the pinned fingerprint; nothing was written), `502 helper_error` |
+| POST | `/api/dvswitch/uninstall` | `202` DVSwitchStatus with `uninstall.job = "running"`. Errors: `409 not_aslcp_installed` (no ASLCP marker: DVSwitch was installed outside ASLCP), `409 job_running`, `409 apt_busy`, `502 helper_error` |
+
+```json
+Job = { "job": "idle" | "running" | "succeeded" | "failed", "log": "last 50 lines of the unit's journal" }
+DVSwitchStatus = {
+  "installed": true,
+  "installedBy": "aslcp" | "external" | "",   // aslcp: the marker exists; external: installed without it; "": not installed
+  "version": "1.7.0", "arch": "arm64", "osCodename": "bookworm",
+  "supported": true, "unsupportedReason": "...",   // bookworm/trixie on amd64/arm64/armhf
+  "repoPresent": true, "keyPresent": true, "keyOk": true, "keyFingerprint": "6DDF...D4C3",
+  "packages": [{"name": "dvswitch-base", "installed": true, "version": "1.7.0"}],
+  "units": [{"name": "analog_bridge", "loaded": true, "active": "active", "enabled": "enabled"}],
+  "hostFiles": [{"name": "YSFHosts.txt", "present": true, "size": 4096}], "hostFilesOk": true,
+  "marker": {"version": 1, "installedAt": "...", "wgetPreinstalled": false, "packages": ["qemu-user-static", "wget"]} | null,
+  "canInstall": false, "canUninstall": true,
+  "uninstallPackages": ["..."], "uninstallPaths": ["/var/lib/mmdvm", "..."], "uninstallUnits": ["analog_bridge", "..."],  // for the confirm dialog
+  "install": Job, "uninstall": Job
+}
+```
+
+The install job ends in `unexpected_deps` (the simulation would pull in Apache, PHP, mosquitto or Node.js; nothing is installed and a repository added by this run is removed again). The uninstall job ends in `unexpected_removals` (the purge would remove something outside the recorded list; nothing is changed). Both are visible in the job log. No secret is ever in a reply.
+
 ## Public status view
 
 Optional, off by default (admin setting). Served on the main port. While disabled the three public endpoints answer `404 {"code":"not_found"}`. They need no session and no CSRF header (GET only), set no cookies, and are rate-limited per client address (`429 {"code":"rate_limited"}` with `Retry-After`). The data comes from dedicated structs: it never contains IP addresses, system information, favorites or users.
@@ -441,5 +472,7 @@ socket = /run/aslcp/helper.sock
 Configuration operations (`config-list`, `config-read`, `config-apply`, `config-log`, `config-show`, `config-restore`) carry the arguments in a `config` object; any other operation with a `config` field is rejected. Requests may be up to 4 MiB (others 4 KiB). The helper validates every path itself, runs `git` with a fixed argv and hardening options (history in `/var/lib/aslcp-config-history`, root only), preserves owner/mode, writes atomically and rolls back on error. `config-apply` fails with `conflict: <files>` when a `base` hash no longer matches. `asterisk-restart` runs `systemctl restart asterisk`.
 
 System update operations (fixed apt/systemd commands, no arguments and no package names from the web process): `os-check` (`apt-get -q update`, then `apt-get -q -s upgrade`, both `LC_ALL=C`, noninteractive; reply `OSStatus`: `packages`, `keptBack`, `rebootRequired`, `rebootPkgs`, `job`, `jobLog`; a held lock answers `apt is busy`), `os-status` (no apt), `os-apply` (transient unit `aslcp-osupgrade`), `reboot` (`systemctl --no-block reboot`) and `aslcp-restart` (`systemctl --no-block restart aslcp.service`). `os-check`, `os-apply`, `reboot`, the ASLCP update and the channel switch are refused while an apt job runs.
+
+DVSwitch operations (no arguments; fixed scripts in transient units `aslcp-dvswitch-install` and `aslcp-dvswitch-uninstall`): `dvswitch-status`, `dvswitch-job`, `dvswitch-install`, `dvswitch-uninstall`. The units call back into the helper binary as `aslcp-helper dvswitch-step <install-plan|install-check|uninstall-plan>` (root only, not a socket op). Refusals come back as errors prefixed `already_installed:`, `unsupported_platform:`, `clock_unset:`, `key_mismatch:` or `not_aslcp_installed:`.
 
 Backup operations: `backup-info` (plain request/response: `{parts:[{id,present,size}],sa818}`), `backup-create` and `backup-restore` (streaming). `backup-create` takes `backup:{history,allmon3,sounds}` and answers with one JSON line, the header (`arch`, `asl3Version`, `asteriskVersion`, `osId`, `osCodename`, `osName`, `channel`, `nodes`, `packages`, `parts`, `missingStock`, `skipped`, `entries` with per-file type, size and sha256), followed by a plain tar stream of the system files and EOF; an error before the header is an `{"error"}` line, a later failure cuts the stream short. `backup-restore` takes `restore:{dryRun,deleteMissing}` and is followed on the same connection by the gzip archive; the client half-closes after the last byte and reads one JSON result (`ok`, `files`, `steps`, node versions and Debian release, `sa818Port`/`sa818PortPresent`). The helper re-validates the archive as root, classifies conffiles with `dpkg-query` (never a shell), writes to fixed destinations only (including `/etc/aslcp/aslcp.conf`, since the server cannot write there), and undoes config changes if a step fails. Streaming requests may take up to 20 minutes; the helper stays alive while one runs.

@@ -1,6 +1,6 @@
 # DVSwitch (digital voice modes)
 
-Design only, nothing is implemented. Goal: an admin can install DVSwitch Server from the panel, give the node a private "bridge" node wired to it through chan_usrp, and operators can switch the mode (DMR, YSF, P25, NXDN) and tune talkgroups and reflectors from the dashboard.
+Status: M3 (install and full uninstall) is implemented; M1, M2 and M4 are design only. Goal: an admin can install DVSwitch Server from the panel, give the node a private "bridge" node wired to it through chan_usrp, and operators can switch the mode (DMR, YSF, P25, NXDN) and tune talkgroups and reflectors from the dashboard.
 
 Placeholders used below: callsign `N0CALL`, DMR ID `1234567`, private bridge node `1999`, local node `2006`, documentation IPs from RFC 5737 (`192.0.2.x`).
 
@@ -14,7 +14,7 @@ Placeholders used below: callsign `N0CALL`, DMR ID `1234567`, private bridge nod
 | Admin-initiated install from the official DVSwitch apt repo | Bundling, depending on, or recommending DVSwitch packages (closed binaries, licence unverified) |
 | Identity and network credentials through typed forms | Editing arbitrary lines of the DVSwitch ini files |
 
-Roles: viewer sees status; operator and admin switch mode, tune, unlink, manage favourites; admin only: install, node setup, credentials, service restarts.
+Roles: viewer sees status; operator and admin switch mode, tune, unlink, manage favourites; admin only: install, uninstall, node setup, credentials, service restarts.
 
 ## Architecture
 
@@ -141,8 +141,60 @@ Helper op `dvswitch-install`, no arguments, same pattern as `osupdate.go`: fixed
 | Dependencies | The community recipe installs `dvswitch-server`, whose Recommends pull in `dvswitch-dashboard` (Depends `php-cgi \| php-fpm`, `libapache2-mod-php`, `nodejs`: Apache and a new listener on port 80) and `analog-reflector` (Depends `mosquitto`). ASLCP does not use the dashboard, and Apache could clash with ports used by ASLCP and Allmon3. So the install is the explicit set with `--no-install-recommends` (see Install unit), which pulls in neither Apache nor mosquitto. Left out of v1: `dvswitch-server`, `dvswitch`, `dvswitch-dashboard`, `dvswitch-menu`, `dvswitch-monit`, `analog-reflector`, `stfu` (MMDVM_Bridge connects to BrandMeister directly), `ircddbgateway`, `quantar-bridge` and the parrot packages. The confirm dialog lists the eight packages (with `wget`), says that `md380-emu` pulls `qemu-user-static` on both architectures (a sizeable dependency; size to measure), and says that the job stops if the simulation shows a web server or broker. |
 | After | Do not start or configure anything beyond what the packages do. The status shows units, and "Not configured" until node setup (M2) and identity (M4) are done |
 | Not done | No change to Asterisk config, no `sed` of the DVSwitch dashboard ports (`/usr/share/dvswitch/include/config.php` keeps 31001; documented, not touched) |
-| Removal | Not offered in v1: uninstall is out of scope. Removing the set, `qemu-user-static` and leftovers is the user's call (`apt-get remove`) |
+| Removal | Implemented in M3, see Uninstall (M3) below. Only an install ASLCP made (the marker) can be removed from the panel |
 | Packaging | ASLCP gains no Depends/Recommends/Suggests on any DVSwitch package; the install is a runtime action |
+
+### Implemented in M3 (2026-11-17)
+
+Code: `internal/helper/dvswitch.go` (status, install, uninstall, scripts, marker, parsers), `dvswitch_key.go` (key check), `dvswitch_step.go` (guards and plans), `dvswitch_demo.go`; `internal/api/handlers_dvswitch.go`; `web/src/components/Dvswitch.svelte`, `web/mock/dvswitch.ts`. Tests: `internal/helper/dvswitch_test.go`, `internal/api/dvswitch_test.go`. Deviations from the design above:
+
+- **Guards and plans run in the helper binary, not in the shell.** The unit script only sequences apt; the install and uninstall units call `aslcp-helper dvswitch-step install-plan | install-check | uninstall-plan` (root, no arguments, no client input; they read and write fixed files in the state directory). The parsing and the guards are therefore Go code with unit tests.
+- **Status and job are two ops.** `dvswitch-status` (full status, no apt run) and `dvswitch-job` (both jobs' state and log, polled while one runs). `dvswitch-install-status` does not exist. There is no `DVSwitch` request field: these ops take no arguments.
+- **Marker location:** `/var/lib/aslcp-dvswitch/install.json` (root, 0600, directory 0700), outside `/var/lib/aslcp` so the unprivileged service cannot forge it; same pattern as the config history. `wget`-was-there and the recorded packages live in it; `install-sim.txt` and `purge.list` are scratch files of the same directory.
+- **Helper sandbox:** no change to `packaging/systemd/aslcp-helper.service`. It has no `ProtectSystem`, so writing `/etc/apt/sources.list.d` and `/usr/share/keyrings` is allowed; the transient units run outside the helper's namespace (they see the host `/tmp`).
+- **Install is refused over a hand install** (`already_installed`): a set that is installed without a marker is never adopted, so a later uninstall can never purge packages ASLCP did not install. A partial set with a marker (an interrupted install) can be resumed; the marker then merges.
+- **Admin only:** `GET /api/dvswitch` and `/api/dvswitch/job` are admin here (the design's viewer snapshot of M1 will need to extend this reply or take another path).
+- **Host files checked:** `YSFHosts.txt`, `P25Hosts.txt`, `NXDNHosts.txt` in `/var/lib/mmdvm`. This list is a guess (see the checklist); a missing file only warns in the log and shows in the status, it never fails the install.
+
+### Uninstall (M3)
+
+Helper op `dvswitch-uninstall`, no arguments, admin only, transient unit `aslcp-dvswitch-uninstall` (same `systemd-run` shape and busy lock as the install; the install, uninstall, ASLCP and OS update units exclude each other).
+
+| Item | Decision |
+|---|---|
+| Offered when | The marker exists (`installedBy: "aslcp"`) and no job runs. Without a marker the op returns `409 not_aslcp_installed` and the tab says "installed outside ASLCP". A marker that cannot be parsed (unknown field, bad name, wrong version) counts as no marker |
+| Marker | Written by `install-plan` before anything is installed: `{version, installedAt, wgetPreinstalled, packages[]}`. `packages` are the simulation's `Inst` lines with no current version (the set members that were missing plus their dependencies, `qemu-user-static` among them). `wgetPreinstalled` is whether wget was installed before the first run. A repeated install merges: it keeps the first install time and the first wget fact |
+| Order | (1) `uninstall-plan`: simulations only, nothing changed; (2) `systemctl disable --now` for `analog_bridge mmdvm_bridge netcheck ysfgateway p25gateway nxdngateway md380-emu`; (3) `apt-get purge -y` of the purge list; (4) remove `dvswitch.list` and the keyring, remove `/var/lib/apt/lists/dvswitch.org*`, `apt-get update` (a failure only warns); (5) remove the fixed paths; (6) remove the purge list and, **last**, the marker. A failed step leaves the marker, so the uninstall can be run again |
+| Purge list | The install set plus the recorded packages, minus wget when `wgetPreinstalled`, minus any name matching `^(asterisk\|allstarlink\|asl3\|asl-\|aslcp)`, minus anything not installed. At most 60 names. Package names are validated against `^[a-z0-9][a-z0-9+.-]{0,99}$` (never an option) |
+| Guard `unexpected_removals` | `apt-get -s purge <core set>` must remove nothing outside the list; otherwise the job ends with the log line `unexpected_removals: the purge would also remove ...` before any unit is stopped or anything is removed. Asterisk and allstarlink packages always count as unexpected |
+| Shared dependencies | Each recorded dependency is added only if `apt-get -s purge` of the list plus that dependency still removes nothing outside the list (repeated until nothing changes, at most 10 rounds). A dependency that something outside the recorded set still needs stays installed; the log says `keeping X: another package still needs it` |
+| No autoremove | No `apt-get autoremove` anywhere, global or otherwise |
+| Fixed paths | `/var/lib/mmdvm`, `/var/lib/dvswitch`, `/var/log/dvswitch`, `/var/log/mmdvm`, `/opt/Analog_Bridge`, `/opt/MMDVM_Bridge` (`rm -rf`); `/etc/cron.d/dvswitch`, `/etc/cron.daily/dvswitch-log-cleanup`, `/tmp/ABInfo_*.json`, the apt source and the keyring (`rm -f`). The list is a constant in the helper; the confirm dialog shows it from the status reply |
+| **TODO (M2/M4)** | The script has a marked hook (`TODO(M2/M4)` before the marker is removed). When the private node and USRP link (M2: `rpt.conf` node stanza, `modules.conf` chan_usrp, reconciler state) and the credentials (M4: ini edits and their history copies) exist, the uninstall must revert them here, in the same job, before the marker goes. Until then the uninstall leaves Asterisk configuration alone |
+
+### Verify on a real node (M3 checklist)
+
+None of this was run against a real host (the build container must never run the install). Do it on a spare ASL3 node, bookworm first, with a console session open. Replace `N0CALL`-like values; paste no secrets.
+
+Install:
+
+1. Before: `dpkg -l | grep -E 'dvswitch|analog-bridge|mmdvm-bridge|md380|gateway|qemu-user-static|^ii  wget'` (record whether wget is there); `ls /etc/apt/sources.list.d/`; `date` (year is right).
+2. Panel, DVSwitch tab: Install, confirm. The log should show `recorded N newly installed packages: ...` (check it lists `qemu-user-static` and no `apache2`, `php*`, `mosquitto`, `nodejs`), then `host files ok` or the warnings, then `dvswitch install finished`.
+3. `cat /var/lib/aslcp-dvswitch/install.json` (root only, mode 600): packages match the log; `wgetPreinstalled` matches step 1.
+4. Key: `gpg --show-keys --with-colons /usr/share/keyrings/dvswitch-keyring.gpg | grep '^fpr'` shows exactly `6DDFC33CD5FC678659642DF572147EC1E788D4C3` and one primary key.
+5. `systemctl is-enabled analog_bridge mmdvm_bridge; systemctl is-active analog_bridge mmdvm_bridge netcheck`; `ls -l /var/lib/mmdvm/` (which host files really exist and are non-empty: correct the `dvHostFiles` list in `internal/helper/dvswitch.go` if the names differ).
+6. Status shows installed by ASLCP, versions, arch, units. Asterisk and `rpt.conf` are unchanged (`dpkg -V asl3 asterisk`, `git diff` of your config backup).
+7. Negative: with a wrong key (point `DVKeyURL` at a test file in a scratch build) the job is refused with `key_mismatch` and `/etc/apt/sources.list.d/dvswitch.list` is not created. With the clock set to 1970, `clock_unset`.
+
+Uninstall:
+
+1. Panel: Uninstall, read the dialog (units, packages, paths), confirm.
+2. Log: `purge plan: ...` (no wget when step 1 said it was there; no package something else needs), then removal lines and `dvswitch uninstall finished`. If you see `unexpected_removals`, nothing was changed: report the names.
+3. After: `dpkg -l | grep -E 'dvswitch|analog-bridge|mmdvm-bridge|md380|gateway|qemu-user-static'` is empty (except packages the log said it kept); `systemctl list-unit-files | grep -E 'analog_bridge|mmdvm_bridge|netcheck|md380|gateway'` is empty; `ls /etc/apt/sources.list.d/dvswitch.list /usr/share/keyrings/dvswitch-keyring.gpg /var/lib/mmdvm /var/lib/dvswitch /var/log/dvswitch /var/log/mmdvm /opt/Analog_Bridge /opt/MMDVM_Bridge /etc/cron.d/dvswitch /etc/cron.daily/dvswitch-log-cleanup /tmp/ABInfo_*.json /var/lib/aslcp-dvswitch/install.json` reports every path missing.
+4. `apt-get -s install allstarlink asl3` style check: `dpkg -l | grep -E 'asterisk|asl3|allstarlink'` is unchanged from before the install; `systemctl is-active asterisk`.
+5. Hand-installed node (no marker, e.g. `apt install dvswitch-server` by hand): the tab says installed outside ASLCP, Install and Uninstall are disabled, and `POST /api/dvswitch/uninstall` returns `409 not_aslcp_installed`.
+6. Shared dependency: `apt-get install` a package that depends on `qemu-user-static` before the uninstall; the uninstall must keep `qemu-user-static` and say so.
+7. Interrupted install: kill the install unit midway (`systemctl stop aslcp-dvswitch-install`), then run Install again (resumes, marker merges), then Uninstall.
 
 ### Upstream facts (verified 2026-11-17)
 
@@ -298,8 +350,9 @@ New file `internal/helper/dvswitch.go`; constants in `proto.go`; dispatch in `Op
 |---|---|---|---|
 | `dvswitch-status` | none | status fields (see Detection) | read-only, no secrets |
 | `dvswitch-info` | none | parsed ABInfo | option A above |
-| `dvswitch-install` | none | `{job, jobLog}` | M3, transient unit, refuses busy/installed/unsupported |
-| `dvswitch-install-status` | none | `{job, jobLog}` | like `os-status`; may be folded into `dvswitch-status` |
+| `dvswitch-install` | none | status (job running) | M3, transient unit; refuses `busy`, `already_installed`, `unsupported_platform`, `clock_unset`, `key_mismatch` |
+| `dvswitch-uninstall` | none | status (job running) | M3, transient unit `aslcp-dvswitch-uninstall`; refuses `busy`, `not_aslcp_installed` |
+| `dvswitch-job` | none | `{install:{job,log}, uninstall:{job,log}}` | M3, polled while a job runs (replaces the planned `dvswitch-install-status`) |
 | `dvswitch-config-apply` | `changes: [{file, section, key, value}]` (max 32), `base: {file: sha256}`, `author` | `{files, restartHint[]}` | allowlist + validators; atomic; keeps history copy; `conflict`, `invalid: <file/section/key>` errors never echo values |
 | `dvswitch-config-rollback` | `file` (enum) | `{file}` | restores the newest history copy |
 | `dvswitch-restart` | `scope: bridge\|gateways\|all` | `{units: [{name, active}]}` | fixed argv |
@@ -312,7 +365,7 @@ Base `/api/dvswitch`. Errors `{error, code}` as everywhere; all non-GET need `X-
 
 | Method | Path | Role | Body | Response / errors |
 |---|---|---|---|---|
-| GET | `/api/dvswitch` | viewer | | `200` Snapshot (below) |
+| GET | `/api/dvswitch` | viewer (M1); **admin in M3** | | `200` Snapshot (below). M3 ships the install/uninstall status here (admin only, see docs/API.md); M1 extends it |
 | POST | `/api/dvswitch/mode` | operator | `{"mode": "dmr\|ysf\|p25\|nxdn"}` | `200` Snapshot plus `confirmed: bool` (ABInfo shows the new mode); `400 bad_request`; `409 mode_disabled`; `409 not_configured`; `502 bridge_unreachable` (no ABInfo/TLV port) |
 | POST | `/api/dvswitch/tune` | operator | `{"mode": "ysf", "target": "192.0.2.10:42000"}` | `200` Snapshot + `confirmed`; `400 bad_target` (validator); `409 mode_mismatch` (bridge is in another mode now) |
 | POST | `/api/dvswitch/unlink` | operator | `{}` | `200` Snapshot; sends the unlink value of the current mode |
@@ -322,7 +375,9 @@ Base `/api/dvswitch`. Errors `{error, code}` as everywhere; all non-GET need `X-
 | PUT | `/api/dvswitch/favorites/{id}` | operator | `{"name","sort"}` | `200`; `404 not_found` |
 | DELETE | `/api/dvswitch/favorites/{id}` | operator | | `204`; `404` |
 | GET | `/api/dvswitch/setup` | admin | | `200` Setup view (below) |
-| POST | `/api/dvswitch/install` | admin | `{}` | `202` Snapshot (job running); `409 busy`, `409 already_installed`, `409 unsupported_platform`, `503` |
+| POST | `/api/dvswitch/install` | admin | none | M3, implemented: `202` status (job running); `409 job_running`, `409 apt_busy`, `409 already_installed`, `409 unsupported_platform`, `409 clock_unset`, `502 key_mismatch`, `503 dvswitch_unavailable` |
+| POST | `/api/dvswitch/uninstall` | admin | none | M3, implemented: `202` status; `409 not_aslcp_installed`, `409 job_running`, `409 apt_busy`, `503` |
+| GET | `/api/dvswitch/job` | admin | | M3, implemented: `{install:{job,log}, uninstall:{job,log}}` |
 | PUT | `/api/dvswitch/private-node` | admin | `{"node": "1999", "rxPort": 34001, "txPort": 32001, "duplex": 0, "link": {"mode": "permanent\|ondemand", "node": "2006"}, "dryRun": bool, "restart": bool}` | `dryRun`: `200` plan `{files:[{path, diff}], restartAsterisk, restarts[]}`; apply (needs `restart: true` when the plan restarts Asterisk, else `409 restart_required`): `200` `{applied, health}`; `400 invalid_node` (>= 2000 or not a number), `409 node_in_use`, `409 port_conflict`, `409 conflict` (file changed on disk), `422 syntax_error` |
 | PUT | `/api/dvswitch/identity` | admin | `{"callsign": "N0CALL", "dmrId": "1234567", "essid": "01"}` | `200` Setup view; `400` (field in message) |
 | PUT | `/api/dvswitch/credentials` | admin | `{"dmrAddress"?, "dmrPort"?, "dmrPassword"?: "..."}` | `200` Setup view (password only as `passwordSet`); empty password `400`; write-only |
@@ -414,7 +469,7 @@ Each milestone is shippable alone and useful on a node where DVSwitch was instal
 |---|---|---|
 | **M1 Panel** | `dvswitch-status`, `dvswitch-info`, native TLV control, snapshot/SSE, lists, favourites, card, demo/mock, API docs. Configured = a USRP node exists and `analog_bridge` is loaded; nothing is written to any config | ABInfo sample, option A works (or B), exact datagram sequence and timing of `mode`, a real mode switch and tune per mode, host file formats and permissions |
 | **M2 Private node + USRP** | astconf node and modules edits, preview/apply plan, ports through `dvswitch-config-apply` (USRP keys only), `dvswitch-restart`, link toggle + reconciler, DVSwitch tab (Node section), DVSwitch part in backups, mask.go rule | Stanza and `duplex` on a working bridge, chan_usrp load behaviour, `update-config.sh` effect, unit dependencies, backup/restore round trip |
-| **M3 Installer** | `dvswitch-install`, job UI, platform gating, explicit package set (no `dvswitch-server`) | Minimal set works without recommends at runtime (the packages ship the scripts, inis, units and host files: verified 2026-11-17), armhf and amd64 against arm64 behaviour, trixie architectures, keyring holds one primary key, licence, whether Asterisk config is touched. Installer content, key, bookworm repo and package facts: verified 2026-11-17 |
+| **M3 Installer (implemented, install and uninstall unverified on a real node)** | `dvswitch-install`, `dvswitch-uninstall`, job UI, platform gating, explicit package set (no `dvswitch-server`) | Minimal set works without recommends at runtime (the packages ship the scripts, inis, units and host files: verified 2026-11-17), armhf and amd64 against arm64 behaviour, trixie architectures, keyring holds one primary key, licence, whether Asterisk config is touched. Installer content, key, bookworm repo and package facts: verified 2026-11-17 |
 | **M4 Credentials and config** | Identity, DMR network password, enabled modes, startup values, gateway startup reflectors, rollback | Which keys exist in P25/NXDN gateway ini, password character handling, DMR connect with a test hotspot account, restarts per change |
 
 ## Unverified / to check on a real node
@@ -458,4 +513,4 @@ The maintainer accepted the recommendations: "the recommendations are good, we c
 4. **Installer trust.** Chosen: replicate the apt source and key steps as fixed helper content from the verified facts (Install, Upstream facts), with the pinned full fingerprint `6DDFC33CD5FC678659642DF572147EC1E788D4C3`, checked with Go stdlib. The upstream script is **not copied** (no licence header) and never run as root.
 5. **Backups.** Chosen: include the DVSwitch inis (BrandMeister/TGIF password) in the existing unencrypted backup like every other secret, with the warning. Not chosen: an opt-in part.
 6. **Unsupported platforms.** Chosen: hide Install and show a pointer for any host codename other than bookworm or trixie, or an arch outside the matrix.
-7. **Install package set (decided 2026-11-17, confirmed by the maintainer).** Chosen: ASLCP installs the explicit set `dvswitch-base analog-bridge mmdvm-bridge md380-emu ysfgateway p25gateway nxdngateway wget` with `--no-install-recommends`, not `dvswitch-server`. `wget` was added on 2026-11-17 after the package contents check (`netcheck` needs it, and `dvswitch-base` declares no Depends); the maintainer confirms this addition. Reasons: `dvswitch-dashboard` would add PHP, Apache (`libapache2-mod-php`) and Node.js, which ASLCP replaces, and Apache could clash with ports used by ASLCP/Allmon3; `analog-reflector` adds mosquitto; monit, menu, ircDDBGateway, Quantar and the parrots are not used in v1. `stfu` is left out (MMDVM_Bridge connects to BrandMeister directly). An operator who installed `dvswitch-server` by hand is still detected and supported. The confirm dialog lists the packages and mentions `qemu-user-static`. Uninstall is out of scope for v1.
+7. **Install package set (decided 2026-11-17, confirmed by the maintainer).** Chosen: ASLCP installs the explicit set `dvswitch-base analog-bridge mmdvm-bridge md380-emu ysfgateway p25gateway nxdngateway wget` with `--no-install-recommends`, not `dvswitch-server`. `wget` was added on 2026-11-17 after the package contents check (`netcheck` needs it, and `dvswitch-base` declares no Depends); the maintainer confirms this addition. Reasons: `dvswitch-dashboard` would add PHP, Apache (`libapache2-mod-php`) and Node.js, which ASLCP replaces, and Apache could clash with ports used by ASLCP/Allmon3; `analog-reflector` adds mosquitto; monit, menu, ircDDBGateway, Quantar and the parrots are not used in v1. `stfu` is left out (MMDVM_Bridge connects to BrandMeister directly). An operator who installed `dvswitch-server` by hand is still detected and supported. The confirm dialog lists the packages and mentions `qemu-user-static`.
