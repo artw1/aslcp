@@ -98,9 +98,9 @@ export interface ConfigCommit { commit: string; date: string; author: string; me
 export interface ConfigCommitDetail extends Omit<ConfigCommit, 'files'> { files: { path: string; status: 'added' | 'modified' | 'deleted'; diff: string }[] }
 
 // Backup and full restore (docs/BACKUP.md, /api/backup/*, /api/restore/*). Admin only (restore upload also with a setup code).
-export type BackupPartId = 'history' | 'allmon3' | 'sounds';
+export type BackupPartId = 'history' | 'allmon3' | 'sounds' | 'dvswitch';
 export interface BackupInfo { parts: { id: BackupPartId; present: boolean; size: number }[]; sa818: boolean }
-export interface BackupSelection { history: boolean; allmon3: boolean; sounds: boolean }
+export interface BackupSelection { history: boolean; allmon3: boolean; sounds: boolean; dvswitch: boolean }
 export type RestoreAction = 'restore' | 'restore_dist' | 'keep_stock' | 'keep_new' | 'delete_optional' | 'skip';
 export interface RestoreRadio {
   band: string; freqRx: string; freqTx: string; tone: string; ctcssRx: string; ctcssTx: string; dcsRx: string; dcsTx: string; port: string; portPresent: boolean;
@@ -117,7 +117,7 @@ export interface RestorePreview {
   installCommand: string;
   checklist: { item: string; value: string }[];
   radio: RestoreRadio | null;
-  parts: { history: boolean; allmon3: boolean; sounds: boolean; sa818: boolean };
+  parts: { history: boolean; allmon3: boolean; sounds: boolean; sa818: boolean; dvswitch?: boolean };
 }
 export interface RestoreUpload { id: string; preview: RestorePreview }
 export interface RestoreStep { name: string; ok: boolean; detail: string }

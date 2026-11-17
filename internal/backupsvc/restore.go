@@ -91,6 +91,8 @@ type PartsPresent struct {
 	Allmon3 bool `json:"allmon3"`
 	Sounds  bool `json:"sounds"`
 	SA818   bool `json:"sa818"`
+	// DVSwitch: the ini files and dvsm.macro of /opt (with secrets).
+	DVSwitch bool `json:"dvswitch"`
 }
 
 // Preview is what the restore page shows before anything changes.
@@ -316,7 +318,7 @@ func (s *Service) preview(m *backup.Manifest, plan helper.RestoreResult, insp st
 		Warnings: []Warning{}, Files: []File{}, Users: []User{}, MissingPackages: []string{}, Checklist: []ChecklistItem{},
 		Favorites: insp.Favorites,
 		Schedules: insp.Schedules,
-		Parts:     PartsPresent{History: m.Parts.History, Allmon3: m.Parts.Allmon3, Sounds: len(m.Parts.Sounds) > 0, SA818: m.Parts.SA818},
+		Parts:     PartsPresent{History: m.Parts.History, Allmon3: m.Parts.Allmon3, Sounds: len(m.Parts.Sounds) > 0, SA818: m.Parts.SA818, DVSwitch: m.Parts.DVSwitch},
 	}
 	offered := map[string]bool{}
 	dist := 0
@@ -355,6 +357,9 @@ func (s *Service) preview(m *backup.Manifest, plan helper.RestoreResult, insp st
 	if dist > 0 {
 		p.Warnings = append(p.Warnings, Warning{"dist_files",
 			fmt.Sprintf("%d file(s) were changed by you and ASL3 changed the default since: your version is restored and the new default is kept beside it as .dpkg-dist. Review them.", dist)})
+	}
+	if plan.DVSwitchNotInstalled {
+		p.Warnings = append(p.Warnings, Warning{"dvswitch_not_installed", helper.DVRestoreNotInstalled + ". The rest of the backup is restored as usual."})
 	}
 	if len(m.Skipped) > 0 {
 		p.Warnings = append(p.Warnings, Warning{"skipped_files",

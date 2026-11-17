@@ -678,6 +678,9 @@ func (o *Ops) BackupRestore(ctx context.Context, req *RestoreRequest, in io.Read
 			res.SA818PortPresent = err == nil
 		}
 	}
+	if m.Parts.DVSwitch && dvHasFiles(m) && !o.dvInstalled() {
+		res.DVSwitchNotInstalled = true
+	}
 	seen := map[string]bool{}
 	var deletes []string
 	for _, d := range req.DeleteMissing {
@@ -769,6 +772,15 @@ func (o *Ops) BackupRestore(ctx context.Context, req *RestoreRequest, in io.Read
 			return fail("Replace custom sounds", err)
 		}
 		okStep("Replace custom sounds", d)
+	}
+	if m.Parts.DVSwitch {
+		d, _, err := o.restoreDVSwitch(ctx, sp, m)
+		if err != nil {
+			return fail(dvStepName, err)
+		}
+		if d != "" {
+			okStep(dvStepName, d)
+		}
 	}
 	if m.Parts.SA818 {
 		if err := o.restoreSingle(sp, backup.PathSA818, o.sa818Conf(), 0, 0, 0o644); err != nil {

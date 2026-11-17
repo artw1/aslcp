@@ -115,7 +115,7 @@ func code(m map[string]any) string { s, _ := m["code"].(string); return s }
 
 func (e *bkEnv) backupBytes(role string) []byte {
 	e.t.Helper()
-	st, b, h := e.create(role, map[string]bool{"history": true, "allmon3": true, "sounds": true})
+	st, b, h := e.create(role, map[string]bool{"history": true, "allmon3": true, "sounds": true, "dvswitch": true})
 	if st != 200 {
 		e.t.Fatalf("create: %d %s", st, b)
 	}
@@ -156,7 +156,7 @@ func TestBackupAuthMatrix(t *testing.T) {
 		}
 		SA818 bool
 	}
-	if e.do("admin", "GET", "/api/backup/info", nil, &info) != 200 || len(info.Parts) != 3 || !info.SA818 {
+	if e.do("admin", "GET", "/api/backup/info", nil, &info) != 200 || len(info.Parts) != 4 || !info.SA818 {
 		t.Fatalf("info %+v", info)
 	}
 	// unavailable service
@@ -206,11 +206,19 @@ func TestBackupRoundTripDemo(t *testing.T) {
 		t.Errorf("users: %v", prev["users"])
 	}
 	parts := prev["parts"].(map[string]any)
-	if parts["sa818"] != true || parts["sounds"] != true || parts["allmon3"] != true {
+	if parts["sa818"] != true || parts["sounds"] != true || parts["allmon3"] != true || parts["dvswitch"] != true {
 		t.Errorf("parts: %v", parts)
 	}
 	if b := prev["backup"].(map[string]any); b["hostname"] != "node-a" || b["aslcpVersion"] != "1.0.0" {
 		t.Errorf("backup: %v", b)
+	}
+
+	// the DVSwitch part restores into the demo's own /opt (installed there),
+	// and the preview has no "install DVSwitch" warning
+	for _, w := range prev["warnings"].([]any) {
+		if code(w.(map[string]any)) == "dvswitch_not_installed" {
+			t.Errorf("unexpected warning %v", w)
+		}
 	}
 
 	// cancel and re-upload

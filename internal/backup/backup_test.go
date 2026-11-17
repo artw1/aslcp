@@ -262,3 +262,32 @@ func TestReadTruncatedWithHandlerIsBadBackup(t *testing.T) {
 		t.Fatalf("want *Error, got %T %v", err, err)
 	}
 }
+
+func TestDVSwitchPartLayout(t *testing.T) {
+	ini := "dvswitch/opt/MMDVM_Bridge/MMDVM_Bridge.ini"
+	m := baseManifest(fileEntry(ini, "[General]\n"))
+	m.Parts.DVSwitch = true
+	arc := rawArchive(t, m, reg(ini, "[General]\n"))
+	m2, err := Read(bytes.NewReader(arc), nil)
+	if err != nil || !m2.Parts.DVSwitch {
+		t.Fatalf("%+v %v", m2, err)
+	}
+	// only the fixed files are valid: anything else below dvswitch/ is refused
+	for _, p := range []string{"dvswitch/opt/MMDVM_Bridge/evil.sh", "dvswitch/opt/../x", "dvswitch/etc/passwd", "dvswitch/opt", "dvswitch/opt/Analog_Bridge/Analog_Bridge"} {
+		bm := baseManifest(fileEntry(p, "x"))
+		if err := bm.Validate(); err == nil {
+			t.Errorf("%s accepted", p)
+		}
+	}
+	// a directory or symlink in place of a file is refused
+	if err := baseManifest(dirEntry(ini)).Validate(); err == nil {
+		t.Error("directory accepted for a single file")
+	}
+	// the flag is optional: a manifest of an older backup (no dvswitch key)
+	// is still valid format 1
+	var old Manifest
+	raw := `{"format":1,"created":"2026-01-02T03:04:00Z","createdBy":"a","aslcpVersion":"1","asl3Version":"","asteriskVersion":"","hostname":"n","timezone":"UTC","arch":"arm64","nodes":[],"channel":"stable","packages":[],"parts":{"history":false,"allmon3":false,"sa818":false,"astdb":false,"sounds":[]},"missingStock":[],"files":[]}`
+	if err := json.Unmarshal([]byte(raw), &old); err != nil || old.Validate() != nil || old.Parts.DVSwitch {
+		t.Fatalf("%v %v", err, old.Validate())
+	}
+}
