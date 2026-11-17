@@ -3,7 +3,16 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
-## [1.1.23] - Unreleased
+## [1.1.24] - Unreleased
+
+### Added
+- Schedules: new setting "When I connect or disconnect manually" at the top of the Schedules tab (operators and admins; everyone sees the current choice). "Pause all until re-enabled" is the previous behaviour and stays the default. "Pause all for today" pauses the same way but switches the schedules on again by itself at the next midnight (node time); the Schedules tab and the dashboard card say "Paused until 00:00" / "Paused until midnight". "Cancel the running window, keep schedules on" only cancels the window that is running on the node you connected or disconnected on; schedules stay on, other nodes are untouched, and a notice such as "Tuesday net" cancelled by manual connect 41234 on 2006 by op is shown until the window would have ended.
+- API: `PUT /api/schedules/settings` (`manualAction`); the schedules snapshot gains `manualAction`, `resumeAt` and `lastCancel`.
+
+### Fixed
+- Schedules: saving a schedule that overlaps another one on the same node is now refused when one of the two has "disconnect others first" on (both connects, both enabled). Before, a new exclusive schedule saved while another window was running connected at once and dropped the running link. The dialog shows the clash (for example `overlaps "Tuesday net" (Tue 19:00–20:30) on node 2006`) and disables Save; switching a schedule on shows the same message when it would clash. API: `409 schedule_conflict`. Schedules saved earlier are left alone.
+
+## [1.1.23] - 2026-11-17
 
 ### Fixed
 - Favorites scan showed a node that was transmitting continuously green (active) instead of red (keyed), because the stats service publishes a new report only about every 30 s; linked favorites now also turn red immediately from the local link, and a node that stops reporting no longer stays red.
