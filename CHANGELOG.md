@@ -3,7 +3,18 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
-## [1.1.20] - Unreleased
+## [1.1.21] - Unreleased
+
+### Added
+- Schedules: scheduled connects and disconnects, for example a weekly net. New Schedules tab (`#/schedules`, visible to all roles, editing for operators and admins) and a one-line dashboard card between the connect bar and the favorites with the on/off switch, the next event with a countdown ("Running: ... until 20:30" during a window) and the pause reason.
+- A schedule has a local node, a target, an action (connect or disconnect), the mode, "permanent" and "disconnect others first" like the manual Connect, weekly days or a single date, a start time and, for connects, an optional end time: the link is disconnected at the end (also when it was already linked at the start); an end before the start crosses midnight. A one-off schedule switches itself off after its last event.
+- Times are node time (the time zone of the machine, DST included; a time skipped by the clock change runs at the first valid minute). The Schedules tab shows the zone name and notes it when the browser is in another zone.
+- A manual connect, disconnect or disconnect all from the panel (any user) cancels the windows running at that moment and pauses all schedules, with the reason shown ("manual connect 41234 on 2006 by op"); only an operator switching schedules on again resumes them, and the cancelled windows are not caught up. Changes made outside the panel (DTMF, Allmon3, a link dropping) are not detected.
+- Catch-up: when ASLCP starts or schedules are switched on, a window that is running now is connected now, and a window whose end passed while ASLCP was down is disconnected. Single events are never replayed. A failed command (Asterisk down, error) is retried every minute until the end of the window, or for 10 minutes for a single event; the result is shown per schedule (`ok`, `skipped: ...`, `error: ...`).
+- API: `GET/POST /api/schedules`, `PUT/DELETE /api/schedules/{id}`, `PUT /api/schedules/enabled` (operator for writes), SSE event `schedules` with the snapshot, new `schedules` table (database migration 4) and `docs/SCHEDULES.md`. Demo mode (two example schedules on node 2006) and `web/mock` simulate the feature.
+- Tests: the occurrence calculation (midnight crossing, one-off dates, DST gap and repeated hour, cancelled occurrences), the engine with a fake clock (window, skip, retries, catch-up, pause, restart, ordering, one-off), time zone name detection, the store, the REST endpoints with roles and validation, manual actions pausing, and an end-to-end run against the fake node.
+
+## [1.1.20] - 2026-11-17
 
 ### Changed
 - ASLCP is now open source under the GNU GPL v3.0 or later; source code at https://github.com/artw1/aslcp.

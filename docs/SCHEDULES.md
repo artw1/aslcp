@@ -97,3 +97,18 @@ SSE event `schedules` (all roles) carries the Snapshot. It is sent after every c
   - Upcoming list: the next 10 events with countdowns.
   - Add / Edit dialog: name, local node (select, only with more than one), action (Connect / Disconnect), target (NodePicker), mode, permanent, disconnect others first (default from the user's "Disconnect before Connect/Monitor" setting), repeat (Weekly with day toggles Mon … Sun, or Once with a date), start, end (connect only, optional). Client-side validation mirrors the server's.
 - **Dashboard card**, between the connect bar and favorites: one compact line: "Schedules: Active/Paused" switch (operator), the next event with countdown (or "Running: … until 20:30"), pause reason when paused, and a link to the Schedules tab. With no schedules it shows "No schedules" and the link only.
+
+## Implementation notes
+
+Decisions made while implementing where the sections above were silent.
+
+- `schedules.Schedule` (the JSON shape above) lives in `internal/schedules`; `internal/store` imports it for its CRUD (`ListSchedules`, `GetSchedule`, `AddSchedule`, `UpdateSchedule`, `DeleteSchedule`, `SetScheduleResult`, `SetScheduleEnabled`). `Schedule.Normalize()` validates and canonicalises; the API adds the "current local node" check (`unknown_node`).
+- Normalisation: a disconnect gets `mode: ""` and `exclusive: false`; `localmonitor` gets `exclusive: false`; a connect without `mode` is `transceive`; `days` are sorted and de-duplicated, and `[]` (never `null`) for a once schedule. `enabled` absent in a POST/PUT body means `true`.
+- All `/api/schedules` endpoints answer `503 schedules_unavailable` when the engine is not wired (`Deps.Schedules == nil`).
+- `Linker.LinkMode` reports `connecting` for a link still being established; it counts as already connected (no second connect). A link in another mode than requested is connected again (mode change), like the manual Connect.
+- A window is tracked by one persisted entry (`connected`, also when the connect was skipped because the target was already linked; or `cancelled`). "A window running now without an entry" covers the start, the retries and all catch-up cases in one rule. The closing disconnect is retried every minute for up to 10 minutes after its first failed attempt; entries of a paused engine older than 10 minutes past their end are dropped.
+- `Pause` keeps the reason of an earlier pause (a manual action while already paused still cancels the running occurrences). `SetEnabled` (either direction) clears the reason, drops pending single events and moves the "no replay" point to now.
+- A one-off schedule is disabled once its last event is over and nothing is pending for it (including a one-off whose date is already past, without any command).
+- The engine waits `StartDelay` (5 s in the server) before its first tick so the monitor has a status; before that a schedule would only record `error: node not available`.
+- The `now` and `pausedAt` fields have second resolution.
+- `GET /api/schedules` returns the snapshot; `active` is empty while the switch is off.

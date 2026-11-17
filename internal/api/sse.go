@@ -153,6 +153,16 @@ func (s *Server) broadcastFavorites() {
 	s.hub.broadcast(sseMsg{priv: f, pub: f})
 }
 
+// broadcastSchedules sends the schedules snapshot (the same frame for all
+// roles).
+func (s *Server) broadcastSchedules() {
+	if s.d.Schedules == nil {
+		return
+	}
+	f := frame("schedules", s.d.Schedules.Snapshot())
+	s.hub.broadcast(sseMsg{priv: f, pub: f})
+}
+
 // updateInterval re-evaluates the poll interval; the argument is ignored
 // (admin and public SSE clients are both counted).
 func (s *Server) updateInterval(int) {

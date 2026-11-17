@@ -31,6 +31,7 @@ import (
 	"github.com/artw1/aslcp/internal/helper"
 	"github.com/artw1/aslcp/internal/nodelist"
 	"github.com/artw1/aslcp/internal/rpt"
+	"github.com/artw1/aslcp/internal/schedules"
 	"github.com/artw1/aslcp/internal/store"
 	"github.com/artw1/aslcp/internal/susb"
 	"github.com/artw1/aslcp/internal/system"
@@ -167,6 +168,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 				}
 			}
 		}
+		seedDemoSchedules(st, time.Now())
 	} else {
 		bg(func() { nl.Run(ctx) })
 	}
@@ -267,8 +269,11 @@ func run(cfgPath string, dev, demoMode bool) error {
 	}
 	favScan := favstats.New(fsOpts)
 	favScan.SetRate(cfg.FavStatsRate)
+	// Schedules: the API wires the engine's link controller and broadcast.
+	sched := &schedules.Engine{Store: st, Logger: logger, StartDelay: 5 * time.Second}
 	srv := api.New(api.Deps{
 		FavStats:     favScan,
+		Schedules:    sched,
 		RescanNodes:  func() { kick(rescan) },
 		Tuning:       tune,
 		ConfigEditor: cfgSvc,
@@ -582,4 +587,29 @@ func (l *lateAMI) Command(ctx context.Context, cmd string) ([]string, error) {
 		return c.Command(ctx, cmd)
 	}
 	return nil, ami.ErrNotConnected
+}
+
+// seedDemoSchedules adds two example schedules to an empty demo database: a
+// daily 15 minute window a few minutes after the next quarter hour, and a
+// daily disconnect after it, so the Schedules tab has something to show.
+func seedDemoSchedules(st *store.Store, now time.Time) {
+	if l, _ := st.ListSchedules(); len(l) != 0 {
+		return
+	}
+	start := now.Truncate(15 * time.Minute).Add(15*time.Minute + 3*time.Minute)
+	end := start.Add(15 * time.Minute)
+	off := end.Add(5 * time.Minute)
+	all := []int{0, 1, 2, 3, 4, 5, 6}
+	clock := func(t time.Time) string { return t.Format("15:04") }
+	for _, x := range []schedules.Schedule{
+		{Name: "Demo net", Enabled: true, Node: "2006", Target: "2000", Action: schedules.ActionConnect, Mode: schedules.ModeTransceive,
+			Days: all, Start: clock(start), End: clock(end)},
+		{Name: "Tidy up", Enabled: true, Node: "2006", Target: "50241", Action: schedules.ActionDisconnect,
+			Days: all, Start: clock(off)},
+	} {
+		if err := x.Normalize(); err != nil {
+			continue
+		}
+		_, _ = st.AddSchedule(x)
+	}
 }

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -92,30 +93,56 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request, u store.U
 		writeErr(w, 400, "bad_request", `mode must be "transceive", "monitor" or "localmonitor"`)
 		return
 	}
-	if !s.amiUp() {
-		s.commandError(w, ami.ErrNotConnected)
-		return
-	}
 	ctx, cancel := s.cmdContext(r)
 	defer cancel()
-	// "Disconnect before connect" (AllScan's feature): drop the other direct
-	// links first so the target network is not bridged with the current ones.
+	// "Disconnect before connect" (AllScan's feature) is done by connectLink;
 	// localmonitor never passes audio to other links, so it cannot cross-link
 	// and ignores the flag.
-	exclusive := in.Exclusive && (mode == rpt.ConnTransceive || mode == rpt.ConnMonitor)
-	if exclusive {
-		if err := s.disconnectOthers(ctx, node, in.Target); err != nil {
-			s.commandError(w, err)
-			return
-		}
-	}
-	if err := s.rpt.Connect(ctx, node, in.Target, mode, in.Permanent); err != nil {
+	exclusive := in.Exclusive && exclusiveMode(mode)
+	if err := s.connectLink(ctx, node, in.Target, mode, in.Permanent, exclusive); err != nil {
 		s.commandError(w, err)
 		return
 	}
 	s.d.Logger.Printf("connect %s -> %s (%s, permanent=%v, exclusive=%v) by %s", node, in.Target, mode, in.Permanent, exclusive, u.Username)
 	s.afterCommand(node)
+	s.pauseSchedules(fmt.Sprintf("manual connect %s on %s by %s", in.Target, node, u.Username))
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// exclusiveMode reports whether "disconnect before connect" applies to mode.
+func exclusiveMode(mode rpt.ConnectMode) bool {
+	return mode == rpt.ConnTransceive || mode == rpt.ConnMonitor
+}
+
+// connectLink connects node to target, first dropping the other direct links
+// when exclusive is set (and the mode allows it). Both the HTTP handler and
+// the scheduler use it, so they share the command pacing and behaviour.
+func (s *Server) connectLink(ctx context.Context, node, target string, mode rpt.ConnectMode, permanent, exclusive bool) error {
+	if !s.amiUp() {
+		return ami.ErrNotConnected
+	}
+	if exclusive && exclusiveMode(mode) {
+		if err := s.disconnectOthers(ctx, node, target); err != nil {
+			return err
+		}
+	}
+	if err := s.rpt.Connect(ctx, node, target, mode, permanent); err != nil {
+		return err
+	}
+	s.afterCommand(node)
+	return nil
+}
+
+// disconnectLink sends a (permanent or normal) disconnect of one link.
+func (s *Server) disconnectLink(ctx context.Context, node, target string, permanent bool) error {
+	if !s.amiUp() {
+		return ami.ErrNotConnected
+	}
+	if err := s.rpt.Disconnect(ctx, node, target, permanent); err != nil {
+		return err
+	}
+	s.afterCommand(node)
+	return nil
 }
 
 // disconnectOthers sends a normal (non-permanent) disconnect (ilink 1) for
@@ -207,18 +234,14 @@ func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request, u stor
 		writeErr(w, 400, "bad_target", "invalid target")
 		return
 	}
-	if !s.amiUp() {
-		s.commandError(w, ami.ErrNotConnected)
-		return
-	}
 	ctx, cancel := s.cmdContext(r)
 	defer cancel()
-	if err := s.rpt.Disconnect(ctx, node, in.Target, in.Permanent); err != nil {
+	if err := s.disconnectLink(ctx, node, in.Target, in.Permanent); err != nil {
 		s.commandError(w, err)
 		return
 	}
 	s.d.Logger.Printf("disconnect %s -> %s (permanent=%v) by %s", node, in.Target, in.Permanent, u.Username)
-	s.afterCommand(node)
+	s.pauseSchedules(fmt.Sprintf("manual disconnect %s on %s by %s", in.Target, node, u.Username))
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -239,6 +262,7 @@ func (s *Server) handleDisconnectAll(w http.ResponseWriter, r *http.Request, u s
 	}
 	s.d.Logger.Printf("disconnect-all %s by %s", node, u.Username)
 	s.afterCommand(node)
+	s.pauseSchedules(fmt.Sprintf("manual disconnect all on %s by %s", node, u.Username))
 	w.WriteHeader(http.StatusAccepted)
 }
 

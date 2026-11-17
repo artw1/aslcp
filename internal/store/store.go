@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/artw1/aslcp/internal/schedules"
 	_ "modernc.org/sqlite" // pure-Go driver
 )
 
@@ -103,6 +105,26 @@ var migrations = []string{
 		detail TEXT NOT NULL DEFAULT ''
 	);
 	CREATE INDEX audit_ts ON audit(ts);`,
+	// 4: scheduled connects and disconnects (docs/SCHEDULES.md).
+	`CREATE TABLE schedules (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL DEFAULT '',
+		enabled INTEGER NOT NULL DEFAULT 1,
+		node TEXT NOT NULL,
+		target TEXT NOT NULL,
+		action TEXT NOT NULL,
+		mode TEXT NOT NULL DEFAULT '',
+		permanent INTEGER NOT NULL DEFAULT 0,
+		exclusive INTEGER NOT NULL DEFAULT 0,
+		days TEXT NOT NULL DEFAULT '',
+		date TEXT NOT NULL DEFAULT '',
+		start TEXT NOT NULL,
+		end_time TEXT NOT NULL DEFAULT '',
+		last_run INTEGER NOT NULL DEFAULT 0,
+		last_result TEXT NOT NULL DEFAULT '',
+		created INTEGER NOT NULL,
+		updated INTEGER NOT NULL
+	);`,
 }
 
 // Open opens (creating if needed) the database at path and migrates it.
@@ -461,6 +483,140 @@ func (s *Store) ReorderFavorites(ids []int64) error {
 		pos++
 	}
 	return tx.Commit()
+}
+
+// Schedules -------------------------------------------------------------
+
+const scheduleCols = `id,name,enabled,node,target,action,mode,permanent,exclusive,days,date,start,end_time,last_run,last_result`
+
+func daysString(d []int) string {
+	parts := make([]string, len(d))
+	for i, v := range d {
+		parts[i] = strconv.Itoa(v)
+	}
+	return strings.Join(parts, ",")
+}
+
+func parseDays(s string) []int {
+	out := []int{}
+	for _, p := range strings.Split(s, ",") {
+		if v, err := strconv.Atoi(strings.TrimSpace(p)); err == nil {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+type rowScanner interface{ Scan(dest ...any) error }
+
+func scanSchedule(r rowScanner) (schedules.Schedule, error) {
+	var x schedules.Schedule
+	var en, perm, excl int
+	var days string
+	var last int64
+	err := r.Scan(&x.ID, &x.Name, &en, &x.Node, &x.Target, &x.Action, &x.Mode, &perm, &excl,
+		&days, &x.Date, &x.Start, &x.End, &last, &x.LastResult)
+	if err != nil {
+		return x, err
+	}
+	x.Enabled, x.Permanent, x.Exclusive = en != 0, perm != 0, excl != 0
+	x.Days = parseDays(days)
+	if last > 0 {
+		t := fromTS(last)
+		x.LastRun = &t
+	}
+	return x, nil
+}
+
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// ListSchedules returns all schedules ordered by id.
+func (s *Store) ListSchedules() ([]schedules.Schedule, error) {
+	rows, err := s.db.Query(`SELECT ` + scheduleCols + ` FROM schedules ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []schedules.Schedule{}
+	for rows.Next() {
+		x, err := scanSchedule(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
+// GetSchedule returns one schedule.
+func (s *Store) GetSchedule(id int64) (schedules.Schedule, error) {
+	x, err := scanSchedule(s.db.QueryRow(`SELECT `+scheduleCols+` FROM schedules WHERE id=?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return schedules.Schedule{}, ErrNotFound
+	}
+	return x, err
+}
+
+// AddSchedule inserts a schedule (ID, LastRun and LastResult are ignored).
+func (s *Store) AddSchedule(x schedules.Schedule) (schedules.Schedule, error) {
+	now := ts(time.Now())
+	res, err := s.db.Exec(`INSERT INTO schedules(name,enabled,node,target,action,mode,permanent,exclusive,days,date,start,end_time,created,updated)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, x.Name, b2i(x.Enabled), x.Node, x.Target, x.Action, x.Mode,
+		b2i(x.Permanent), b2i(x.Exclusive), daysString(x.Days), x.Date, x.Start, x.End, now, now)
+	if err != nil {
+		return schedules.Schedule{}, err
+	}
+	id, _ := res.LastInsertId()
+	return s.GetSchedule(id)
+}
+
+// UpdateSchedule replaces the editable fields of schedule x.ID.
+func (s *Store) UpdateSchedule(x schedules.Schedule) (schedules.Schedule, error) {
+	res, err := s.db.Exec(`UPDATE schedules SET name=?,enabled=?,node=?,target=?,action=?,mode=?,permanent=?,exclusive=?,
+		days=?,date=?,start=?,end_time=?,updated=? WHERE id=?`, x.Name, b2i(x.Enabled), x.Node, x.Target, x.Action, x.Mode,
+		b2i(x.Permanent), b2i(x.Exclusive), daysString(x.Days), x.Date, x.Start, x.End, ts(time.Now()), x.ID)
+	if err != nil {
+		return schedules.Schedule{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return schedules.Schedule{}, ErrNotFound
+	}
+	return s.GetSchedule(x.ID)
+}
+
+// DeleteSchedule removes a schedule.
+func (s *Store) DeleteSchedule(id int64) error {
+	res, err := s.db.Exec(`DELETE FROM schedules WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetScheduleResult records the last time the scheduler acted and the outcome.
+func (s *Store) SetScheduleResult(id int64, at time.Time, result string) error {
+	_, err := s.db.Exec(`UPDATE schedules SET last_run=?, last_result=? WHERE id=?`, ts(at), result, id)
+	return err
+}
+
+// SetScheduleEnabled switches one schedule on or off.
+func (s *Store) SetScheduleEnabled(id int64, enabled bool) error {
+	res, err := s.db.Exec(`UPDATE schedules SET enabled=?, updated=? WHERE id=?`, b2i(enabled), ts(time.Now()), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // Settings --------------------------------------------------------------

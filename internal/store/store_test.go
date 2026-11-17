@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/artw1/aslcp/internal/schedules"
 )
 
 func open(t *testing.T) *Store {
@@ -225,5 +227,69 @@ func TestAudit(t *testing.T) {
 	}
 	if l, _ := s.ListAudit(1); len(l) != 1 {
 		t.Fatal("limit")
+	}
+}
+
+func TestSchedules(t *testing.T) {
+	s := open(t)
+	if v, _ := s.Version(); v < 4 {
+		t.Fatalf("schema version %d", v)
+	}
+	l, err := s.ListSchedules()
+	if err != nil || len(l) != 0 {
+		t.Fatalf("empty list: %v %v", l, err)
+	}
+	a, err := s.AddSchedule(schedules.Schedule{Name: "Net", Enabled: true, Node: "1997", Target: "41234", Action: "connect",
+		Mode: "monitor", Permanent: true, Exclusive: true, Days: []int{2, 4}, Start: "19:00", End: "20:30"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.ID == 0 || a.Name != "Net" || !a.Enabled || !a.Permanent || !a.Exclusive || a.Mode != "monitor" ||
+		len(a.Days) != 2 || a.Days[0] != 2 || a.Days[1] != 4 || a.Start != "19:00" || a.End != "20:30" || a.LastRun != nil {
+		t.Fatalf("added: %+v", a)
+	}
+	b, err := s.AddSchedule(schedules.Schedule{Node: "1997", Target: "50241", Action: "disconnect", Days: []int{}, Date: "2026-12-01", Start: "07:00"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Date != "2026-12-01" || len(b.Days) != 0 || b.Days == nil || b.Enabled {
+		t.Fatalf("once: %+v", b)
+	}
+	a.Name, a.Days, a.End = "Net 2", []int{0}, ""
+	u, err := s.UpdateSchedule(a)
+	if err != nil || u.Name != "Net 2" || len(u.Days) != 1 || u.End != "" {
+		t.Fatalf("update: %+v %v", u, err)
+	}
+	if _, err := s.UpdateSchedule(schedules.Schedule{ID: 999, Node: "1", Target: "2", Action: "connect", Start: "00:00"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("update missing: %v", err)
+	}
+	at := time.Unix(1_800_000_000, 0)
+	if err := s.SetScheduleResult(a.ID, at, "ok"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetScheduleEnabled(b.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetScheduleEnabled(999, true); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("enable missing: %v", err)
+	}
+	g, _ := s.GetSchedule(a.ID)
+	if g.LastRun == nil || !g.LastRun.Equal(at) || g.LastResult != "ok" {
+		t.Fatalf("result: %+v", g)
+	}
+	if g, _ := s.GetSchedule(b.ID); !g.Enabled {
+		t.Fatal("enable did not stick")
+	}
+	if err := s.DeleteSchedule(a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteSchedule(a.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("delete twice: %v", err)
+	}
+	if _, err := s.GetSchedule(a.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("get deleted: %v", err)
+	}
+	if l, _ := s.ListSchedules(); len(l) != 1 {
+		t.Fatalf("list: %v", l)
 	}
 }

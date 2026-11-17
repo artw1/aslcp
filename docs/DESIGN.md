@@ -321,6 +321,7 @@ internal/ami/       AMI client
 internal/api/       REST + SSE
 internal/auth/      users, sessions, CSRF
 internal/store/     SQLite
+internal/schedules/ scheduled connects and disconnects (docs/SCHEDULES.md)
 internal/system/    host metrics, logs, service control
 web/                Svelte app
 packaging/          nfpm, systemd units, postinst, apt repo scripts
