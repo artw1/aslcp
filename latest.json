@@ -1,5 +1,5 @@
 {
-  "version": "1.1.23",
-  "notes": "### Fixed\n- Favorites scan showed a node that was transmitting continuously green (active) instead of red (keyed), because the stats service publishes a new report only about every 30 s; linked favorites now also turn red immediately from the local link, and a node that stops reporting no longer stays red.",
+  "version": "1.1.24",
+  "notes": "CHANGELOG and HANDOVER: 1.1.23 released, 1.1.24 prepared\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01WyFLnHQojhM4Jvfwzs5euQ",
   "date": "2026-11-17"
 }
