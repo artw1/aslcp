@@ -70,6 +70,19 @@ type Ops struct {
 	// OSCheckTimeout bounds apt-get update of os-check (default 5 minutes).
 	OSCheckTimeout time.Duration
 	osCheckMu      sync.Mutex
+
+	// DVSwitch install (dvswitch.go); defaults are the DefaultDV* constants.
+	DVKeyring    string
+	DVSourceList string
+	DVStateDir   string
+	DVHostDir    string
+	// SelfPath is the helper binary the install and uninstall units call for
+	// their steps (default: this executable).
+	SelfPath string
+	// HTTPGet fetches the keyring (tests inject; default: fixed-URL client,
+	// redirects refused, 1 MiB cap). Now is the clock check's time source.
+	HTTPGet func(ctx context.Context, url string) ([]byte, error)
+	Now     func() time.Time
 }
 
 // jobCache remembers the classification of a finished job.
@@ -124,6 +137,14 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return o.Reboot(ctx)
 	case OpAslcpRestart:
 		return o.AslcpRestart(ctx)
+	case OpDVSwitchStatus:
+		return o.DVSwitchStatus(ctx)
+	case OpDVSwitchJob:
+		return o.DVSwitchJob(ctx)
+	case OpDVSwitchInstall:
+		return o.DVSwitchInstall(ctx)
+	case OpDVSwitchUninstall:
+		return o.DVSwitchUninstall(ctx)
 	case OpFirewallStatus:
 		return o.FirewallStatus(ctx)
 	case OpFirewallOpen:

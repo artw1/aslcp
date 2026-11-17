@@ -49,9 +49,10 @@ func osUpgradeArgv() []string {
 		"/bin/sh", "-c", osUpgradeScript}
 }
 
-// aptJobRunning reports whether either upgrade unit is running.
+// aptJobRunning reports whether an upgrade, OS upgrade or DVSwitch install or
+// uninstall unit is running.
 func (o *Ops) aptJobRunning(ctx context.Context) bool {
-	for _, u := range []string{upgradeUnit, osUpgradeUnit} {
+	for _, u := range []string{upgradeUnit, osUpgradeUnit, dvInstallUnit, dvUninstallUnit} {
 		if state, _ := o.jobUnit(ctx, u); state == JobRunning {
 			return true
 		}

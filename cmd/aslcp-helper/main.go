@@ -31,6 +31,11 @@ func (u *uidList) Set(s string) error {
 }
 
 func main() {
+	// The DVSwitch install and uninstall units call back into this binary
+	// for their guard and plan steps (internal/helper/dvswitch_step.go).
+	if len(os.Args) == 3 && os.Args[1] == "dvswitch-step" {
+		os.Exit(runStep(os.Args[2]))
+	}
 	listen := flag.String("listen", "", "listen on this unix socket path instead of using systemd socket activation (testing)")
 	var allow uidList
 	flag.Var(&allow, "allow-uid", "additionally allow this uid (testing; repeatable)")
@@ -64,4 +69,18 @@ func main() {
 	if err := srv.Serve(ctx, ln); err != nil {
 		logger.Fatal(err)
 	}
+}
+
+// runStep runs one fixed step of the DVSwitch units, as root, and exits with
+// status 1 when it refuses.
+func runStep(phase string) int {
+	if os.Geteuid() != 0 {
+		fmt.Fprintln(os.Stderr, "dvswitch-step must run as root")
+		return 1
+	}
+	if err := helper.NewOps().RunDVSwitchStep(context.Background(), phase, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stdout, "error:", err)
+		return 1
+	}
+	return 0
 }

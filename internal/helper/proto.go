@@ -41,6 +41,13 @@ const (
 	OpReboot   = "reboot"    // systemctl reboot
 	// OpAslcpRestart restarts the aslcp service (systemctl --no-block).
 	OpAslcpRestart = "aslcp-restart"
+
+	// DVSwitch (docs/DVSWITCH.md, M3). None takes an argument: the package
+	// list, the paths and the units are constants of the helper.
+	OpDVSwitchStatus    = "dvswitch-status"    // read-only: installed, units, key, marker, jobs
+	OpDVSwitchJob       = "dvswitch-job"       // the two job states and logs (cheap)
+	OpDVSwitchInstall   = "dvswitch-install"   // key + source, then the install unit
+	OpDVSwitchUninstall = "dvswitch-uninstall" // the full uninstall unit (ASLCP-installed only)
 )
 
 // Update channels (the suite of the aslcp apt source).

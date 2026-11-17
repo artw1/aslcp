@@ -76,6 +76,11 @@ func (c *Client) do(ctx context.Context, req Request, out any, maxResp int64) er
 		if e.Error == ErrAptBusy.Error() {
 			return ErrAptBusy
 		}
+		for _, de := range dvErrors {
+			if strings.HasPrefix(e.Error, de.Error()) {
+				return fmt.Errorf("%w%s", de, strings.TrimPrefix(e.Error, de.Error()))
+			}
+		}
 		if strings.HasPrefix(e.Error, conflictPrefix) {
 			var files []string
 			for _, f := range strings.Split(strings.TrimPrefix(e.Error, conflictPrefix), ", ") {
@@ -331,4 +336,28 @@ func (c *Client) Reboot(ctx context.Context) error {
 func (c *Client) RestartASLCP(ctx context.Context) error {
 	var v OKResult
 	return c.Do(ctx, OpAslcpRestart, &v)
+}
+
+// DVSwitchStatus calls dvswitch-status.
+func (c *Client) DVSwitchStatus(ctx context.Context) (DVSwitchStatus, error) {
+	var s DVSwitchStatus
+	return s, c.Do(ctx, OpDVSwitchStatus, &s)
+}
+
+// DVSwitchJob calls dvswitch-job.
+func (c *Client) DVSwitchJob(ctx context.Context) (DVSwitchJobs, error) {
+	var s DVSwitchJobs
+	return s, c.Do(ctx, OpDVSwitchJob, &s)
+}
+
+// DVSwitchInstall calls dvswitch-install (key download included: allow time).
+func (c *Client) DVSwitchInstall(ctx context.Context) (DVSwitchStatus, error) {
+	var s DVSwitchStatus
+	return s, c.Do(ctx, OpDVSwitchInstall, &s)
+}
+
+// DVSwitchUninstall calls dvswitch-uninstall.
+func (c *Client) DVSwitchUninstall(ctx context.Context) (DVSwitchStatus, error) {
+	var s DVSwitchStatus
+	return s, c.Do(ctx, OpDVSwitchUninstall, &s)
 }
