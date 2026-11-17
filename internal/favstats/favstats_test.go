@@ -165,7 +165,7 @@ func TestKeyedSameReportRepeated(t *testing.T) {
 	smp := func(tx, ku, dt float64) Sample {
 		return Sample{Uptime: 1e6, TxTime: tx, KeyUps: ku, DataTime: dt, HaveCounters: true}
 	}
-	const d0 = 1794930751
+	d0 := float64(t0.Unix()) // fresh data: DataTime within liveWindow of the clock
 	s.compute("50001", smp(412895, 17203, d0), t0)
 	s.compute("50001", smp(412895, 17203, d0), t0.Add(10*time.Second))
 	a := s.compute("50001", smp(412915, 17206, d0+30), t0.Add(20*time.Second))
@@ -194,21 +194,43 @@ func TestKeyedSameReportRepeated(t *testing.T) {
 	}
 }
 
+// A keyed node that stops reporting is not keyed once its data is older than
+// liveWindow, even when the same report comes back.
+func TestKeyedClearedWhenDataStale(t *testing.T) {
+	s := New(Options{Logger: quiet(), Now: newClock().now})
+	t0 := newClock().t
+	d0 := float64(t0.Unix())
+	smp := func(tx, ku, dt float64) Sample {
+		return Sample{Active: true, WebTx: true, Uptime: 1e6, TxTime: tx, KeyUps: ku, DataTime: dt, HaveCounters: true}
+	}
+	s.compute("50001", smp(412895, 17203, d0), t0)
+	a := s.compute("50001", smp(412915, 17206, d0+30), t0.Add(20*time.Second))
+	if !a.Keyed {
+		t.Fatalf("keyed while fresh: %+v", a)
+	}
+	// The node stops reporting: the same report comes back 16 minutes later.
+	a = s.compute("50001", smp(412915, 17206, d0+30), t0.Add(16*time.Minute))
+	if a.Keyed || a.Active || a.WebTx {
+		t.Fatalf("stale keyed repeat: %+v", a)
+	}
+}
+
 // dt comes from DataTime, not poll time: 30 s of TX between reports is
 // plausible even when the polls were only 5 s apart.
 func TestKeyedDtFromDataTime(t *testing.T) {
 	s := New(Options{Logger: quiet(), Now: newClock().now})
 	t0 := newClock().t
+	base := float64(t0.Unix()) // fresh data: DataTime within liveWindow of the clock
 	smp := func(tx, dt float64) Sample {
-		return Sample{Uptime: 1e6, TxTime: tx, KeyUps: 1, DataTime: dt, HaveCounters: true}
+		return Sample{Uptime: 1e6, TxTime: tx, KeyUps: 1, DataTime: base + dt, HaveCounters: true}
 	}
-	s.compute("50001", smp(1000, 5000), t0)
-	a := s.compute("50001", smp(1030, 5030), t0.Add(5*time.Second))
+	s.compute("50001", smp(1000, 0), t0)
+	a := s.compute("50001", smp(1030, 30), t0.Add(5*time.Second))
 	if !a.Keyed {
 		t.Fatalf("plausible by DataTime: %+v", a)
 	}
 	// Implausible by DataTime (60 s of TX in 10 s between reports).
-	a = s.compute("50001", smp(1090, 5040), t0.Add(60*time.Second))
+	a = s.compute("50001", smp(1090, 40), t0.Add(60*time.Second))
 	if a.Keyed {
 		t.Fatalf("implausible: %+v", a)
 	}

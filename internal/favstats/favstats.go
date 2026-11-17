@@ -829,8 +829,11 @@ func errKind(err error) string {
 // compute derives the Activity for one sample and updates the counters.
 func (s *Service) compute(node string, smp Sample, now time.Time) Activity {
 	a := Activity{LinkCnt: smp.Links, Active: smp.Active, WebTx: smp.WebTx, LastSeen: now}
-	if smp.DataTime > 0 && math.Abs(float64(now.Unix())-smp.DataTime) > liveWindow.Seconds() {
-		a.Active, a.WebTx = false, false // stale data: the node is not online
+	// Stale data (older than liveWindow): the node is not online, so it is
+	// neither Active nor keyed, even when its last report said it was keyed.
+	stale := smp.DataTime > 0 && math.Abs(float64(now.Unix())-smp.DataTime) > liveWindow.Seconds()
+	if stale {
+		a.Active, a.WebTx = false, false
 	}
 	a.RxPct = RxPct(smp.Uptime, smp.TxTime)
 	p, had := s.prev[node]
@@ -838,18 +841,18 @@ func (s *Service) compute(node string, smp Sample, now time.Time) Activity {
 	switch {
 	case !smp.HaveCounters:
 		// Nothing to derive from; fall back to the reported flag.
-		a.Keyed = smp.Keyed
+		a.Keyed = smp.Keyed && !stale
 		c = p
 		c.at = p.at
 	case had && smp.DataTime > 0 && smp.DataTime == p.dtime:
 		// The service publishes a new report only about every 30 s: the same
 		// report again. Repeat the derived state and keep the stored counters.
-		a.Keyed = p.keyed
+		a.Keyed = p.keyed && !stale
 		a.TxAvg = p.avg
 		return a
 	case !had:
 		// First sample: no deltas yet; the reported flag is all there is.
-		a.Keyed = smp.Keyed
+		a.Keyed = smp.Keyed && !stale
 		if a.Keyed {
 			c.avg = 100
 		}
@@ -863,7 +866,7 @@ func (s *Service) compute(node string, smp Sample, now time.Time) Activity {
 			// Counter reset or an implausible jump: count as no activity.
 			dTx, dKu = 0, 0
 		}
-		a.Keyed = dTx > 0 || dKu > 0
+		a.Keyed = (dTx > 0 || dKu > 0) && !stale
 		txp := 0
 		if dt > 0 {
 			txp = int(math.Min(100, math.Round(100*dTx/dt)))

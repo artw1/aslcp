@@ -6,7 +6,7 @@ Release notes are taken from the section of the tag being released
 ## [1.1.23] - Unreleased
 
 ### Fixed
-- Favorites scan showed a node that was transmitting continuously green (active) instead of red (keyed), because the stats service publishes a new report only about every 30 s; linked favorites now also turn red immediately from the local link.
+- Favorites scan showed a node that was transmitting continuously green (active) instead of red (keyed), because the stats service publishes a new report only about every 30 s; linked favorites now also turn red immediately from the local link, and a node that stops reporting no longer stays red.
 
 ## [1.1.22] - 2026-11-17
 
