@@ -1,4 +1,4 @@
-import type { FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult } from './types';
+import type { Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult } from './types';
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public body?: Record<string, unknown>) { super(message); }
@@ -115,6 +115,12 @@ export const api = {
   reorder: (ids: number[]) => req<void>('POST', '/favorites/reorder', { ids }),
   importPreview: () => req<ImportPreview>('GET', '/favorites/import/allscan'),
   importAllscan: () => req<{ imported: number; skipped: number }>('POST', '/favorites/import/allscan'),
+
+  schedules: () => req<SchedulesSnapshot>('GET', '/schedules'),
+  addSchedule: (s: ScheduleInput) => req<Schedule>('POST', '/schedules', s),
+  updateSchedule: (id: number, s: ScheduleInput) => req<Schedule>('PUT', `/schedules/${id}`, s),
+  deleteSchedule: (id: number) => req<void>('DELETE', `/schedules/${id}`),
+  setSchedulesEnabled: (enabled: boolean) => req<SchedulesSnapshot>('PUT', '/schedules/enabled', { enabled }),
 
   lookup: (node: string) => req<NodeInfo>('GET', `/lookup/${q(node)}`),
   search: (text: string, limit = 50) => req<NodeInfo[]>('GET', `/lookup?q=${q(text)}&limit=${limit}`),

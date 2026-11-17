@@ -145,3 +145,23 @@ export interface TuneState {
 export interface TuneApplyResult { applied: { field: string; reply: string }[]; errors: { field: string; message: string; reply?: string }[]; params: TuneParams; dirty: string[] }
 export interface TuneMeter { pk: number; avg: number; min: number; max: number; clip: number; at: string; stale?: boolean }
 export interface TuneSaveResult { saved: boolean; params: TuneParams; changed: string[]; commit?: string; warning?: string }
+
+export interface Schedule {
+  id: number; name: string; enabled: boolean; node: string; target: string;
+  action: 'connect' | 'disconnect'; mode: ConnectMode; permanent: boolean; exclusive: boolean;
+  /** Weekly: days of week, 0 = Sunday .. 6 = Saturday. Empty for a one-off. */
+  days: number[];
+  /** One-off: YYYY-MM-DD, else "". */
+  date: string;
+  start: string; end: string;
+  lastRun: string | null; lastResult: string;
+}
+/** Body of POST/PUT /api/schedules: a Schedule without the server-side fields. */
+export type ScheduleInput = Omit<Schedule, 'id' | 'lastRun' | 'lastResult'>;
+export interface ScheduleEvent {
+  at: string; id: number; name: string; node: string; target: string; action: 'connect' | 'disconnect'; mode: ConnectMode;
+}
+export interface SchedulesSnapshot {
+  enabled: boolean; pausedReason: string; pausedAt: string | null; timezone: string; now: string;
+  schedules: Schedule[]; active: { id: number; start: string; end: string }[]; upcoming: ScheduleEvent[];
+}
