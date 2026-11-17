@@ -1,4 +1,5 @@
 // In-memory schedules for `npm run dev:mock` (docs/SCHEDULES.md). Dev only. Uses the mock process's local time zone.
+import { conflictMessage, findConflicts } from '../src/lib/schedules.ts';
 interface Sched {
   id: number; name: string; enabled: boolean; node: string; target: string; action: 'connect' | 'disconnect'; mode: string;
   permanent: boolean; exclusive: boolean; days: number[]; date: string; start: string; end: string; lastRun: string | null; lastResult: string;
@@ -21,7 +22,9 @@ const at = (day: Date, hhmm: string) => new Date(day.getFullYear(), day.getMonth
 export function createSchedules(d: Deps) {
   let list: Sched[] = [];
   let nextId = 1;
-  let enabled = true, pausedReason = '', pausedAt: string | null = null;
+  let enabled = true, pausedReason = '', pausedAt: string | null = null, resumeAt: number | null = null;
+  let manualAction: 'pause' | 'pause_today' | 'cancel' = 'pause';
+  let lastCancel: { reason: string; at: string; until: number; ids: number[] } | null = null;
   const cancelled = new Set<string>(); // `${id}@${start ms}`
   let lastTick = Date.now();
   const add = (s: Partial<Sched>) => { list.push({ id: nextId++, name: '', enabled: true, node: '1999', target: '', action: 'connect', mode: 'transceive', permanent: false, exclusive: false, days: [], date: '', start: '19:00', end: '', lastRun: null, lastResult: '', ...s }); };
@@ -59,7 +62,9 @@ export function createSchedules(d: Deps) {
       }
     }
     ev.sort((a, b) => a.t - b.t);
-    return { enabled, pausedReason, pausedAt, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, now: iso(now), schedules: sorted, active, upcoming: ev.slice(0, 10).map((e) => e.o) };
+    const notice = lastCancel && lastCancel.until > n ? lastCancel.ids.filter((id) => list.some((s) => s.id === id && s.enabled)) : [];
+    const lc = lastCancel && notice.length ? { reason: lastCancel.reason, at: lastCancel.at, until: iso(new Date(lastCancel.until)), ids: notice, names: notice.map((id) => { const s = list.find((x) => x.id === id)!; return s.name || `Connect ${s.target}`; }) } : null;
+    return { enabled, pausedReason, pausedAt, resumeAt: !enabled && resumeAt ? iso(new Date(resumeAt)) : null, manualAction, lastCancel: lc, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, now: iso(now), schedules: sorted, active, upcoming: ev.slice(0, 10).map((e) => e.o) };
   }
   const push = () => d.broadcast('schedules', () => snapshot());
   const linked = (s: Sched) => d.locals[s.node]?.links.some((l) => l.node === s.target);
@@ -67,6 +72,7 @@ export function createSchedules(d: Deps) {
 
   function runDue() {
     const now = Date.now(), from = lastTick; lastTick = now;
+    if (!enabled && resumeAt && now >= resumeAt) { enabled = true; pausedReason = ''; pausedAt = null; resumeAt = null; push(); }
     if (!enabled) return;
     const due: { t: number; s: Sched; kind: 'start' | 'end'; o: Occ }[] = [];
     for (const s of list) {
@@ -110,11 +116,23 @@ export function createSchedules(d: Deps) {
   const clean = (b: any) => ({ name: String(b.name ?? ''), enabled: b.enabled !== false, node: b.node, target: b.target, action: b.action, mode: b.action === 'connect' ? b.mode : '', permanent: !!b.permanent, exclusive: !!b.exclusive && b.action === 'connect', days: [...new Set<number>(b.days ?? [])].sort((a, c) => a - c), date: b.date ?? '', start: b.start, end: b.action === 'connect' ? b.end ?? '' : '' });
 
   return {
-    /** Manual connect/disconnect through the panel: cancel running windows and pause everything. */
-    pause(reason: string) {
+    /** Manual connect/disconnect through the panel: applies the manual-action setting (pause, pause for today, cancel on that node). */
+    manual(node: string, reason: string) {
       const now = new Date();
-      for (const s of list) for (const o of occurrences(s, now, now)) if (o.end && o.start <= now && o.end > now) cancelled.add(key(o));
-      enabled = false; pausedReason = reason; pausedAt = iso(now); push();
+      const hit: { s: Sched; end: number }[] = [];
+      for (const s of list) {
+        if (manualAction === 'cancel' && s.node !== node) continue;
+        for (const o of occurrences(s, now, now)) if (o.end && o.start <= now && o.end > now) { cancelled.add(key(o)); if (s.enabled) hit.push({ s, end: o.end.getTime() }); }
+      }
+      if (manualAction === 'cancel') {
+        if (hit.length) { lastCancel = { reason, at: iso(now), until: Math.max(...hit.map((h) => h.end)), ids: hit.map((h) => h.s.id) }; push(); }
+        return;
+      }
+      if (enabled) {
+        enabled = false; pausedReason = reason; pausedAt = iso(now); resumeAt = null;
+        if (manualAction === 'pause_today') resumeAt = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+      } else if (manualAction === 'pause') resumeAt = null;
+      push();
     },
     /** Returns true when the request was handled. */
     handle(m: string, p: string, body: any, canOp: boolean, json: (c: number, b?: unknown) => void, err: (c: number, msg: string, code: string) => void, forbid: () => void): boolean {
@@ -124,16 +142,22 @@ export function createSchedules(d: Deps) {
       if (!canOp) { forbid(); return true; }
       if (p === '/schedules/enabled' && m === 'PUT') {
         if (typeof body.enabled !== 'boolean') { err(400, 'enabled (bool) is required', 'bad_request'); return true; }
-        enabled = body.enabled; if (enabled) { pausedReason = ''; pausedAt = null; lastTick = Date.now(); }
+        enabled = body.enabled; pausedReason = ''; pausedAt = null; resumeAt = null; if (enabled) lastTick = Date.now();
         push(); json(200, snapshot()); return true;
       }
+      if (p === '/schedules/settings' && m === 'PUT') {
+        if (!['pause', 'pause_today', 'cancel'].includes(body.manualAction)) { err(400, 'manualAction must be "pause", "pause_today" or "cancel"', 'bad_request'); return true; }
+        manualAction = body.manualAction; push(); json(200, snapshot()); return true;
+      }
+      const clash = (b: any, id?: number) => { const c = findConflicts(clean(b) as any, list as any, id); return c.length ? conflictMessage(b.node, c) : ''; };
       if (p === '/schedules' && m === 'POST') {
         const e = validate(body); if (e) { err(400, e, e === 'unknown_node' ? 'unknown_node' : 'bad_request'); return true; }
+        const c = clash(body); if (c) { err(409, c, 'schedule_conflict'); return true; }
         const s: Sched = { id: nextId++, ...clean(body), lastRun: null, lastResult: '' }; list.push(s); push(); json(201, s); return true;
       }
       if ((mm = /^\/schedules\/(\d+)$/.exec(p))) {
         const s = list.find((x) => x.id === +mm![1]); if (!s) { err(404, 'not found', 'not_found'); return true; }
-        if (m === 'PUT') { const e = validate(body); if (e) { err(400, e, e === 'unknown_node' ? 'unknown_node' : 'bad_request'); return true; } Object.assign(s, clean(body)); push(); json(200, s); return true; }
+        if (m === 'PUT') { const e = validate(body); if (e) { err(400, e, e === 'unknown_node' ? 'unknown_node' : 'bad_request'); return true; } const c = clash(body, s.id); if (c) { err(409, c, 'schedule_conflict'); return true; } Object.assign(s, clean(body)); push(); json(200, s); return true; }
         if (m === 'DELETE') { list = list.filter((x) => x !== s); push(); json(204); return true; }
       }
       return false;

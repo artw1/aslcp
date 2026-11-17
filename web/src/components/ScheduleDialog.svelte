@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { api } from '../lib/api';
+  import { ApiError, api } from '../lib/api';
   import { app, refreshSchedules } from '../lib/store.svelte';
   import { exclusive, exclusiveMonitor } from '../lib/settings.svelte';
   import { toast, toastError } from '../lib/toast.svelte';
-  import { DAY_NAMES, DAY_ORDER, emptyInput, validateSchedule } from '../lib/schedules';
+  import { DAY_NAMES, DAY_ORDER, conflictMessage, emptyInput, findConflicts, validateSchedule } from '../lib/schedules';
   import type { ConnectMode, Schedule, ScheduleInput } from '../lib/types';
   import Dialog from './Dialog.svelte';
   import NodePicker from './NodePicker.svelte';
@@ -41,18 +41,27 @@
       start: f.start, end: c ? f.end : '',
     };
   }
+  /** Overlap check against the saved schedules (the server checks again and answers 409). */
+  const clash = $derived.by(() => {
+    if (!open) return '';
+    const c = findConflicts(body(), app.schedules?.schedules ?? [], schedule?.id);
+    return c.length ? conflictMessage(f.node, c) : '';
+  });
   async function save(e: Event) {
     e.preventDefault();
     const b = body();
     error = validateSchedule(b, locals);
-    if (error) return;
+    if (error || clash) return;
     busy = true;
     try {
       if (schedule) await api.updateSchedule(schedule.id, b); else await api.addSchedule(b);
       await refreshSchedules();
       toast(schedule ? 'Schedule updated' : 'Schedule added');
       open = false;
-    } catch (x) { error = x instanceof Error ? x.message : String(x); toastError(x); } finally { busy = false; }
+    } catch (x) {
+      if (x instanceof ApiError && x.code === 'schedule_conflict') { error = `This schedule ${x.message}.`; refreshSchedules().catch(() => {}); }
+      else { error = x instanceof Error ? x.message : String(x); toastError(x); }
+    } finally { busy = false; }
   }
   const chk = 'size-4 accent-[var(--accent)]';
 </script>
@@ -103,10 +112,11 @@
       <p class="text-xs text-muted">Times are node time{app.schedules?.timezone ? ` (${app.schedules.timezone})` : ''}.{#if connect}{' '}An end time disconnects the link then{f.end && f.end < f.start ? '; this window ends the next day' : ''}.{/if}</p>
     </fieldset>
     <label class="inline-flex cursor-pointer items-center gap-1.5 text-sm"><input type="checkbox" class={chk} bind:checked={f.enabled} />Enabled</label>
+    {#if clash}<p class="text-sm text-warn" role="alert">This schedule {clash}. Two schedules where one disconnects others first must not overlap: change the time, the day or the "disconnect others" option.</p>{/if}
     {#if error}<p class="text-sm text-danger" role="alert">{error}</p>{/if}
   </form>
   {#snippet footer()}
     <button class="btn" onclick={() => (open = false)}>Cancel</button>
-    <button class="btn btn-primary" type="submit" form="schedform" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+    <button class="btn btn-primary" type="submit" form="schedform" disabled={busy || !!clash}>{busy ? 'Saving…' : 'Save'}</button>
   {/snippet}
 </Dialog>

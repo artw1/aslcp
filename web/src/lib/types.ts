@@ -162,7 +162,11 @@ export type ScheduleInput = Omit<Schedule, 'id' | 'lastRun' | 'lastResult'>;
 export interface ScheduleEvent {
   at: string; id: number; name: string; node: string; target: string; action: 'connect' | 'disconnect'; mode: ConnectMode;
 }
+export type ManualAction = 'pause' | 'pause_today' | 'cancel';
+/** Cancel mode: windows cancelled by a manual action, while they would still be running. */
+export interface CancelNotice { reason: string; at: string; until: string; ids: number[]; names: string[] }
 export interface SchedulesSnapshot {
-  enabled: boolean; pausedReason: string; pausedAt: string | null; timezone: string; now: string;
+  enabled: boolean; pausedReason: string; pausedAt: string | null; resumeAt: string | null;
+  manualAction: ManualAction; lastCancel: CancelNotice | null; timezone: string; now: string;
   schedules: Schedule[]; active: { id: number; start: string; end: string }[]; upcoming: ScheduleEvent[];
 }

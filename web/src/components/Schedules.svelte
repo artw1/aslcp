@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { app, canOperate, clock, refreshSchedules, setSchedulesEnabled } from '../lib/store.svelte';
-  import { api } from '../lib/api';
+  import { app, canOperate, clock, refreshSchedules, setManualAction, setSchedulesEnabled } from '../lib/store.svelte';
+  import { ApiError, api } from '../lib/api';
   import { toastError } from '../lib/toast.svelte';
   import { fmtAgo } from '../lib/util';
-  import { MODE_NAMES, activeFor, countdown, crossesMidnight, evLabel, fmtAt, fmtWhen, nodeParts, resultClass, tzDiffers } from '../lib/schedules';
-  import type { Schedule } from '../lib/types';
+  import { MANUAL_ACTIONS, MODE_NAMES, activeFor, cancelText, countdown, crossesMidnight, evLabel, fmtAt, fmtWhen, manualActionLabel, nodeParts, resultClass, tzDiffers } from '../lib/schedules';
+  import type { ManualAction, Schedule } from '../lib/types';
   import ScheduleDialog from './ScheduleDialog.svelte';
   import Confirm from './Confirm.svelte';
   import Menu from './Menu.svelte';
@@ -29,7 +29,12 @@
   }
   async function toggleOne(s: Schedule, enabled: boolean) {
     const { id: _i, lastRun: _l, lastResult: _r, ...rest } = s;
-    try { await api.updateSchedule(s.id, { ...rest, enabled }); await refreshSchedules(); } catch (e) { toastError(e); }
+    try { await api.updateSchedule(s.id, { ...rest, enabled }); await refreshSchedules(); }
+    catch (e) { toastError(e instanceof ApiError && e.code === 'schedule_conflict' ? new Error(`Cannot enable ${title(s)}: it ${e.message}`) : e); await refreshSchedules().catch(() => {}); }
+  }
+  async function changeManual(m: ManualAction) {
+    busy = true;
+    try { await setManualAction(m); } catch (e) { toastError(e); await refreshSchedules().catch(() => {}); } finally { busy = false; }
   }
   async function remove(s: Schedule) {
     try { await api.deleteSchedule(s.id); await refreshSchedules(); } catch (e) { toastError(e); }
@@ -71,11 +76,22 @@
         {:else}
           <b class="text-sm font-semibold {snap.enabled ? 'text-ok' : 'text-warn'}">{snap.enabled ? 'Active' : 'Paused'}</b>
         {/if}
-        {#if paused && snap.pausedReason}<span class="text-sm text-warn">Paused: {snap.pausedReason}{snap.pausedAt ? `, ${nodeParts(snap.pausedAt).time}` : ''}</span>{/if}
+        {#if paused && snap.resumeAt}<span class="text-sm text-warn">Paused until {nodeParts(snap.resumeAt).time}{snap.pausedReason ? ` (${snap.pausedReason})` : ''}</span>
+        {:else if paused && snap.pausedReason}<span class="text-sm text-warn">Paused: {snap.pausedReason}{snap.pausedAt ? `, ${nodeParts(snap.pausedAt).time}` : ''}</span>{/if}
       {/if}
       {#if op}<button class="btn btn-sm btn-primary ml-auto" onclick={() => { editing = null; dlg = true; }} disabled={app.nodes.length === 0}><Plus size={13} />Add schedule</button>{/if}
     </div>
-    <p class="mt-1 text-xs text-muted">Any manual connect or disconnect pauses all schedules. Only turning the switch back on resumes them.</p>
+    {#if snap}
+      <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+        <label for="manualaction" class="text-muted">When I connect or disconnect manually:</label>
+        {#if op}
+          <select id="manualaction" class="input w-auto py-0.5" value={snap.manualAction} disabled={busy} onchange={(e) => changeManual(e.currentTarget.value as ManualAction)}>
+            {#each MANUAL_ACTIONS as m (m.value)}<option value={m.value}>{m.label}</option>{/each}
+          </select>
+        {:else}<b id="manualaction" class="font-medium">{manualActionLabel(snap.manualAction)}</b>{/if}
+      </div>
+      {#if snap.lastCancel}<p class="mt-1 text-sm text-warn" role="status">{cancelText(snap.lastCancel)}.</p>{/if}
+    {/if}
     {#if snap}
       <p class="mt-1 text-sm {paused ? 'text-muted' : ''}">
         {#if nextEv}Next: <b class="font-semibold">{evLabel(nextEv, multi)}</b>{nextEv.name ? ` (${nextEv.name})` : ''}, <span class="tabular-nums">{fmtAt(nextEv.at, snap.now)}</span>, <span class="tabular-nums text-muted">{countdown(nextEv.at, clock.now)}</span>

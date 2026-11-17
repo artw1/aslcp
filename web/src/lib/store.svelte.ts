@@ -1,5 +1,5 @@
 import { api, probeServer, setUnauthorizedHandler } from './api';
-import type { SchedulesSnapshot, UpdatesBadge, FavActivity, FavStatsUpdate, Favorite, NodeStatus, SystemInfo, TuneDevice, User } from './types';
+import type { ManualAction, SchedulesSnapshot, UpdatesBadge, FavActivity, FavStatsUpdate, Favorite, NodeStatus, SystemInfo, TuneDevice, User } from './types';
 import { navigate } from './router.svelte';
 import { applySettings } from './settings.svelte';
 import { toast, toastError } from './toast.svelte';
@@ -172,6 +172,8 @@ export async function refreshTune() {
 export async function refreshSchedules() { app.schedules = await api.schedules(); }
 /** The global switch (operators). The response is the new snapshot. */
 export async function setSchedulesEnabled(on: boolean) { app.schedules = await api.setSchedulesEnabled(on); }
+/** What a manual connect/disconnect does to the schedules (operators). */
+export async function setManualAction(m: ManualAction) { app.schedules = await api.setScheduleSettings(m); }
 
 export async function refreshFavorites() { app.favorites = await api.favorites(); app.haveFavorites = true; }
 

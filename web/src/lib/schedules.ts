@@ -102,3 +102,68 @@ export function validateSchedule(s: ScheduleInput, localNodes: string[]): string
 }
 
 export const activeFor = (snap: SchedulesSnapshot | null, id: number) => snap?.active.find((a) => a.id === id);
+
+// ---- Overlap check (mirrors internal/schedules/conflict.go) ----
+
+const DAY_MIN = 1440, WEEK_MIN = 7 * DAY_MIN;
+interface Span { s: number; e: number; instant: boolean }
+const mins = (hhmm: string) => +hhmm.slice(0, 2) * 60 + +hhmm.slice(3, 5);
+const span = (s: Pick<Schedule, 'start' | 'end'>, base: number): Span => {
+  const st = base + mins(s.start);
+  if (!s.end) return { s: st, e: st, instant: true };
+  let d = mins(s.end) - mins(s.start);
+  if (d <= 0) d += DAY_MIN;
+  return { s: st, e: st + d, instant: false };
+};
+const overlaps = (a: Span, b: Span): boolean => {
+  if (a.instant && b.instant) return false;
+  if (a.instant) return b.s <= a.s && a.s < b.e;
+  if (b.instant) return a.s <= b.s && b.s < a.e;
+  return a.s < b.e && b.s < a.e;
+};
+const shifted = (a: Span, by: number): Span => ({ s: a.s + by, e: a.e + by, instant: a.instant });
+const weekdayOf = (n: number) => (((n + 4) % 7) + 7) % 7;
+type Sched = Pick<Schedule, 'days' | 'date' | 'start' | 'end'>;
+const weeklySpans = (s: Sched) => s.days.filter((d) => d >= 0 && d <= 6).map((d) => span(s, d * DAY_MIN));
+function onDates(s: Sched, n: number): Span[] {
+  const out: Span[] = [];
+  for (let m = n - 1; m <= n + 1; m++) for (const d of s.days) if (d === weekdayOf(m)) out.push(span(s, m * DAY_MIN));
+  return out;
+}
+function pairOverlap(a: Sched, b: Sched): boolean {
+  if (!a.date && !b.date) {
+    for (const x of weeklySpans(a)) for (const y of weeklySpans(b)) for (const sh of [-WEEK_MIN, 0, WEEK_MIN]) if (overlaps(x, shifted(y, sh))) return true;
+    return false;
+  }
+  if (a.date && b.date) return overlaps(span(a, dayNum(a.date) * DAY_MIN), span(b, dayNum(b.date) * DAY_MIN));
+  if (a.date) return pairOverlap(b, a);
+  const n = dayNum(b.date), x = span(b, n * DAY_MIN);
+  return onDates(a, n).some((y) => overlaps(x, y));
+}
+const effExclusive = (s: Pick<Schedule, 'exclusive' | 'mode'>) => s.exclusive && s.mode !== 'localmonitor';
+
+/** The schedules in `others` that `s` conflicts with: same node, both connects, both enabled, one exclusive, overlapping spans. `selfId` is skipped. */
+export function findConflicts(s: ScheduleInput, others: Schedule[], selfId?: number): Schedule[] {
+  if (s.action !== 'connect' || !s.enabled) return [];
+  if (s.date ? !/^\d{4}-\d\d-\d\d$/.test(s.date) || Number.isNaN(Date.parse(s.date)) : s.days.length === 0) return [];
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(s.start) || (s.end && !/^([01]\d|2[0-3]):[0-5]\d$/.test(s.end)) || s.end === s.start) return [];
+  return others.filter((o) => o.id !== selfId && o.node === s.node && o.action === 'connect' && o.enabled
+    && (effExclusive(s) || effExclusive(o)) && pairOverlap(s, o));
+}
+
+/** `overlaps "Tuesday net" (Tue 19:00–20:30) on node 2006` (same text as the server's). */
+export function conflictMessage(node: string, clash: Schedule[]): string {
+  const parts = clash.map((c) => `${c.name ? JSON.stringify(c.name) : `#${c.id}`} (${fmtWhen(c)})`);
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0];
+  return `overlaps ${list} on node ${node}`;
+}
+
+export const MANUAL_ACTIONS: { value: 'pause' | 'pause_today' | 'cancel'; label: string }[] = [
+  { value: 'pause', label: 'Pause all until re-enabled' },
+  { value: 'pause_today', label: 'Pause all for today' },
+  { value: 'cancel', label: 'Cancel the running window, keep schedules on' },
+];
+export const manualActionLabel = (m: string) => MANUAL_ACTIONS.find((x) => x.value === m)?.label ?? m;
+
+/** `"Tuesday net" cancelled by manual connect 41234 on 2006 by op` */
+export const cancelText = (n: { names: string[]; reason: string }) => `${n.names.map((x) => JSON.stringify(x)).join(', ')} cancelled by ${n.reason}`;

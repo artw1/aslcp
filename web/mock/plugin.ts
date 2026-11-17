@@ -338,8 +338,8 @@ export function mockApi(): Plugin {
           if (!canOp) return forbid();
           const local = locals[mm[1]]; if (!local) return err(res, 404, 'unknown node', 'not_found');
           const push = pushNodes;
-          // a manual action pauses all schedules (reason like the server's)
-          sched.pause(mm[2] === 'disconnect-all' ? `disconnect all on ${mm[1]} by ${user.username}` : `manual ${mm[2]} ${body.target ?? ''} on ${mm[1]} by ${user.username}`);
+          // a manual action pauses or cancels schedules per the manual-action setting (reason like the server's)
+          sched.manual(mm[1], mm[2] === 'disconnect-all' ? `manual disconnect all on ${mm[1]} by ${user.username}` : `manual ${mm[2]} ${body.target ?? ''} on ${mm[1]} by ${user.username}`);
           if (mm[2] === 'disconnect-all') { local.links = []; push(); return json(res, 202); }
           if (!/^\d{3,}$/.test(body.target ?? '')) return err(res, 400, 'invalid target node', 'bad_target');
           if (mm[2] === 'connect' && body.exclusive === true && (body.mode === 'transceive' || body.mode === 'monitor' || !body.mode)) {

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { app, canOperate, clock, setSchedulesEnabled } from '../lib/store.svelte';
   import { toastError } from '../lib/toast.svelte';
-  import { countdown, evLabel, fmtAt, nodeParts } from '../lib/schedules';
+  import { cancelText, countdown, evLabel, fmtAt, nodeParts } from '../lib/schedules';
   import Toggle from './Toggle.svelte';
   import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 
@@ -32,9 +32,12 @@
       {:else}
         <span class="font-medium {snap.enabled ? 'text-ok' : 'text-warn'}">{snap.enabled ? 'Active' : 'Paused'}</span>
       {/if}
-      {#if !snap.enabled && snap.pausedReason}
+      {#if !snap.enabled && snap.resumeAt}
+        <span class="text-warn">Paused until midnight{snap.pausedReason ? ` (${snap.pausedReason})` : ''}</span>
+      {:else if !snap.enabled && snap.pausedReason}
         <span class="text-warn">Paused: {snap.pausedReason}{snap.pausedAt ? `, ${nodeParts(snap.pausedAt).time}` : ''}</span>
       {/if}
+      {#if snap.lastCancel}<span class="text-warn">{cancelText(snap.lastCancel)}</span>{/if}
       {#if running.length}
         <span>Running: {running[0].s!.name || evLabel({ ...running[0].s!, action: 'connect' }, multi)} until <b class="font-semibold tabular-nums">{nodeParts(running[0].a.end).time}</b>{running.length > 1 ? ` (+${running.length - 1} more)` : ''}</span>
       {/if}
