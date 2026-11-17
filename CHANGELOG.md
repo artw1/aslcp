@@ -3,7 +3,12 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
-## [1.1.21] - Unreleased
+## [1.1.22] - Unreleased
+
+### Fixed
+- Updates tab: the System packages list missed packages whose line in apt's simulated upgrade ends with an extra `[]` (seen with Raspberry Pi mesa updates), so it could show fewer packages than `apt list --upgradable`.
+
+## [1.1.21] - 2026-11-17
 
 ### Added
 - Schedules: scheduled connects and disconnects, for example a weekly net. New Schedules tab (`#/schedules`, visible to all roles, editing for operators and admins) and a one-line dashboard card between the connect bar and the favorites with the on/off switch, the next event with a countdown ("Running: ... until 20:30" during a window) and the pause reason.
@@ -14,9 +19,6 @@ Release notes are taken from the section of the tag being released
 - Backups include schedules; the restore page shows how many; a window running at backup time is not acted on after a restore.
 - API: `GET/POST /api/schedules`, `PUT/DELETE /api/schedules/{id}`, `PUT /api/schedules/enabled` (operator for writes), SSE event `schedules` with the snapshot, new `schedules` table (database migration 4) and `docs/SCHEDULES.md`. Demo mode (two example schedules on node 2006) and `web/mock` simulate the feature.
 - Tests: the occurrence calculation (midnight crossing, one-off dates, DST gap and repeated hour, cancelled occurrences), the engine with a fake clock (window, skip, retries, catch-up, pause, restart, ordering, one-off), time zone name detection, the store, the REST endpoints with roles and validation, manual actions pausing, and an end-to-end run against the fake node.
-
-### Fixed
-- Updates tab: the System packages list missed packages whose line in apt's simulated upgrade ends with an extra `[]` (seen with Raspberry Pi mesa updates), so it could show fewer packages than `apt list --upgradable`.
 
 ## [1.1.20] - 2026-11-17
 
