@@ -174,6 +174,8 @@ Helper op `dvswitch-uninstall`, no arguments, admin only, transient unit `aslcp-
 
 ### Verify on a real node (M3 checklist)
 
+**Result 2026-11-17 (maintainer's node, trixie, ASLCP test build 1.1.24+dev.15):** install steps 2-4 pass. The job finished with `host files ok`; the bookworm suite installed on trixie without errors. `install.json` recorded `wgetPreinstalled: true` and 19 packages: the 7 of the set plus `libasound2-dev libflac-dev libmpg123-dev libogg-dev libopus-dev libout123-0t64 libsndfile1-dev libsyn123-0t64 libvorbis-dev` (hard Depends of `analog-bridge`, which names the `-dev` packages) and `qemu-user qemu-user-binfmt qemu-user-static` (via `md380-emu`). No apache2, php, mosquitto or nodejs. The keyring has exactly the pinned fingerprint. Steps 5-7 and uninstall are pending.
+
 None of this was run against a real host (the build container must never run the install). Do it on a spare ASL3 node, bookworm first, with a console session open. Replace `N0CALL`-like values; paste no secrets.
 
 Install:
