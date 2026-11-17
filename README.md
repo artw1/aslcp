@@ -2,7 +2,7 @@
 
 A modern web control panel for [AllStarLink 3](https://www.allstarlink.org/) nodes.
 
-ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly web page to connect and disconnect links, watch live status and keep your favorites, in the spirit of AllScan. Editing the node configuration from the browser is coming next.
+ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly web page to connect and disconnect links, watch live status and keep your favorites, in the spirit of [AllScan](https://allscan.info/). Editing the node configuration from the browser is coming next.
 
 ![ASLCP dashboard, desktop](docs/images/dashboard-desktop.png)
 
@@ -100,6 +100,10 @@ Never paste passwords or other private data into an issue. Feature ideas are wel
 ## Security
 
 Please report vulnerabilities privately, not in public issues. See [SECURITY.md](SECURITY.md).
+
+## Acknowledgements
+
+ASLCP's dashboard and favorites design is inspired by [AllScan](https://github.com/davidgsd/AllScan) by David Gleason (NR9V). ASLCP is an independent implementation and is not affiliated with or endorsed by the AllScan project.
 
 ## License
 

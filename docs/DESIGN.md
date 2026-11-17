@@ -16,7 +16,7 @@ Items marked **To verify** are assumptions that need confirmation on real hardwa
 
 **Targets.** Raspberry Pi 3, 4, 5 and Zero 2 W on Debian 12 (bookworm) or 13 (trixie) and Raspberry Pi OS, arm64, plus amd64. armhf (32-bit Pi OS) is built but best-effort: not tested in CI on hardware until a tester with a 32-bit node is available, and dropped if ASL3 itself does not ship armhf packages.
 
-**Prior art.** AllScan (PHP, limited, outdated: connects and manages favorite nodes) and Allmon3 (ASL's monitor, widely used for public status pages). ASLCP replaces AllScan's role, coexists with Allmon3 and other AMI clients, aims to offer a better public status page (section 9), and goes much further on configuration.
+**Prior art.** AllScan (PHP: connects and manages favorite nodes; the main inspiration for ASLCP's dashboard) and Allmon3 (ASL's monitor, widely used for public status pages). ASLCP covers AllScan's role, coexists with Allmon3 and other AMI clients, aims to offer a better public status page (section 9), and goes much further on configuration.
 
 ## 2. Scope and non-goals
 
@@ -232,9 +232,9 @@ On an already configured node, the wizard is not forced: it detects the existing
 
 ### 9.1 v1 (MVP)
 
-v1 ships in two milestones. The first is a better-built, better-looking AllScan replacement; configuration comes second.
+v1 ships in two milestones. The first covers what AllScan does today (dashboard, connect/disconnect, favorites); configuration comes second.
 
-**Milestone 1: AllScan replacement**
+**Milestone 1: dashboard and favorites**
 
 - Auth (local users, roles).
 - Live status of local nodes: connected-links table (node, description, direction, connected time, mode, keyed), node TX/RX keying indicators, last-heard per link, whole-network linked-node list.
