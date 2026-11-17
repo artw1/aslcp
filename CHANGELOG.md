@@ -3,7 +3,7 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
-## [1.1.24] - Unreleased
+## [1.1.24] - 2026-11-17
 
 ### Added
 - Schedules: new setting "When I connect or disconnect manually" at the top of the Schedules tab (operators and admins; everyone sees the current choice). "Pause all until re-enabled" is the previous behaviour and stays the default. "Pause all for today" pauses the same way but switches the schedules on again by itself at the next midnight (node time); the Schedules tab and the dashboard card say "Paused until 00:00" / "Paused until midnight". "Cancel the running window, keep schedules on" only cancels the window that is running on the node you connected or disconnected on; schedules stay on, other nodes are untouched, and a notice such as "Tuesday net" cancelled by manual connect 41234 on 2006 by op is shown until the window would have ended.

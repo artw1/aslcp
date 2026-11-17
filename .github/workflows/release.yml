@@ -105,16 +105,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          # notes: this version's CHANGELOG section
+          v=${GITHUB_REF_NAME#v}
+          awk -v v="$v" '
+            /^## / { if (on) exit; line=$0; gsub(/[\[\]]/, "", line); split(line, p, " "); if (p[2] == v) { on=1; next } }
+            on { print }' code/CHANGELOG.md >notes.md
+          [ -s notes.md ] || echo "Release $v" >notes.md
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            # created by hand in the web UI: attach the packages, keep it a pre-release
+            # created by hand in the web UI: attach the packages, keep it a pre-release,
+            # and fill in the CHANGELOG notes unless notes were written by hand
             gh release upload "$GITHUB_REF_NAME" debs/*.deb --clobber
             gh release edit "$GITHUB_REF_NAME" --prerelease
+            if [ -z "$(gh release view "$GITHUB_REF_NAME" --json body --jq '.body | gsub("\\s"; "")')" ]; then
+              gh release edit "$GITHUB_REF_NAME" --notes-file notes.md
+            fi
           else
-            v=${GITHUB_REF_NAME#v}
-            awk -v v="$v" '
-              /^## / { if (on) exit; line=$0; gsub(/[\[\]]/, "", line); split(line, p, " "); if (p[2] == v) { on=1; next } }
-              on { print }' code/CHANGELOG.md >notes.md
-            [ -s notes.md ] || echo "Release $v" >notes.md
             gh release create "$GITHUB_REF_NAME" debs/*.deb --verify-tag --prerelease \
               --title "$GITHUB_REF_NAME" --notes-file notes.md
           fi
