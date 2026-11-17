@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { handleConfig } from './config.ts';
 import { handleBackup, downUntil } from './backup.ts';
 import { handleRadio } from './radio.ts';
+import { handleDVSwitch } from './dvswitch.ts';
 import { createSchedules } from './schedules.ts';
 
 type Info = { node: string; callsign: string; description: string; location: string };
@@ -238,6 +239,7 @@ export function mockApi(): Plugin {
         const forbid = () => err(res, 403, 'forbidden', 'forbidden');
         let mm: RegExpExecArray | null;
         if (handleRadio({ m, p, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }), links: (n) => locals[n]?.links.map((l) => l.node) ?? [] })) return;
+        if (handleDVSwitch({ m, p, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleConfig({ m, p, body, url, user, json: (c, b) => json(res, c, b), err: (c, msg, code, extra) => json(res, c, { error: msg, code, ...extra }) })) return;
 
         if (p === '/session') return json(res, 200, user);

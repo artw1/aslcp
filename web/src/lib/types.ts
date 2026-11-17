@@ -170,3 +170,21 @@ export interface SchedulesSnapshot {
   manualAction: ManualAction; lastCancel: CancelNotice | null; timezone: string; now: string;
   schedules: Schedule[]; active: { id: number; start: string; end: string }[]; upcoming: ScheduleEvent[];
 }
+
+/** GET /api/dvswitch (admin only; docs/API.md "DVSwitch"). */
+export interface DVSwitchJob { job: 'idle' | 'running' | 'succeeded' | 'failed'; log: string }
+export interface DVSwitchStatus {
+  installed: boolean;
+  /** "aslcp": ASLCP installed it (marker); "external": installed outside ASLCP; "": not installed. */
+  installedBy: '' | 'aslcp' | 'external';
+  version: string; arch: string; osCodename: string; supported: boolean; unsupportedReason?: string;
+  repoPresent: boolean; keyPresent: boolean; keyOk: boolean; keyFingerprint?: string;
+  packages: { name: string; installed: boolean; version?: string }[];
+  units: { name: string; loaded: boolean; active: string; enabled: string }[];
+  hostFiles: { name: string; present: boolean; size: number }[]; hostFilesOk: boolean;
+  marker: { version: number; installedAt: string; wgetPreinstalled: boolean; packages: string[] } | null;
+  canInstall: boolean; canUninstall: boolean;
+  uninstallPackages: string[]; uninstallPaths: string[]; uninstallUnits: string[];
+  install: DVSwitchJob; uninstall: DVSwitchJob;
+}
+export interface DVSwitchJobs { install: DVSwitchJob; uninstall: DVSwitchJob }

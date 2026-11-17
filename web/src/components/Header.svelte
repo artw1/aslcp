@@ -11,7 +11,7 @@
   import User from '@lucide/svelte/icons/user';
   import LogOut from '@lucide/svelte/icons/log-out';
 
-  const nav = $derived([['/', 'Dashboard'], ['/schedules', 'Schedules'], ['/lookup', 'Lookup'], ...(isAdmin() ? [['/config', 'Config']] : []), ...(isAdmin() && app.tune.devices.length ? [['/tune', 'Audio Tuning']] : []), ['/settings', 'Settings'], ...(isAdmin() ? [['/backup', 'Backup'], ['/updates', 'Updates']] : [])] as [string, string][]);
+  const nav = $derived([['/', 'Dashboard'], ['/schedules', 'Schedules'], ['/lookup', 'Lookup'], ...(isAdmin() ? [['/config', 'Config']] : []), ...(isAdmin() && app.tune.devices.length ? [['/tune', 'Audio Tuning']] : []), ['/settings', 'Settings'], ...(isAdmin() ? [['/backup', 'Backup'], ['/dvswitch', 'DVSwitch'], ['/updates', 'Updates']] : [])] as [string, string][]);
   // Admin only: counts only (SSE "updates"); security updates or a reboot use the warn colour.
   const updCount = $derived((app.updates.aslcp || (app.system?.updateAvailable ?? false) ? 1 : 0) + app.updates.os);
   const updWarn = $derived(app.updates.security > 0 || app.updates.reboot);
