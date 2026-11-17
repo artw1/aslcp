@@ -28,15 +28,31 @@ func (s *Server) initSchedules() {
 	}
 }
 
-// pauseSchedules is called after a manual link command (never by the
-// scheduler's own commands): it cancels the running occurrences and pauses
-// all schedules.
-func (s *Server) pauseSchedules(reason string) {
+// manualSchedules is called after a manual link command on node (never by
+// the scheduler's own commands): the engine applies the configured manual
+// action (pause, pause for today, or cancel the running windows on node).
+func (s *Server) manualSchedules(node, reason string) {
 	if s.d.Schedules == nil {
 		return
 	}
-	s.d.Logger.Printf("schedules paused: %s", reason)
-	s.d.Schedules.Pause(reason)
+	s.d.Logger.Printf("schedules manual action (%s): %s", s.d.Schedules.ManualActionMode(), reason)
+	s.d.Schedules.ManualAction(node, reason)
+}
+
+// schedConflict answers 409 when x overlaps an existing schedule (see
+// docs/SCHEDULES.md, "Overlap check"); the caller holds schedMu. It reports
+// whether it answered.
+func (s *Server) schedConflict(w http.ResponseWriter, x schedules.Schedule) bool {
+	list, err := s.d.Store.ListSchedules()
+	if err != nil {
+		s.internal(w, err)
+		return true
+	}
+	if clash := schedules.Conflicts(x, list); len(clash) > 0 {
+		writeErr(w, 409, "schedule_conflict", schedules.ConflictMessage(x.Node, clash))
+		return true
+	}
+	return false
 }
 
 // schedLinker adapts the server to schedules.Linker.
@@ -158,6 +174,11 @@ func (s *Server) handleSchedCreate(w http.ResponseWriter, r *http.Request, u sto
 	if !ok {
 		return
 	}
+	s.schedMu.Lock()
+	defer s.schedMu.Unlock()
+	if s.schedConflict(w, x) {
+		return
+	}
 	got, err := s.d.Store.AddSchedule(x)
 	if err != nil {
 		s.internal(w, err)
@@ -181,6 +202,11 @@ func (s *Server) handleSchedUpdate(w http.ResponseWriter, r *http.Request, u sto
 		return
 	}
 	x.ID = id
+	s.schedMu.Lock()
+	defer s.schedMu.Unlock()
+	if s.schedConflict(w, x) {
+		return
+	}
 	got, err := s.d.Store.UpdateSchedule(x)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, 404, "not_found", "no such schedule")
@@ -233,5 +259,31 @@ func (s *Server) handleSchedEnabled(w http.ResponseWriter, r *http.Request, u st
 	}
 	s.d.Logger.Printf("schedules enabled=%v by %s", *in.Enabled, u.Username)
 	s.d.Schedules.SetEnabled(*in.Enabled)
+	writeJSON(w, 200, s.d.Schedules.Snapshot())
+}
+
+func (s *Server) handleSchedSettings(w http.ResponseWriter, r *http.Request, u store.User) {
+	if !s.schedulesReady(w) {
+		return
+	}
+	var in struct {
+		ManualAction *string `json:"manualAction"`
+	}
+	if !decode(w, r, &in, false) {
+		return
+	}
+	if in.ManualAction == nil {
+		writeErr(w, 400, "bad_request", "manualAction is required")
+		return
+	}
+	if err := s.d.Schedules.SetManualAction(*in.ManualAction); err != nil {
+		if !schedules.ValidManualAction(*in.ManualAction) {
+			writeErr(w, 400, "bad_request", err.Error())
+		} else {
+			s.internal(w, err)
+		}
+		return
+	}
+	s.d.Logger.Printf("schedules manual action=%s by %s", *in.ManualAction, u.Username)
 	writeJSON(w, 200, s.d.Schedules.Snapshot())
 }

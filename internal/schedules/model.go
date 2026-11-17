@@ -149,3 +149,15 @@ func clockMinutes(hhmm string) int {
 	}
 	return int(hhmm[0]-'0')*600 + int(hhmm[1]-'0')*60 + int(hhmm[3]-'0')*10 + int(hhmm[4]-'0')
 }
+
+// title is the schedule's name, or "Connect 41234" when it has none (like
+// the UI).
+func (s Schedule) title() string {
+	if s.Name != "" {
+		return s.Name
+	}
+	if s.Action == ActionConnect {
+		return "Connect " + s.Target
+	}
+	return "Disconnect " + s.Target
+}

@@ -87,7 +87,7 @@ Later (not in beta.3): scheduled automatic backups kept on the node (last N) and
 2. **Preview.** The page shows:
    - Node numbers, hostname, creation date and ASLCP version of the backup.
    - `/etc/asterisk`: per file what will happen (restored, kept as the new stock version, restored with a `.dpkg-dist` beside it, kept because it is new), following the rules in "Restoring onto a newer ASL3".
-   - ASLCP: the users that will exist after the restore (you will log in with your old password), number of favorites and of schedules. A schedule window that was running when the backup was taken is not acted on after the restore (the `schedules.state` setting is dropped).
+   - ASLCP: the users that will exist after the restore (you will log in with your old password), number of favorites and of schedules. A schedule window that was running when the backup was taken is not acted on after the restore (the `schedules.state` setting and the cancel notice `schedules.last_cancel` are dropped; the "pause for today" resume time `schedules.resume_at` is kept with the global switch it belongs to).
    - Packages present in the backup but missing now (for example `allmon3`), with the `apt install` command to run.
    - The "set up separately" checklist (network, hostname, timezone, ...).
 3. **Apply** (helper op `backup-restore`, the server streams the checked archive back to the helper; nothing outside the fixed destinations can be written):

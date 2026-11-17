@@ -106,6 +106,8 @@ type Server struct {
 	// link never goes away).
 	LinkGoneWait time.Duration
 
+	schedMu sync.Mutex // serialises schedule saves (overlap check + write)
+
 	secretsMu sync.Mutex
 	secrets   []string
 	platOnce  sync.Once
@@ -309,6 +311,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/schedules", s.authed(store.RoleViewer, s.handleSchedList))
 	m.HandleFunc("POST /api/schedules", s.authed(store.RoleOperator, s.handleSchedCreate))
 	m.HandleFunc("PUT /api/schedules/enabled", s.authed(store.RoleOperator, s.handleSchedEnabled))
+	m.HandleFunc("PUT /api/schedules/settings", s.authed(store.RoleOperator, s.handleSchedSettings))
 	m.HandleFunc("PUT /api/schedules/{id}", s.authed(store.RoleOperator, s.handleSchedUpdate))
 	m.HandleFunc("DELETE /api/schedules/{id}", s.authed(store.RoleOperator, s.handleSchedDelete))
 	// settings

@@ -15,7 +15,33 @@ const (
 	KeyPausedReason = "schedules.paused_reason"
 	KeyPausedAt     = "schedules.paused_at"
 	KeyState        = "schedules.state"
+	// Since 1.1.24.
+	KeyManualAction = "schedules.manual_action"
+	KeyResumeAt     = "schedules.resume_at"
+	KeyLastCancel   = "schedules.last_cancel"
 )
+
+// Manual action modes (setting schedules.manual_action).
+const (
+	ManualPause      = "pause"
+	ManualPauseToday = "pause_today"
+	ManualCancel     = "cancel"
+)
+
+// ValidManualAction reports whether m is a known manual action mode.
+func ValidManualAction(m string) bool {
+	return m == ManualPause || m == ManualPauseToday || m == ManualCancel
+}
+
+// CancelNotice records that a manual action cancelled running occurrences
+// (mode "cancel"). Until is the latest end of the cancelled occurrences.
+type CancelNotice struct {
+	Reason string    `json:"reason"`
+	At     time.Time `json:"at"`
+	Until  time.Time `json:"until"`
+	IDs    []int64   `json:"ids"`
+	Names  []string  `json:"names,omitempty"` // filled in by Snapshot
+}
 
 // RetryEvery is the delay between attempts after an error; RetrySingle how
 // long after its time a single event (or a window's closing disconnect) is
@@ -71,6 +97,9 @@ type Engine struct {
 	enabled  bool
 	reason   string
 	pausedAt time.Time
+	resumeAt time.Time // pause_today: switch back on then (zero: never)
+	manual   string
+	cancel   *CancelNotice
 	state    []Occ
 	lastTick time.Time
 	pending  map[pkey]time.Time // single events being handled -> event time
@@ -135,6 +164,21 @@ func (e *Engine) init() {
 			e.pausedAt = t
 		}
 	}
+	if v, err := e.Store.GetSetting(KeyResumeAt); err == nil && v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			e.resumeAt = t
+		}
+	}
+	e.manual = ManualPause
+	if v, err := e.Store.GetSetting(KeyManualAction); err == nil && ValidManualAction(v) {
+		e.manual = v
+	}
+	if v, err := e.Store.GetSetting(KeyLastCancel); err == nil && v != "" {
+		var n CancelNotice
+		if err := json.Unmarshal([]byte(v), &n); err == nil && len(n.IDs) > 0 {
+			e.cancel = &n
+		}
+	}
 	if v, err := e.Store.GetSetting(KeyState); err == nil && v != "" {
 		if err := json.Unmarshal([]byte(v), &e.state); err != nil {
 			e.logf("schedules: ignoring unreadable state: %v", err)
@@ -168,7 +212,11 @@ func (e *Engine) saveSwitch() {
 	if !e.pausedAt.IsZero() {
 		at = e.pausedAt.Format(time.RFC3339)
 	}
-	for k, val := range map[string]string{KeyEnabled: v, KeyPausedReason: e.reason, KeyPausedAt: at} {
+	ra := ""
+	if !e.resumeAt.IsZero() {
+		ra = e.resumeAt.Format(time.RFC3339)
+	}
+	for k, val := range map[string]string{KeyEnabled: v, KeyPausedReason: e.reason, KeyPausedAt: at, KeyResumeAt: ra} {
 		if err := e.Store.SetSetting(k, val); err != nil {
 			e.logf("schedules: saving %s: %v", k, err)
 		}
@@ -208,7 +256,7 @@ func (e *Engine) SetEnabled(on bool) {
 	e.mu.Lock()
 	e.init()
 	e.enabled = on
-	e.reason, e.pausedAt = "", time.Time{}
+	e.reason, e.pausedAt, e.resumeAt = "", time.Time{}, time.Time{}
 	e.saveSwitch()
 	e.pending = map[pkey]time.Time{}
 	e.tries = map[pkey]*try{}
@@ -219,35 +267,122 @@ func (e *Engine) SetEnabled(on bool) {
 	e.notify()
 }
 
-// Pause is the effect of a manual link action: occurrences running now are
-// cancelled (they stay cancelled when schedules are re-enabled) and the
-// global switch goes off with the reason. An existing pause keeps its reason.
-func (e *Engine) Pause(reason string) {
+// cancelRunning marks the occurrences running now as cancelled: all of them, or
+// only those of schedules on node when node is not empty. It returns the
+// cancelled windows that are still running (end in the future) and the
+// latest end among them; the caller holds mu.
+func (e *Engine) cancelRunning(node string, now time.Time) (ids []int64, until time.Time) {
+	list, err := e.Store.ListSchedules()
+	if err != nil {
+		e.logf("schedules: cancel: %v", err)
+	}
+	byID := map[int64]Schedule{}
+	for _, s := range list {
+		byID[s.ID] = s
+	}
+	mine := func(id int64) bool {
+		if node == "" {
+			return true
+		}
+		s, ok := byID[id]
+		return ok && s.Node == node
+	}
+	seen := map[int64]bool{}
+	note := func(id int64, end time.Time) {
+		if end.After(now) {
+			if !seen[id] {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+			if end.After(until) {
+				until = end
+			}
+		}
+	}
+	for i := range e.state {
+		if e.state[i].Status == StatusConnected && mine(e.state[i].ID) {
+			e.state[i].Status = StatusCancelled
+			note(e.state[i].ID, e.state[i].End)
+		}
+	}
+	for _, s := range list {
+		if !s.Enabled || !s.isWindow() || !mine(s.ID) {
+			continue
+		}
+		for _, o := range occurrences(s, now.Add(-48*time.Hour), now, e.loc()) {
+			if o.end.After(now) && e.findOcc(s.ID, o.start.Unix()) < 0 {
+				e.state = append(e.state, Occ{ID: s.ID, Start: o.start, End: o.end, Status: StatusCancelled})
+				note(s.ID, o.end)
+			}
+		}
+	}
+	if node != "" {
+		// pending retries of single events on that node
+		for k, at := range e.pending {
+			if mine(k.id) {
+				delete(e.pending, k)
+				delete(e.tries, k)
+				note(k.id, at.Add(RetrySingle))
+			}
+		}
+		// retries of window starts and ends of that node
+		for k := range e.tries {
+			if mine(k.id) {
+				delete(e.tries, k)
+			}
+		}
+	}
+	sort.Slice(ids, func(a, b int) bool { return ids[a] < ids[b] })
+	return ids, until
+}
+
+// Pause is the "pause" manual action: occurrences running now are cancelled
+// (they stay cancelled when schedules are re-enabled) and the global switch
+// goes off with the reason. An existing pause keeps its reason; a pending
+// resume time is cleared (the pause is now indefinite).
+func (e *Engine) Pause(reason string) { e.manualAction("", reason, ManualPause) }
+
+// ManualAction is called after a manual connect, disconnect or disconnect-all
+// on node (never for the scheduler's own commands). It applies the
+// configured mode: pause, pause_today or cancel.
+func (e *Engine) ManualAction(node, reason string) {
+	e.mu.Lock()
+	e.init()
+	mode := e.manual
+	e.mu.Unlock()
+	e.manualAction(node, reason, mode)
+}
+
+func (e *Engine) manualAction(node, reason, mode string) {
 	e.mu.Lock()
 	e.init()
 	now := e.now()
-	for i := range e.state {
-		if e.state[i].Status == StatusConnected {
-			e.state[i].Status = StatusCancelled
+	if mode == ManualCancel {
+		ids, until := e.cancelRunning(node, now)
+		if len(ids) == 0 {
+			e.mu.Unlock()
+			return
 		}
+		e.saveState()
+		e.cancel = &CancelNotice{Reason: reason, At: now.Truncate(time.Second), Until: until, IDs: ids}
+		e.saveCancel()
+		e.gen++
+		e.mu.Unlock()
+		e.kick()
+		e.notify()
+		return
 	}
-	if list, err := e.Store.ListSchedules(); err == nil {
-		for _, s := range list {
-			if !s.Enabled || !s.isWindow() {
-				continue
-			}
-			for _, o := range occurrences(s, now.Add(-48*time.Hour), now, e.loc()) {
-				if o.end.After(now) && e.findOcc(s.ID, o.start.Unix()) < 0 {
-					e.state = append(e.state, Occ{ID: s.ID, Start: o.start, End: o.end, Status: StatusCancelled})
-				}
-			}
-		}
-	} else {
-		e.logf("schedules: pause: %v", err)
-	}
+	e.cancelRunning("", now)
 	e.saveState()
 	if e.enabled {
 		e.enabled, e.reason, e.pausedAt = false, reason, now.Truncate(time.Second)
+		e.resumeAt = time.Time{}
+		if mode == ManualPauseToday {
+			e.resumeAt = nextMidnight(now, e.loc())
+		}
+		e.saveSwitch()
+	} else if mode == ManualPause && !e.resumeAt.IsZero() {
+		e.resumeAt = time.Time{}
 		e.saveSwitch()
 	}
 	e.pending = map[pkey]time.Time{}
@@ -255,6 +390,50 @@ func (e *Engine) Pause(reason string) {
 	e.gen++
 	e.mu.Unlock()
 	e.notify()
+}
+
+// nextMidnight returns the start of the next local day after now.
+func nextMidnight(now time.Time, loc *time.Location) time.Time {
+	return civil(now.In(loc).AddDate(0, 0, 1), 0, loc)
+}
+
+func (e *Engine) saveCancel() {
+	v := ""
+	if e.cancel != nil {
+		n := *e.cancel
+		n.Names = nil
+		b, _ := json.Marshal(n)
+		v = string(b)
+	}
+	if err := e.Store.SetSetting(KeyLastCancel, v); err != nil {
+		e.logf("schedules: saving cancel notice: %v", err)
+	}
+}
+
+// ManualActionMode returns the configured manual action mode.
+func (e *Engine) ManualActionMode() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.init()
+	return e.manual
+}
+
+// SetManualAction changes the setting schedules.manual_action. It does not
+// alter a pause that is already in place.
+func (e *Engine) SetManualAction(mode string) error {
+	if !ValidManualAction(mode) {
+		return fmt.Errorf("manualAction must be %q, %q or %q", ManualPause, ManualPauseToday, ManualCancel)
+	}
+	e.mu.Lock()
+	e.init()
+	if err := e.Store.SetSetting(KeyManualAction, mode); err != nil {
+		e.mu.Unlock()
+		return err
+	}
+	e.manual = mode
+	e.mu.Unlock()
+	e.notify()
+	return nil
 }
 
 // Changed forgets the running occurrence and pending retries of schedule id
@@ -281,6 +460,22 @@ func (e *Engine) Changed(id int64) {
 	for k := range e.tries {
 		if k.id == id {
 			delete(e.tries, k)
+		}
+	}
+	if e.cancel != nil {
+		ids := make([]int64, 0, len(e.cancel.IDs))
+		for _, x := range e.cancel.IDs {
+			if x != id {
+				ids = append(ids, x)
+			}
+		}
+		if len(ids) != len(e.cancel.IDs) {
+			if len(ids) == 0 {
+				e.cancel = nil
+			} else {
+				e.cancel.IDs = ids
+			}
+			e.saveCancel()
 		}
 	}
 	e.gen++
@@ -363,6 +558,25 @@ func (e *Engine) plan(now time.Time) (work []item, changed bool) {
 	from := e.lastTick
 	e.lastTick = now
 	loc := e.loc()
+	if e.cancel != nil && !e.cancel.Until.After(now) {
+		e.cancel = nil
+		e.saveCancel()
+		changed = true
+	}
+	if !e.enabled && !e.resumeAt.IsZero() && !now.Before(e.resumeAt) {
+		// pause_today ends: same "no replay" rules as SetEnabled(true), but
+		// single events at or after the resume time still run.
+		if from.Before(e.resumeAt) {
+			from = e.resumeAt.Add(-time.Nanosecond)
+		}
+		e.enabled = true
+		e.reason, e.pausedAt, e.resumeAt = "", time.Time{}, time.Time{}
+		e.saveSwitch()
+		e.pending = map[pkey]time.Time{}
+		e.tries = map[pkey]*try{}
+		e.gen++
+		changed = true
+	}
 	if !e.enabled {
 		kept := e.state[:0]
 		for _, o := range e.state {
@@ -374,12 +588,12 @@ func (e *Engine) plan(now time.Time) (work []item, changed bool) {
 			e.state = kept
 			e.saveState()
 		}
-		return nil, false
+		return nil, changed
 	}
 	list, err := e.Store.ListSchedules()
 	if err != nil {
 		e.logf("schedules: %v", err)
-		return nil, false
+		return nil, changed
 	}
 	byID := map[int64]Schedule{}
 	for _, s := range list {
@@ -487,7 +701,7 @@ func (e *Engine) plan(now time.Time) (work []item, changed bool) {
 			delete(e.tries, k)
 		}
 	}
-	return work, e.finishOnce(list, now)
+	return work, e.finishOnce(list, now) || changed
 }
 
 // finishOnce disables one-off schedules whose last event is over and has no
@@ -632,6 +846,9 @@ type Snapshot struct {
 	Enabled      bool           `json:"enabled"`
 	PausedReason string         `json:"pausedReason"`
 	PausedAt     *time.Time     `json:"pausedAt"`
+	ResumeAt     *time.Time     `json:"resumeAt"`
+	ManualAction string         `json:"manualAction"`
+	LastCancel   *CancelNotice  `json:"lastCancel"`
 	Timezone     string         `json:"timezone"`
 	Now          time.Time      `json:"now"`
 	Schedules    []Schedule     `json:"schedules"`
@@ -649,12 +866,22 @@ func (e *Engine) Snapshot() Snapshot {
 	now := e.now()
 	loc := e.loc()
 	snap := Snapshot{
-		Enabled: e.enabled, PausedReason: e.reason, Timezone: e.zone, Now: now.In(loc).Truncate(time.Second),
+		Enabled: e.enabled, PausedReason: e.reason, ManualAction: e.manual, Timezone: e.zone, Now: now.In(loc).Truncate(time.Second),
 		Schedules: []Schedule{}, Active: []ActiveWindow{}, Upcoming: []Event{},
 	}
 	if !e.pausedAt.IsZero() {
 		t := e.pausedAt.In(loc)
 		snap.PausedAt = &t
+	}
+	if !e.enabled && !e.resumeAt.IsZero() {
+		t := e.resumeAt.In(loc)
+		snap.ResumeAt = &t
+	}
+	var notice *CancelNotice
+	if e.cancel != nil && e.cancel.Until.After(now) {
+		n := *e.cancel
+		n.IDs = append([]int64(nil), n.IDs...)
+		notice = &n
 	}
 	state := append([]Occ(nil), e.state...)
 	enabled := e.enabled
@@ -676,6 +903,22 @@ func (e *Engine) Snapshot() Snapshot {
 		return a.ID < b.ID
 	})
 	snap.Schedules = list
+	if notice != nil {
+		var ids []int64
+		for _, id := range notice.IDs {
+			for _, s := range list {
+				if s.ID == id && s.Enabled {
+					ids = append(ids, id)
+					notice.Names = append(notice.Names, s.title())
+				}
+			}
+		}
+		if len(ids) > 0 {
+			notice.IDs = ids
+			notice.At, notice.Until = notice.At.In(loc), notice.Until.In(loc)
+			snap.LastCancel = notice
+		}
+	}
 	enabledIDs := map[int64]bool{}
 	for _, s := range list {
 		if s.Enabled {

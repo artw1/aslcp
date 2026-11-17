@@ -286,3 +286,110 @@ func TestSchedulesAlreadyLinkedIsSkipped(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestSchedulesOverlapRefused(t *testing.T) {
+	e := newEnv(t, opts{schedules: true})
+	var a schedules.Schedule
+	if c := e.do("op", "POST", "/api/schedules", schedBody(map[string]any{"start": "19:00", "end": "20:30"}), &a); c != 201 {
+		t.Fatal(c)
+	}
+	// non-exclusive against non-exclusive: allowed
+	var ok schedules.Schedule
+	if c := e.do("op", "POST", "/api/schedules", schedBody(map[string]any{"name": "Parallel", "start": "19:30", "end": "21:00"}), &ok); c != 201 {
+		t.Fatalf("non-exclusive overlap: %d", c)
+	}
+	// exclusive overlapping both: refused, naming both
+	var got struct{ Error, Code string }
+	body := schedBody(map[string]any{"name": "Excl", "exclusive": true, "start": "20:00", "end": "22:00"})
+	if c := e.do("op", "POST", "/api/schedules", body, &got); c != 409 || got.Code != "schedule_conflict" ||
+		got.Error != `overlaps "Tuesday net" (Tue 19:00–20:30) and "Parallel" (Tue 19:30–21:00) on node 1997` {
+		t.Fatalf("%d %+v", c, got)
+	}
+	// other day, other node (a second local node is not needed: same node, other day) are fine
+	var b schedules.Schedule
+	body["days"] = []int{3}
+	if c := e.do("op", "POST", "/api/schedules", body, &b); c != 201 {
+		t.Fatalf("other day: %d", c)
+	}
+	// moving it onto Tuesday via PUT is refused, an unnamed clash is "#id"
+	body["days"] = []int{2}
+	body["name"] = ""
+	expectErr(t, e, "op", "PUT", "/api/schedules/"+itoa(b.ID), body, 409, "schedule_conflict")
+	// a disabled schedule never conflicts; enabling it (a full PUT) does
+	body["enabled"] = false
+	if c := e.do("op", "PUT", "/api/schedules/"+itoa(b.ID), body, nil); c != 200 {
+		t.Fatalf("disabled: %d", c)
+	}
+	body["enabled"] = true
+	expectErr(t, e, "op", "PUT", "/api/schedules/"+itoa(b.ID), body, 409, "schedule_conflict")
+	// saving a schedule over itself does not conflict with itself
+	expectErr(t, e, "op", "PUT", "/api/schedules/"+itoa(a.ID), schedBody(map[string]any{"exclusive": true, "start": "19:00", "end": "20:30"}), 409, "schedule_conflict")
+	if c := e.do("op", "PUT", "/api/schedules/"+itoa(a.ID), schedBody(map[string]any{"start": "19:00", "end": "20:45"}), nil); c != 200 {
+		t.Fatalf("self update: %d", c)
+	}
+	// a disconnect is never a conflict
+	if c := e.do("op", "POST", "/api/schedules", schedBody(map[string]any{"action": "disconnect", "end": "", "exclusive": true, "start": "19:10"}), nil); c != 201 {
+		t.Fatalf("disconnect: %d", c)
+	}
+}
+
+func TestSchedulesSettingsEndpoint(t *testing.T) {
+	e := newEnv(t, opts{schedules: true})
+	if s := e.snapshot("viewer"); s.ManualAction != "pause" || s.ResumeAt != nil || s.LastCancel != nil {
+		t.Fatalf("%+v", s)
+	}
+	var snap schedules.Snapshot
+	if c := e.do("op", "PUT", "/api/schedules/settings", map[string]any{"manualAction": "cancel"}, &snap); c != 200 || snap.ManualAction != "cancel" {
+		t.Fatalf("%d %+v", c, snap)
+	}
+	if v, _ := e.st.GetSetting("schedules.manual_action"); v != "cancel" {
+		t.Fatalf("setting %q", v)
+	}
+	if c := e.do("admin", "PUT", "/api/schedules/settings", map[string]any{"manualAction": "pause_today"}, &snap); c != 200 || snap.ManualAction != "pause_today" {
+		t.Fatalf("%d %+v", c, snap)
+	}
+	expectErr(t, e, "op", "PUT", "/api/schedules/settings", map[string]any{"manualAction": "nope"}, 400, "bad_request")
+	expectErr(t, e, "op", "PUT", "/api/schedules/settings", map[string]any{}, 400, "bad_request")
+	expectErr(t, e, "viewer", "PUT", "/api/schedules/settings", map[string]any{"manualAction": "pause"}, 403, "forbidden")
+	if e.snapshot("viewer").ManualAction != "pause_today" {
+		t.Fatal("rejected request changed the setting")
+	}
+	off := newEnv(t, opts{})
+	expectErr(t, off, "op", "PUT", "/api/schedules/settings", map[string]any{"manualAction": "pause"}, 503, "schedules_unavailable")
+}
+
+func TestManualActionModesThroughAPI(t *testing.T) {
+	l := ny(t)
+	// pause_today: resumes at the next local midnight
+	e := newEnv(t, opts{schedules: true})
+	e.do("op", "PUT", "/api/schedules/settings", map[string]any{"manualAction": "pause_today"}, nil)
+	if c := e.do("op", "POST", "/api/nodes/"+localNode+"/connect", map[string]any{"target": "2000"}, nil); c != 202 {
+		t.Fatal(c)
+	}
+	s := e.snapshot("viewer")
+	if s.Enabled || s.ResumeAt == nil || !s.ResumeAt.Equal(time.Date(2026, 11, 18, 0, 0, 0, 0, l)) {
+		t.Fatalf("%+v", s)
+	}
+
+	// cancel: only the window on that node, schedules stay on, notice recorded
+	e = newEnv(t, opts{schedules: true})
+	e.do("op", "PUT", "/api/schedules/settings", map[string]any{"manualAction": "cancel"}, nil)
+	var a schedules.Schedule
+	if c := e.do("op", "POST", "/api/schedules", schedBody(map[string]any{"start": "19:00", "end": "20:30"}), &a); c != 201 {
+		t.Fatal(c)
+	}
+	e.clk.set(time.Date(2026, 11, 17, 19, 0, 5, 0, l))
+	e.eng.RunOnce(context.Background())
+	if len(e.snapshot("op").Active) != 1 {
+		t.Fatal("window not running")
+	}
+	e.clk.set(time.Date(2026, 11, 17, 19, 10, 0, 0, l))
+	if c := e.do("op", "POST", "/api/nodes/"+localNode+"/connect", map[string]any{"target": "2000"}, nil); c != 202 {
+		t.Fatal(c)
+	}
+	s = e.snapshot("viewer")
+	if !s.Enabled || len(s.Active) != 0 || s.LastCancel == nil || s.LastCancel.Reason != "manual connect 2000 on 1997 by op" ||
+		len(s.LastCancel.Names) != 1 || s.LastCancel.Names[0] != "Tuesday net" {
+		t.Fatalf("%+v", s)
+	}
+}

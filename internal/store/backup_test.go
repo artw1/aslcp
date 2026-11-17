@@ -71,7 +71,7 @@ func TestMigrateFileDropsScheduleState(t *testing.T) {
 	if _, err := st.AddSchedule(schedules.Schedule{Name: "net", Node: "2006", Target: "41234", Action: "connect", Mode: "transceive", Days: []int{3}, Start: "20:00", End: "20:30"}); err != nil {
 		t.Fatal(err)
 	}
-	for k, v := range map[string]string{schedules.KeyState: `[{"id":1}]`, schedules.KeyEnabled: "true", schedules.KeyPausedReason: "manual"} {
+	for k, v := range map[string]string{schedules.KeyState: `[{"id":1}]`, schedules.KeyLastCancel: `{"ids":[1]}`, schedules.KeyResumeAt: "2026-11-18T00:00:00-05:00", schedules.KeyEnabled: "true", schedules.KeyPausedReason: "manual"} {
 		if err := st.SetSetting(k, v); err != nil {
 			t.Fatal(err)
 		}
@@ -94,6 +94,12 @@ func TestMigrateFileDropsScheduleState(t *testing.T) {
 	defer st2.Close()
 	if v, _ := st2.GetSetting(schedules.KeyState); v != "" {
 		t.Errorf("schedules.state survived: %q", v)
+	}
+	if v, _ := st2.GetSetting(schedules.KeyLastCancel); v != "" {
+		t.Errorf("schedules.last_cancel survived: %q", v)
+	}
+	if v, _ := st2.GetSetting(schedules.KeyResumeAt); v == "" {
+		t.Errorf("schedules.resume_at lost")
 	}
 	if v, _ := st2.GetSetting(schedules.KeyEnabled); v != "true" {
 		t.Errorf("enabled switch lost: %q", v)

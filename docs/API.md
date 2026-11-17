@@ -81,7 +81,7 @@ NodeInfo = {"node": "50241", "callsign": "N0CALL", "description": "Hub name", "l
 
 `400 {"code":"bad_target"}` for invalid input, `404` unknown local node, `503 {"code":"ami_down"}` when AMI is disconnected.
 
-**Manual commands pause the schedules.** After a successful connect, disconnect or disconnect-all (any user), the server cancels the schedule occurrences running now and switches all schedules off (reason, for example `manual connect 2000 on 1997 by op`); see Schedules below. The scheduler's own commands do not.
+**Manual commands and the schedules.** After a successful connect, disconnect or disconnect-all (any user), the server applies the schedules setting `manualAction` (since 1.1.24): by default it cancels the schedule occurrences running now and switches all schedules off (reason, for example `manual connect 2000 on 1997 by op`); it can instead pause only until midnight, or cancel only the running windows on that node. See Schedules below. The scheduler's own commands do not.
 
 ### Node stats (all roles)
 
@@ -126,10 +126,15 @@ Scheduled connects and disconnects (`docs/SCHEDULES.md`). All endpoints answer `
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/api/schedules` | | `200` `Snapshot` |
-| POST | `/api/schedules` | `Schedule` fields without `id`, `lastRun`, `lastResult` (`enabled` defaults to `true`) | `201` `Schedule`. `400 bad_request` with a message (bad target, target equals node, both or neither of `days` / `date`, bad `date`, `HH:MM` or day, `end` on a disconnect, `end` equals `start`, unknown `mode` or `action`, name over 60 characters); `400 unknown_node` when `node` is not a current local node |
-| PUT | `/api/schedules/{id}` | same as POST (full replace) | `200` `Schedule`; `404 not_found` |
+| POST | `/api/schedules` | `Schedule` fields without `id`, `lastRun`, `lastResult` (`enabled` defaults to `true`) | `201` `Schedule`. `400 bad_request` with a message (bad target, target equals node, both or neither of `days` / `date`, bad `date`, `HH:MM` or day, `end` on a disconnect, `end` equals `start`, unknown `mode` or `action`, name over 60 characters); `400 unknown_node` when `node` is not a current local node; `409 schedule_conflict` (see below) |
+| PUT | `/api/schedules/{id}` | same as POST (full replace; also how a schedule is enabled or disabled) | `200` `Schedule`; `404 not_found`; `409 schedule_conflict` (see below) |
 | DELETE | `/api/schedules/{id}` | | `204`; `404 not_found` |
 | PUT | `/api/schedules/enabled` | `{"enabled": bool}` | `200` `Snapshot` (the global switch; switching on clears the pause reason). `400` without `enabled` |
+| PUT | `/api/schedules/settings` | `{"manualAction": "pause"\|"pause_today"\|"cancel"}` | `200` `Snapshot`. `400 bad_request` for a missing or unknown value. Operator and admin |
+
+**Overlap check** (1.1.24): POST and PUT answer `409 {"code":"schedule_conflict","error":"overlaps \"Tuesday net\" (Tue 19:00–20:30) on node 2006"}` when the schedule being saved is a connect, enabled, on the same node as another enabled connect schedule, at least one of the two has `exclusive: true` and their time spans overlap on some date (midnight crossing and the week wrap included; a connect without `end` is an instant that conflicts only when inside the other's window). The message names the clashing schedules (`#id` when unnamed). Disabled schedules and disconnects never conflict. Details in `docs/SCHEDULES.md`.
+
+**Manual action** (1.1.24): what a manual connect, disconnect or disconnect-all (`/api/nodes/{node}/...`) does to the schedules is set by `manualAction`: `pause` (default: cancel running windows and pause all schedules until switched on), `pause_today` (same, resumes at the next local midnight; `resumeAt` shows when) or `cancel` (cancel only the running windows on that node, schedules stay on; `lastCancel` carries the notice).
 
 `mode` is normalised to `""` and `exclusive` to `false` for a disconnect, and `exclusive` to `false` for `localmonitor`. `permanent` on a disconnect means a permanent disconnect (`ilink 11`); on a window it also applies to the closing disconnect.
 
@@ -138,6 +143,9 @@ Snapshot = {
   "enabled": bool,            // global switch
   "pausedReason": str,        // "" when paused from the switch, else e.g. "manual connect 41234 on 2006 by op"
   "pausedAt": RFC3339 | null,
+  "resumeAt": RFC3339 | null, // set while paused "for today" (pause_today): schedules switch on again then
+  "manualAction": "pause" | "pause_today" | "cancel",
+  "lastCancel": {"reason": str, "at": RFC3339, "until": RFC3339, "ids": [int], "names": [str]} | null,  // cancel mode: windows cancelled by a manual action, while they would still be running
   "timezone": "Europe/Berlin",  // IANA name when found, else the abbreviation
   "now": RFC3339,             // node time, with offset
   "schedules": [Schedule],    // sorted by node, start, id
@@ -146,7 +154,7 @@ Snapshot = {
 }
 ```
 
-`upcoming` lists the next 10 events within 8 days (a window gives a `connect` and a `disconnect` event; `mode` is `""` for a disconnect), also while paused; disabled schedules and cancelled occurrences are left out. Timestamps carry the node's UTC offset. The persisted state lives in the `schedules` table and the settings `schedules.enabled`, `schedules.paused_reason`, `schedules.paused_at` and `schedules.state`.
+`upcoming` lists the next 10 events within 8 days (a window gives a `connect` and a `disconnect` event; `mode` is `""` for a disconnect), also while paused; disabled schedules and cancelled occurrences are left out. Timestamps carry the node's UTC offset. The persisted state lives in the `schedules` table and the settings `schedules.enabled`, `schedules.paused_reason`, `schedules.paused_at`, `schedules.state`, `schedules.manual_action`, `schedules.resume_at` and `schedules.last_cancel`.
 
 ## Node lookup (all roles)
 

@@ -110,14 +110,16 @@ func Inspect(path string) (Inspection, error) {
 
 // MigrateFile opens the database file at path (migrating it forward),
 // optionally appends an audit entry, and closes it cleanly (WAL merged).
-// It also removes the schedules.state setting (a running-window record), so
-// a restored database never acts on a window of the backed-up node.
+// It also removes the schedules.state setting (a running-window record) and
+// the cancel notice that refers to it (schedules.last_cancel), so a restored
+// database never acts on a window of the backed-up node. schedules.resume_at
+// is kept: it belongs to the global switch, which is restored with it.
 func MigrateFile(path string, audit *Audit) error {
 	s, err := Open(path)
 	if err != nil {
 		return err
 	}
-	if _, err := s.db.Exec(`DELETE FROM settings WHERE k=?`, schedules.KeyState); err != nil {
+	if _, err := s.db.Exec(`DELETE FROM settings WHERE k IN (?, ?)`, schedules.KeyState, schedules.KeyLastCancel); err != nil {
 		s.Close()
 		return err
 	}

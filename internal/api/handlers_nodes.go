@@ -105,7 +105,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request, u store.U
 	}
 	s.d.Logger.Printf("connect %s -> %s (%s, permanent=%v, exclusive=%v) by %s", node, in.Target, mode, in.Permanent, exclusive, u.Username)
 	s.afterCommand(node)
-	s.pauseSchedules(fmt.Sprintf("manual connect %s on %s by %s", in.Target, node, u.Username))
+	s.manualSchedules(node, fmt.Sprintf("manual connect %s on %s by %s", in.Target, node, u.Username))
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -241,7 +241,7 @@ func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request, u stor
 		return
 	}
 	s.d.Logger.Printf("disconnect %s -> %s (permanent=%v) by %s", node, in.Target, in.Permanent, u.Username)
-	s.pauseSchedules(fmt.Sprintf("manual disconnect %s on %s by %s", in.Target, node, u.Username))
+	s.manualSchedules(node, fmt.Sprintf("manual disconnect %s on %s by %s", in.Target, node, u.Username))
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -262,7 +262,7 @@ func (s *Server) handleDisconnectAll(w http.ResponseWriter, r *http.Request, u s
 	}
 	s.d.Logger.Printf("disconnect-all %s by %s", node, u.Username)
 	s.afterCommand(node)
-	s.pauseSchedules(fmt.Sprintf("manual disconnect all on %s by %s", node, u.Username))
+	s.manualSchedules(node, fmt.Sprintf("manual disconnect all on %s by %s", node, u.Username))
 	w.WriteHeader(http.StatusAccepted)
 }
 
