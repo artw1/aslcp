@@ -1,5 +1,5 @@
 {
   "version": "1.1.22",
-  "notes": "CHANGELOG: 1.1.21 released; apt parser fix goes into 1.1.22\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01WyFLnHQojhM4Jvfwzs5euQ",
+  "notes": "### Fixed\n- Updates tab: the System packages list missed packages whose line in apt's simulated upgrade ends with an extra `[]` (seen with Raspberry Pi mesa updates), so it could show fewer packages than `apt list --upgradable`.",
   "date": "2026-11-17"
 }
