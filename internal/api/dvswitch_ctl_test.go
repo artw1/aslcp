@@ -22,6 +22,7 @@ type ctlDV struct {
 	info    helper.DVSwitchInfo
 	modes   helper.DVModesView
 	tunes   []helper.DVTune
+	atoiTG  bool // a non-DMR tune leaves its leading digits in digital.tg
 	noConf  bool // a switch does not show in ABInfo (the "not confirmed" path)
 	active  string
 	infoErr error
@@ -89,6 +90,15 @@ func (f *ctlDV) DVSwitchTune(_ context.Context, r helper.DVSwitchRequest) (helpe
 		f.info.Tune = v
 		if t.Mode == "DMR" {
 			f.info.TG = v
+		} else if f.atoiTG {
+			// Analog_Bridge reads txTg= as a number: "192.0.2.10:42000" gives 192
+			n := 0
+			for n < len(v) && v[n] >= '0' && v[n] <= '9' {
+				n++
+			}
+			if n > 0 {
+				f.info.TG = v[:n]
+			}
 		}
 	}
 	return res, nil
@@ -529,5 +539,58 @@ func TestDVOwnCommandPublishesAndRereads(t *testing.T) {
 	ev = dvEvents(s, 1, 3*time.Second)
 	if len(ev) != 1 || ev[0].Bridge.Slot != 1 {
 		t.Fatalf("re-read: %+v", ev)
+	}
+}
+
+// The scenario of a real node: DMR on TG 3100, switch to YSF, link a
+// reflector shown as host:port, switch back. The DMR tune sent is 3100, never
+// the reflector's leading digits.
+func TestDVModeSwitchBackSendsRememberedTune(t *testing.T) {
+	f := newCtlDV()
+	f.atoiTG = true
+	f.info.Tune = "" // fresh DMR session
+	f.info.TG = "9"
+	tr := &dvswitch.Tracker{Src: f, Store: &memSettings{}}
+	e := newEnv(t, opts{dvswitch: f, dvInstalled: installed, dvresume: tr,
+		dvNode: func(context.Context) (string, bool) { return "1999", true }})
+	ctx := context.Background()
+	var rep struct{ Confirmed bool }
+	post := func(path string, body map[string]any) {
+		t.Helper()
+		if c := e.do("op", "POST", path, body, &rep); c != 200 {
+			t.Fatalf("%s: %d", path, c)
+		}
+		tr.Poll(ctx)
+		tr.Poll(ctx)
+	}
+	post("/api/dvswitch/tune", map[string]any{"mode": "DMR", "tune": "3100"})
+	post("/api/dvswitch/mode", map[string]any{"mode": "YSF"})
+	post("/api/dvswitch/tune", map[string]any{"mode": "YSF", "tune": "192.0.2.10:42000"})
+	if f.info.TG != "192" {
+		t.Fatalf("the fake does not model the leftover: %q", f.info.TG)
+	}
+	n := len(f.lastTunes())
+	post("/api/dvswitch/mode", map[string]any{"mode": "DMR"})
+	sent := f.lastTunes()[n:]
+	if len(sent) != 1 || sent[0] != (helper.DVTune{Mode: "DMR", Tune: "3100"}) {
+		t.Fatalf("sent on switch back: %+v", sent)
+	}
+	for _, s := range f.lastTunes() {
+		if s.Mode == "DMR" && (s.Tune == "192" || s.Tune == "76") {
+			t.Fatalf("a reflector prefix was sent as a TG: %+v", s)
+		}
+	}
+	v := tr.Get()
+	if v.PerMode["DMR"].Tune != "3100" || v.PerMode["YSF"].Tune != "192.0.2.10:42000" {
+		t.Fatalf("%+v", v)
+	}
+	if f.info.TG != "3100" {
+		t.Fatalf("bridge TG %q", f.info.TG)
+	}
+	// and back to YSF: the reflector again
+	n = len(f.lastTunes())
+	post("/api/dvswitch/mode", map[string]any{"mode": "YSF"})
+	if sent := f.lastTunes()[n:]; len(sent) != 1 || sent[0] != (helper.DVTune{Mode: "YSF", Tune: "192.0.2.10:42000"}) {
+		t.Fatalf("%+v", sent)
 	}
 }

@@ -23,6 +23,9 @@ export function serviceDots(s: DVSnapshot | null | undefined): { unit: string; o
 }
 export const allOk = (s: DVSnapshot | null | undefined): boolean => !!s && s.bridge.source !== 'none' && serviceDots(s).every((d) => d.ok);
 
+/** True when the bridge node is linked to the local node (the snapshot's `link`, established only). The talkgroup or reflector does not matter. Decides the card's green tint. */
+export const bridgeLinked = (s: Pick<DVSnapshot, 'bridgeNode' | 'link'> | null | undefined): boolean => !!s && !!s.bridgeNode?.present && !!s.bridgeNode.node && !!s.link?.linked;
+
 const printable = (s: string) => ![...s].some((c) => { const n = c.codePointAt(0)!; return n < 0x20 || (n >= 0x7f && n < 0xa0); });
 /** The trimmed favourite name, or null when it is not 1 to 40 printable characters. */
 export function validFavName(name: string): string | null {

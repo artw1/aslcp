@@ -380,3 +380,21 @@ func TestDVTunePortFallbackWhenABInfoStale(t *testing.T) {
 		t.Fatalf("received %q, want %q", got, want)
 	}
 }
+
+// A DMR talkgroup is the whole string in digits: no prefix is taken from a
+// reflector address or any other text.
+func TestDVStrictDMRTG(t *testing.T) {
+	for v, ok := range map[string]bool{
+		"3100": true, "9": true, "12345678": true,
+		"192.0.2.10:42000": false, "192": true, "192abc": false, "3100 ": false, " 3100": false,
+		"3100\n": false, "31 00": false, "123456789": false, "-3100": false, "3100=1": false, "٣١٠٠": false, "": false,
+	} {
+		if got := DVValidTune("DMR", v); got != ok {
+			t.Errorf("DVValidTune(DMR, %q) = %v, want %v", v, got, ok)
+		}
+	}
+	info, err := ParseABInfo([]byte(`{"digital":{"tg":"192.0.2.10:42000","ts":"2"},"tlv":{"ambe_mode":"DMR","rx_port":"34001"}}`))
+	if err == nil && info.TG != "" {
+		t.Errorf("tg %q taken from an address", info.TG)
+	}
+}

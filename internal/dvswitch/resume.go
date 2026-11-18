@@ -104,6 +104,9 @@ type Tracker struct {
 	baseTG, baseTS    string
 	tuneSeen          bool
 	tuneVal, tuneMode string
+	modeSeen          bool   // a sample was recorded since the start
+	prevMode          string // mode of the previous sample
+	dmrHold           bool   // the DMR talkgroup is not trusted yet (see record)
 	lastLogged        string
 
 	// What the last poll saw, for nextInterval (guarded by mu).
@@ -423,6 +426,14 @@ var reYSFID = regexp.MustCompile(`^[0-9]{5}$`)
 //   - YSF, P25, NXDN: last_tune, when it is not empty and valid for the mode.
 //     last_tune survives a mode change, so a value first seen in another mode
 //     is not taken for this one.
+//   - Right after a switch of mode to DMR the talkgroup is not trusted:
+//     Analog_Bridge takes txTg= of a YSF tune ("192.0.2.10:42000") as a number
+//     and keeps its leading digits ("192") as digital.tg, so the first DMR
+//     sample after a switch shows a value that is nobody's tune. It counts
+//     only once last_tune changed after the switch and equals the
+//     talkgroup, i.e. a tune that was sent in DMR (by the panel or an app).
+//   - Every value must pass the mode's validator (DMR: digits only, no prefix
+//     parsing) before it is stored.
 //   - Unlink values (DMR 4000, YSF disconnect, P25 and NXDN 9999) are not
 //     remembered.
 func (t *Tracker) record(info helper.DVSwitchInfo, now time.Time) {
@@ -437,7 +448,14 @@ func (t *Tracker) record(info helper.DVSwitchInfo, now time.Time) {
 	if !t.baseSeen || t.baseKey != info.Started {
 		t.baseSeen, t.baseKey, t.baseTG, t.baseTS = true, info.Started, info.TG, info.Slot
 		t.tuneSeen = false
+		t.modeSeen, t.prevMode, t.dmrHold = false, "", false
 	}
+	if mode != t.prevMode {
+		// a switch of mode (not the first sample of this start)
+		t.dmrHold = t.modeSeen && mode == "DMR"
+		t.prevMode = mode
+	}
+	t.modeSeen = true
 	if !t.tuneSeen || t.tuneVal != info.Tune {
 		t.tuneSeen, t.tuneVal, t.tuneMode = true, info.Tune, mode
 	}
@@ -450,6 +468,12 @@ func (t *Tracker) record(info helper.DVSwitchInfo, now time.Time) {
 	case "DMR":
 		if !helper.DVValidTune("DMR", info.TG) {
 			return
+		}
+		if t.dmrHold {
+			if info.Tune != info.TG || t.tuneMode != "DMR" {
+				return
+			}
+			t.dmrHold = false
 		}
 		moved := info.TG != t.baseTG || info.Slot != t.baseTS
 		if !moved && !(info.Tune != "" && t.tuneMode == "DMR") {
