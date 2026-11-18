@@ -120,7 +120,7 @@ Mode names sent are `DMR`, `YSF`, `P25`, `NXDN`, as the script does (AB also kno
 
 Behaviour rules:
 
-- One control mutex; the mode sequence is serialised with the spacing the script uses (measure it, see "Verify"). Rate limit: one mode switch per 2 s, tune per 1 s, per server.
+- One tune or mode sequence at a time (see "Port following" under the TLV formats), with the port-follow timing, not the script's spacing. Rate limit: one mode switch per 2 s, tune per 1 s, per server.
 - The sequence is data in `internal/dvswitch/tlv.go` and a conformance test replays it against a fake UDP listener; a fixture captured from the real script (tcpdump, see Verify) is the reference.
 - A mode must be in `modes.enabled`, else `409 mode_disabled`.
 - `tune` changes AB's memory only, not Analog_Bridge.ini (as `dvswitch.sh`). ASLCP never writes the ini on a tune: the startup values are edited explicitly (Startup cards), and the last tune of each mode is remembered by the tracker instead (see "Tune and resume").
@@ -146,7 +146,15 @@ No value may start with `-` or hold `=`. The sequence, from `dvswitch.sh` 1.6.2 
 - Mode switch (skipped when ABInfo already shows the mode): `rxport=30000`, `ambeMode=<mode>`, `txport=<DVSwitch.ini [mode] RXPort>`, `rxport=<DVSwitch.ini [mode] TXPort>`, `info`.
 - Tune: `txTg=<value>`, `info`.
 
-Datagrams of one command are spaced by 100 ms (`Ops.DVTLVDelay`), the result is read back from ABInfo after 400 ms (`Ops.DVTLVSettle`; `confirmed` says it matched), and a mutex serialises sends. Tests replay both sequences against a loopback UDP listener.
+Datagrams of one command are spaced by 100 ms (`Ops.DVTLVDelay`) and the result is read back from ABInfo after 400 ms (`Ops.DVTLVSettle`; `confirmed` says it matched).
+
+**Port following (fix, 2026-11-18).** Analog_Bridge moves its listener to a new port on every `rxport=N`. The upstream script waits 1 s and re-reads `tlv.rx_port` from the newest ABInfo after each one (`setTLVRxPort`), so the commands that follow go to the new port. Sending the whole sequence to the port read at the start does not work: only `rxport=30000` landed, the rest went to a dead port (the socket got ECONNREFUSED, "cannot reach Analog_Bridge"), and a second click, which started from port 30000, finished the switch. The helper now sends in steps (`dvTLVSend`). After each `rxport=N` it reads ABInfo (the same read as `dvswitch-info`: `/proc/<pid>/root/tmp`, newest file) every 100 ms (`Ops.DVPortPoll`) for up to 2 s (`Ops.DVPortWait`) until `tlv.rx_port` is `N`, then sends the next commands to `N`. If ABInfo never shows it, the helper sends to `N` anyway, since that is what Analog_Bridge was told to listen on. Each port gets a fresh unconnected UDP socket (`WriteToUDP`), so a stale ICMP refusal from an old port cannot fail a later write; a write that still fails right after a port change is retried once after re-reading the port. `Ops.DVParkPort` (default 30000) is the port of the first `rxport=` and is only changed by tests.
+
+**Serialisation.** One tune or mode sequence at a time across the helper process, including the confirm read (`lockTune`, a one-slot channel). A second request waits, bounded by its context, and does not fail. The "already in this mode, nothing to send" check reads ABInfo inside the lock, so it sees a switch that finished just before. The API server sends nothing to Analog_Bridge itself; every mode, tune and unlink goes through `dvswitch-tune`.
+
+A mode switch now takes about 1 to 2 s on a real node (two `rxport=` steps, each waiting for ABInfo), a tune on the current mode about 0.5 s. The dashboard card disables the mode buttons, Go, the favourite chips and Unlink while a command is pending (until the reply, the confirmation or the 5 s "Not confirmed").
+
+Tests (`dvswitch_ab_fake_test.go`) run a fake Analog_Bridge on loopback UDP that closes its old socket on `rxport=N`, opens `N` after a delay and rewrites a fake ABInfo, with free ports instead of 30000. They cover a full switch in one call, back-to-back and concurrent calls, the wait bounded by the context, and the fallback when ABInfo never updates.
 
 **Why Go TLV and not `dvswitch.sh`.** The script is a shell program that reads its own config, parses with `awk`/`sed` and interpolates arguments into commands; running it as root from the helper would need a shell, a path to a script that belongs to a package, and quoting rules for client strings. The Go code sends the same few datagrams, needs no new unit permission (`RestrictAddressFamilies` already allows loopback UDP), validates the values strictly instead of filtering a shell line, and is covered by tests. The cost is that the sequence must follow upstream: it is data in one file with a conformance test, and the verify list below asks for a capture of the real script.
 
@@ -182,7 +190,7 @@ The demo uses its own temp dir and a fake in-memory ABInfo; it never touches rea
 
 ### Verify on a real node (tune and resume)
 
-1. Capture the real script and compare with ours: `sudo tcpdump -i lo -X udp and dst port <tlv.rx_port>` while running `dvswitch.sh mode P25` then `dvswitch.sh tune 10100`; the tag `0x05`, the commands (`rxport=30000`, `ambeMode=<MODE>`, `txport=<DVSwitch.ini RXPort>`, `rxport=<DVSwitch.ini TXPort>`, `info`; tune `txTg=<value>`) and their order match upstream `dvswitch.sh` (DVSwitch/MMDVM_Bridge master, `setMode`, `tune`, `remoteControlCommand`), checked 2026-11-18. Still to observe on a node: that Analog_Bridge acts on them with ASLCP's spacing (upstream sends without delays, one python process per command) and rewrites ABInfo after `info`.
+1. Capture the real script and compare with ours: `sudo tcpdump -i lo -X udp and dst port <tlv.rx_port>` while running `dvswitch.sh mode P25` then `dvswitch.sh tune 10100`; the tag `0x05`, the commands (`rxport=30000`, `ambeMode=<MODE>`, `txport=<DVSwitch.ini RXPort>`, `rxport=<DVSwitch.ini TXPort>`, `info`; tune `txTg=<value>`) and their order match upstream `dvswitch.sh` (DVSwitch/MMDVM_Bridge master, `setMode`, `tune`, `remoteControlCommand`), checked 2026-11-18. They do not match its timing: upstream sends one command per process and, after each `rxport=`, waits 1 s and re-reads `tlv.rx_port` (`setTLVRxPort`); ASLCP follows the port as described under the formats above. Still to observe on a node: that a switch completes on one click in about 1 to 2 s, and that Analog_Bridge rewrites ABInfo after `info`.
 2. Does Analog_Bridge write ABInfo at start and refresh it after a TLV tune? Run `watch -n1 cat /tmp/ABInfo_<port>.json` (inside the PrivateTmp of the helper: `/proc/<pid>/root/tmp`).
 3. Is 100 ms between datagrams and 400 ms settle enough (`confirmed: true`)?
 4. `systemctl show -p ActiveEnterTimestamp --timestamp=unix analog_bridge.service` prints `@<seconds>` on the node's systemd.

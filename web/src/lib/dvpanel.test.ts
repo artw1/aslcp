@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIRM_MS, allOk, defaultFavName, favoriteBlock, favoritesFor, pendingOutcome, serviceDots, shownMode, stateLine, validFavName, validTune } from './dvpanel.ts';
+import { CONFIRM_MS, allOk, controlsLocked, defaultFavName, favoriteBlock, favoritesFor, pendingOutcome, serviceDots, shownMode, stateLine, validFavName, validTune } from './dvpanel.ts';
 import type { DVFavorite, DVSnapshot } from './types';
 
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
@@ -85,4 +85,14 @@ test('pending mode switch: waiting, confirmed, unconfirmed after 5 s', () => {
   assert.equal(shownMode(p, 'unconfirmed', 'DMR'), 'DMR');
   assert.equal(shownMode(p, 'confirmed', 'P25'), 'P25');
   assert.equal(shownMode(null, 'none', undefined), '');
+});
+
+test('controls are locked while a command is pending, free on reply, confirmation or timeout', () => {
+  const p = { mode: 'P25' as const, since: 1000 };
+  assert.equal(controlsLocked(false, pendingOutcome(null, 'DMR', 0)), false);
+  assert.equal(controlsLocked(true, 'none'), true); // request in flight
+  assert.equal(controlsLocked(false, pendingOutcome(p, 'DMR', 1500)), true); // replied, bridge not showing the mode yet
+  assert.equal(controlsLocked(false, pendingOutcome(p, 'P25', 1500)), false); // confirmed
+  assert.equal(controlsLocked(false, pendingOutcome(p, 'DMR', 1000 + CONFIRM_MS)), false); // "Not confirmed"
+  assert.equal(controlsLocked(true, 'confirmed'), true); // a later tune still in flight
 });

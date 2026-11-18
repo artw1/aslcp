@@ -3,11 +3,11 @@ package helper
 import (
 	"context"
 	"errors"
-	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -72,77 +72,45 @@ func TestDVInfoStarted(t *testing.T) {
 	}
 }
 
-// tuneEnv: an Ops whose ABInfo names a loopback UDP port as the TLV port, and
-// the datagrams Analog_Bridge would receive.
-func tuneEnv(t *testing.T, mode, lastTune string) (*Ops, func() []string) {
+// tuneEnv: an Ops whose ABInfo names the TLV port of a fake Analog_Bridge
+// (dvswitch_ab_fake_test.go) that really moves its listener on rxport=.
+func tuneEnv(t *testing.T, mode, lastTune string) (*Ops, *fakeAB) {
 	t.Helper()
 	o, _ := cfgOps(t)
-	o.DVTLVDelay, o.DVTLVSettle = time.Millisecond, time.Millisecond
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Skip("no loopback UDP:", err)
-	}
-	t.Cleanup(func() { pc.Close() })
-	port := pc.LocalAddr().(*net.UDPAddr).Port
-	good, _ := os.ReadFile("testdata/ABInfo_31001.json")
-	s := strings.Replace(string(good), `"rx_port":"31100"`, `"rx_port":"`+strconv.Itoa(port)+`"`, 1)
-	s = strings.Replace(s, `"ambe_mode":"DMR"`, `"ambe_mode":"`+mode+`"`, 1)
-	s = strings.Replace(s, `"last_tune":""`, `"last_tune":"`+lastTune+`"`, 1)
-	abProc(t, o, "ABInfo_31001.json", []byte(s))
-	ini := "[DMR]\ntxPort=31103\nrxPort=31100\n\n[YSF]\ntxPort=31203\nrxPort=31200\n\n[P25]\ntxPort=31303\nrxPort=31300\n"
-	p := filepath.Join(o.dvOptDir(), "MMDVM_Bridge", "DVSwitch.ini")
-	if err := os.WriteFile(p, []byte(ini), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return o, func() []string {
-		var got []string
-		buf := make([]byte, 512)
-		for {
-			_ = pc.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-			n, _, err := pc.ReadFrom(buf)
-			if err != nil {
-				return got
-			}
-			if n < 2 || buf[0] != 0x05 || int(buf[1]) != n-2 {
-				got = append(got, "BAD")
-				continue
-			}
-			got = append(got, string(buf[2:n]))
-		}
-	}
+	return o, newFakeAB(t, o, mode, lastTune)
 }
 
 func TestDVTuneSameModeSendsTxTg(t *testing.T) {
-	o, recv := tuneEnv(t, "DMR", "")
+	o, ab := tuneEnv(t, "DMR", "")
 	res, err := o.DVSwitchTune(context.Background(), &DVSwitchRequest{Tune: &DVTune{Mode: "DMR", Tune: "91"}})
 	if err != nil || res.Switched || res.Mode != "DMR" {
 		t.Fatalf("%+v %v", res, err)
 	}
-	if got := strings.Join(recv(), "|"); got != "txTg=91|info" {
+	if got := strings.Join(ab.recv(), "|"); got != "txTg=91|info" {
 		t.Fatalf("datagrams %q", got)
 	}
 }
 
 func TestDVTuneSwitchSequence(t *testing.T) {
-	o, recv := tuneEnv(t, "DMR", "")
+	o, ab := tuneEnv(t, "DMR", "")
 	res, err := o.DVSwitchTune(context.Background(), &DVSwitchRequest{Tune: &DVTune{Mode: "P25", Tune: "10100"}})
 	if err != nil || !res.Switched {
 		t.Fatalf("%+v %v", res, err)
 	}
-	want := "rxport=30000|ambeMode=P25|txport=31300|rxport=31303|info|txTg=10100|info"
-	if got := strings.Join(recv(), "|"); got != want {
+	want := ab.switchCmds("P25") + "|txTg=10100|info"
+	if got := strings.Join(ab.recv(), "|"); got != want {
 		t.Fatalf("datagrams %q, want %q", got, want)
 	}
 }
 
 func TestDVTuneYSFResolvesIDAndName(t *testing.T) {
-	o, recv := tuneEnv(t, "YSFN", "")
+	o, ab := tuneEnv(t, "YSFN", "")
 	o.DVHostDir = listOps(t).DVHostDir
 	for _, v := range []string{"00006", "46.59.68.211:42000"} {
 		if _, err := o.DVSwitchTune(context.Background(), &DVSwitchRequest{Tune: &DVTune{Mode: "YSF", Tune: v}}); err != nil {
 			t.Fatal(v, err)
 		}
-		if got := recv(); len(got) != 2 || got[0] != "txTg=46.59.68.211:42000" {
+		if got := ab.recv(); len(got) != 2 || got[0] != "txTg=46.59.68.211:42000" {
 			t.Fatalf("%s: %v", v, got)
 		}
 	}
@@ -151,13 +119,13 @@ func TestDVTuneYSFResolvesIDAndName(t *testing.T) {
 	if !errors.Is(err, ErrDVInvalid) {
 		t.Fatal(err)
 	}
-	if got := recv(); len(got) != 0 {
+	if got := ab.recv(); len(got) != 0 {
 		t.Fatal(got)
 	}
 }
 
 func TestDVTuneRefusals(t *testing.T) {
-	o, recv := tuneEnv(t, "DMR", "")
+	o, ab := tuneEnv(t, "DMR", "")
 	ctx := context.Background()
 	for _, tc := range []struct {
 		req *DVSwitchRequest
@@ -177,14 +145,17 @@ func TestDVTuneRefusals(t *testing.T) {
 	if _, err := o.DVSwitchTune(ctx, &DVSwitchRequest{Tune: &DVTune{Mode: "DMR", Tune: "9"}, Startup: &DVStartup{}}); err == nil {
 		t.Error("extra field accepted")
 	}
-	if got := recv(); len(got) != 0 {
+	if got := ab.recv(); len(got) != 0 {
 		t.Fatalf("sent %v", got)
 	}
 	// no mode ports: the switch is refused before anything is sent
+	if err := os.WriteFile(filepath.Join(o.dvOptDir(), "MMDVM_Bridge", "DVSwitch.ini"), []byte("[DMR]\ntxPort=31103\nrxPort=31100\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := o.DVSwitchTune(ctx, &DVSwitchRequest{Tune: &DVTune{Mode: "NXDN", Tune: "10200"}}); !errors.Is(err, ErrDVNoPorts) {
 		t.Fatal(err)
 	}
-	if got := recv(); len(got) != 0 {
+	if got := ab.recv(); len(got) != 0 {
 		t.Fatalf("sent %v", got)
 	}
 	// no ABInfo: no_info
@@ -195,7 +166,7 @@ func TestDVTuneRefusals(t *testing.T) {
 }
 
 func TestDVTuneOpDispatch(t *testing.T) {
-	o, recv := tuneEnv(t, "DMR", "")
+	o, ab := tuneEnv(t, "DMR", "")
 	out, err := o.HandleRequest(context.Background(), Request{Op: OpDVSwitchTune, DVSwitch: &DVSwitchRequest{Tune: &DVTune{Mode: "DMR", Tune: "262"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -203,7 +174,7 @@ func TestDVTuneOpDispatch(t *testing.T) {
 	if r, ok := out.(DVTuneResult); !ok || r.Mode != "DMR" {
 		t.Fatalf("%#v", out)
 	}
-	if len(recv()) != 2 {
+	if len(ab.recv()) != 2 {
 		t.Fatal("no datagrams")
 	}
 }
@@ -220,32 +191,32 @@ func TestDVUnlinkTune(t *testing.T) {
 }
 
 func TestDVTuneModeOnlySwitch(t *testing.T) {
-	o, recv := tuneEnv(t, "DMR", "")
+	o, ab := tuneEnv(t, "DMR", "")
 	res, err := o.DVSwitchTune(context.Background(), &DVSwitchRequest{Tune: &DVTune{Mode: "P25", ModeOnly: true}})
 	if err != nil || !res.Switched || res.Mode != "P25" {
 		t.Fatalf("%+v %v", res, err)
 	}
-	want := "rxport=30000|ambeMode=P25|txport=31300|rxport=31303|info"
-	if got := strings.Join(recv(), "|"); got != want {
+	want := ab.switchCmds("P25")
+	if got := strings.Join(ab.recv(), "|"); got != want {
 		t.Fatalf("datagrams %q, want %q", got, want)
 	}
 }
 
 func TestDVTuneModeOnlySameModeIsQuiet(t *testing.T) {
-	o, recv := tuneEnv(t, "DMR", "")
+	o, ab := tuneEnv(t, "DMR", "")
 	res, err := o.DVSwitchTune(context.Background(), &DVSwitchRequest{Tune: &DVTune{Mode: "DMR", ModeOnly: true}})
 	if err != nil || res.Switched || !res.Confirmed {
 		t.Fatalf("%+v %v", res, err)
 	}
-	if got := recv(); len(got) != 0 {
+	if got := ab.recv(); len(got) != 0 {
 		t.Fatalf("datagrams %q", got)
 	}
 }
 
 func TestDVTuneModeOnlyRefusesATarget(t *testing.T) {
-	o, recv := tuneEnv(t, "DMR", "")
+	o, ab := tuneEnv(t, "DMR", "")
 	_, err := o.DVSwitchTune(context.Background(), &DVSwitchRequest{Tune: &DVTune{Mode: "YSF", Tune: "12345", ModeOnly: true}})
-	if !errors.Is(err, ErrDVInvalid) || len(recv()) != 0 {
+	if !errors.Is(err, ErrDVInvalid) || len(ab.recv()) != 0 {
 		t.Fatalf("err %v", err)
 	}
 }
@@ -279,7 +250,7 @@ func TestDemoDVSwitchModeOnly(t *testing.T) {
 // Regression: the stock DVSwitch.ini spells the keys txPort/rxPort and
 // dvswitch.sh reads them case-insensitively (configparser).
 func TestDVModePortsStockSpelling(t *testing.T) {
-	o, recv := tuneEnv(t, "DMR", "")
+	o, ab := tuneEnv(t, "DMR", "")
 	fix, err := os.ReadFile("testdata/DVSwitch.ini")
 	if err != nil {
 		t.Fatal(err)
@@ -296,10 +267,116 @@ func TestDVModePortsStockSpelling(t *testing.T) {
 	if _, _, err := o.dvModePorts("YSF"); !errors.Is(err, ErrDVNoPorts) {
 		t.Fatalf("missing section: %v", err)
 	}
+	// the tune itself needs ports the fake can bind: the same file with free ones
+	p25 := ab.ports["P25"]
+	fix = []byte(strings.NewReplacer("32100", strconv.Itoa(p25[0]), "32103", strconv.Itoa(p25[1])).Replace(string(fix)))
+	if err := os.WriteFile(filepath.Join(o.dvOptDir(), "MMDVM_Bridge", "DVSwitch.ini"), fix, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := o.DVSwitchTune(context.Background(), &DVSwitchRequest{Tune: &DVTune{Mode: "P25", Tune: "10100"}}); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(recv(), "|"), "rxport=30000|ambeMode=P25|txport=32103|rxport=32100|info|txTg=10100|info"; got != want {
+	if got, want := strings.Join(ab.recv(), "|"), ab.switchCmds("P25")+"|txTg=10100|info"; got != want {
 		t.Fatalf("datagrams %q, want %q", got, want)
+	}
+}
+
+// One call does the whole switch although Analog_Bridge moves its listener at
+// every rxport=: the commands after it must go to the new port.
+func TestDVTuneSwitchFollowsListener(t *testing.T) {
+	o, ab := tuneEnv(t, "DMR", "")
+	res, err := o.DVSwitchTune(context.Background(), &DVSwitchRequest{Tune: &DVTune{Mode: "P25", Tune: "10100"}})
+	if err != nil || !res.Switched || !res.Confirmed {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if got, want := strings.Join(ab.recv(), "|"), ab.switchCmds("P25")+"|txTg=10100|info"; got != want {
+		t.Fatalf("received %q, want %q", got, want)
+	}
+	if mode, tune, port := ab.state(); mode != "P25" || tune != "10100" || port != ab.ports["P25"][0] {
+		t.Fatalf("AB is in %s %s on %d", mode, tune, port)
+	}
+}
+
+func TestDVTuneBackToBackSwitches(t *testing.T) {
+	o, ab := tuneEnv(t, "DMR", "")
+	ctx := context.Background()
+	for i, m := range []string{"YSF", "P25", "NXDN", "DMR", "P25", "YSF"} {
+		res, err := o.DVSwitchTune(ctx, &DVSwitchRequest{Tune: &DVTune{Mode: m, ModeOnly: true}})
+		if err != nil || !res.Switched || !res.Confirmed {
+			t.Fatalf("%d %s: %+v %v", i, m, res, err)
+		}
+		if mode, _, _ := ab.state(); DVNormMode(mode) != m {
+			t.Fatalf("%d: AB is in %s, want %s", i, mode, m)
+		}
+	}
+	// a tune right after a switch lands too
+	if _, err := o.DVSwitchTune(ctx, &DVSwitchRequest{Tune: &DVTune{Mode: "DMR", Tune: "91"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, tune, _ := ab.state(); tune != "91" {
+		t.Fatalf("tune %q", tune)
+	}
+}
+
+// Concurrent requests are serialised, none fails, and AB ends in the mode of
+// the one that finished last.
+func TestDVTuneConcurrent(t *testing.T) {
+	o, ab := tuneEnv(t, "DMR", "")
+	modes := []string{"YSF", "P25", "NXDN", "DMR", "YSF", "P25", "NXDN", "YSF"}
+	var mu sync.Mutex
+	var order []string
+	var wg sync.WaitGroup
+	for _, m := range modes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res, err := o.DVSwitchTune(context.Background(), &DVSwitchRequest{Tune: &DVTune{Mode: m, ModeOnly: true}})
+			if err != nil || !res.Confirmed {
+				t.Errorf("%s: %+v %v", m, res, err)
+			}
+			mu.Lock()
+			order = append(order, m)
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	if mode, _, _ := ab.state(); DVNormMode(mode) != order[len(order)-1] {
+		t.Fatalf("AB is in %s, the last request done was %s (%v)", mode, order[len(order)-1], order)
+	}
+}
+
+// A waiting request gives up with its context instead of failing early.
+func TestDVTuneWaitsBoundedByContext(t *testing.T) {
+	o, ab := tuneEnv(t, "DMR", "")
+	unlock, err := o.lockTune(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := o.DVSwitchTune(ctx, &DVSwitchRequest{Tune: &DVTune{Mode: "P25", ModeOnly: true}}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal(err)
+	}
+	if got := ab.recv(); len(got) != 0 {
+		t.Fatalf("sent %v", got)
+	}
+	unlock()
+	if res, err := o.DVSwitchTune(context.Background(), &DVSwitchRequest{Tune: &DVTune{Mode: "P25", ModeOnly: true}}); err != nil || !res.Confirmed {
+		t.Fatalf("%+v %v", res, err)
+	}
+}
+
+// ABInfo never shows the new port: the helper sends to the commanded port
+// after the wait, which is where AB was told to listen.
+func TestDVTunePortFallbackWhenABInfoStale(t *testing.T) {
+	o, ab := tuneEnv(t, "DMR", "")
+	ab.freezeInfo()
+	o.DVPortWait = 40 * time.Millisecond
+	res, err := o.DVSwitchTune(context.Background(), &DVSwitchRequest{Tune: &DVTune{Mode: "P25", ModeOnly: true}})
+	if err != nil || !res.Switched || !res.Confirmed {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if got, want := strings.Join(ab.recv(), "|"), ab.switchCmds("P25"); got != want {
+		t.Fatalf("received %q, want %q", got, want)
 	}
 }

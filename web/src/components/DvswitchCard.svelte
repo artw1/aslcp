@@ -6,7 +6,7 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-  import { CONFIRM_MS, allOk, defaultFavName, favoriteBlock, favoritesFor, findFavorite, pendingOutcome, serviceDots, shownMode, stateLine, validFavName, validTune } from '../lib/dvpanel';
+  import { CONFIRM_MS, allOk, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, serviceDots, shownMode, stateLine, validFavName, validTune } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
   import NodePicker from './NodePicker.svelte';
@@ -33,12 +33,13 @@
   let timer: ReturnType<typeof setTimeout> | undefined;
   const outcome = $derived(pendingOutcome(pending, b?.mode, now));
   const shown = $derived(shownMode(pending, outcome, mode));
+  const locked = $derived(controlsLocked(busy, outcome));
   $effect(() => { if (outcome === 'confirmed') { pending = null; clearTimeout(timer); } });
   $effect(() => () => clearTimeout(timer));
 
   function apply(r: DVCmdReply) { app.dvswitch = r.snapshot; }
   async function setMode(m: DVTuneMode) {
-    if (busy || shown === m) return;
+    if (locked || shown === m) return;
     clearTimeout(timer);
     now = Date.now();
     pending = { mode: m, since: now };
@@ -65,7 +66,7 @@
   });
   const tuneOk = $derived(!!mode && validTune(mode, tuneValue));
   async function tune(value: string) {
-    if (busy || !mode) return;
+    if (locked || !mode) return;
     busy = true;
     try {
       const r = await api.dvswitchTune({ mode, tune: value.trim() });
@@ -78,7 +79,7 @@
 
   const unlinkValue = $derived(snap?.modes.find((x) => x.id === mode)?.unlink ?? '');
   async function unlink() {
-    if (busy || !mode) return;
+    if (locked || !mode) return;
     busy = true;
     try { const r = await api.dvswitchUnlink(); apply(r); toast(r.confirmed ? 'Unlinked' : 'Sent, not confirmed yet', r.confirmed ? 'ok' : 'info'); }
     catch (e) { toastError(e); } finally { busy = false; }
@@ -143,11 +144,11 @@
       <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Mode">
         {#each snap.modes as m (m.id)}
           <button type="button" class="btn btn-sm {shown === m.id ? 'btn-primary' : ''}" aria-pressed={shown === m.id}
-            disabled={!m.enabled || (busy && pending?.mode !== m.id)}
+            disabled={!m.enabled || locked}
             title={m.enabled ? undefined : `${m.id} is not enabled in MMDVM_Bridge${admin ? ' (DVSwitch tab, Modes)' : ''}`}
             onclick={() => setMode(m.id)}>{m.id}{#if pending?.mode === m.id && outcome === 'waiting'}…{/if}</button>
         {/each}
-        <button type="button" class="btn btn-sm ml-auto" disabled={busy || !mode || !unlinkValue} title={mode ? `Send ${unlinkValue} to ${mode}` : 'Mode unknown'} onclick={unlink}><Unlink size={13} aria-hidden="true" />Unlink</button>
+        <button type="button" class="btn btn-sm ml-auto" disabled={locked || !mode || !unlinkValue} title={mode ? `Send ${unlinkValue} to ${mode}` : 'Mode unknown'} onclick={unlink}><Unlink size={13} aria-hidden="true" />Unlink</button>
       </div>
 
       {#if mode}
@@ -159,8 +160,8 @@
               <input id="dvtune" class="input font-mono" bind:value={tuneValue} placeholder={mode === 'DMR' ? 'Talkgroup number' : 'Target'} inputmode={mode === 'DMR' ? 'numeric' : 'text'} autocomplete="off" aria-label="Tune target" />
             {/if}
           </div>
-          <button type="submit" class="btn btn-primary btn-sm" disabled={busy || !tuneOk}>Go</button>
-          <button type="button" class="btn btn-sm btn-icon" disabled={busy || !!block} aria-pressed={!!starred}
+          <button type="submit" class="btn btn-primary btn-sm" disabled={locked || !tuneOk}>Go</button>
+          <button type="button" class="btn btn-sm btn-icon" disabled={locked || !!block} aria-pressed={!!starred}
             aria-label={starred ? 'Already a favourite' : 'Save the current target as a favourite'} title={block ?? 'Save the current target as a favourite'} onclick={addFav}>
             <Star size={14} class={starred ? 'fill-current text-accent' : ''} aria-hidden="true" /></button>
         </form>
@@ -172,7 +173,7 @@
         {#each chips as f (f.id)}
           <span class="inline-flex items-center rounded border border-line {f.value === target ? 'bg-accent/10' : ''}">
             {#if op && live}
-              <button type="button" class="px-2 py-0.5 text-xs hover:bg-surface-2 disabled:opacity-45" disabled={busy} title="Tune to {f.value}" onclick={() => tune(f.value)}>{f.name}</button>
+              <button type="button" class="px-2 py-0.5 text-xs hover:bg-surface-2 disabled:opacity-45" disabled={locked} title="Tune to {f.value}" onclick={() => tune(f.value)}>{f.name}</button>
               <Menu label="Favourite {f.name}" btnClass="px-1 py-0.5 text-muted hover:bg-surface-2" items={menu}>
                 {#snippet trigger()}<Ellipsis size={13} aria-hidden="true" />{/snippet}
               </Menu>

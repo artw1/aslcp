@@ -136,37 +136,133 @@ const (
 	dvTLVSwitchPort   = 30000
 	dvDefaultTLVDelay = 100 * time.Millisecond
 	dvDefaultSettle   = 400 * time.Millisecond
+	// dvDefaultPortPoll and dvDefaultPortWait: how often and how long ABInfo is
+	// read for the new tlv.rx_port after an rxport= command.
+	dvDefaultPortPoll = 100 * time.Millisecond
+	dvDefaultPortWait = 2 * time.Second
 	dvIniMax          = 1 << 20
 )
 
-// dvTLVSend sends each command as one UDP datagram to 127.0.0.1:port.
-func (o *Ops) dvTLVSend(ctx context.Context, port int, cmds []string) error {
-	conn, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
-	if err != nil {
-		return errors.New("cannot reach Analog_Bridge")
+// lockTune takes the one-sequence-at-a-time token; a second request waits
+// (bounded by ctx) instead of failing.
+func (o *Ops) lockTune(ctx context.Context) (func(), error) {
+	o.tuneOnce.Do(func() { o.tuneSem = make(chan struct{}, 1) })
+	select {
+	case o.tuneSem <- struct{}{}:
+		return func() { <-o.tuneSem }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
-	defer conn.Close()
+}
+
+func dvSleep(ctx context.Context, d time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
+	}
+}
+
+// dvWaitPort polls ABInfo (the read of DVSwitchInfo) until tlv.rx_port is
+// want. It reports whether the port showed up in time; the caller sends to
+// want either way, since that is what Analog_Bridge was told to listen on.
+func (o *Ops) dvWaitPort(ctx context.Context, want int) (bool, error) {
+	poll, wait := o.DVPortPoll, o.DVPortWait
+	if poll <= 0 {
+		poll = dvDefaultPortPoll
+	}
+	if wait <= 0 {
+		wait = dvDefaultPortWait
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		if info, err := o.DVSwitchInfo(ctx); err == nil && info.Found && info.tlvRx == want {
+			return true, nil
+		}
+		if !time.Now().Add(poll).Before(deadline) {
+			return false, nil
+		}
+		if err := dvSleep(ctx, poll); err != nil {
+			return false, err
+		}
+	}
+}
+
+// dvTLVSend sends the commands in order, starting at port. Analog_Bridge
+// moves its listener on every rxport=N (dvswitch.sh waits 1 s and re-reads
+// tlv.rx_port after each), so after one the helper waits for ABInfo to show
+// N and sends the rest there; if it never does, to N all the same. Each port
+// gets a fresh unconnected socket, so an ICMP refusal from a port Analog_Bridge
+// has left cannot fail a later write. A failed write right after a port change
+// is retried once. It returns the port the last command went to.
+func (o *Ops) dvTLVSend(ctx context.Context, port int, cmds []string) (int, error) {
 	delay := o.DVTLVDelay
 	if delay == 0 {
 		delay = dvDefaultTLVDelay
 	}
-	for i, c := range cmds {
-		if len(c) == 0 || len(c) > 255 {
-			return errors.New("bad TLV command")
+	var conn *net.UDPConn
+	closeConn := func() {
+		if conn != nil {
+			conn.Close()
+			conn = nil
 		}
-		pkt := append([]byte{dvTLVTag, byte(len(c))}, c...)
-		if _, err := conn.Write(pkt); err != nil {
+	}
+	defer closeConn()
+	open := func() error {
+		closeConn()
+		c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+		if err != nil {
 			return errors.New("cannot reach Analog_Bridge")
 		}
-		if i < len(cmds)-1 {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(delay):
+		conn = c
+		return nil
+	}
+	if err := open(); err != nil {
+		return port, err
+	}
+	changed := false // the previous command was an rxport=
+	for i, c := range cmds {
+		if len(c) == 0 || len(c) > 255 {
+			return port, errors.New("bad TLV command")
+		}
+		pkt := append([]byte{dvTLVTag, byte(len(c))}, c...)
+		dst := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}
+		if _, err := conn.WriteToUDP(pkt, dst); err != nil {
+			if !changed {
+				return port, errors.New("cannot reach Analog_Bridge")
+			}
+			// right after a port change: re-read the port and retry once
+			if _, werr := o.dvWaitPort(ctx, port); werr != nil {
+				return port, werr
+			}
+			if err := open(); err != nil {
+				return port, err
+			}
+			if _, err := conn.WriteToUDP(pkt, dst); err != nil {
+				return port, errors.New("cannot reach Analog_Bridge")
+			}
+		}
+		changed = false
+		if n, ok := strings.CutPrefix(c, "rxport="); ok {
+			np, err := strconv.Atoi(n)
+			if err != nil || np < 1 || np > 65535 {
+				return port, errors.New("bad TLV command")
+			}
+			port, changed = np, true
+			if _, err := o.dvWaitPort(ctx, port); err != nil {
+				return port, err
+			}
+			if err := open(); err != nil {
+				return port, err
+			}
+		} else if i < len(cmds)-1 {
+			if err := dvSleep(ctx, delay); err != nil {
+				return port, err
 			}
 		}
 	}
-	return nil
+	return port, nil
 }
 
 // dvModePorts reads txPort and rxPort of [mode] in DVSwitch.ini. Keys are
@@ -205,7 +301,10 @@ func (o *Ops) dvModePorts(mode string) (tx, rx int, err error) {
 // already) and tunes. The commands mirror dvswitch.sh: a mode switch is
 // rxport=30000, ambeMode=<mode>, txport=<DVSwitch.ini RXPort>,
 // rxport=<DVSwitch.ini TXPort>; a tune is txTg=<value>; each is followed by
-// info so Analog_Bridge rewrites ABInfo. One command sequence at a time.
+// info so Analog_Bridge rewrites ABInfo. Unlike the script, which sends one
+// command per process, the helper follows Analog_Bridge's listener: see
+// dvTLVSend. One command sequence at a time across the helper (lockTune); the
+// ABInfo read that decides "already in this mode" is made inside the lock.
 func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneResult, error) {
 	req, err := o.dvArgs(req)
 	if err != nil {
@@ -235,8 +334,13 @@ func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneRes
 			return DVTuneResult{}, dvInvalid("tune/value")
 		}
 	}
-	o.tuneMu.Lock()
-	defer o.tuneMu.Unlock()
+	unlock, err := o.lockTune(ctx)
+	if err != nil {
+		return DVTuneResult{}, err
+	}
+	defer unlock()
+	// Read inside the lock: a sequence ahead of this one may have just changed
+	// the mode, and its port.
 	info, err := o.DVSwitchInfo(ctx)
 	if err != nil {
 		return DVTuneResult{}, err
@@ -251,7 +355,11 @@ func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneRes
 		if err != nil {
 			return res, err
 		}
-		cmds = append(cmds, "rxport="+strconv.Itoa(dvTLVSwitchPort), "ambeMode="+t.Mode, "txport="+strconv.Itoa(rx), "rxport="+strconv.Itoa(tx), "info")
+		park := o.DVParkPort
+		if park == 0 {
+			park = dvTLVSwitchPort
+		}
+		cmds = append(cmds, "rxport="+strconv.Itoa(park), "ambeMode="+t.Mode, "txport="+strconv.Itoa(rx), "rxport="+strconv.Itoa(tx), "info")
 		res.Switched = true
 	}
 	if !t.ModeOnly {
@@ -261,7 +369,7 @@ func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneRes
 		res.Confirmed = true // already in the mode, nothing to send
 		return res, nil
 	}
-	if err := o.dvTLVSend(ctx, info.tlvRx, cmds); err != nil {
+	if _, err := o.dvTLVSend(ctx, info.tlvRx, cmds); err != nil {
 		return res, err
 	}
 	settle := o.DVTLVSettle

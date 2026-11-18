@@ -80,3 +80,6 @@ export function pendingOutcome(p: Pending | null, bridgeMode: string | undefined
 export function shownMode(p: Pending | null, outcome: Outcome, bridgeMode: string | undefined): string {
   return p && outcome === 'waiting' ? p.mode : bridgeMode ?? '';
 }
+
+/** True while a command is in flight or its mode switch still waits for confirmation: the mode buttons, Go, the favourite chips and Unlink are disabled then (one command at a time). */
+export const controlsLocked = (busy: boolean, outcome: Outcome): boolean => busy || outcome === 'waiting';

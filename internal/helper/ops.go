@@ -83,9 +83,19 @@ type Ops struct {
 	DVProcDir    string
 	// DVTLVDelay spaces the TLV datagrams of one command (default 100 ms),
 	// DVTLVSettle is the wait before the result is read back (default 400 ms).
+	// After an rxport= command the helper polls ABInfo every DVPortPoll
+	// (default 100 ms) for up to DVPortWait (default 2 s) until Analog_Bridge
+	// reports the new listener port. DVParkPort is the port a mode switch
+	// parks Analog_Bridge on first (default 30000).
 	DVTLVDelay  time.Duration
 	DVTLVSettle time.Duration
-	tuneMu      sync.Mutex
+	DVPortPoll  time.Duration
+	DVPortWait  time.Duration
+	DVParkPort  int
+	// tuneSem holds one token while a tune or mode sequence runs (a channel,
+	// not a mutex, so that a waiter can give up with its context).
+	tuneOnce sync.Once
+	tuneSem  chan struct{}
 	// DVLogDir holds MMDVM_Bridge-YYYY-MM-DD.log (default /var/log/mmdvm).
 	DVLogDir string
 	// SelfPath is the helper binary the install and uninstall units call for
