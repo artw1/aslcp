@@ -8,6 +8,7 @@
   import type { DVIndexed } from '../lib/dvlist';
   import { CONFIRM_MS, allOk, defaultFavName, favoriteBlock, favoritesFor, findFavorite, pendingOutcome, serviceDots, shownMode, stateLine, validFavName, validTune } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
+  import { linkButton, linkLine, pausedHint } from '../lib/dvbridge';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
   import NodePicker from './NodePicker.svelte';
   import Dialog from './Dialog.svelte';
@@ -84,6 +85,21 @@
     catch (e) { toastError(e); } finally { busy = false; }
   }
 
+  // The bridge node's link to a local node. This is the node link, not the talkgroup unlink above.
+  const bn = $derived(snap?.bridgeNode);
+  const link = $derived(snap?.link);
+  const nodeBtn = $derived(bn?.present && bn.node && link && link.mode === 'ondemand' ? linkButton(link, bn.node) : null);
+  async function toggleLink() {
+    if (busy || !nodeBtn || !link || !bn?.node) return;
+    busy = true;
+    try {
+      if (nodeBtn.action === 'connect') await api.connect(link.localNode, bn.node, 'transceive', false);
+      else await api.disconnect(link.localNode, bn.node, false);
+      toast(nodeBtn.action === 'connect' ? 'Linking the bridge node' : 'Bridge node unlinked', 'info');
+      app.dvswitch = await api.dvswitchSnapshot();
+    } catch (e) { toastError(e); } finally { busy = false; }
+  }
+
   // Favourites: shared by the whole node, chips for the current mode.
   let favs = $state<DVFavorite[]>([]);
   let favsLoaded = false;
@@ -135,6 +151,13 @@
       <p class="flex flex-wrap items-center gap-2 text-warn" role="status">Not confirmed: the bridge still reports {b?.mode || 'no mode'}, not {pending.mode}.
         <button type="button" class="text-xs underline hover:no-underline" onclick={() => { pending = null; }}>Dismiss</button></p>
     {/if}
+    {#if bn?.present && bn.node && link}
+      <p class="flex flex-wrap items-center gap-2" data-testid="dv-node-link">
+        <span class={link.mode === 'permanent' && !link.linked ? 'text-warn' : ''}>{linkLine(bn.node, link)}</span>
+        {#if op && nodeBtn}<button type="button" class="btn btn-sm" disabled={busy} title={nodeBtn.title} onclick={toggleLink}>{nodeBtn.label}</button>{/if}
+      </p>
+      {#if pausedHint(link)}<p class="text-xs text-muted">{pausedHint(link)}</p>{/if}
+    {/if}
     {#if snap.running && !snap.bridgeNode.present}
       <p class="text-muted">No bridge node yet: audio through AllStar needs the bridge node setup{admin ? ' (DVSwitch tab).' : '.'}</p>
     {/if}
@@ -147,7 +170,7 @@
             title={m.enabled ? undefined : `${m.id} is not enabled in MMDVM_Bridge${admin ? ' (DVSwitch tab, Modes)' : ''}`}
             onclick={() => setMode(m.id)}>{m.id}{#if pending?.mode === m.id && outcome === 'waiting'}…{/if}</button>
         {/each}
-        <button type="button" class="btn btn-sm ml-auto" disabled={busy || !mode || !unlinkValue} title={mode ? `Send ${unlinkValue} to ${mode}` : 'Mode unknown'} onclick={unlink}><Unlink size={13} aria-hidden="true" />Unlink</button>
+        <button type="button" class="btn btn-sm ml-auto" disabled={busy || !mode || !unlinkValue} title={mode ? `Unlink the ${mode} talkgroup or reflector: send ${unlinkValue} to ${mode}. The bridge node link is not changed.` : 'Mode unknown'} onclick={unlink}><Unlink size={13} aria-hidden="true" />Unlink {mode ? mode + ' target' : ''}</button>
       </div>
 
       {#if mode}

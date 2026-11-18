@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { handleConfig } from './config.ts';
 import { handleBackup, downUntil } from './backup.ts';
 import { handleRadio } from './radio.ts';
-import { handleDVSwitch } from './dvswitch.ts';
+import { dvNodeLink, handleDVSwitch } from './dvswitch.ts';
 import { createSchedules } from './schedules.ts';
 
 type Info = { node: string; callsign: string; description: string; location: string };
@@ -343,6 +343,7 @@ export function mockApi(): Plugin {
           // a manual action pauses or cancels schedules per the manual-action setting (reason like the server's)
           sched.manual(mm[1], mm[2] === 'disconnect-all' ? `manual disconnect all on ${mm[1]} by ${user.username}` : `manual ${mm[2]} ${body.target ?? ''} on ${mm[1]} by ${user.username}`);
           if (mm[2] === 'disconnect-all') { local.links = []; push(); return json(res, 202); }
+          dvNodeLink(mm[1], String(body.target ?? ''), mm[2] === 'connect', (ev, d) => broadcast(ev, () => d));
           if (!/^\d{3,}$/.test(body.target ?? '')) return err(res, 400, 'invalid target node', 'bad_target');
           if (mm[2] === 'connect' && body.exclusive === true && (body.mode === 'transceive' || body.mode === 'monitor' || !body.mode)) {
             // like the server: drop every other direct link first (the mock has no permanent links)

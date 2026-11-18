@@ -75,6 +75,7 @@ const hash = (id: string) => `mock${id.length}${(rev[id] ?? 0).toString(16).padS
 function setup(extra: Record<string, unknown> = {}) {
   return {
     ...JSON.parse(JSON.stringify(cfg)),
+    bridgeNode: bridgeSetup(),
     warnings: cfg.modes.nxdn && !cfg.identity.nxdnId ? ['NXDN needs your NXDN ID from radioid.net'] : [],
     files: FILES.map((id) => ({ id, present: installed, writable: installed, sha256: installed ? hash(id) : '', history: hist[id] ?? 0 })),
     current: { found: installed, version: '1.6.4', mode: cfg.startup.ambeMode, tg: cfg.startup.txTg, slot: String(cfg.startup.txTs), colorCode: String(cfg.startup.colorCode), tune: '', mute: 'OFF', gatewayId: cfg.identity.dmrId, repeaterId: cfg.identity.dmrId + cfg.identity.essid, updated: new Date().toISOString() },
@@ -140,6 +141,56 @@ function write(c: DVCtx, body: Body): boolean {
     if (units.includes('mmdvm_bridge')) { dmrRuns++; dmrAt = Date.now(); dmrDown = false; }
     c.json(200, { action: body.action === 'start' ? 'start' : 'restart', units, skipped: [], states: status().units, warning: 'A restart resets the running mode and talkgroup to the startup values in the ini files.' });
   }
+  return true;
+}
+
+// Private bridge node (PUT /dvswitch/private-node). Starts without one so "No bridge node yet" and the
+// suggestion can be seen. Local nodes of the mock: 2001. Nothing here touches a real Asterisk.
+const LOCALS = ['2001'];
+const pb = { node: '', owned: false, rxPort: 34001, txPort: 32001, mode: 'ondemand', local: '', paused: false, linked: false };
+let pbUndo: { node: string; owned: boolean; rxPort: number; txPort: number; mode: string; local: string } | null = null;
+const bridgeSetup = () => ({
+  node: pb.node, owned: pb.owned, suggested: pb.node ? '' : '1900', used: [...LOCALS, ...(pb.node ? [pb.node] : [])], localNodes: LOCALS,
+  rxPort: pb.rxPort, txPort: pb.txPort, link: { mode: pb.mode, localNode: pb.local, bridge: pb.node }, paused: pb.paused,
+});
+const linkView = () => ({ mode: pb.mode, localNode: pb.local, linked: !!pb.node && (pb.mode === 'permanent' ? !pb.paused : pb.linked), paused: pb.paused });
+/** plugin.ts calls this for a node connect or disconnect so the card's link state follows the Link/Unlink node button. */
+export function dvNodeLink(local: string, target: string, on: boolean, push?: DVCtx['push']) {
+  if (!pb.node || local !== pb.local || target !== pb.node) return;
+  pb.linked = on;
+  if (pb.mode === 'permanent') pb.paused = !on;
+  push?.('dvswitch', snapshot());
+}
+function privateNode(c: DVCtx, body: Body): boolean {
+  progress();
+  if (!installed) { c.err(409, 'not_installed: DVSwitch is not installed (its ini files are missing)', 'not_installed'); return true; }
+  const node = String(body.node ?? ''), rx = Number(body.rxPort), tx = Number(body.txPort), mode = String(body.linkMode ?? 'ondemand'), local = String(body.localNode ?? '');
+  if (!/^[0-9]{1,7}$/.test(node) || Number(node) < 1 || Number(node) >= 2000) { c.err(400, 'invalid_node: a private node is a number below 2000', 'invalid_node'); return true; }
+  if (node !== pb.node && (LOCALS.includes(node) || pb.node)) { c.err(409, `node_in_use: node ${node} is already in use`, 'node_in_use'); return true; }
+  if (!Number.isInteger(rx) || !Number.isInteger(tx) || rx < 1024 || tx < 1024 || rx > 65535 || tx > 65535 || rx === tx) { c.err(400, 'invalid_ports: check the ports', 'invalid_ports'); return true; }
+  if (rx === 34002 || tx === 34002) { c.err(409, 'port_conflict: port 34002 is used by another channel', 'port_conflict'); return true; }
+  if (!['ondemand', 'permanent'].includes(mode) || !LOCALS.includes(local)) { c.err(400, 'invalid_node: pick the link mode and a local node', 'invalid_node'); return true; }
+  const asteriskChange = node !== pb.node;
+  const diff = (t: string) => `--- a/${t}\n+++ b/${t}\n@@\n+[${node}]\n+rxchannel = USRP/127.0.0.1:${rx}:${tx}\n+duplex = 0\n`;
+  if (body.dryRun === true) {
+    c.json(200, {
+      node, rxPort: rx, txPort: tx, layout: 'template',
+      files: [
+        { path: '/etc/asterisk/rpt.conf', diff: asteriskChange ? diff('rpt.conf') : '', changed: asteriskChange },
+        { path: '/etc/asterisk/modules.conf', diff: asteriskChange ? '--- a/modules.conf\n+++ b/modules.conf\n-noload = chan_usrp.so\n+load   = chan_usrp.so\n' : '', changed: asteriskChange },
+        { path: '/opt/Analog_Bridge/Analog_Bridge.ini', diff: `--- a\n+++ b\n@@ [USRP]\n+rxPort = ${tx}\n+txPort = ${rx}\n`, changed: rx !== pb.rxPort || tx !== pb.txPort },
+      ],
+      restartAsterisk: asteriskChange, restarts: [...(asteriskChange ? ['asterisk'] : []), 'analog_bridge'], warnings: node === '1998' || node === '1999' ? [`${node} is a node number other DVSwitch guides use`] : [], base: {}, link: { mode, localNode: local, bridge: node },
+    });
+    return true;
+  }
+  if (asteriskChange && body.restart !== true) { c.err(409, 'restart_required: this change needs an Asterisk restart: send restart: true to confirm', 'restart_required'); return true; }
+  pbUndo = { node: pb.node, owned: pb.owned, rxPort: pb.rxPort, txPort: pb.txPort, mode: pb.mode, local: pb.local };
+  if (asteriskChange) pb.owned = true;
+  Object.assign(pb, { node, rxPort: rx, txPort: tx, mode, local, paused: false, linked: mode === 'permanent' });
+  const steps = [{ name: 'asterisk config', ok: asteriskChange }, { name: 'analog_bridge ini', ok: true }, { name: 'asterisk restart', ok: asteriskChange }, { name: 'bridge restart', ok: true }, { name: 'health', ok: true }];
+  c.json(200, { applied: true, node, steps, health: { ok: true }, rollback: { available: true, before: asteriskChange, ini: true } });
+  c.push?.('dvswitch', snapshot());
   return true;
 }
 
@@ -217,7 +268,8 @@ function snapshot() {
       : { mode: '', tune: '', slot: 0, muted: false, source: 'none', updated: '' },
     modes: (['DMR', 'YSF', 'P25', 'NXDN'] as PMode[]).map((id) => ({ id, enabled: modeOn[id], unlink: UNLINK[id] })),
     services: installed ? ['analog_bridge', 'mmdvm_bridge', ...gw].map((u) => ({ unit: u, active: unit(u) })) : [],
-    bridgeNode: { present: true, node: '2001' },
+    bridgeNode: pb.node ? { present: true, node: pb.node } : { present: false },
+    link: linkView(),
   };
 }
 const tuneRe: Record<PMode, RegExp> = { DMR: /^[0-9]{1,8}$/, YSF: /^(disconnect|[A-Za-z0-9._-]{1,32}|[A-Za-z0-9.-]{1,253}:[0-9]{1,5})$/, P25: /^[0-9]{1,5}$/, NXDN: /^[0-9]{1,5}$/ };
@@ -333,6 +385,17 @@ export function handleDVSwitch(c: DVCtx): boolean {
     return true;
   }
   if (panelHandler(c)) return true;
+  if (c.p === '/dvswitch/private-node' || c.p === '/dvswitch/private-node/rollback') {
+    if (c.user.role !== 'admin') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
+    if (c.m === 'PUT' && c.p === '/dvswitch/private-node') return privateNode(c, c.body ?? {});
+    if (c.m === 'POST' && c.p === '/dvswitch/private-node/rollback') {
+      if (!pbUndo) { c.err(404, 'no_rollback: there is no change to roll back', 'no_rollback'); return true; }
+      Object.assign(pb, pbUndo, { paused: false, linked: false }); pbUndo = null;
+      c.json(200, { rolledBack: true, problems: [], steps: [{ name: 'asterisk config', ok: true }, { name: 'analog_bridge ini', ok: true }] });
+      c.push?.('dvswitch', snapshot());
+      return true;
+    }
+  }
   if (c.user.role !== 'admin') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
   if (c.m === 'GET' && c.p === '/dvswitch') { c.json(200, status()); return true; }
   if (c.m === 'GET' && c.p === '/dvswitch/job') { c.json(200, progress()); return true; }
@@ -344,7 +407,7 @@ export function handleDVSwitch(c: DVCtx): boolean {
     if (s.install.job === 'running' || s.uninstall.job === 'running') c.err(409, 'an install, uninstall or update is already running', 'job_running');
     else if (kind === 'install' && installed) c.err(409, 'already_installed: DVSwitch is already installed', 'already_installed');
     else if (kind === 'uninstall' && !installed) c.err(409, 'DVSwitch was installed outside ASLCP', 'not_aslcp_installed');
-    else { job = { kind, at: Date.now() }; c.json(202, status()); setTimeout(() => c.push?.('dvswitch', snapshot()), DURATION + 200); }
+    else { if (kind === 'uninstall') { Object.assign(pb, { node: '', owned: false, mode: 'ondemand', local: '', paused: false, linked: false }); pbUndo = null; } job = { kind, at: Date.now() }; c.json(202, status()); setTimeout(() => c.push?.('dvswitch', snapshot()), DURATION + 200); }
     return true;
   }
   return false;

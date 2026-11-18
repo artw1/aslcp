@@ -1,4 +1,4 @@
-import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVSwitchRestartResult, DVDMRStatus, DVRestartScope, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVCmdReply, DVFavorite } from './types';
+import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVSwitchRestartResult, DVDMRStatus, DVRestartScope, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult } from './types';
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public body?: Record<string, unknown>) { super(message); }
@@ -161,6 +161,9 @@ export const api = {
   dvswitchDmrStatus: () => req<DVDMRStatus>('GET', '/dvswitch/dmr-status'),
   dvswitchDmrRestart: (action: 'restart' | 'start') => req<DVSwitchRestartResult>('POST', '/dvswitch/restart', { scope: 'dmr', action }),
   dvswitchRestart: (scope: DVRestartScope, action: 'restart' | 'start' = 'restart') => req<DVSwitchRestartResult>('POST', '/dvswitch/restart', { scope, action }),
+  dvswitchPrivatePlan: (b: DVPrivateReq) => req<DVPlan>('PUT', '/dvswitch/private-node', { ...b, dryRun: true }),
+  dvswitchPrivateApply: (b: DVPrivateReq) => req<DVApplyResult>('PUT', '/dvswitch/private-node', { ...b, dryRun: false }),
+  dvswitchPrivateRollback: () => req<DVRollbackResult>('POST', '/dvswitch/private-node/rollback', {}),
   dvswitchRollback: (file: string, base?: Record<string, string>) => req<DVSwitchSetup>('POST', '/dvswitch/rollback', { file, base }),
   setUpdateChannel: (channel: 'stable' | 'beta') => req<UpdateInfo>('PUT', '/updates/channel', { channel }),
   publicInfo: () => req<PublicInfo>('GET', '/public/info', undefined, { noAuthRedirect: true }),

@@ -7,7 +7,7 @@ import type { DVFavorite, DVSnapshot } from './types';
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
 const snap = (over: Partial<DVSnapshot> = {}): DVSnapshot => ({
   installed: true, running: true, configured: true, bridge, modes: [],
-  services: [{ unit: 'analog_bridge', active: true }, { unit: 'mmdvm_bridge', active: true }], bridgeNode: { present: true, node: '1999' }, ...over,
+  services: [{ unit: 'analog_bridge', active: true }, { unit: 'mmdvm_bridge', active: true }], bridgeNode: { present: true, node: '1999' }, link: { mode: 'ondemand', localNode: '', linked: false, paused: false }, ...over,
 });
 
 test('state line', () => {
