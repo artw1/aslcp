@@ -3,10 +3,10 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
-## [Unreleased]
+## [1.2.2] - 2026-11-18
 
 ### Added
-- DVSwitch: BrandMeister and DMR - Other side by side. The panel has a "BrandMeister" mode (through STFU, BrandMeister's Open DMR Terminal protocol) next to "DMR" (DMR - Other: any other DMR network through MMDVM_Bridge). STFU logs in to BrandMeister only while BrandMeister is the active mode (unless "Stay logged in" is set), so it does not take the connection from a phone app that uses the same DMR ID; switching takes a moment and needs no restart. Each has its own remembered talkgroup, favourites and labels (for example "BrandMeister TG 91" and "DMR TG 1"), and Parrot and private calls work on both. The panel offers BrandMeister once it is set up.
+- DVSwitch: BrandMeister and DMR - Other side by side. The panel has a "BrandMeister" mode (through STFU, BrandMeister's Open DMR Terminal protocol) next to "DMR" (DMR - Other: any other DMR network through MMDVM_Bridge). STFU logs in to BrandMeister only while BrandMeister is the active mode (unless "Stay logged in" is set), so it does not take the connection from a phone app that uses the same DMR ID; switching takes a moment and needs no restart. Each has its own remembered talkgroup, favourites and labels (for example "BrandMeister TG 91" and "DMR TG 1"), and Parrot and private calls are offered on both. The panel offers BrandMeister once it is set up.
 - DVSwitch setup: a BrandMeister section with a master picker (the BrandMeister masters of the host list, or type a host name; port 54006), the hotspot security password (write-only), talker alias, start talkgroup (default 4000), the login status and the last transmission heard. Saving checks the login; STFU then runs only while BrandMeister is the active mode, unless you tick "Stay logged in when not in BM mode" (default off). "Clear BrandMeister connection" stops it. While it is stopped on purpose the status reads "Stopped (not in use)". Switching to BM waits up to 10 seconds for the login and warns if it does not appear. BrandMeister SelfCare lists the connection under DMR Terminals as "Open DMR Terminal". STFU logs in with the 7-digit DMR ID (no ESSID).
 - DVSwitch setup: the DMR master section is now "DMR - Other". Its picker leaves out BrandMeister masters, a BrandMeister master is refused there (with a warning when one is already saved), and "Clear DMR connection" turns it off. "Clear password" stays.
 - DVSwitch: STFU is installed with DVSwitch (left stopped until BrandMeister is set up) and removed by the uninstall. Older installs keep the "Install STFU" button.
@@ -21,7 +21,6 @@ Release notes are taken from the section of the tag being released
 - STFU runs as root and writes the BrandMeister password to its log when it starts. ASLCP drops every log line that mentions a password before it reads the log, and keeps `/var/log/dvswitch/STFU.log` and its rotated copies readable by root only: the permissions now persist across log rotation (a systemd drop-in gives STFU `UMask=0077`; it is removed when you clear the BrandMeister connection or uninstall DVSwitch).
 
 ### Fixed
-- DVSwitch: the BrandMeister status stayed on "Connecting…" after STFU had logged in, until traffic arrived. It now shows "Logged in" as soon as the login happens.
 - DVSwitch: switching to a mode with no remembered target could show the previous mode's value as a talkgroup (a YSF reflector showed as "DMR TG 76"). The new mode is now tuned to its own "disconnected" value, and the panel never shows another mode's value as a talkgroup.
 
 ## [1.2.1] - 2026-11-18
