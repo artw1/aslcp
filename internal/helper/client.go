@@ -64,6 +64,12 @@ func (c *Client) do(ctx context.Context, req Request, out any, maxResp int64) er
 	if err := enc.Encode(req); err != nil {
 		return fmt.Errorf("helper: %w", err)
 	}
+	// Nothing follows the request of a plain op: say so, so the server sees
+	// EOF instead of waiting for more. (The stream ops of backup.go send an
+	// archive after the request and never take this path.)
+	if uc, ok := conn.(*net.UnixConn); ok {
+		_ = uc.CloseWrite()
+	}
 	data, err := io.ReadAll(io.LimitReader(conn, maxResp))
 	if err != nil {
 		return fmt.Errorf("helper: %w", err)
