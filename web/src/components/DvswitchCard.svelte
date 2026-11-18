@@ -163,9 +163,9 @@
       <p class="flex flex-wrap items-center gap-2" data-testid="dv-node-link">
         <span class={link.mode === 'permanent' && !link.linked ? 'text-warn' : ''} title={linked ? 'Bridge node linked' : undefined}>{linkLine(bn.node, link)}</span>
         {#if op && nodeBtn}<button type="button" class="btn btn-sm" disabled={busy} title={nodeBtn.title} onclick={toggleLink}>{nodeBtn.label}</button>{/if}
+        <label class="inline-flex cursor-pointer items-center gap-1.5 text-xs" title={exclusiveHint(link.mode, link.exclusive)} data-testid="dv-exclusive">
+          <input type="checkbox" class="size-4 accent-[var(--accent)]" checked={link.exclusive} onchange={(e) => setExclusive(e.currentTarget.checked)} disabled={!op || busy} />Disconnect other links first</label>
       </p>
-      <label class="inline-flex cursor-pointer items-center gap-1.5 text-xs" title={exclusiveHint(link.mode, link.exclusive)} data-testid="dv-exclusive">
-        <input type="checkbox" class="size-4 accent-[var(--accent)]" checked={link.exclusive} onchange={(e) => setExclusive(e.currentTarget.checked)} disabled={!op || busy} />Disconnect other links first</label>
       {#if pausedHint(link)}<p class="text-xs text-muted">{pausedHint(link)}</p>{/if}
     {/if}
     {#if snap.running && !snap.bridgeNode.present}
