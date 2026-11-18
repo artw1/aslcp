@@ -169,7 +169,9 @@ func (o *Ops) dvTLVSend(ctx context.Context, port int, cmds []string) error {
 	return nil
 }
 
-// dvModePorts reads TXPort and RXPort of [mode] in DVSwitch.ini.
+// dvModePorts reads txPort and rxPort of [mode] in DVSwitch.ini. Keys are
+// matched case-insensitively (the stock file spells them txPort/rxPort and
+// dvswitch.sh reads it with configparser).
 func (o *Ops) dvModePorts(mode string) (tx, rx int, err error) {
 	fd, err := os.OpenFile(filepath.Join(o.dvOptDir(), "MMDVM_Bridge", "DVSwitch.ini"), os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
@@ -185,7 +187,7 @@ func (o *Ops) dvModePorts(mode string) (tx, rx int, err error) {
 	}
 	f := ini.Parse(data)
 	get := func(k string) int {
-		v, _ := f.Get(mode, k)
+		v, _ := f.GetFold(mode, k)
 		if !vInt(1024, 65535)(v) {
 			return 0
 		}

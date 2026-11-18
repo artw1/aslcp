@@ -160,6 +160,18 @@ func (f *File) Get(section, key string) (string, bool) {
 	return "", false
 }
 
+// GetFold is Get with the key compared case-insensitively (section still
+// exact), like Python's configparser, which dvswitch.sh reads DVSwitch.ini
+// with. Not for the MMDVM-family files, whose parsers are case-sensitive.
+func (f *File) GetFold(section, key string) (string, bool) {
+	for _, l := range f.lines {
+		if l.kind == kKV && l.section == section && strings.EqualFold(l.key, key) {
+			return l.raw[l.vs:l.ve], true
+		}
+	}
+	return "", false
+}
+
 // Errors of Set.
 var (
 	ErrNoSection = errors.New("section not found")

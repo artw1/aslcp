@@ -232,3 +232,19 @@ func TestSectionHeaderWithComment(t *testing.T) {
 		t.Fatalf("%q", f.Bytes())
 	}
 }
+
+func TestGetFold(t *testing.T) {
+	f := Parse([]byte("[DMR]\ntxPort = 31100 ; c\nrxPort  = 31103\n"))
+	if v, ok := f.GetFold("DMR", "TXPort"); !ok || v != "31100" {
+		t.Fatalf("%q %v", v, ok)
+	}
+	if v, ok := f.GetFold("DMR", "RXPORT"); !ok || v != "31103" {
+		t.Fatalf("%q %v", v, ok)
+	}
+	if _, ok := f.GetFold("dmr", "txPort"); ok {
+		t.Fatal("section must stay case-sensitive")
+	}
+	if _, ok := f.Get("DMR", "TXPort"); ok {
+		t.Fatal("Get must stay case-sensitive")
+	}
+}

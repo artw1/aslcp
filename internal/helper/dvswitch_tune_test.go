@@ -89,7 +89,7 @@ func tuneEnv(t *testing.T, mode, lastTune string) (*Ops, func() []string) {
 	s = strings.Replace(s, `"ambe_mode":"DMR"`, `"ambe_mode":"`+mode+`"`, 1)
 	s = strings.Replace(s, `"last_tune":""`, `"last_tune":"`+lastTune+`"`, 1)
 	abProc(t, o, "ABInfo_31001.json", []byte(s))
-	ini := "[DMR]\nTXPort=31103\nRXPort=31100\n\n[YSF]\nTXPort=31203\nRXPort=31200\n\n[P25]\nTXPort=31303\nRXPort=31300\n"
+	ini := "[DMR]\ntxPort=31103\nrxPort=31100\n\n[YSF]\ntxPort=31203\nrxPort=31200\n\n[P25]\ntxPort=31303\nrxPort=31300\n"
 	p := filepath.Join(o.dvOptDir(), "MMDVM_Bridge", "DVSwitch.ini")
 	if err := os.WriteFile(p, []byte(ini), 0o644); err != nil {
 		t.Fatal(err)
@@ -273,5 +273,33 @@ func TestDemoDVSwitchModeOnly(t *testing.T) {
 	// unlink value goes through the normal tune path
 	if _, err := d.DVSwitchTune(ctx, DVSwitchRequest{Tune: &DVTune{Mode: other, Tune: DVUnlinkTune(other)}}); err != nil {
 		t.Errorf("unlink: %v", err)
+	}
+}
+
+// Regression: the stock DVSwitch.ini spells the keys txPort/rxPort and
+// dvswitch.sh reads them case-insensitively (configparser).
+func TestDVModePortsStockSpelling(t *testing.T) {
+	o, recv := tuneEnv(t, "DMR", "")
+	fix, err := os.ReadFile("testdata/DVSwitch.ini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(o.dvOptDir(), "MMDVM_Bridge", "DVSwitch.ini"), fix, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for mode, want := range map[string][2]int{"DMR": {31100, 31103}, "P25": {32100, 32103}, "STFU": {36100, 36103}} {
+		tx, rx, err := o.dvModePorts(mode)
+		if err != nil || tx != want[0] || rx != want[1] {
+			t.Fatalf("%s: %d %d %v", mode, tx, rx, err)
+		}
+	}
+	if _, _, err := o.dvModePorts("YSF"); !errors.Is(err, ErrDVNoPorts) {
+		t.Fatalf("missing section: %v", err)
+	}
+	if _, err := o.DVSwitchTune(context.Background(), &DVSwitchRequest{Tune: &DVTune{Mode: "P25", Tune: "10100"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(recv(), "|"), "rxport=30000|ambeMode=P25|txport=32103|rxport=32100|info|txTg=10100|info"; got != want {
+		t.Fatalf("datagrams %q, want %q", got, want)
 	}
 }

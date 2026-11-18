@@ -68,7 +68,7 @@ The stock Analog_Bridge.ini has 31001/31001 (and the DVSwitch dashboard also ass
 | `files[]` (`id`, `present`) | the allowlisted ini files (see Credentials) |
 | `modes.enabled[]` | `Enable=1` and the matching `... Network` `Enable=1` in MMDVM_Bridge.ini (what `dvswitch.sh getEnabledModes` reads) |
 | `usrp` (`address`, `rxPort`, `txPort`) | Analog_Bridge.ini `[USRP]` |
-| `modePorts{}` | DVSwitch.ini `[DMR] [YSF] [P25] [NXDN]` TXPort/RXPort (no other keys, in particular no `[STFU]`) |
+| `modePorts{}` | DVSwitch.ini `[DMR] [YSF] [P25] [NXDN]` txPort/rxPort (no other keys, in particular no `[STFU]`) |
 | `hostFiles[]` | existence and mtime of the reflector/TG data files |
 | `job`, `jobLog` | install job (M3) |
 
@@ -394,6 +394,7 @@ DMR ID and callsign live in three places (AB `gatewayDmrId`/`repeaterID`, MMDVM_
 
 ### Edit semantics
 
+- DVSwitch.ini keys are read case-insensitively (section names exactly), like `dvswitch.sh`.
 - Line-oriented, lossless editor (`internal/dvswitch/ini`, shared by helper and tests): finds `[section]`, then `key` (case-sensitive; MMDVM files `Key=Value`, AB file `key = value`; spacing style, line endings, BOM and a missing final newline preserved), replaces only the value, keeps comments (an inline comment is blank + `;`, as the DVSwitch tools parse with Python configparser) and everything else byte for byte. A missing key in an existing section is appended: below a commented `# Key=` example if there is one, else after the last key. A missing section is an error (no file restructuring). Values with control characters, leading/trailing blanks or an inline-comment start are refused.
 - Optimistic concurrency: the request carries `base` (`{file id: sha256}`, taken from the setup view, which exposes hashes only); a mismatch on a file the op changes is `conflict` (`409`) and nothing is written. `base` is optional.
 - Atomic write (temp file in the same directory, owner/mode copied, rename), like `ops.go`.
