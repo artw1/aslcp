@@ -246,7 +246,7 @@ export interface DVSwitchSetup {
   changed?: string[]; skipped?: string[]; restartHint?: string[];
 }
 /** GET /api/dvswitch/dmr-status (operator and admin; docs/API.md "DVSwitch DMR login status"). Never holds the password. */
-export type DVDMRState = 'not_installed' | 'disabled' | 'not_running' | 'connecting' | 'logged_in' | 'login_failed' | 'timed_out' | 'socket_failed' | 'master_closing';
+export type DVDMRState = 'not_installed' | 'disabled' | 'not_running' | 'connecting' | 'logged_in' | 'unknown' | 'login_failed' | 'timed_out' | 'socket_failed' | 'master_closing';
 /** A transmission received from the network (STFU only). */
 export interface DVDMRRx { active: boolean; src?: string; dst?: string; group: boolean; time?: string; frames?: number }
 export interface DVDMRStatus { state: DVDMRState; via?: DVDMRVia; master?: string; at?: string; since?: string; lastLine?: string; rx?: DVDMRRx;

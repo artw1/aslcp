@@ -38,6 +38,7 @@ const (
 	DMRNotRunning    = "not_running"
 	DMRConnecting    = "connecting"
 	DMRLoggedIn      = "logged_in"
+	DMRUnknown       = "unknown" // running, but the log shows neither a login nor traffic
 	DMRLoginFailed   = "login_failed"
 	DMRTimedOut      = "timed_out"
 	DMRSocketFailed  = "socket_failed"

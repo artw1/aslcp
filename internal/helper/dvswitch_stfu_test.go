@@ -663,3 +663,65 @@ I: 2026-11-18 18:09:12.000 DMR, TX state = OFF, DMR frame count was 42 frames
 		t.Fatalf("%+v", st.RX)
 	}
 }
+
+// STFU logs traffic indefinitely: the login line scrolls out of the tail
+// window, or the log is rotated. The card must not stay on "Connecting".
+func TestBMDMRStatusLoginScrolledOut(t *testing.T) {
+	o, f := stfuOps(t)
+	ctx := context.Background()
+	if _, err := o.DVSwitchBM(ctx, bmSave("example-pass")); err != nil {
+		t.Fatal(err)
+	}
+	show := "systemctl show --timestamp=utc -p LoadState,ActiveState,ActiveEnterTimestamp stfu.service"
+	f.rules[show] = resp{out: "LoadState=loaded\nActiveState=active\nActiveEnterTimestamp=Wed 2026-11-18 18:08:50 UTC\n"}
+	head := "I: 2026-11-18 18:08:53.100 DMR, Setting [STFU] BMPassword -> example-pass\n" +
+		"I: 2026-11-18 18:08:53.486 Connecting to STFU server at address: 192.0.2.10:54006\n" +
+		"I: 2026-11-18 18:08:53.823 Successful connection to BM server at ip address: 192.0.2.10\n"
+	traffic := "I: 2026-11-18 18:09:01.000 DMR, Remote CMD: txTg=91\n" +
+		"I: 2026-11-18 18:09:05.000 DMR, ODMR Begin Tx: src = 1234567, dst = 91 (GROUP)\n" +
+		"I: 2026-11-18 18:09:07.000 DMR, ODMR End Tx:DMR frame count was 17 frames\n" +
+		"I: 2026-11-18 18:09:10.000 DMR, Begin TX: src=1234567 rpt=123456701 dst=91 slot=2 cc=1 metadata=CALL\n"
+	status := func() DVDMRStatus {
+		st, err := o.DVSwitchDMRStatus(ctx)
+		if err != nil || st.BM == nil {
+			t.Fatalf("%+v %v", st, err)
+		}
+		if b, _ := json.Marshal(st); strings.Contains(string(b), "example-pass") {
+			t.Fatal("password in the status")
+		}
+		return *st.BM
+	}
+	write := func(p, s string) {
+		if err := os.WriteFile(p, []byte(s), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// login line cut off by the tail window: traffic is proof of the login
+	write(o.DVSTFULog, head+strings.Repeat(traffic, dvLogTail/len(traffic)+10))
+	if bm := status(); bm.State != DMRLoggedIn {
+		t.Fatalf("scrolled out: %+v", bm)
+	}
+	// after a rotation: new log with traffic only
+	write(o.DVSTFULog, traffic)
+	if bm := status(); bm.State != DMRLoggedIn {
+		t.Fatalf("rotated, traffic only: %+v", bm)
+	}
+	// after a rotation: nothing in the new log but the login is in .1
+	write(o.DVSTFULog, "")
+	write(o.DVSTFULog+".1", head+traffic)
+	if bm := status(); bm.State != DMRLoggedIn || bm.Master != "192.0.2.10:54006" {
+		t.Fatalf("rotated, login in .1: %+v", bm)
+	}
+	// only local transmit lines and no login anywhere: unknown, not Connecting
+	os.Remove(o.DVSTFULog + ".1")
+	write(o.DVSTFULog, "I: 2026-11-18 18:09:10.000 DMR, TX state = OFF, DMR frame count was 42 frames\n")
+	if bm := status(); bm.State != DMRUnknown {
+		t.Fatalf("ambiguous: %+v", bm)
+	}
+	// a fresh Connecting with no answer yet is still connecting
+	write(o.DVSTFULog, traffic+"I: 2026-11-18 18:10:00.000 Connecting to STFU server at address: 192.0.2.10:54006\n")
+	if bm := status(); bm.State != DMRConnecting {
+		t.Fatalf("reconnecting: %+v", bm)
+	}
+}

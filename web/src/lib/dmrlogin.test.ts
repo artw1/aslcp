@@ -19,6 +19,7 @@ test('badge labels', () => {
   assert.equal(badge(st('login_failed')).text, 'Login failed');
   assert.equal(badge(st('timed_out')).text, 'Timed out');
   assert.equal(badge(st('connecting')).text, 'Connecting…');
+  assert.equal(badge(st('unknown')).text, 'Running');
   assert.equal(badge(st('not_running')).text, 'Not running');
   assert.equal(badge(st('disabled')).text, 'DMR disabled');
 });

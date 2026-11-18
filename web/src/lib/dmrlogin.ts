@@ -23,6 +23,7 @@ export function badge(s: DVDMRStatus | null): { text: string; tone: Tone } {
     case 'socket_failed': return { text: 'Socket failed', tone: 'danger' };
     case 'master_closing': return { text: 'Master closing down', tone: 'warn' };
     case 'connecting': return { text: 'Connecting…', tone: 'muted' };
+    case 'unknown': return { text: 'Running', tone: 'muted' };
     case 'not_running': return { text: 'Not running', tone: 'warn' };
     case 'disabled': return { text: s.via === 'stfu' ? 'Not set up' : 'DMR disabled', tone: 'muted' };
     default: return { text: 'Not installed', tone: 'muted' };

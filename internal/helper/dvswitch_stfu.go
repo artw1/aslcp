@@ -800,7 +800,19 @@ func dvSTFUSafe(line string) bool {
 // parseSTFULog scans STFU.log text in order. Logged in: the latest
 // "Successful connection to BM server" comes after the latest "Connecting".
 // The order decides, not the time stamps (their time zone is STFU's).
-func parseSTFULog(data []byte, cur *DVDMRStatus) {
+//
+// STFU logs traffic indefinitely, so the login line scrolls out of the tail
+// window that is read. Traffic from the network (ODMR Begin/End Tx) after
+// the latest "Connecting" line, or with no "Connecting" line in the window
+// at all, is proof of a login too. It reports whether the window held a
+// "Connecting" line (false: the start of this run is out of view).
+func parseSTFULog(data []byte, cur *DVDMRStatus) (sawConnect bool) {
+	traffic := false
+	defer func() {
+		if cur.State == DMRConnecting && traffic {
+			cur.State = DMRLoggedIn
+		}
+	}()
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(make([]byte, 0, 64<<10), dvLogMaxLine)
 	for sc.Scan() {
@@ -815,6 +827,7 @@ func parseSTFULog(data []byte, cur *DVDMRStatus) {
 		msg := m[2]
 		switch {
 		case strings.Contains(msg, "Connecting to STFU server"):
+			sawConnect, traffic = true, false
 			cur.State, cur.LastLine, cur.Master = DMRConnecting, dvRedact(msg), ""
 			if mm := reSTFUConnect.FindStringSubmatch(msg); mm != nil {
 				cur.Master = dvRedact(mm[1])
@@ -825,10 +838,12 @@ func parseSTFULog(data []byte, cur *DVDMRStatus) {
 		case strings.Contains(msg, "Successful connection to BM server"):
 			cur.State, cur.LastLine = DMRLoggedIn, dvRedact(msg)
 		case strings.Contains(msg, "ODMR Begin Tx:"):
+			traffic = true
 			if mm := reSTFURxBegin.FindStringSubmatch(msg); mm != nil {
 				cur.RX = &DVDMRRx{Active: true, Src: mm[1], Dst: mm[2], Group: mm[3] == "GROUP", Time: m[1]}
 			}
 		case strings.Contains(msg, "ODMR End Tx"):
+			traffic = true
 			if cur.RX != nil {
 				cur.RX.Active = false
 				if mm := reSTFUFrames.FindStringSubmatch(msg); mm != nil {
@@ -837,6 +852,7 @@ func parseSTFULog(data []byte, cur *DVDMRStatus) {
 			}
 		}
 	}
+	return sawConnect
 }
 
 // dvSTFUStatus is the DMR status with STFU in use.
@@ -861,6 +877,25 @@ func (o *Ops) dvSTFUStatus(ctx context.Context) DVDMRStatus {
 	if fi, err := os.Lstat(p); err == nil && !since.IsZero() && fi.ModTime().Before(since) {
 		return res // nothing written since the start: the lines are an older run's
 	}
-	parseSTFULog(data, &res)
+	if !parseSTFULog(data, &res) {
+		// The start of this run is not in the window: after a rotation it
+		// is in STFU.log.1 (STFU may even still write to that file).
+		if old, ok := dvReadTail(p + ".1"); ok {
+			if fi, err := os.Lstat(p + ".1"); err == nil && (since.IsZero() || !fi.ModTime().Before(since)) {
+				var r DVDMRStatus
+				r.State, r.Via = DMRConnecting, DVViaSTFU
+				if parseSTFULog(old, &r) {
+					res = DVDMRStatus{State: DMRConnecting, Via: DVViaSTFU, Since: res.Since}
+					parseSTFULog(old, &res)
+					parseSTFULog(data, &res)
+				}
+			}
+		}
+	}
+	if res.State == DMRConnecting && res.LastLine == "" {
+		// Running, but the log has no login attempt and no traffic: say so
+		// rather than "Connecting…" forever.
+		res.State = DMRUnknown
+	}
 	return res
 }

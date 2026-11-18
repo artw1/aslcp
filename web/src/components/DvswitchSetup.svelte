@@ -237,8 +237,8 @@
     <p class="rounded border border-warn/60 p-2 text-sm text-warn" role="status">Saved. These services pick the change up on a restart: <span class="font-mono">{hint.join(', ')}</span>. {WARNING}</p>
   {/if}
   <div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-    <section class="card space-y-3 p-4" aria-label="Identity and network">
-      <h2 class="text-base font-semibold">Identity and network</h2>
+    <section class="card space-y-3 p-4" aria-label="Identity">
+      <h2 class="text-base font-semibold">Identity</h2>
       {#each (v.warnings ?? []).filter((w) => !(v?.dmr.pointsAtBm && w.startsWith('DMR - Other points at'))) as w}<p class="text-xs text-warn" role="status">{w}</p>{/each}
       {#if !v.identity.consistent}<p class="text-xs text-warn" role="status">The identity differs between the ini files (edited by hand?). Saving writes it to all of them.</p>{/if}
       <form class="grid grid-cols-1 gap-2 sm:grid-cols-3" onsubmit={(e) => { e.preventDefault(); saveIdentity(); }}>
@@ -259,35 +259,7 @@
         </fieldset>
         <div class="sm:col-span-3"><button class="btn btn-primary" disabled={busy}>Save identity</button><span class="ml-2 text-xs text-muted">Written to every place that holds it.</span></div>
       </form>
-      <form class="grid grid-cols-1 gap-2 border-t border-line pt-3 sm:grid-cols-3" onsubmit={(e) => { e.preventDefault(); saveNet(); }}>
-        <div class="flex flex-wrap items-center gap-2 sm:col-span-3" aria-label="DMR - Other login">
-          <h3 class="text-sm font-semibold">DMR - Other</h3>
-          <span class="badge {TONE[bd.tone]}" role="status" title={dmr?.lastLine ?? ''}>{bd.text}</span>
-          <span class="text-xs text-muted">Any DMR network but BrandMeister, through MMDVM_Bridge.</span>
-        </div>
-        {#if v.dmr.pointsAtBm}<p class="text-xs text-warn sm:col-span-3" role="status" data-testid="dv-dmr-points-at-bm">DMR - Other points at a BrandMeister master. Set BrandMeister up under BrandMeister, then point DMR - Other at another network or clear it.</p>{/if}
-        <div class="sm:col-span-2"><label class="label" for="dv-addr">DMR master address</label>
-          <NodePicker id="dv-addr" bind:value={net.address} options={otherOptions(lists.dmr)} search={find('dmr')} label={label('dmr')} onpickoption={(o) => { net.port = String(o.port); }} placeholder="Search a master or type an address" inputmode="text" maxlength={253} describedby="dv-addr-hint" /></div>
-        <div><label class="label" for="dv-port">Port</label><input id="dv-port" class="input font-mono" bind:value={net.port} inputmode="numeric" maxlength="5" /></div>
-        <p id="dv-addr-hint" class="text-xs text-muted sm:col-span-3">{lists.dmr.length ? 'Search by name, network ID or address. Picking a master fills the address and the port; you can also type your own.' : 'Type the master address and port.'} The list never holds your password: enter your own below.</p>
-        <div class="sm:col-span-3">
-          <label class="label" for="dv-pw">DMR password <span class="text-muted" data-testid="dv-pw-state">({v.dmr.passwordSet ? 'Password saved' : 'No password'})</span></label>
-          <input id="dv-pw" class="input font-mono" type="password" autocomplete="new-password" bind:value={net.password} disabled={clearPw} placeholder={clearPw ? 'The password will be cleared' : v.dmr.passwordSet ? 'Leave empty to keep the password' : 'Enter the password'} maxlength="64" />
-          {#if v.dmr.passwordSet}
-            <label class="mt-1 flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={clearPw} /> Clear password <span class="text-xs text-muted">(for masters that don't need a password)</span></label>
-          {/if}
-          <p class="mt-1 text-xs text-muted">Write-only: it is never shown again. Printable ASCII, up to 64 characters, without quotes, # or ;.</p>
-        </div>
-        <div class="flex flex-wrap items-center gap-2 sm:col-span-3"><button class="btn btn-primary" disabled={busy || !!verify.working}>Save DMR master</button>{#if v.dmr.enabled}<button type="button" class="btn" disabled={busy || !!verify.working} onclick={() => (confirmDmrClear = true)}>Clear DMR connection</button>{/if}<span class="text-xs text-muted">Saving restarts {dmrUnit} only, then checks the login.</span></div>
-        {#if verify.working}
-          <p class="rounded border border-line p-2 text-sm text-muted sm:col-span-3" role="status">{verify.working}</p>
-        {:else if verify.outcome}
-          <p class="rounded border p-2 text-sm sm:col-span-3 {KIND[verify.outcome.kind]}" role="status">{verify.outcome.message}{#if verify.outcome.needStart}<button type="button" class="btn btn-sm ml-2" onclick={startBridge}>Start {dmrUnit}</button>{/if}</p>
-        {/if}
-      </form>
     </section>
-
-    <DvswitchBM {v} {base} status={dmr?.bm ?? null} hosts={lists.dmr} disabled={busy} onsaved={connSaved} />
 
     <section class="card space-y-3 p-4" aria-label="Modes and startup">
       <h2 class="text-base font-semibold">Enabled modes</h2>
@@ -348,7 +320,38 @@
       {/if}{/each}
     </section>
 
-    <DvswitchBridge b={v.bridgeNode} base={base()} onsaved={load} />
+    <DvswitchBM {v} {base} status={dmr?.bm ?? null} hosts={lists.dmr} disabled={busy} onsaved={connSaved} />
+
+    <section class="card space-y-3 p-4" aria-label="DMR - Other">
+      <form class="grid grid-cols-1 gap-2 sm:grid-cols-3" onsubmit={(e) => { e.preventDefault(); saveNet(); }}>
+        <div class="flex flex-wrap items-center gap-2 sm:col-span-3">
+          <h2 class="text-base font-semibold">DMR - Other</h2>
+          <span class="badge {TONE[bd.tone]}" role="status" title={dmr?.lastLine ?? ''}>{bd.text}</span>
+          <span class="text-xs text-muted">Any DMR network but BrandMeister, through MMDVM_Bridge.</span>
+        </div>
+        {#if v.dmr.pointsAtBm}<p class="text-xs text-warn sm:col-span-3" role="status" data-testid="dv-dmr-points-at-bm">DMR - Other points at a BrandMeister master. Set BrandMeister up under BrandMeister, then point DMR - Other at another network or clear it.</p>{/if}
+        <div class="sm:col-span-2"><label class="label" for="dv-addr">DMR master address</label>
+          <NodePicker id="dv-addr" bind:value={net.address} options={otherOptions(lists.dmr)} search={find('dmr')} label={label('dmr')} onpickoption={(o) => { net.port = String(o.port); }} placeholder="Search a master or type an address" inputmode="text" maxlength={253} describedby="dv-addr-hint" /></div>
+        <div><label class="label" for="dv-port">Port</label><input id="dv-port" class="input font-mono" bind:value={net.port} inputmode="numeric" maxlength="5" /></div>
+        <p id="dv-addr-hint" class="text-xs text-muted sm:col-span-3">{lists.dmr.length ? 'Search by name, network ID or address. Picking a master fills the address and the port; you can also type your own.' : 'Type the master address and port.'} The list never holds your password: enter your own below.</p>
+        <div class="sm:col-span-3">
+          <label class="label" for="dv-pw">DMR password <span class="text-muted" data-testid="dv-pw-state">({v.dmr.passwordSet ? 'Password saved' : 'No password'})</span></label>
+          <input id="dv-pw" class="input font-mono" type="password" autocomplete="new-password" bind:value={net.password} disabled={clearPw} placeholder={clearPw ? 'The password will be cleared' : v.dmr.passwordSet ? 'Leave empty to keep the password' : 'Enter the password'} maxlength="64" />
+          {#if v.dmr.passwordSet}
+            <label class="mt-1 flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={clearPw} /> Clear password <span class="text-xs text-muted">(for masters that don't need a password)</span></label>
+          {/if}
+          <p class="mt-1 text-xs text-muted">Write-only: it is never shown again. Printable ASCII, up to 64 characters, without quotes, # or ;.</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 sm:col-span-3"><button class="btn btn-primary" disabled={busy || !!verify.working}>Save DMR master</button>{#if v.dmr.enabled}<button type="button" class="btn" disabled={busy || !!verify.working} onclick={() => (confirmDmrClear = true)}>Clear DMR connection</button>{/if}<span class="text-xs text-muted">Saving restarts {dmrUnit} only, then checks the login.</span></div>
+        {#if verify.working}
+          <p class="rounded border border-line p-2 text-sm text-muted sm:col-span-3" role="status">{verify.working}</p>
+        {:else if verify.outcome}
+          <p class="rounded border p-2 text-sm sm:col-span-3 {KIND[verify.outcome.kind]}" role="status">{verify.outcome.message}{#if verify.outcome.needStart}<button type="button" class="btn btn-sm ml-2" onclick={startBridge}>Start {dmrUnit}</button>{/if}</p>
+        {/if}
+      </form>
+    </section>
+
+    <div class="lg:col-span-2"><DvswitchBridge b={v.bridgeNode} base={base()} onsaved={load} /></div>
 
     <section class="card space-y-3 p-4" aria-label="Services">
       <h2 class="text-base font-semibold">Services</h2>
