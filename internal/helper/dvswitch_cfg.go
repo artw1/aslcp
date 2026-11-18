@@ -304,7 +304,7 @@ type DVInfo struct {
 	Location    string `json:"location"`
 	Description string `json:"description"`
 	URL         string `json:"url,omitempty"`
-	FrequencyHz int    `json:"frequencyHz"`
+	FrequencyHz int64  `json:"frequencyHz"`
 	Latitude    string `json:"latitude,omitempty"`
 	Longitude   string `json:"longitude,omitempty"`
 }
@@ -317,9 +317,9 @@ type DVInfoView struct {
 	Location    string `json:"location"`
 	Description string `json:"description"`
 	URL         string `json:"url"`
-	FrequencyHz int    `json:"frequencyHz"`
-	RXHz        int    `json:"rxHz"`
-	TXHz        int    `json:"txHz"`
+	FrequencyHz int64  `json:"frequencyHz"`
+	RXHz        int64  `json:"rxHz"`
+	TXHz        int64  `json:"txHz"`
 	Latitude    string `json:"latitude"`
 	Longitude   string `json:"longitude"`
 	Stock       bool   `json:"stock"`
@@ -346,8 +346,12 @@ func vInfoText(max int) func(string) bool {
 // vInfoURL: http or https, at most 124 characters, no spaces, quotes, ; or #.
 func vInfoURL(s string) bool { return s == "" || len(s) <= 124 && reDVInfoURL.MatchString(s) }
 
-// vFreqHz: 30 MHz to 3 GHz, whole hertz.
-var vFreqHz = vInt(30_000_000, 3_000_000_000)
+// vFreqHz: 30 MHz to 3 GHz, whole hertz. int64: 3 GHz overflows int on
+// 32-bit (armhf).
+func vFreqHz(s string) bool {
+	n, err := strconv.ParseInt(s, 10, 64)
+	return err == nil && n >= 30_000_000 && n <= 3_000_000_000 && strconv.FormatInt(n, 10) == s
+}
 
 func vCoord(lo, hi float64) func(string) bool {
 	return func(s string) bool {
@@ -370,7 +374,7 @@ func dvInfoChanges(in *DVInfo) ([]dvChange, error) {
 	if !vInfoURL(in.URL) {
 		return nil, dvInvalid("identity/info/url")
 	}
-	hz := strconv.Itoa(in.FrequencyHz)
+	hz := strconv.FormatInt(in.FrequencyHz, 10)
 	if !vFreqHz(hz) {
 		return nil, dvInvalid("identity/info/frequencyHz")
 	}
@@ -1035,7 +1039,7 @@ const (
 const DVInfoStockWarning = "MMDVM_Bridge still has the stock location and frequencies (an iceberg, 222.34 MHz); BrandMeister shows them. Set your own under Identity"
 
 func dvInfoView(get func(sec, key string) string) DVInfoView {
-	atoi := func(s string) int { n, _ := strconv.Atoi(s); return n }
+	atoi := func(s string) int64 { n, _ := strconv.ParseInt(s, 10, 64); return n }
 	v := DVInfoView{Location: get("Info", "Location"), Description: get("Info", "Description"), URL: get("Info", "URL"),
 		RXHz: atoi(get("Info", "RXFrequency")), TXHz: atoi(get("Info", "TXFrequency")),
 		Latitude: get("Info", "Latitude"), Longitude: get("Info", "Longitude")}
