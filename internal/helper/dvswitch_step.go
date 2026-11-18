@@ -34,6 +34,8 @@ func (o *Ops) RunDVSwitchStep(ctx context.Context, phase string, w io.Writer) er
 		return o.dvInstallCheck(w)
 	case StepUninstallPlan:
 		return o.dvUninstallPlan(ctx, w)
+	case StepPrivateRev:
+		return o.dvPrivateRevert(ctx, w)
 	}
 	return fmt.Errorf("unknown step %q", phase)
 }

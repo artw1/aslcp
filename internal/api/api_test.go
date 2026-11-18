@@ -25,6 +25,7 @@ import (
 	"github.com/artw1/aslcp/internal/config"
 	"github.com/artw1/aslcp/internal/configsvc"
 	"github.com/artw1/aslcp/internal/diag"
+	"github.com/artw1/aslcp/internal/dvswitch"
 	"github.com/artw1/aslcp/internal/favstats"
 	"github.com/artw1/aslcp/internal/nodelist"
 	"github.com/artw1/aslcp/internal/rpt"
@@ -181,6 +182,9 @@ type opts struct {
 	// schedules builds a schedule engine on a fake clock (env.clk), in New
 	// York time; the clock starts on Tuesday 2026-11-17 18:59:50.
 	schedules bool
+	// dvlink runs the permanent-link reconciler of the private bridge node
+	// with short timers (M2).
+	dvlink bool
 }
 
 func newEnv(t *testing.T, o opts) *env {
@@ -253,6 +257,9 @@ func newEnv(t *testing.T, o opts) *env {
 		clk = &fakeClock{t: time.Date(2026, 11, 17, 18, 59, 50, 0, ny)}
 		eng = &schedules.Engine{Store: st, Now: clk.now, Loc: ny, Zone: "America/New_York", Tick: time.Hour}
 		deps.Schedules = eng
+	}
+	if o.dvlink {
+		deps.DVLink = &dvswitch.LinkReconciler{Tick: 100 * time.Millisecond, Retry: 150 * time.Millisecond}
 	}
 	if o.cfg != nil {
 		deps.Config = o.cfg(fake.Secret)

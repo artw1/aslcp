@@ -271,10 +271,11 @@ func (o *Ops) dvUninstallScript() string {
 		// The ini edits and their history copies (M4): the purge removes the
 		// inis, the history dir is ours.
 		"rm -rf -- "+shQuote(o.dvHistoryDir()),
-		// The comment below is part of the script on purpose (visible in the
-		// unit): M2 must hook its revert in here.
-		"# TODO(M2): revert what the private node and the USRP link changed",
-		"# (rpt.conf node stanza, modules.conf chan_usrp) before the marker goes.",
+		// What the private bridge node changed in the Asterisk config
+		// (rpt.conf stanza and [nodes] line, modules.conf chan_usrp) is
+		// reverted by the helper, only where it still reads as recorded;
+		// Asterisk restarts when something was reverted.
+		self+" dvswitch-step "+StepPrivateRev,
 		"rm -f -- "+purge,
 		"rm -f -- "+shQuote(o.dvMarkerPath()),
 		"echo 'dvswitch uninstall finished'",

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/artw1/aslcp/internal/dvswitch"
@@ -24,6 +25,57 @@ type fakeDV struct {
 	tuneCalls            int
 	lastTune             helper.DVTune
 	tuneErr              error
+
+	// private bridge node (M2)
+	mu         sync.Mutex
+	order      []string // "usrp", "private:set", "private:clear", "rollback", "restart"
+	priv       *helper.DVPrivateRecord
+	usrp       helper.DVUSRPView
+	reserved   []int
+	usrpCalls  []helper.DVUSRP
+	usrpErr    error
+	restartErr error
+	states     []helper.DVSwitchUnit
+	onRestart  func()
+}
+
+func (f *fakeDV) note(s string) {
+	f.mu.Lock()
+	f.order = append(f.order, s)
+	f.mu.Unlock()
+}
+
+func (f *fakeDV) orderOf() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.order...)
+}
+
+func (f *fakeDV) DVSwitchUSRP(_ context.Context, r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
+	f.note("usrp")
+	if f.usrpErr != nil {
+		return helper.DVApplyResult{}, f.usrpErr
+	}
+	f.mu.Lock()
+	f.usrpCalls = append(f.usrpCalls, *r.USRP)
+	f.usrp = helper.DVUSRPView{Address: r.USRP.Address, RxPort: r.USRP.RxPort, TxPort: r.USRP.TxPort}
+	f.mu.Unlock()
+	return helper.DVApplyResult{Files: []string{"analog_bridge"}, RestartHint: []string{"analog_bridge"}}, nil
+}
+
+func (f *fakeDV) DVSwitchPrivate(_ context.Context, p helper.DVPrivate) (helper.DVPrivateReply, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	switch p.Action {
+	case "set":
+		f.order = append(f.order, "private:set")
+		r := *p.Record
+		f.priv = &r
+	case "clear":
+		f.order = append(f.order, "private:clear")
+		f.priv = nil
+	}
+	return helper.DVPrivateReply{Record: f.priv}, nil
 }
 
 func (f *fakeDV) DVSwitchTune(_ context.Context, r helper.DVSwitchRequest) (helper.DVTuneResult, error) {
@@ -62,8 +114,11 @@ func (f *fakeDV) rec(r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
 	return helper.DVApplyResult{Files: []string{"mmdvm_bridge"}, RestartHint: []string{"mmdvm_bridge"}}, nil
 }
 func (f *fakeDV) DVSwitchSetup(context.Context) (helper.DVSwitchSetup, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return helper.DVSwitchSetup{Identity: helper.DVIdentityView{Callsign: "N0CALL", DMRID: "1234567", ESSID: "01"},
-		DMR: helper.DVDMRView{Address: "192.0.2.10", Port: 62031, PasswordSet: true}, Files: []helper.DVFileView{}}, f.err
+		DMR: helper.DVDMRView{Address: "192.0.2.10", Port: 62031, PasswordSet: true}, USRP: f.usrp, Private: f.priv, ReservedPorts: f.reserved,
+		Files: []helper.DVFileView{{ID: "analog_bridge", Present: true, Writable: true, SHA256: "ab01"}}}, f.err
 }
 func (f *fakeDV) DVSwitchInfo(context.Context) (helper.DVSwitchInfo, error) {
 	return helper.DVSwitchInfo{Found: true, Mode: "DMR"}, nil
@@ -85,15 +140,23 @@ func (f *fakeDV) DVSwitchStartup(_ context.Context, r helper.DVSwitchRequest) (h
 	return f.rec(r)
 }
 func (f *fakeDV) DVSwitchRollback(_ context.Context, r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
+	f.note("rollback")
 	return f.rec(r)
 }
 func (f *fakeDV) DVSwitchRestart(_ context.Context, r helper.DVSwitchRequest) (helper.DVRestartResult, error) {
+	if f.onRestart != nil {
+		f.onRestart()
+	}
+	f.note("restart")
+	if f.restartErr != nil {
+		return helper.DVRestartResult{}, f.restartErr
+	}
 	f.last = r
 	f.calls++
 	if f.cfgErr != nil {
 		return helper.DVRestartResult{}, f.cfgErr
 	}
-	return helper.DVRestartResult{Action: "restart", Units: []string{"analog_bridge"}, Skipped: []string{}, States: []helper.DVSwitchUnit{}}, nil
+	return helper.DVRestartResult{Action: "restart", Units: []string{"analog_bridge"}, Skipped: []string{}, States: append([]helper.DVSwitchUnit{}, f.states...)}, nil
 }
 
 func (f *fakeDV) DVSwitchLists(_ context.Context, mode string) (helper.DVList, error) {

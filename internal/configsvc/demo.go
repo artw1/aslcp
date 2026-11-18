@@ -35,7 +35,7 @@ type demoCommit struct {
 const demoRpt = `; Demo node configuration (anonymized)
 [general]
 
-[1999]
+[2006]
 rxchannel = SimpleUSB/usb
 callsign = N0CALL
 idrecording = |iN0CALL
@@ -64,6 +64,7 @@ func NewDemoHelper() *DemoHelper {
 	d := &DemoHelper{files: map[string]string{
 		"rpt.conf":                    demoRpt,
 		"simpleusb.conf":              "[usb]\nrxmixerset = 650\ntxmixaset = 500\ntxmixbset = 0\nrxboost = no\npreemphasis = yes\ndeemphasis = yes\nplfilter = yes\ninvertptt = no\ncarrierfrom = usbinvert\nctcssfrom = no\nrxondelay = 0\ntxoffdelay = 0\n",
+		"modules.conf":                "[modules]\nautoload = yes\nnoload = chan_usrp.so\n",
 		"iax.conf":                    "[general]\nbindport = 4569\ndisallow = all\nallow = ulaw\n",
 		"manager.conf":                demoManager,
 		"extensions.conf":             "[radio]\nexten => _X.,1,Rpt(${EXTEN})\n",
@@ -142,18 +143,30 @@ func (d *DemoHelper) ConfigApply(_ context.Context, files []helper.ConfigFile, m
 	}
 	var written []string
 	for _, f := range files {
+		if cur, ok := d.files[f.Path]; !ok || cur != f.Content {
+			written = append(written, f.Path)
+		}
+	}
+	if len(written) == 0 {
+		return helper.ConfigApplyResult{Files: []string{}}, nil
+	}
+	// Like the real helper: the state before the change is in the history
+	// (a "Before" commit when it was not), and Before names it.
+	before := ""
+	if n := len(d.commits); n > 0 && !sameFiles(d.commits[n-1].snap, d.files) {
+		before = d.commit("Before: "+message, author, time.Now(), nil)
+	} else if n > 0 {
+		before = d.commits[n-1].id
+	}
+	for _, f := range files {
 		if cur, ok := d.files[f.Path]; ok && cur == f.Content {
 			continue
 		}
 		d.files[f.Path] = f.Content
 		d.mtime[f.Path] = time.Now()
-		written = append(written, f.Path)
-	}
-	if len(written) == 0 {
-		return helper.ConfigApplyResult{Files: []string{}}, nil
 	}
 	id := d.commit(message, author, time.Now(), written)
-	return helper.ConfigApplyResult{Commit: id, Files: written}, nil
+	return helper.ConfigApplyResult{Commit: id, Before: before, Files: written}, nil
 }
 
 func (c demoCommit) info() helper.ConfigCommit {
@@ -286,4 +299,16 @@ func (d *DemoHelper) ConfigRecord(_ context.Context, path, message, author strin
 	}
 	id := d.commit(message, author, time.Now(), []string{path})
 	return helper.ConfigApplyResult{Commit: id, Files: []string{path}}, nil
+}
+
+func sameFiles(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if w, ok := b[k]; !ok || w != v {
+			return false
+		}
+	}
+	return true
 }

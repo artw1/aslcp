@@ -30,6 +30,10 @@ type DVSwitch interface {
 	DVSwitchRestart(ctx context.Context, req helper.DVSwitchRequest) (helper.DVRestartResult, error)
 	// Host and TG lists of the pickers (read-only).
 	DVSwitchLists(ctx context.Context, mode string) (helper.DVList, error)
+	// Private bridge node (M2): the ini's [USRP] address and ports, and the
+	// record of what ASLCP changed.
+	DVSwitchUSRP(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
+	DVSwitchPrivate(ctx context.Context, p helper.DVPrivate) (helper.DVPrivateReply, error)
 	// Mode switch and tune.
 	DVSwitchTune(ctx context.Context, req helper.DVSwitchRequest) (helper.DVTuneResult, error)
 }
@@ -46,6 +50,7 @@ type DVResume interface {
 // the DMR login state, the tune and the remembered tunes are for operators.
 func (s *Server) dvswitchRoutes() {
 	s.dvswitchCtlRoutes()
+	s.dvPrivateRoutes()
 	m := s.mux
 	m.HandleFunc("GET /api/dvswitch", s.authed(store.RoleAdmin, s.handleDVSwitchStatus))
 	m.HandleFunc("GET /api/dvswitch/job", s.authed(store.RoleAdmin, s.handleDVSwitchJob))
@@ -116,7 +121,20 @@ func (s *Server) handleDVSwitchInstall(w http.ResponseWriter, r *http.Request, u
 
 func (s *Server) handleDVSwitchUninstall(w http.ResponseWriter, r *http.Request, u store.User) {
 	s.dvswitchStart(w, r, u, "dvswitch.uninstall", func(ctx context.Context) (helper.DVSwitchStatus, error) {
-		return s.d.DVSwitch.DVSwitchUninstall(ctx)
+		// A permanent link goes first (the reconciler's own command, not a
+		// manual one); the helper's unit then removes the node and restarts
+		// Asterisk (docs/DVSWITCH.md, "Uninstall").
+		if s.d.DVLink != nil {
+			if err := s.d.DVLink.Unlink(ctx); err != nil {
+				s.d.Logger.Printf("dvswitch uninstall: cannot remove the permanent link: %v", err)
+			}
+		}
+		st, err := s.d.DVSwitch.DVSwitchUninstall(ctx)
+		if err == nil && s.d.Store != nil {
+			// no node left to link to: the reconciler must not retry
+			_ = dvswitch.WriteLinkSettings(s.d.Store, dvswitch.LinkSettings{Mode: dvswitch.LinkOnDemand})
+		}
+		return st, err
 	})
 }
 

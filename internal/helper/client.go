@@ -432,6 +432,18 @@ func (c *Client) DVSwitchTune(ctx context.Context, req DVSwitchRequest) (DVTuneR
 	return r, c.dvCall(ctx, OpDVSwitchTune, req, &r)
 }
 
+// DVSwitchUSRP calls dvswitch-usrp.
+func (c *Client) DVSwitchUSRP(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
+	var r DVApplyResult
+	return r, c.dvCall(ctx, OpDVSwitchUSRP, req, &r)
+}
+
+// DVSwitchPrivate calls dvswitch-private.
+func (c *Client) DVSwitchPrivate(ctx context.Context, p DVPrivate) (DVPrivateReply, error) {
+	var r DVPrivateReply
+	return r, c.dvCall(ctx, OpDVSwitchPrivate, DVSwitchRequest{Private: &p}, &r)
+}
+
 // DVSwitchLists calls dvswitch-lists for one mode (dmr, ysf, p25, nxdn).
 func (c *Client) DVSwitchLists(ctx context.Context, mode string) (DVList, error) {
 	var r DVList
