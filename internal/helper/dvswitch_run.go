@@ -92,6 +92,13 @@ type DVSwitchInfo struct {
 	GatewayID  string `json:"gatewayId"`
 	RepeaterID string `json:"repeaterId"`
 	Updated    string `json:"updated"`
+	// Started is analog_bridge's ActiveEnterTimestamp (RFC 3339, UTC); empty
+	// when the unit does not run or systemd gave no usable time. It is set
+	// even when Found is false (the bridge runs but has no state file yet).
+	Started string `json:"started,omitempty"`
+
+	// tlvRx is the TLV port Analog_Bridge listens on (not sent to clients).
+	tlvRx int
 }
 
 func keepIf(ok func(string) bool, s string) string {
@@ -100,6 +107,10 @@ func keepIf(ok func(string) bool, s string) string {
 	}
 	return ""
 }
+
+// ParseABInfo decodes and checks the content of one ABInfo file (the same
+// parser the helper op uses; exported for tests of the callers).
+func ParseABInfo(data []byte) (DVSwitchInfo, error) { return parseABInfo(data) }
 
 // parseABInfo decodes and checks one ABInfo file.
 func parseABInfo(data []byte) (DVSwitchInfo, error) {
@@ -116,7 +127,12 @@ func parseABInfo(data []byte) (DVSwitchInfo, error) {
 	if !vOrEmpty(reDVTune)(tune) {
 		tune = ""
 	}
+	tlvRx := 0
+	if vInt(1024, 65535)(f.TLV.RxPort) {
+		tlvRx, _ = strconv.Atoi(f.TLV.RxPort)
+	}
 	return DVSwitchInfo{
+		tlvRx:      tlvRx,
 		Found:      true,
 		Version:    keepIf(regexp.MustCompile(`^[0-9A-Za-z._-]{1,20}$`).MatchString, f.AB.Version),
 		Mode:       keepIf(func(s string) bool { return dvAmbeModes[s] }, f.TLV.AmbeMode),
@@ -130,17 +146,33 @@ func parseABInfo(data []byte) (DVSwitchInfo, error) {
 	}, nil
 }
 
-// dvMainPID returns the main PID of the analog_bridge unit (0: not running).
-func (o *Ops) dvMainPID(ctx context.Context) int {
-	out, _, err := o.Run.Run(ctx, "systemctl", "show", "-p", "MainPID", "analog_bridge.service")
+// dvUnit returns the main PID (0: not running) and the start time of the
+// analog_bridge unit (zero when unknown). The time comes from systemd as
+// "@<unix seconds>" (--timestamp=unix); anything else leaves it unknown.
+func (o *Ops) dvUnit(ctx context.Context) (int, time.Time) {
+	out, _, err := o.Run.Run(ctx, "systemctl", "show", "-p", "MainPID", "-p", "ActiveEnterTimestamp", "--timestamp=unix", "analog_bridge.service")
 	if err != nil {
-		return 0
+		return 0, time.Time{}
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(out), "MainPID=")))
-	if err != nil || n <= 0 {
-		return 0
+	pid := 0
+	var started time.Time
+	for _, l := range strings.Split(out, "\n") {
+		k, v, ok := strings.Cut(strings.TrimSpace(l), "=")
+		if !ok {
+			continue
+		}
+		switch k {
+		case "MainPID":
+			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+				pid = n
+			}
+		case "ActiveEnterTimestamp":
+			if sec, err := strconv.ParseInt(strings.TrimPrefix(strings.TrimSpace(v), "@"), 10, 64); err == nil && strings.HasPrefix(strings.TrimSpace(v), "@") && sec > 0 {
+				started = time.Unix(sec, 0).UTC()
+			}
+		}
 	}
-	return n
+	return pid, started
 }
 
 // DVSwitchInfo reads ABInfo through /proc/<MainPID>/root/tmp (Analog_Bridge's
@@ -148,10 +180,20 @@ func (o *Ops) dvMainPID(ctx context.Context) int {
 // wins: the file name follows the USRP rxPort. The file is opened with
 // O_NOFOLLOW, must be a regular file and at most 64 KiB.
 func (o *Ops) DVSwitchInfo(ctx context.Context) (DVSwitchInfo, error) {
-	pid := o.dvMainPID(ctx)
+	pid, started := o.dvUnit(ctx)
 	if pid == 0 {
 		return DVSwitchInfo{}, nil
 	}
+	info, err := o.dvReadInfo(pid)
+	if !started.IsZero() {
+		info.Started = started.Format(time.RFC3339)
+	}
+	return info, err
+}
+
+// dvReadInfo reads the newest ABInfo file of the bridge with this PID. A
+// missing file is not an error: the result is the zero value.
+func (o *Ops) dvReadInfo(pid int) (DVSwitchInfo, error) {
 	dir := filepath.Join(o.dvProcDir(), strconv.Itoa(pid), "root", "tmp")
 	ents, err := os.ReadDir(dir)
 	if err != nil {

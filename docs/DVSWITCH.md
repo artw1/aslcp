@@ -123,9 +123,69 @@ Behaviour rules:
 - One control mutex; the mode sequence is serialised with the spacing the script uses (measure it, see "Verify"). Rate limit: one mode switch per 2 s, tune per 1 s, per server.
 - The sequence is data in `internal/dvswitch/tlv.go` and a conformance test replays it against a fake UDP listener; a fixture captured from the real script (tcpdump, see Verify) is the reference.
 - A mode must be in `modes.enabled`, else `409 mode_disabled`.
-- `tune` changes AB's memory only, not Analog_Bridge.ini (as `dvswitch.sh`). Persisting is an explicit admin action ("Use current mode and talkgroup as startup", M4: writes `ambeMode`, `txTg`).
+- `tune` changes AB's memory only, not Analog_Bridge.ini (as `dvswitch.sh`). ASLCP never writes the ini on a tune: the startup values are edited explicitly (Startup cards), and the last tune of each mode is remembered by the tracker instead (see "Tune and resume").
 - An Analog_Bridge restart resets mode and TG to the ini values; the UI says so before any restart.
 - The audit log records mode, tune value and user (no secrets involved).
+
+## Tune and resume
+
+Added 2026-11-18. Three parts: the helper op `dvswitch-tune`, the tracker in the aslcp server and the resume toggle.
+
+### Op `dvswitch-tune` and the TLV formats
+
+Request `{mode, tune}` with `mode` one of `DMR`, `YSF`, `P25`, `NXDN` (`YSFN` and `YSFW` are normalised to `YSF`). Both are validated in the helper with the validators of the startup values, per mode, and nothing from a client is a path:
+
+| Mode | `tune` accepted |
+|---|---|
+| DMR | `reDVTG`, digits, 1-8 |
+| YSF | `disconnect`, a 5-digit id, a name, or `host:port` (`^[A-Za-z0-9.-]{1,253}:[0-9]{1,5}$`, port 1-65535); an id or name is resolved to `host:port` through `YSFHosts.txt` and must exist; also checked with `vYSFStartup` |
+| P25, NXDN | `reDVRefl`, digits, 1-5 |
+
+No value may start with `-` or hold `=`. The sequence, from `dvswitch.sh` 1.6.2 `remoteControlCommand`, sent to `127.0.0.1:<tlv.rx_port>` (from ABInfo; `ErrDVNoPorts`/`no_info` when unknown), each datagram `0x05`, a length byte, ASCII `key=value`:
+
+- Mode switch (skipped when ABInfo already shows the mode): `rxport=30000`, `ambeMode=<mode>`, `txport=<DVSwitch.ini [mode] RXPort>`, `rxport=<DVSwitch.ini [mode] TXPort>`, `info`.
+- Tune: `txTg=<value>`, `info`.
+
+Datagrams of one command are spaced by 100 ms (`Ops.DVTLVDelay`), the result is read back from ABInfo after 400 ms (`Ops.DVTLVSettle`; `confirmed` says it matched), and a mutex serialises sends. Tests replay both sequences against a loopback UDP listener.
+
+**Why Go TLV and not `dvswitch.sh`.** The script is a shell program that reads its own config, parses with `awk`/`sed` and interpolates arguments into commands; running it as root from the helper would need a shell, a path to a script that belongs to a package, and quoting rules for client strings. The Go code sends the same few datagrams, needs no new unit permission (`RestrictAddressFamilies` already allows loopback UDP), validates the values strictly instead of filtering a shell line, and is covered by tests. The cost is that the sequence must follow upstream: it is data in one file with a conformance test, and the verify list below asks for a capture of the real script.
+
+### Tracker and resume
+
+`internal/dvswitch` (`Tracker`) runs in the aslcp server. It polls about every 15 s, only while `/opt/Analog_Bridge/Analog_Bridge.ini` exists (a local `stat`, so a node without DVSwitch never wakes the socket-activated helper, which exits after 60 s idle) and Analog_Bridge runs. Each poll reads `dvswitch-info` (ABInfo plus `Started`, the unit's `ActiveEnterTimestamp` from `systemctl show -p MainPID -p ActiveEnterTimestamp --timestamp=unix analog_bridge.service`; a format other than `@<sec>` leaves the start unknown, so there is no resume; `--timestamp=unix` needs systemd 248 or newer).
+
+Recording: the last non-empty tune per mode. DMR comes from `digital.tg` and `digital.ts`; the other modes from `last_tune`. Empty values, the unlink values (DMR `4000`, YSF `disconnect`, P25 and NXDN `9999`) and the startup TG of a fresh start (a baseline taken from the first sample of each start) are not remembered, and a `last_tune` that still belongs to another mode is ignored.
+
+State, one JSON value in the settings table, key `dvswitch.resume`:
+
+```json
+{"lastMode":"P25","perMode":{"DMR":{"tune":"91","ts":"2","at":"2026-11-17T11:55:00Z"},"P25":{"tune":"10100","at":"2026-11-17T09:00:00Z"}},"resume":false,"lastResumeFor":"@1763380000"}
+```
+
+`at` is when the value was first seen (UTC), `ts` is the DMR slot (display only: the TLV tune sets the TG, the slot stays the configured one), `lastResumeFor` is the start that was already handled.
+
+Resume (toggle "Resume last tune after restart", admin, off by default) fires when all of these hold:
+
+1. the start (`Started`) differs from `lastResumeFor`; the first poll after an aslcp or node reboot treats an unhandled start as new;
+2. now is at most 3 minutes after that start;
+3. ABInfo of this start exists (so Analog_Bridge is up and reports);
+4. the user has not retuned: `last_tune` is empty (the startup values are not read);
+5. a tune is remembered for `lastMode`.
+
+It then calls `dvswitch-tune` once. The start is marked handled whether it succeeded, failed or was skipped (a failure is not retried). One log line says success or failure, with mode only, never a tune or secret. The UI shows `Last used: TG 91 TS 2 (5 min ago)` on each mode card and, with resume on, a hint that the startup values are only a fallback. Roles: tune and `GET resume` operator, `PUT resume` admin.
+
+**Why this tuning method.** Alternatives were writing the ini on every tune (wears the SD card, races with the hand edits and the file history, and loses the "startup" meaning), or a script at boot (a second moving part outside ASLCP). A tracker over ABInfo needs no hook in Analog_Bridge, covers tunes made from any source (the web UI, a radio, `dvswitch.sh`), and keeps the ini the single place for startup values.
+
+The demo uses its own temp dir and a fake in-memory ABInfo; it never touches real `/tmp` or binaries.
+
+### Verify on a real node (tune and resume)
+
+1. Capture the real script and compare with ours: `sudo tcpdump -i lo -X udp and dst port <tlv.rx_port>` while running `dvswitch.sh mode P25` then `dvswitch.sh tune 10100`; the tag `0x05`, the order and the `info` are unverified.
+2. Does Analog_Bridge write ABInfo at start and refresh it after a TLV tune? Run `watch -n1 cat /tmp/ABInfo_<port>.json` (inside the PrivateTmp of the helper: `/proc/<pid>/root/tmp`).
+3. Is 100 ms between datagrams and 400 ms settle enough (`confirmed: true`)?
+4. `systemctl show -p ActiveEnterTimestamp --timestamp=unix analog_bridge.service` prints `@<seconds>` on the node's systemd.
+5. Tune P25 10100, restart analog_bridge with the toggle on: the node returns to P25 10100 within about a minute; with the toggle off it returns to the startup values; reboot with the toggle on behaves like the restart.
+6. Is the DMR startup TG (the baseline) really never remembered as a tune after a restart?
 
 ## Install (M3)
 
@@ -365,7 +425,7 @@ Code: `internal/dvswitch/ini` (editor and stock fixtures), `internal/helper/dvsw
 - `passwordSet` is false for an empty password and for the stock `passw0rd`.
 - **Clearing the password.** Switching to a master that needs no password (HBlink, FreeDMR style masters accept any password) must be possible without typing `passw0rd`. When `passwordSet` is true the page shows a "Clear password" checkbox ("for masters that don't need a password") next to the field and the state "Password saved" or "No password". Selecting it disables the box; Save sends `clearPassword: true`, never together with a typed password. The helper writes the stock `passw0rd` (the DVSwitch default, never an empty value, which MMDVM_Bridge may not handle), so the view then reports `passwordSet: false`. Clearing counts as a change like any other credentials save: it restarts `mmdvm_bridge` and runs the DMR login check, and it is a field for the no-op rule above (a request with only `clearPassword: false` is a no-op).
 - The setup identity is "consistent" when MMDVM `Callsign`/`Id`, AB `gatewayDmrId`/`repeaterID`, the gateways' `Callsign` and YSF `Id` all agree.
-- "Use current" reads ABInfo. In DMR it writes `ambeMode`, `txTg`, `txTs` and `colorCode`; in a YSF, P25 or NXDN mode it writes `ambeMode` and the gateway's `Startup` from ABInfo's last tune, if there is one (`tg` of ABInfo is a DMR value only). The YSF tune is `host:port` and is mapped to the reflector id through `YSFHosts.txt`; without a match Startup is left alone and `applyWarnings` says so (see "Host and TG lists").
+- The "Use current" button was removed (2026-11-18). The startup mode and each mode's startup values are edited on their own cards, and what was last tuned on the node is remembered by the tracker (see "Tune and resume"), not copied into the ini.
 - The restart reply has no `unitFailed` (no 10 s check); the UI shows the unit states after the call.
 - The ABInfo file of the bridge's own PID is read, so a stale file of a stopped bridge is never shown.
 - The history dir is removed by the uninstall; one history copy per write that changed the file. A rollback deletes the copy it restored.
@@ -391,7 +451,7 @@ The file name differs from Pi-Star's download name for three of them (`YSF_Hosts
 
 **Roles.** `operator` and `admin` may read the lists, `viewer` may not (the reply is public reflector data, but the only use is choosing a target, and M1's tune and favourites are operator actions). The setup page itself is admin only.
 
-**"Use current" in YSF mode** used to copy ABInfo's last tune (`host:port`) into `YSFGateway.ini [Network] Startup`, which `YSFGateway` does not accept. It now maps `host:port` to the reflector id through `YSFHosts.txt` (host case-insensitive, port exact, first match). A tune that already is a 5-digit id is kept. With no match, or without the file, **Startup is not written**; the rest of the startup values still are, and the reply carries `applyWarnings` (no tune value in the text). The same applies to P25 and NXDN: a tune that is not a TG number is skipped with a warning instead of failing the whole write with `400 invalid_field`.
+**YSF startup.** `YSFGateway.ini [Network] Startup` takes a reflector id (or name) that is in `YSFHosts.txt`, never `host:port`. The old "Use current" button wrote ABInfo's `host:port` there; it was removed together with its `applyWarnings` reply field and the `ysfIDForTune` helper path. The tune op resolves an id or a name to `host:port` itself (see "Tune and resume").
 
 ### Verify on a real node (M4 checklist)
 
@@ -405,7 +465,7 @@ All read-only unless a step says to change a setting through the panel. Replace 
 4. Set the DMR master address and port, and a test hotspot password in the panel (type it in the panel only). The field shows "set" afterwards and is empty. Check that `ls -l /opt/MMDVM_Bridge/MMDVM_Bridge.ini` keeps its owner and mode, and that no log line or audit entry carries the password: `sudo journalctl -u aslcp --since -10min --no-pager | grep -ci 'password'` should only count key names.
 5. **Open:** does a password with characters from the allowed set (printable ASCII except `" # ;`) log in at the master? Does one with other characters get refused by the panel with `invalid_field`?
 6. Toggle a mode on and off. In `MMDVM_Bridge.ini` both `[<Mode>]` and `[<Mode> Network]` change: `grep -nE '^\[|^Enable' /opt/MMDVM_Bridge/MMDVM_Bridge.ini`.
-7. Press "Use current" while a mode and talkgroup are active, then restart the bridge: the node comes back in that mode and talkgroup. Check `grep -nE '^(ambeMode|txTg|txTs|colorCode)' /opt/Analog_Bridge/Analog_Bridge.ini`.
+7. Save the DMR startup card (TG and slot), then restart the bridge: the node comes back with that mode and talkgroup. Check `grep -nE '^(ambeMode|txTg|txTs|colorCode)' /opt/Analog_Bridge/Analog_Bridge.ini`. The startup mode is saved on its own (`ambeMode`, YSF keeps `YSFN` or `YSFW`); each card writes only its own fields.
 8. Set a YSF reflector, a P25 reflector and an NXDN reflector. Check that `Startup=` was appended under `[Network]` in each gateway ini and that the gateway reads it after a restart.
 9. Start (not restart) the units after the install: `systemctl is-active analog_bridge mmdvm_bridge ysfgateway p25gateway nxdngateway` before and after.
 10. **Open:** after a restart, does `update-config.sh` (if the node has `/usr/local/sbin/update-config.sh`) undo an edited value? Compare the five lines of step 2 before and after.
@@ -455,7 +515,8 @@ New file `internal/helper/dvswitch.go`; constants in `proto.go`; dispatch in `Op
 | `dvswitch-identity` | `identity: {callsign, dmrId, essid, nxdnId?}`, `base` | `{files, skipped, restartHint, hashes}` | M4; writes AB `gatewayDmrId`/`repeaterID`, MMDVM `Callsign`/`Id`, the gateways' `Callsign` and YSF `Id` in one op; allowlist + validators; atomic; history copy first; `invalid_field (file/section/key)` never echoes a value |
 | `dvswitch-credentials` | `credentials: {address?, port?, password?, clearPassword?}`, `base` | as above | M4; the password is write-only. `clearPassword: true` writes the stock `passw0rd` (reported as not set); together with `password` it is `invalid_field`. An empty `credentials` object (and an empty `modes` or `startup` object) is a no-op success with empty `files` and `restartHint`, never `invalid_field`; the API answers such a request itself without calling the helper |
 | `dvswitch-modes` | `modes: {dmr?, ysf?, p25?, nxdn?}`, `base` | as above | M4; `Enable` in the mode section and its Network section together |
-| `dvswitch-startup` | `startup: {useCurrent}` or `{ambeMode?, txTg?, txTs?, colorCode?, ysf?, p25?, nxdn?}`, `base` | as above | M4; `useCurrent` reads ABInfo (`ErrDVNoInfo` when the bridge is not running); the gateway `Startup` of a missing gateway is skipped |
+| `dvswitch-startup` | `startup: {ambeMode?, txTg?, txTs?, colorCode?, ysf?, p25?, nxdn?}` (nil fields are left alone), `base` | as above | M4; the gateway `Startup` of a missing gateway is skipped. `useCurrent` is gone (the strict decoder refuses the field) |
+| `dvswitch-tune` | `tune: {mode, tune}` | `{mode, switched, confirmed}` | switches the mode when it differs, then tunes; `ErrDVNoPorts` when `DVSwitch.ini` has no ports for the mode, `ErrDVNoInfo` when the bridge does not run; reaches `isDVConfigOp` only through the API's role gate |
 | `dvswitch-rollback` | `file` (enum), `base` | as above | M4; restores the newest history copy |
 | `dvswitch-restart` | `scope: dmr\|bridge\|gateways\|all`, `action: restart\|start` | `{action, units, skipped, states}` | M4; fixed argv |
 | `dvswitch-dmr-status` | none (a `dvswitch` field is refused) | `{state, master?, at?, since?, lastLine?}` | Read-only DMR login state, see "DMR login status" |
@@ -487,7 +548,10 @@ Base `/api/dvswitch`. Errors `{error, code}` as everywhere; all non-GET need `X-
 | PUT | `/api/dvswitch/identity` | admin | `{"callsign": "N0CALL", "dmrId": "1234567", "essid": "01", "nxdnId": "12346"}` (`nxdnId` optional) | M4, implemented: `200` Setup view; `400 invalid_field` (field in message, never the value); `409 not_installed`, `409 conflict`, `409 job_running` |
 | PUT | `/api/dvswitch/credentials` | admin | `{"dmrAddress"?, "dmrPort"?, "dmrPassword"?: "...", "clearPassword"?: true}` | M4, implemented: `200` Setup view (password only as `passwordSet`); an empty body (no key) is a no-op: `200`, nothing written, no `changed` or `restartHint`; an empty or invalid password `400 invalid_field`; write-only. The body keys are `dmrAddress`, `dmrPort`, `dmrPassword`, `clearPassword` (`dmrPassword` together with `clearPassword: true` is `400 invalid_field`; `clearPassword: false` is the same as absent) |
 | PUT | `/api/dvswitch/modes` | admin | `{"dmr": true, "ysf": true, "p25": false, "nxdn": false}` | M4, implemented: `200` Setup view with `restartHint`; restarts proposed, not forced |
-| PUT | `/api/dvswitch/startup` | admin | `{"useCurrent": true}` | M4, implemented: `200` Setup view; `useCurrent` writes `ambeMode`/`txTg`/`txTs`/`colorCode` (DMR) or the gateway `Startup` of the current mode; `409 no_info` when the bridge does not run. Explicit values: `ambeMode`, `txTg`, `txTs`, `colorCode`, `ysf`, `p25`, `nxdn` |
+| PUT | `/api/dvswitch/startup` | admin | `{ambeMode?, txTg?, txTs?, colorCode?, ysf?, p25?, nxdn?}` | `200` Setup view; only the given fields are written. `{"useCurrent":true}` no longer exists (an unknown field is ignored by the API and nothing is written) |
+| POST | `/api/dvswitch/tune` | operator | `{mode, tune}` | `200` `{mode, switched, confirmed}`; `400 invalid_field`, `409 no_info`, `409 no_ports`; audited (`dvswitch.tune`) |
+| GET | `/api/dvswitch/resume` | operator | | `200` `{resume, lastMode, perMode}` |
+| PUT | `/api/dvswitch/resume` | admin | `{resume: bool}` | `200` as GET; `400` without the field; audited |
 | POST | `/api/dvswitch/restart` | admin | `{"scope": "bridge\|gateways\|all"}` | M4, implemented: `200` `{action, units, skipped, states, warning}`; `action` `restart` (default) or `start`; `409 not_installed` when no unit of the scope exists |
 | POST | `/api/dvswitch/rollback` | admin | `{"file": "analog_bridge"}` | M4, implemented: `200` Setup view; `404 no_history` |
 
@@ -615,7 +679,7 @@ The installer, the repository key, the bookworm repo and the package facts were 
 The maintainer accepted the recommendations: "the recommendations are good, we can revise later". Each item records the chosen option. They may be revised later; a revision means editing this section and the design text it refers to.
 
 1. **Permanent link and manual disconnect.** Chosen: after a manual disconnect of the permanent bridge link, ASLCP pauses its maintenance until setup is saved or Asterisk restarts (matches the schedules manual-action behaviour). Not chosen: restoring the link within a minute.
-2. **Startup values.** Chosen: an explicit "Use current mode and talkgroup as startup" button only. ASLCP does not write the ini on every tune.
+2. **Startup values.** Chosen (revised 2026-11-18): explicit editing only. The page has a startup mode choice and one card per mode; the "Use current" button was removed. What was last tuned is remembered by the tracker and can be resumed after a restart (toggle, off by default). ASLCP still does not write the ini on a tune.
 3. **Sandbox change if option A fails.** Chosen: fall back to option B (`PrivateTmp=no` on `aslcp-helper.service`, with the owner check on the file). Option D only if B is also refused. Confirmed by the maintainer 2026-11-17.
 4. **Installer trust.** Chosen: replicate the apt source and key steps as fixed helper content from the verified facts (Install, Upstream facts), with the pinned full fingerprint `6DDFC33CD5FC678659642DF572147EC1E788D4C3`, checked with Go stdlib. The upstream script is **not copied** (no licence header) and never run as root.
 5. **Backups.** Chosen: include the DVSwitch inis (BrandMeister/TGIF password) in the existing unencrypted backup like every other secret, with the warning. Not chosen: an opt-in part.

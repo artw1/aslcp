@@ -81,6 +81,11 @@ type Ops struct {
 	DVOptDir     string
 	DVHistoryDir string
 	DVProcDir    string
+	// DVTLVDelay spaces the TLV datagrams of one command (default 100 ms),
+	// DVTLVSettle is the wait before the result is read back (default 400 ms).
+	DVTLVDelay  time.Duration
+	DVTLVSettle time.Duration
+	tuneMu      sync.Mutex
 	// DVLogDir holds MMDVM_Bridge-YYYY-MM-DD.log (default /var/log/mmdvm).
 	DVLogDir string
 	// SelfPath is the helper binary the install and uninstall units call for
@@ -143,6 +148,8 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return o.DVSwitchRestart(ctx, req.DVSwitch)
 	case OpDVSwitchLists:
 		return o.DVSwitchLists(ctx, req.DVSwitch)
+	case OpDVSwitchTune:
+		return o.DVSwitchTune(ctx, req.DVSwitch)
 	case OpBackupInfo:
 		return o.BackupInfo(ctx)
 	case OpAsteriskRestart:

@@ -543,26 +543,6 @@ func TestDVInfoStrictAndSafe(t *testing.T) {
 	}
 }
 
-func TestDVStartupUseCurrent(t *testing.T) {
-	o, _ := cfgOps(t)
-	ctx := context.Background()
-	if _, err := o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &DVStartup{UseCurrent: true}}); !errors.Is(err, ErrDVNoInfo) {
-		t.Fatal(err)
-	}
-	good, _ := os.ReadFile("testdata/ABInfo_31001.json")
-	abProc(t, o, "ABInfo_31001.json", []byte(strings.Replace(string(good), `"tg":"9"`, `"tg":"262"`, 1)))
-	if _, err := o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &DVStartup{UseCurrent: true, TxTg: sp("1")}}); !errors.Is(err, ErrDVInvalid) {
-		t.Fatal(err)
-	}
-	if _, err := o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &DVStartup{UseCurrent: true}}); err != nil {
-		t.Fatal(err)
-	}
-	v, _ := o.DVSwitchSetup(ctx)
-	if v.Startup.TxTg != "262" || v.Startup.AmbeMode != "DMR" {
-		t.Fatalf("%+v", v.Startup)
-	}
-}
-
 // ---- restart
 
 func TestDVRestartScopes(t *testing.T) {
@@ -611,6 +591,16 @@ func TestDVRequestFieldOnlyForDVOps(t *testing.T) {
 	}
 	if _, ok := r.(DVSwitchSetup); !ok {
 		t.Fatalf("%T", r)
+	}
+}
+
+// useCurrent was removed: the helper's strict decoder refuses the field.
+func TestDVStartupUseCurrentRefused(t *testing.T) {
+	var req Request
+	dec := json.NewDecoder(strings.NewReader(`{"op":"dvswitch-startup","dvswitch":{"startup":{"useCurrent":true}}}`))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err == nil || !strings.Contains(err.Error(), "useCurrent") {
+		t.Fatalf("useCurrent accepted: %v", err)
 	}
 }
 

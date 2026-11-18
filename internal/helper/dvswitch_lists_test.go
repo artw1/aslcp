@@ -253,7 +253,7 @@ func TestDemoListsUseTempDir(t *testing.T) {
 	}
 }
 
-// ---- "use current as startup" in YSF mode
+// ---- ABInfo samples
 
 func abTune(t *testing.T, o *Ops, mode, tune string) {
 	t.Helper()
@@ -265,92 +265,4 @@ func abTune(t *testing.T, o *Ops, mode, tune string) {
 	s = strings.Replace(s, `"last_tune":""`, `"last_tune":"`+tune+`"`, 1)
 	os.RemoveAll(o.DVProcDir)
 	abProc(t, o, "ABInfo_31001.json", []byte(s))
-}
-
-func ysfStartup(t *testing.T, o *Ops) string {
-	t.Helper()
-	v, err := o.DVSwitchSetup(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return v.Gateways.YSF.Startup
-}
-
-func TestDVStartupUseCurrentYSFMapsHostPort(t *testing.T) {
-	o, _ := cfgOps(t)
-	o.DVHostDir = listOps(t).DVHostDir
-	ctx := context.Background()
-	abTune(t, o, "YSFN", "46.59.68.211:42000")
-	res, err := o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &DVStartup{UseCurrent: true}})
-	if err != nil || len(res.Warnings) != 0 {
-		t.Fatalf("%+v %v", res, err)
-	}
-	if got := ysfStartup(t, o); got != "00006" {
-		t.Fatalf("Startup = %q, want the reflector id", got)
-	}
-	// host match is case-insensitive; the port must match too
-	abTune(t, o, "YSFW", "46.59.68.211:42001")
-	res, err = o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &DVStartup{UseCurrent: true}})
-	if err != nil || len(res.Warnings) != 1 || ysfStartup(t, o) != "00006" {
-		t.Fatalf("wrong port: %+v %v startup %q", res, err, ysfStartup(t, o))
-	}
-}
-
-func TestDVStartupUseCurrentYSFNoMatchWarns(t *testing.T) {
-	o, _ := cfgOps(t)
-	o.DVHostDir = listOps(t).DVHostDir
-	ctx := context.Background()
-	before := ysfStartup(t, o)
-	abTune(t, o, "YSFN", "192.0.2.99:42000")
-	res, err := o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &DVStartup{UseCurrent: true}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "YSF") || strings.Contains(res.Warnings[0], "192.0.2.99") {
-		t.Fatalf("warnings %v", res.Warnings)
-	}
-	if got := ysfStartup(t, o); got != before || strings.Contains(got, ":") {
-		t.Fatalf("Startup changed to %q (was %q)", got, before)
-	}
-	// the other startup values were still applied
-	v, _ := o.DVSwitchSetup(ctx)
-	if v.Startup.AmbeMode != "YSFN" {
-		t.Fatalf("ambeMode %q", v.Startup.AmbeMode)
-	}
-}
-
-func TestDVStartupUseCurrentYSFWithoutListWarns(t *testing.T) {
-	o, _ := cfgOps(t)
-	o.DVHostDir = t.TempDir() // empty: no YSFHosts.txt
-	abTune(t, o, "YSFN", "46.59.68.211:42000")
-	res, err := o.DVSwitchStartup(context.Background(), &DVSwitchRequest{Startup: &DVStartup{UseCurrent: true}})
-	if err != nil || len(res.Warnings) != 1 {
-		t.Fatalf("%+v %v", res, err)
-	}
-}
-
-func TestDVStartupUseCurrentYSFKeepsAnId(t *testing.T) {
-	o, _ := cfgOps(t)
-	o.DVHostDir = t.TempDir()
-	abTune(t, o, "YSFN", "12345")
-	if _, err := o.DVSwitchStartup(context.Background(), &DVSwitchRequest{Startup: &DVStartup{UseCurrent: true}}); err != nil {
-		t.Fatal(err)
-	}
-	if got := ysfStartup(t, o); got != "12345" {
-		t.Fatal(got)
-	}
-}
-
-func TestDVStartupUseCurrentP25NXDNNeedNumbers(t *testing.T) {
-	o, _ := cfgOps(t)
-	ctx := context.Background()
-	abTune(t, o, "P25", "10100")
-	if res, err := o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &DVStartup{UseCurrent: true}}); err != nil || len(res.Warnings) != 0 {
-		t.Fatalf("%+v %v", res, err)
-	}
-	abTune(t, o, "NXDN", "192.0.2.1:41400")
-	res, err := o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &DVStartup{UseCurrent: true}})
-	if err != nil || len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "NXDN") {
-		t.Fatalf("%+v %v", res, err)
-	}
 }

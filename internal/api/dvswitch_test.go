@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/artw1/aslcp/internal/dvswitch"
 	"github.com/artw1/aslcp/internal/helper"
 )
 
@@ -20,6 +21,36 @@ type fakeDV struct {
 	listCalls            int
 	listErr              error
 	dmrCalls             int
+	tuneCalls            int
+	lastTune             helper.DVTune
+	tuneErr              error
+}
+
+func (f *fakeDV) DVSwitchTune(_ context.Context, r helper.DVSwitchRequest) (helper.DVTuneResult, error) {
+	f.tuneCalls++
+	if r.Tune != nil {
+		f.lastTune = *r.Tune
+	}
+	if f.tuneErr != nil {
+		return helper.DVTuneResult{}, f.tuneErr
+	}
+	return helper.DVTuneResult{Mode: r.Tune.Mode, Switched: true, Confirmed: true}, nil
+}
+
+type fakeResume struct {
+	v    dvswitch.View
+	sets []bool
+	err  error
+}
+
+func (f *fakeResume) Get() dvswitch.View { return f.v }
+func (f *fakeResume) SetResume(b bool) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.sets = append(f.sets, b)
+	f.v.Resume = b
+	return nil
 }
 
 func (f *fakeDV) rec(r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
@@ -154,7 +185,7 @@ var dvCfgEndpoints = [][3]string{
 	{"PUT", "/api/dvswitch/identity", `{"callsign":"N0CALL","dmrId":"1234567","essid":"01"}`},
 	{"PUT", "/api/dvswitch/credentials", `{"dmrPassword":"example-pass"}`},
 	{"PUT", "/api/dvswitch/modes", `{"dmr":true}`},
-	{"PUT", "/api/dvswitch/startup", `{"useCurrent":true}`},
+	{"PUT", "/api/dvswitch/startup", `{"txTg":"9"}`},
 	{"POST", "/api/dvswitch/restart", `{"scope":"all"}`},
 	{"POST", "/api/dvswitch/rollback", `{"file":"analog_bridge"}`},
 }
@@ -370,25 +401,6 @@ func TestDVSwitchListsETag(t *testing.T) {
 	}
 }
 
-func TestDVSwitchApplyWarningsInReply(t *testing.T) {
-	f := &fakeDVWarn{fakeDV: &fakeDV{}}
-	e := newEnv(t, opts{dvswitch: f})
-	var r struct {
-		ApplyWarnings []string `json:"applyWarnings"`
-	}
-	if c := e.do("admin", "PUT", "/api/dvswitch/startup", map[string]any{"useCurrent": true}, &r); c != 200 || len(r.ApplyWarnings) != 1 {
-		t.Fatalf("%d %+v", c, r)
-	}
-}
-
-type fakeDVWarn struct{ *fakeDV }
-
-func (f *fakeDVWarn) DVSwitchStartup(_ context.Context, r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
-	res, err := f.rec(r)
-	res.Warnings = []string{"YSF startup was not changed: the current reflector is not in YSFHosts.txt"}
-	return res, err
-}
-
 func TestDVSwitchDMRStatusRoles(t *testing.T) {
 	f := &fakeDV{}
 	e := newEnv(t, opts{dvswitch: f})
@@ -444,5 +456,94 @@ func TestDVSwitchEmptyWritesAreNoOps(t *testing.T) {
 	}
 	if f.calls != 0 {
 		t.Errorf("helper called %d times for empty requests", f.calls)
+	}
+}
+
+func TestDVSwitchTuneRoles(t *testing.T) {
+	f := &fakeDV{}
+	e := newEnv(t, opts{dvswitch: f})
+	body := map[string]any{"mode": "DMR", "tune": "91"}
+	expectErr(t, e, "", "POST", "/api/dvswitch/tune", body, 401, "unauthorized")
+	expectErr(t, e, "viewer", "POST", "/api/dvswitch/tune", body, 403, "forbidden")
+	if f.tuneCalls != 0 {
+		t.Fatal("a viewer reached the helper")
+	}
+	for _, role := range []string{"op", "admin"} {
+		if c := e.do(role, "POST", "/api/dvswitch/tune", body, nil); c != 200 {
+			t.Fatalf("%s: %d", role, c)
+		}
+	}
+	if f.tuneCalls != 2 || f.lastTune.Mode != "DMR" || f.lastTune.Tune != "91" {
+		t.Fatalf("%d %+v", f.tuneCalls, f.lastTune)
+	}
+	aud, _ := e.st.ListAudit(50)
+	n := 0
+	for _, a := range aud {
+		if a.Action == "dvswitch.tune" && strings.Contains(a.Detail, "91") {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Errorf("audit entries: %d", n)
+	}
+	// a refused tune is audited, and an invalid value stays out of the log
+	f.tuneErr = helper.ErrDVInvalid
+	expectErr(t, e, "op", "POST", "/api/dvswitch/tune", map[string]any{"mode": "DMR", "tune": "-x=secret"}, 400, "invalid_field")
+	aud, _ = e.st.ListAudit(50)
+	ref := false
+	for _, a := range aud {
+		if strings.Contains(a.Detail, "secret") {
+			t.Errorf("audit leaks an unvalidated value: %+v", a)
+		}
+		ref = ref || a.Action == "dvswitch.tune.refused"
+	}
+	if !ref {
+		t.Error("no refused audit entry")
+	}
+	f.tuneErr = helper.ErrDVNoPorts
+	expectErr(t, e, "op", "POST", "/api/dvswitch/tune", body, 409, "no_ports")
+	expectErr(t, newEnv(t, opts{}), "op", "POST", "/api/dvswitch/tune", body, 503, "dvswitch_unavailable")
+}
+
+func TestDVSwitchResumeRoles(t *testing.T) {
+	r := &fakeResume{v: dvswitch.View{PerMode: map[string]dvswitch.Tune{"P25": {Tune: "10100"}}}}
+	e := newEnv(t, opts{dvswitch: &fakeDV{}, dvresume: r})
+	expectErr(t, e, "", "GET", "/api/dvswitch/resume", nil, 401, "unauthorized")
+	expectErr(t, e, "viewer", "GET", "/api/dvswitch/resume", nil, 403, "forbidden")
+	var v dvswitch.View
+	if c := e.do("op", "GET", "/api/dvswitch/resume", nil, &v); c != 200 || v.PerMode["P25"].Tune != "10100" || v.Resume {
+		t.Fatalf("%d %+v", c, v)
+	}
+	on := map[string]any{"resume": true}
+	expectErr(t, e, "viewer", "PUT", "/api/dvswitch/resume", on, 403, "forbidden")
+	expectErr(t, e, "op", "PUT", "/api/dvswitch/resume", on, 403, "forbidden")
+	if len(r.sets) != 0 {
+		t.Fatal("a non-admin changed the toggle")
+	}
+	expectErr(t, e, "admin", "PUT", "/api/dvswitch/resume", map[string]any{}, 400, "bad_request")
+	if c := e.do("admin", "PUT", "/api/dvswitch/resume", on, &v); c != 200 || !v.Resume || len(r.sets) != 1 {
+		t.Fatalf("%d %+v %v", c, v, r.sets)
+	}
+	aud, _ := e.st.ListAudit(50)
+	found := false
+	for _, a := range aud {
+		found = found || a.Action == "dvswitch.resume"
+	}
+	if !found {
+		t.Error("no audit entry")
+	}
+	expectErr(t, newEnv(t, opts{}), "op", "GET", "/api/dvswitch/resume", nil, 503, "dvswitch_unavailable")
+}
+
+// useCurrent is gone: the field is ignored (a no-op request) and the helper
+// is not called.
+func TestDVSwitchStartupUseCurrentRemoved(t *testing.T) {
+	f := &fakeDV{}
+	e := newEnv(t, opts{dvswitch: f})
+	if c := e.do("admin", "PUT", "/api/dvswitch/startup", map[string]any{"useCurrent": true}, nil); c != 200 {
+		t.Fatalf("%d", c)
+	}
+	if f.calls != 0 {
+		t.Fatal("useCurrent reached the helper")
 	}
 }

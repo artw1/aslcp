@@ -4,10 +4,11 @@
   import { onMount } from 'svelte';
   import { api, ApiError } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
-  import type { DVDMRStatus, DVListItem, DVListMode, DVRestartScope, DVSwitchSetup, DVSwitchStatus } from '../lib/types';
+  import type { DVDMRStatus, DVListItem, DVListMode, DVResume, DVRestartScope, DVSwitchSetup, DVSwitchStatus } from '../lib/types';
   import { badge, bridgeInUse, IDLE_POLL_MS, outcomeFor, waitForLogin, type Outcome } from '../lib/dmrlogin';
   import { credentialsPatch, dvErrorMessage, formChanged } from '../lib/dvmsg';
   import { findByValue, indexList, optionLabel, searchList } from '../lib/dvlist';
+  import { ambeModeFor, cardOrder, cardPatch, lastUsed, MODE_LABEL, startupModeOf, STARTUP_MODES, type StartupMode } from '../lib/dvstartup';
   import Confirm from './Confirm.svelte';
   import NodePicker from './NodePicker.svelte';
 
@@ -17,7 +18,7 @@
   const WARNING = 'A restart resets the running mode and talkgroup to the startup values.';
 
   let v = $state<DVSwitchSetup | null>(null), err = $state(''), busy = $state(false);
-  let hint = $state<string[]>([]), notes = $state<string[]>([]);
+  let hint = $state<string[]>([]);
   // Host and TG lists of the pickers. A mode without a list (404 no_list, or any error) stays empty:
   // its field is then plain text, which is always allowed.
   const MODES: DVListMode[] = ['dmr', 'ysf', 'p25', 'nxdn'];
@@ -34,6 +35,13 @@
   let clearPw = $state(false);
   let modes = $state({ dmr: false, ysf: false, p25: false, nxdn: false });
   let st = $state({ ambeMode: 'DMR', txTg: '', txTs: '2', colorCode: '1', ysf: '', p25: '', nxdn: '' });
+  // The startup mode choice, saved on its own; each card below saves only its own fields.
+  let choice = $state<StartupMode>('DMR');
+  // The last tune of each mode and the resume toggle (GET /api/dvswitch/resume).
+  let resume = $state<DVResume | null>(null), now = $state(Date.now());
+  async function loadResume() { try { resume = await api.dvswitchResume(); now = Date.now(); } catch { /* no tracker: no hints */ } }
+  const order = $derived(cardOrder(choice));
+  const gw = (m: StartupMode) => m === 'DMR' || !!v?.gateways[m.toLowerCase() as 'ysf' | 'p25' | 'nxdn'].present;
   let scope = $state<DVRestartScope>('bridge');
   let confirmRestart = $state(false), rbOpen = $state(false), rollbackFile = $state('');
 
@@ -46,6 +54,7 @@
     clearPw = false;
     modes = { ...s.modes };
     st = { ambeMode: s.startup.ambeMode || 'DMR', txTg: s.startup.txTg, txTs: String(s.startup.txTs || 2), colorCode: String(s.startup.colorCode), ysf: s.gateways.ysf.startup, p25: s.gateways.p25.startup, nxdn: s.gateways.nxdn.startup };
+    choice = startupModeOf(st.ambeMode);
     snap = { id: { ...id }, net: { ...net }, modes: { ...modes }, st: { ...st } };
   }
   async function load() { try { fill(await api.dvswitchSetup()); err = ''; } catch (e) { err = e instanceof Error ? e.message : String(e); } }
@@ -60,8 +69,8 @@
     try { dmr = await api.dvswitchDmrStatus(); } catch { /* keep the last badge */ }
   }
   onMount(() => {
-    load(); loadLists(); pollOnce();
-    const t = setInterval(() => { if (!document.hidden) pollOnce(); }, IDLE_POLL_MS);
+    load(); loadLists(); loadResume(); pollOnce();
+    const t = setInterval(() => { if (!document.hidden) { pollOnce(); loadResume(); } }, IDLE_POLL_MS);
     return () => { clearInterval(t); gen++; };
   });
   const bd = $derived(badge(dmr));
@@ -112,7 +121,6 @@
       const s = await call();
       fill(s);
       hint = s.restartHint ?? [];
-      notes = s.applyWarnings ?? [];
       const changed = !!(s.changed && s.changed.length);
       toast(changed ? `${what} saved.` : `${what}: nothing to change.`, 'info');
       if (check) { if (changed) { busy = false; await verifyLogin(); } else pollOnce(); }
@@ -128,11 +136,16 @@
     return save('DMR master', async () => { try { return await api.dvswitchCredentials({ ...p, base: base() }); } finally { net.password = ''; clearPw = false; } }, true);
   }
   const saveModes = () => formChanged(snap.modes, modes) ? save('Modes', () => api.dvswitchModes({ ...modes, base: base() })) : noChanges('Modes');
-  const saveStartup = () => !formChanged(snap.st, st) ? noChanges('Startup values') : save('Startup values', () => api.dvswitchStartup({
-    ambeMode: st.ambeMode, txTg: st.txTg, txTs: Number(st.txTs), colorCode: Number(st.colorCode),
-    ...(v?.gateways.ysf.present ? { ysf: st.ysf } : {}), ...(v?.gateways.p25.present ? { p25: st.p25 } : {}), ...(v?.gateways.nxdn.present ? { nxdn: st.nxdn } : {}), base: base(),
-  }));
-  const useCurrent = () => save('Startup values', () => api.dvswitchStartup({ useCurrent: true, base: base() }));
+  const saveMode = () => choice === startupModeOf(snap.st.ambeMode) ? noChanges('Startup mode') : save('Startup mode', () => api.dvswitchStartup({ ambeMode: ambeModeFor(choice, snap.st.ambeMode), base: base() }));
+  function saveCard(m: StartupMode) {
+    const p = cardPatch(m, snap.st, st);
+    return p ? save(`${MODE_LABEL[m]} startup`, () => api.dvswitchStartup({ ...p, base: base() })) : noChanges(`${MODE_LABEL[m]} startup`);
+  }
+  async function setResume(on: boolean) {
+    busy = true;
+    try { resume = await api.dvswitchSetResume(on); now = Date.now(); toast(on ? 'The last tune is resumed after a restart.' : 'The startup values are used after a restart.', 'info'); }
+    catch (e) { toastError(e); } finally { busy = false; }
+  }
   async function rollback(file: string) {
     await save(`${FILE_LABEL[file] ?? file} restored`, () => api.dvswitchRollback(file, base()));
   }
@@ -156,7 +169,6 @@
 {:else if !ok}
   <p class="text-sm text-muted" role="status">The DVSwitch ini files are not there, so there is nothing to set up.</p>
 {:else}
-  {#each notes as n}<p class="rounded border border-warn/60 p-2 text-sm text-warn" role="status">{n}</p>{/each}
   {#if hint.length}
     <p class="rounded border border-warn/60 p-2 text-sm text-warn" role="status">Saved. These services pick the change up on a restart: <span class="font-mono">{hint.join(', ')}</span>. {WARNING}</p>
   {/if}
@@ -207,22 +219,60 @@
       </div>
       <div><button class="btn btn-primary" disabled={busy} onclick={saveModes}>Save modes</button><span class="ml-2 text-xs text-muted">Sets the flag in the mode and its network section.</span></div>
 
-      <h2 class="border-t border-line pt-3 text-base font-semibold">Startup values</h2>
-      <p class="text-xs text-muted">What Analog_Bridge and the gateways start with. A restart goes back to these.</p>
-      <form class="grid grid-cols-2 gap-2 sm:grid-cols-4" onsubmit={(e) => { e.preventDefault(); saveStartup(); }}>
-        <div><label class="label" for="dv-mode">Mode</label><select id="dv-mode" class="input" bind:value={st.ambeMode}>{#each ['DMR', 'YSFN', 'YSFW', 'P25', 'NXDN'] as m}<option value={m}>{m}</option>{/each}</select></div>
-        <div><label class="label" for="dv-tg">Talkgroup</label><input id="dv-tg" class="input font-mono" bind:value={st.txTg} inputmode="numeric" maxlength="8" /></div>
-        <div><label class="label" for="dv-ts">Slot</label><select id="dv-ts" class="input" bind:value={st.txTs}><option value="1">1</option><option value="2">2</option></select></div>
-        <div><label class="label" for="dv-cc">Color code</label><input id="dv-cc" class="input font-mono" bind:value={st.colorCode} inputmode="numeric" maxlength="2" /></div>
-        {#if v.gateways.ysf.present}<div class="col-span-2"><label class="label" for="dv-ysf">YSF reflector</label><NodePicker id="dv-ysf" bind:value={st.ysf} options={lists.ysf} search={find('ysf')} label={label('ysf')} placeholder="Search or type an ID" inputmode="text" maxlength={32} describedby="dv-ysf-hint" /><p id="dv-ysf-hint" class="mt-1 text-xs text-muted">{#if hit('ysf', st.ysf)}{hit('ysf', st.ysf)?.name}, {hit('ysf', st.ysf)?.address}:{hit('ysf', st.ysf)?.port}{:else}reflector ID (5 digits, e.g. 12345) or name exactly as in YSFHosts.txt{/if}</p></div>{/if}
-        {#if v.gateways.p25.present}<div class="col-span-2"><label class="label" for="dv-p25">P25 reflector</label><NodePicker id="dv-p25" bind:value={st.p25} options={lists.p25} search={find('p25')} label={label('p25')} placeholder="Search or type a TG" inputmode="numeric" maxlength={5} describedby="dv-p25-hint" /><p id="dv-p25-hint" class="mt-1 text-xs text-muted">{#if hit('p25', st.p25)}{hit('p25', st.p25)?.address}:{hit('p25', st.p25)?.port}{:else}talkgroup number, up to 5 digits{/if}</p></div>{/if}
-        {#if v.gateways.nxdn.present}<div class="col-span-2"><label class="label" for="dv-nxdn">NXDN reflector</label><NodePicker id="dv-nxdn" bind:value={st.nxdn} options={lists.nxdn} search={find('nxdn')} label={label('nxdn')} placeholder="Search or type a TG" inputmode="numeric" maxlength={5} describedby="dv-nxdn-hint" /><p id="dv-nxdn-hint" class="mt-1 text-xs text-muted">{#if hit('nxdn', st.nxdn)}{hit('nxdn', st.nxdn)?.address}:{hit('nxdn', st.nxdn)?.port}{:else}talkgroup number, up to 5 digits{/if}</p></div>{/if}
-        <div class="col-span-2 flex flex-wrap items-center gap-2 sm:col-span-4">
-          <button class="btn btn-primary" disabled={busy}>Save startup values</button>
-          <button type="button" class="btn" disabled={busy || !v.current.found} onclick={useCurrent} title="Take mode, talkgroup, slot and color code from the running bridge">Use current</button>
-          {#if v.current.found}<span class="text-xs text-muted">Now: {v.current.mode} TG {v.current.tg} TS {v.current.slot} CC {v.current.colorCode}</span>{:else}<span class="text-xs text-muted">The bridge is not running, so there is no current state.</span>{/if}
-        </div>
+      <h2 class="border-t border-line pt-3 text-base font-semibold">Startup</h2>
+      <p class="text-xs text-muted">What Analog_Bridge and the gateways start with. A restart goes back to these{resume?.resume ? ', unless the last tune is resumed (below)' : ''}.</p>
+      <form class="flex flex-wrap items-end gap-2" onsubmit={(e) => { e.preventDefault(); saveMode(); }} aria-label="Startup mode">
+        <div><label class="label" for="dv-mode">Startup mode</label><select id="dv-mode" class="input" bind:value={choice}>{#each STARTUP_MODES as m}<option value={m}>{MODE_LABEL[m]}</option>{/each}</select></div>
+        <button class="btn btn-primary" disabled={busy}>Save startup mode</button>
       </form>
+      <div class="flex flex-col gap-3">
+
+        {#each order as m (m)}{#if gw(m)}{#if m === 'DMR'}
+        <div class="space-y-2 rounded border p-3 {choice === 'DMR' ? 'border-accent' : 'border-line'}" aria-label="DMR startup">
+          <h3 class="flex flex-wrap items-center gap-2 text-sm font-semibold">{MODE_LABEL['DMR']}{#if choice === 'DMR'}<span class="badge border-accent text-accent">used at startup</span>{/if}</h3>
+          <form class="grid grid-cols-3 gap-2" onsubmit={(e) => { e.preventDefault(); saveCard('DMR'); }}>
+            <div><label class="label" for="dv-tg">Talkgroup</label><input id="dv-tg" class="input font-mono" bind:value={st.txTg} inputmode="numeric" maxlength="8" /></div>
+            <div><label class="label" for="dv-ts">Slot</label><select id="dv-ts" class="input" bind:value={st.txTs}><option value="1">1</option><option value="2">2</option></select></div>
+            <div><label class="label" for="dv-cc">Color code</label><input id="dv-cc" class="input font-mono" bind:value={st.colorCode} inputmode="numeric" maxlength="2" /></div>
+            <div class="col-span-3"><button class="btn btn-primary" disabled={busy}>Save DMR startup</button></div>
+          </form>
+          {#if lastUsed(resume, 'DMR', now)}<p class="text-xs text-muted" data-testid="dv-last-DMR">{lastUsed(resume, 'DMR', now)}</p>{/if}
+        </div>
+        {:else if m === 'YSF'}
+        <div class="space-y-2 rounded border p-3 {choice === 'YSF' ? 'border-accent' : 'border-line'}" aria-label="YSF startup">
+          <h3 class="flex flex-wrap items-center gap-2 text-sm font-semibold">{MODE_LABEL['YSF']}{#if choice === 'YSF'}<span class="badge border-accent text-accent">used at startup</span>{/if}</h3>
+          <form onsubmit={(e) => { e.preventDefault(); saveCard('YSF'); }}>
+            <label class="label" for="dv-ysf">YSF reflector</label><NodePicker id="dv-ysf" bind:value={st.ysf} options={lists.ysf} search={find('ysf')} label={label('ysf')} placeholder="Search or type an ID" inputmode="text" maxlength={32} describedby="dv-ysf-hint" /><p id="dv-ysf-hint" class="mt-1 text-xs text-muted">{#if hit('ysf', st.ysf)}{hit('ysf', st.ysf)?.name}, {hit('ysf', st.ysf)?.address}:{hit('ysf', st.ysf)?.port}{:else}reflector ID (5 digits, e.g. 12345) or name exactly as in YSFHosts.txt{/if}</p>
+            <button class="btn btn-primary mt-2" disabled={busy}>Save YSF startup</button>
+          </form>
+          {#if lastUsed(resume, 'YSF', now)}<p class="text-xs text-muted" data-testid="dv-last-YSF">{lastUsed(resume, 'YSF', now)}</p>{/if}
+        </div>
+        {:else if m === 'P25'}
+        <div class="space-y-2 rounded border p-3 {choice === 'P25' ? 'border-accent' : 'border-line'}" aria-label="P25 startup">
+          <h3 class="flex flex-wrap items-center gap-2 text-sm font-semibold">{MODE_LABEL['P25']}{#if choice === 'P25'}<span class="badge border-accent text-accent">used at startup</span>{/if}</h3>
+          <form onsubmit={(e) => { e.preventDefault(); saveCard('P25'); }}>
+            <label class="label" for="dv-p25">P25 reflector</label><NodePicker id="dv-p25" bind:value={st.p25} options={lists.p25} search={find('p25')} label={label('p25')} placeholder="Search or type a TG" inputmode="numeric" maxlength={5} describedby="dv-p25-hint" /><p id="dv-p25-hint" class="mt-1 text-xs text-muted">{#if hit('p25', st.p25)}{hit('p25', st.p25)?.address}:{hit('p25', st.p25)?.port}{:else}talkgroup number, up to 5 digits{/if}</p>
+            <button class="btn btn-primary mt-2" disabled={busy}>Save P25 startup</button>
+          </form>
+          {#if lastUsed(resume, 'P25', now)}<p class="text-xs text-muted" data-testid="dv-last-P25">{lastUsed(resume, 'P25', now)}</p>{/if}
+        </div>
+        {:else}
+        <div class="space-y-2 rounded border p-3 {choice === 'NXDN' ? 'border-accent' : 'border-line'}" aria-label="NXDN startup">
+          <h3 class="flex flex-wrap items-center gap-2 text-sm font-semibold">{MODE_LABEL['NXDN']}{#if choice === 'NXDN'}<span class="badge border-accent text-accent">used at startup</span>{/if}</h3>
+          <form onsubmit={(e) => { e.preventDefault(); saveCard('NXDN'); }}>
+            <label class="label" for="dv-nxdn">NXDN reflector</label><NodePicker id="dv-nxdn" bind:value={st.nxdn} options={lists.nxdn} search={find('nxdn')} label={label('nxdn')} placeholder="Search or type a TG" inputmode="numeric" maxlength={5} describedby="dv-nxdn-hint" /><p id="dv-nxdn-hint" class="mt-1 text-xs text-muted">{#if hit('nxdn', st.nxdn)}{hit('nxdn', st.nxdn)?.address}:{hit('nxdn', st.nxdn)?.port}{:else}talkgroup number, up to 5 digits{/if}</p>
+            <button class="btn btn-primary mt-2" disabled={busy}>Save NXDN startup</button>
+          </form>
+          {#if lastUsed(resume, 'NXDN', now)}<p class="text-xs text-muted" data-testid="dv-last-NXDN">{lastUsed(resume, 'NXDN', now)}</p>{/if}
+        </div>
+        {/if}{/if}{/each}
+      </div>
+      {#if resume}
+        <div class="space-y-1 border-t border-line pt-3">
+          <label class="inline-flex cursor-pointer items-center gap-2 text-sm"><input type="checkbox" class="size-4 accent-[var(--accent)]" checked={resume.resume} disabled={busy} onchange={(e) => setResume(e.currentTarget.checked)} />Resume last tune after restart</label>
+          <p class="text-xs text-muted" data-testid="dv-resume-hint">{resume.resume ? 'After a restart of Analog_Bridge the last tune of the last mode is set again within a few minutes. The startup values above are only a fallback, used when nothing was tuned yet.' : 'Off: a restart goes back to the startup values. Turn it on to continue with the last tune instead.'}</p>
+        </div>
+      {/if}
     </section>
 
     <section class="card space-y-3 p-4" aria-label="Services">

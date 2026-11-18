@@ -2,6 +2,7 @@ package helper
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 )
@@ -18,7 +19,15 @@ type demoDVCfg struct {
 	gw       DVGateways
 	hist     map[string]int
 	times    int
+
+	// The demo's ABInfo: what the running bridge shows. It lives in memory
+	// only (the demo never reads /tmp or runs a binary). A restart of the
+	// bridge resets it to the startup values and sets a new start time.
+	live    demoDVLive
+	started time.Time
 }
+
+type demoDVLive struct{ mode, tg, slot, tune string }
 
 func newDemoDVCfg() *demoDVCfg {
 	return &demoDVCfg{
@@ -75,8 +84,74 @@ func (d *DemoDVSwitch) DVSwitchInfo(context.Context) (DVSwitchInfo, error) {
 		return DVSwitchInfo{}, nil
 	}
 	c := d.cfg()
-	return DVSwitchInfo{Found: true, Version: "1.6.4", Mode: c.startup.AmbeMode, TG: c.startup.TxTg, Slot: strconv.Itoa(c.startup.TxTs),
-		ColorCode: strconv.Itoa(c.startup.ColorCode), Mute: "OFF", GatewayID: c.identity.DMRID, RepeaterID: c.identity.DMRID + c.identity.ESSID}, nil
+	if c.started.IsZero() {
+		d.resetLive(c)
+	}
+	now := d.now().UTC()
+	return DVSwitchInfo{Found: true, Version: "1.6.4", Mode: c.live.mode, TG: c.live.tg, Slot: c.live.slot, Tune: c.live.tune,
+		ColorCode: strconv.Itoa(c.startup.ColorCode), Mute: "OFF", GatewayID: c.identity.DMRID, RepeaterID: c.identity.DMRID + c.identity.ESSID,
+		Updated: now.Format(time.RFC3339), Started: c.started.UTC().Format(time.RFC3339)}, nil
+}
+
+// resetLive is what Analog_Bridge does on a start: the startup values, an
+// empty last tune and a new start time.
+func (d *DemoDVSwitch) resetLive(c *demoDVCfg) {
+	c.live = demoDVLive{mode: c.startup.AmbeMode, tg: c.startup.TxTg, slot: strconv.Itoa(c.startup.TxTs)}
+	c.started = d.now()
+}
+
+// Installed reports whether the demo node has DVSwitch (the tracker polls
+// only then).
+func (d *DemoDVSwitch) Installed() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.ready() == nil
+}
+
+// DVSwitchTune implements the API's DVSwitch interface: it validates like the
+// helper and changes the demo ABInfo, nothing else.
+func (d *DemoDVSwitch) DVSwitchTune(_ context.Context, r DVSwitchRequest) (DVTuneResult, error) {
+	t := r.Tune
+	if t == nil {
+		return DVTuneResult{}, errors.New("invalid request: tune only")
+	}
+	if !DVValidTune(t.Mode, t.Tune) {
+		return DVTuneResult{}, dvInvalid("tune/value")
+	}
+	value := t.Tune
+	if t.Mode == "YSF" {
+		ok := false
+		if d.Lists != nil {
+			value, ok = d.Lists.dvYSFTarget(t.Tune)
+		} else {
+			value, ok = t.Tune, t.Tune == "disconnect" || reDVHostPort.MatchString(t.Tune)
+		}
+		if !ok {
+			return DVTuneResult{}, dvInvalid("tune/value")
+		}
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if err := d.ready(); err != nil {
+		return DVTuneResult{}, err
+	}
+	c := d.cfg()
+	if c.started.IsZero() {
+		d.resetLive(c)
+	}
+	res := DVTuneResult{Mode: t.Mode, Confirmed: true}
+	if DVNormMode(c.live.mode) != t.Mode {
+		res.Switched = true
+		c.live.mode = t.Mode
+		if t.Mode == "YSF" {
+			c.live.mode = "YSFN"
+		}
+	}
+	c.live.tune = value
+	if t.Mode == "DMR" {
+		c.live.tg = value
+	}
+	return res, nil
 }
 
 func (d *DemoDVSwitch) demoWrite(files []string, hint []string, f func(c *demoDVCfg) error) (DVApplyResult, error) {
@@ -180,7 +255,7 @@ func (d *DemoDVSwitch) DVSwitchModes(_ context.Context, r DVSwitchRequest) (DVAp
 // DVSwitchStartup implements the API's DVSwitch interface.
 func (d *DemoDVSwitch) DVSwitchStartup(_ context.Context, r DVSwitchRequest) (DVApplyResult, error) {
 	s := r.Startup
-	if s == nil || !s.UseCurrent && s.AmbeMode == nil && s.TxTg == nil && s.TxTs == nil && s.ColorCode == nil && s.YSF == nil && s.P25 == nil && s.NXDN == nil {
+	if s == nil || s.AmbeMode == nil && s.TxTg == nil && s.TxTs == nil && s.ColorCode == nil && s.YSF == nil && s.P25 == nil && s.NXDN == nil {
 		return dvNoChange(), nil
 	}
 	if s.AmbeMode != nil && !dvAmbeModes[*s.AmbeMode] {
@@ -204,9 +279,6 @@ func (d *DemoDVSwitch) DVSwitchStartup(_ context.Context, r DVSwitchRequest) (DV
 		}
 	}
 	return d.demoWrite([]string{DVFileAnalogBridge}, []string{"analog_bridge"}, func(c *demoDVCfg) error {
-		if s.UseCurrent {
-			return nil // the demo ABInfo is the startup state already
-		}
 		if s.AmbeMode != nil {
 			c.startup.AmbeMode = *s.AmbeMode
 		}
@@ -273,6 +345,9 @@ func (d *DemoDVSwitch) DVSwitchRestart(_ context.Context, r DVSwitchRequest) (DV
 	for _, u := range units {
 		if u == "mmdvm_bridge" {
 			d.dmrAt, d.dmrRuns = d.now(), d.dmrRuns+1
+		}
+		if u == "analog_bridge" {
+			d.resetLive(d.cfg())
 		}
 	}
 	return DVRestartResult{Action: action, Units: append([]string{}, units...), Skipped: []string{}, States: d.status().Units}, nil

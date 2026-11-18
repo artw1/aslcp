@@ -366,11 +366,21 @@ Design: docs/DVSWITCH.md (M4). All endpoints are admin only (`403 forbidden` oth
 | PUT | `/api/dvswitch/identity` | `{"callsign","dmrId","essid","nxdnId"?,"base"?}` (`nxdnId`: digits, 1-65519, no leading zeros; omitted or empty leaves the NXDN ID alone) | `200` Setup |
 | PUT | `/api/dvswitch/credentials` | `{"dmrAddress"?,"dmrPort"?,"dmrPassword"?,"clearPassword"?,"base"?}` | `200` Setup. `"clearPassword": true` resets the DMR password to the stock `passw0rd` (for masters without a password); `passwordSet` becomes false. With `dmrPassword` too: `400 invalid_field`. `false` is the same as absent |
 | PUT | `/api/dvswitch/modes` | `{"dmr"?,"ysf"?,"p25"?,"nxdn"?,"base"?}` (booleans) | `200` Setup |
-| PUT | `/api/dvswitch/startup` | `{"useCurrent":true}` or `{"ambeMode"?,"txTg"?,"txTs"?,"colorCode"?,"ysf"?,"p25"?,"nxdn"?,"base"?}` | `200` Setup |
+| PUT | `/api/dvswitch/startup` | `{"ambeMode"?,"txTg"?,"txTs"?,"colorCode"?,"ysf"?,"p25"?,"nxdn"?,"base"?}` | `200` Setup |
 | POST | `/api/dvswitch/rollback` | `{"file":"analog_bridge","base"?}` (file ids: `analog_bridge`, `mmdvm_bridge`, `ysfgateway`, `p25gateway`, `nxdngateway`) | `200` Setup |
 | POST | `/api/dvswitch/restart` | `{"scope":"dmr\|bridge\|gateways\|all","action"?:"restart\|start"}` (`dmr` is `mmdvm_bridge` alone) | `200` `{"action","units":[],"skipped":[],"states":[{name,loaded,active,enabled}],"warning"}` |
 
-Every write reply (Setup) can also carry `"applyWarnings": ["..."]`: values the write left out and why. `PUT /api/dvswitch/startup {"useCurrent":true}` in a YSF mode maps ABInfo's `host:port` to the reflector id through `YSFHosts.txt`; when no entry matches (or the file is missing) the YSF `Startup` is not written and a warning says so (P25 and NXDN: the tune is not a TG number). The other values are still written. The text never holds the tune.
+`PUT /api/dvswitch/startup` writes only the fields that are present; the startup mode (`ambeMode`: `DMR`, `YSFN`, `YSFW`, `P25`, `NXDN`) can be sent alone, and a gateway card sends only its own reflector. The old `useCurrent` field was removed: it is ignored, so `{"useCurrent":true}` alone is a no-op (`200`, nothing written).
+
+### DVSwitch tune and resume
+
+Design: docs/DVSWITCH.md "Tune and resume". `503 dvswitch_unavailable` when the helper or tracker is missing.
+
+| Method | Path | Role | Body | Response / errors |
+|---|---|---|---|---|
+| POST | `/api/dvswitch/tune` | operator, admin | `{"mode":"DMR\|YSF\|P25\|NXDN","tune":"91"}` | `200` `{"mode","switched","confirmed"}`. `400 invalid_field` (value invalid for the mode), `409 no_info` (bridge not running), `409 no_ports` (no ports for the mode in `DVSwitch.ini`), `502 helper_error`. Audited as `dvswitch.tune` (or `.refused`); the value is in the audit log only when valid |
+| GET | `/api/dvswitch/resume` | operator, admin | | `200` `{"resume":false,"lastMode":"P25","perMode":{"DMR":{"tune":"91","ts":"2","at":"2026-11-17T11:55:00Z"}}}` (`at` RFC 3339 UTC; modes without a remembered tune are absent) |
+| PUT | `/api/dvswitch/resume` | admin | `{"resume":true}` | `200` as GET; `400 bad_request` when `resume` is not a boolean. Audited as `dvswitch.resume` |
 
 ### DVSwitch DMR login status (operator)
 
@@ -392,7 +402,7 @@ Design: docs/DVSWITCH.md ("Host and TG lists for the pickers").
 
 `value` is what a pick writes: the master **address** (dmr; `port` is the master port), the 5-digit reflector **id** (ysf) or the **TG** (p25, nxdn). `name` is the list name (`P25 TG 14` for the TG lists, which have no names), `detail` the description or `ID <network id>` for DMR, `address` and `port` where it connects. At most 5000 items (`truncated: true` beyond that; the real lists hold about 1,500 DMR, 1,700 YSF, 470 P25 and 430 NXDN entries). Lines that fail a field check are skipped. **The DMR list never carries a password**: the password column of `DMR_Hosts.txt` is not read into any value. The file for each mode is fixed in the helper (`DMR_Hosts.txt`, `YSFHosts.txt`, `P25Hosts.txt`, `NXDNHosts.txt` below `/var/lib/mmdvm`); the client sends an enum only. Not audited (read-only).
 
-Errors of the writes: `400 invalid_field` (message names `file/section/key` or the field, never a value), `409 not_installed` (the DVSwitch ini files or units are missing), `409 conflict` (a file changed since `base`; nothing written), `409 job_running` (an install or uninstall runs), `409 no_info` (`useCurrent` while the bridge does not run), `404 no_history` (rollback), `502 helper_error`. `base` is `{file id: sha256}` from the Setup `files`; it is optional and only checked for the files the call changes.
+Errors of the writes: `400 invalid_field` (message names `file/section/key` or the field, never a value), `409 not_installed` (the DVSwitch ini files or units are missing), `409 conflict` (a file changed since `base`; nothing written), `409 job_running` (an install or uninstall runs), `404 no_history` (rollback), `502 helper_error`. `base` is `{file id: sha256}` from the Setup `files`; it is optional and only checked for the files the call changes.
 
 ```json
 Setup = {

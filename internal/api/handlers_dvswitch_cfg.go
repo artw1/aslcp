@@ -23,9 +23,6 @@ type dvSetupReply struct {
 	Changed     []string            `json:"changed,omitempty"`
 	Skipped     []string            `json:"skipped,omitempty"`
 	RestartHint []string            `json:"restartHint,omitempty"`
-	// ApplyWarnings: values a write left out and why ("warnings" is taken by
-	// the Setup view's own warnings).
-	ApplyWarnings []string `json:"applyWarnings,omitempty"`
 }
 
 func (s *Server) dvSetupView(w http.ResponseWriter, r *http.Request, res *helper.DVApplyResult) {
@@ -41,7 +38,7 @@ func (s *Server) dvSetupView(w http.ResponseWriter, r *http.Request, res *helper
 		reply.Current = info
 	}
 	if res != nil {
-		reply.Changed, reply.Skipped, reply.RestartHint, reply.ApplyWarnings = res.Files, res.Skipped, res.RestartHint, res.Warnings
+		reply.Changed, reply.Skipped, reply.RestartHint = res.Files, res.Skipped, res.RestartHint
 	}
 	writeJSON(w, 200, reply)
 }
@@ -170,23 +167,19 @@ func (s *Server) handleDVSwitchStartup(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 	var b struct {
-		UseCurrent bool              `json:"useCurrent"`
-		AmbeMode   *string           `json:"ambeMode"`
-		TxTg       *string           `json:"txTg"`
-		TxTs       *int              `json:"txTs"`
-		ColorCode  *int              `json:"colorCode"`
-		YSF        *string           `json:"ysf"`
-		P25        *string           `json:"p25"`
-		NXDN       *string           `json:"nxdn"`
-		Base       map[string]string `json:"base"`
+		AmbeMode  *string           `json:"ambeMode"`
+		TxTg      *string           `json:"txTg"`
+		TxTs      *int              `json:"txTs"`
+		ColorCode *int              `json:"colorCode"`
+		YSF       *string           `json:"ysf"`
+		P25       *string           `json:"p25"`
+		NXDN      *string           `json:"nxdn"`
+		Base      map[string]string `json:"base"`
 	}
 	if !decode(w, r, &b, false) {
 		return
 	}
 	keys := []string{}
-	if b.UseCurrent {
-		keys = append(keys, "useCurrent")
-	}
 	for _, k := range []struct {
 		n  string
 		ok bool
@@ -198,7 +191,7 @@ func (s *Server) handleDVSwitchStartup(w http.ResponseWriter, r *http.Request, u
 	}
 	s.dvWrite(w, r, u, "dvswitch.startup", keys, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
 		return s.d.DVSwitch.DVSwitchStartup(r.Context(), helper.DVSwitchRequest{Base: b.Base, Author: u.Username,
-			Startup: &helper.DVStartup{UseCurrent: b.UseCurrent, AmbeMode: b.AmbeMode, TxTg: b.TxTg, TxTs: b.TxTs, ColorCode: b.ColorCode,
+			Startup: &helper.DVStartup{AmbeMode: b.AmbeMode, TxTg: b.TxTg, TxTs: b.TxTs, ColorCode: b.ColorCode,
 				YSF: b.YSF, P25: b.P25, NXDN: b.NXDN}})
 	})
 }

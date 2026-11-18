@@ -230,31 +230,3 @@ func (o *Ops) DVSwitchLists(_ context.Context, req *DVSwitchRequest) (DVList, er
 	}
 	return l, nil
 }
-
-// ysfIDForTune maps ABInfo's last YSF tune ("host:port") to a reflector id
-// through YSFHosts.txt. A 5-digit tune is already an id. ok is false when
-// nothing matches.
-func (o *Ops) ysfIDForTune(tune string) (string, bool) {
-	if reDVYSFID.MatchString(tune) {
-		return tune, true
-	}
-	i := strings.LastIndex(tune, ":")
-	if i < 0 {
-		return "", false
-	}
-	port, ok := listPort(tune[i+1:])
-	if !ok {
-		return "", false
-	}
-	host := tune[:i]
-	data, err := o.dvReadList("ysf")
-	if err != nil {
-		return "", false
-	}
-	for _, it := range ParseYSFHosts(data) {
-		if it.Port == port && strings.EqualFold(it.Address, host) {
-			return it.Value, true
-		}
-	}
-	return "", false
-}

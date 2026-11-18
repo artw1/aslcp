@@ -27,6 +27,7 @@ import (
 	"github.com/artw1/aslcp/internal/configsvc"
 	"github.com/artw1/aslcp/internal/demo"
 	"github.com/artw1/aslcp/internal/diag"
+	"github.com/artw1/aslcp/internal/dvswitch"
 	"github.com/artw1/aslcp/internal/favstats"
 	"github.com/artw1/aslcp/internal/helper"
 	"github.com/artw1/aslcp/internal/nodelist"
@@ -188,6 +189,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 	var cfgHelper configsvc.Helper
 	var bkHelper backupsvc.Helper
 	var dvsw api.DVSwitch
+	var dvTrack *dvswitch.Tracker
 	var restart func()
 	var restartReq atomic.Bool
 	var firewall func(context.Context) (helper.Firewall, error)
@@ -226,6 +228,9 @@ func run(cfgPath string, dev, demoMode bool) error {
 		ddv := helper.NewDemoDVSwitch()
 		ddv.Lists = ops
 		dvsw = ddv
+		// The demo tracker reads the in-memory demo ABInfo, keeps its state in
+		// the demo database (a temporary dir) and polls fast.
+		dvTrack = &dvswitch.Tracker{Src: ddv, Store: st, Logger: logger, Installed: ddv.Installed, Interval: 3 * time.Second}
 		bg(func() { upd.Run(ctx) })
 		bg(func() { upd.OS.Run(ctx) })
 	} else {
@@ -240,6 +245,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 		upd.OS.Logger = logger
 		power = hc
 		dvsw = hc
+		dvTrack = &dvswitch.Tracker{Src: hc, Store: st, Logger: logger, Installed: dvswitchInstalled}
 		bg(func() { upd.Run(ctx) })
 		bg(func() { upd.OS.Run(ctx) })
 	}
@@ -282,7 +288,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 		RescanNodes:  func() { kick(rescan) },
 		Tuning:       tune,
 		ConfigEditor: cfgSvc,
-		Auth:         as, Store: st, AMI: proxy, Nodelist: nl, System: sys, Updates: upd, Power: power, DVSwitch: dvsw, Version: version,
+		Auth:         as, Store: st, AMI: proxy, Nodelist: nl, System: sys, Updates: upd, Power: power, DVSwitch: dvsw, DVResume: dvTrack, Version: version,
 		UI: webui.Handler(), AllowedOrigins: origins, AllScanDirs: allscan.DefaultDirs, Logger: logger,
 		Log: ring, Config: cfg, ConfigPath: cfgPath, Firewall: firewall,
 		PublicDefaultEnabled: demoMode,
@@ -292,6 +298,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 		srv.AddSecret(demo.Secret)
 	}
 	bg(func() { srv.Run(ctx) })
+	bg(func() { dvTrack.Run(ctx) })
 	bg(func() { cleanupSessions(ctx, st) })
 
 	if !demoMode {
@@ -617,4 +624,12 @@ func seedDemoSchedules(st *store.Store, now time.Time) {
 		}
 		_, _ = st.AddSchedule(x)
 	}
+}
+
+// dvswitchInstalled says whether DVSwitch is on this node (Analog_Bridge's
+// ini is where its package puts it). The tracker polls the helper only then,
+// so a node without DVSwitch never wakes the helper for it.
+func dvswitchInstalled() bool {
+	fi, err := os.Stat(filepath.Join(helper.DefaultDVOptDir, "Analog_Bridge", "Analog_Bridge.ini"))
+	return err == nil && fi.Mode().IsRegular()
 }

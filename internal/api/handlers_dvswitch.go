@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/artw1/aslcp/internal/dvswitch"
 	"github.com/artw1/aslcp/internal/helper"
 	"github.com/artw1/aslcp/internal/store"
 )
@@ -29,10 +30,20 @@ type DVSwitch interface {
 	DVSwitchRestart(ctx context.Context, req helper.DVSwitchRequest) (helper.DVRestartResult, error)
 	// Host and TG lists of the pickers (read-only).
 	DVSwitchLists(ctx context.Context, mode string) (helper.DVList, error)
+	// Mode switch and tune.
+	DVSwitchTune(ctx context.Context, req helper.DVSwitchRequest) (helper.DVTuneResult, error)
 }
 
-// dvswitchRoutes registers the DVSwitch endpoints. All are admin only: they
-// install and remove system packages.
+// DVResume is the tracker of the last tune per mode and the "resume after
+// restart" setting (internal/dvswitch).
+type DVResume interface {
+	Get() dvswitch.View
+	SetResume(on bool) error
+}
+
+// dvswitchRoutes registers the DVSwitch endpoints. Install, config and
+// restart are admin only (they change system packages and files); the lists,
+// the DMR login state, the tune and the remembered tunes are for operators.
 func (s *Server) dvswitchRoutes() {
 	m := s.mux
 	m.HandleFunc("GET /api/dvswitch", s.authed(store.RoleAdmin, s.handleDVSwitchStatus))
@@ -48,6 +59,10 @@ func (s *Server) dvswitchRoutes() {
 	m.HandleFunc("PUT /api/dvswitch/credentials", s.authed(store.RoleAdmin, s.handleDVSwitchCredentials))
 	m.HandleFunc("PUT /api/dvswitch/modes", s.authed(store.RoleAdmin, s.handleDVSwitchModes))
 	m.HandleFunc("PUT /api/dvswitch/startup", s.authed(store.RoleAdmin, s.handleDVSwitchStartup))
+	// Tune and resume (M1): operators tune, only admins change the setting.
+	m.HandleFunc("POST /api/dvswitch/tune", s.authed(store.RoleOperator, s.handleDVSwitchTune))
+	m.HandleFunc("GET /api/dvswitch/resume", s.authed(store.RoleOperator, s.handleDVSwitchResume))
+	m.HandleFunc("PUT /api/dvswitch/resume", s.authed(store.RoleAdmin, s.handleDVSwitchResumeSet))
 	m.HandleFunc("POST /api/dvswitch/restart", s.authed(store.RoleAdmin, s.handleDVSwitchRestart))
 	m.HandleFunc("POST /api/dvswitch/rollback", s.authed(store.RoleAdmin, s.handleDVSwitchRollback))
 }
@@ -153,6 +168,8 @@ func (s *Server) dvswitchError(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusNotFound, "no_history", err.Error())
 	case errors.Is(err, helper.ErrDVNoList):
 		writeErr(w, http.StatusNotFound, "no_list", err.Error())
+	case errors.Is(err, helper.ErrDVNoPorts):
+		writeErr(w, http.StatusConflict, "no_ports", err.Error())
 	case errors.Is(err, helper.ErrDVNoInfo):
 		writeErr(w, http.StatusConflict, "no_info", err.Error())
 	case errors.As(err, &ce):

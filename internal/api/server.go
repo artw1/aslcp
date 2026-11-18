@@ -48,6 +48,9 @@ type Deps struct {
 	// DVSwitch reports, installs and removes DVSwitch (nil: 503
 	// dvswitch_unavailable).
 	DVSwitch DVSwitch
+	// DVResume holds the last tune per mode and the resume setting (nil: 503
+	// dvswitch_unavailable).
+	DVResume DVResume
 	// ConfigEditor is the configuration editing service (nil: 503
 	// config_unavailable).
 	ConfigEditor *configsvc.Service

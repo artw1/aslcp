@@ -203,8 +203,6 @@ export interface DVSwitchSetup {
   files: DVFileView[];
   current: DVSwitchInfo;
   changed?: string[]; skipped?: string[]; restartHint?: string[];
-  /** Values a write left out and why (for example a YSF reflector that is not in YSFHosts.txt). */
-  applyWarnings?: string[];
 }
 /** GET /api/dvswitch/dmr-status (operator and admin; docs/API.md "DVSwitch DMR login status"). Never holds the password. */
 export type DVDMRState = 'not_installed' | 'disabled' | 'not_running' | 'connecting' | 'logged_in' | 'login_failed' | 'timed_out' | 'socket_failed' | 'master_closing';
@@ -217,3 +215,8 @@ export type DVListMode = 'dmr' | 'ysf' | 'p25' | 'nxdn';
 /** `value` is what gets written: the master address (dmr), the 5-digit reflector ID (ysf) or the TG (p25, nxdn). `port` is the master port for dmr. The DMR list never carries a password. */
 export interface DVListItem { value: string; name: string; detail?: string; address: string; port: number }
 export interface DVList { mode: DVListMode; items: DVListItem[]; truncated?: boolean; etag: string }
+
+/** GET and PUT /api/dvswitch/resume (docs/API.md "DVSwitch tune and resume"): the last tune of each mode and the toggle. */
+export type DVTuneMode = 'DMR' | 'YSF' | 'P25' | 'NXDN';
+export interface DVRemembered { tune: string; ts?: string; at: string }
+export interface DVResume { resume: boolean; lastMode?: string; perMode: Partial<Record<DVTuneMode, DVRemembered>> }

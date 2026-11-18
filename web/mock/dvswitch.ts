@@ -118,7 +118,7 @@ function write(c: DVCtx, body: Body): boolean {
     if (!any) return bad(c, 'modes'), true;
     done(['mmdvm_bridge'], ['analog_bridge', 'mmdvm_bridge']);
   } else if (c.p === '/dvswitch/startup') {
-    const b = body as { useCurrent?: boolean; ambeMode?: string; txTg?: string; txTs?: number; colorCode?: number; ysf?: string; p25?: string; nxdn?: string };
+    const b = body as { ambeMode?: string; txTg?: string; txTs?: number; colorCode?: number; ysf?: string; p25?: string; nxdn?: string };
     if (b.ambeMode !== undefined) { if (!['DMR', 'YSFN', 'YSFW', 'P25', 'NXDN'].includes(b.ambeMode)) return bad(c, 'AMBE_AUDIO/ambeMode'), true; cfg.startup.ambeMode = b.ambeMode; }
     if (b.txTg !== undefined) { if (!/^[0-9]{1,8}$/.test(b.txTg)) return bad(c, 'AMBE_AUDIO/txTg'), true; cfg.startup.txTg = b.txTg; }
     if (b.txTs !== undefined) { if (b.txTs !== 1 && b.txTs !== 2) return bad(c, 'AMBE_AUDIO/txTs'), true; cfg.startup.txTs = b.txTs; }
@@ -141,6 +141,14 @@ function write(c: DVCtx, body: Body): boolean {
   }
   return true;
 }
+
+// Remembered tunes (GET /dvswitch/resume): placeholders, the first two seeded so the cards show "Last used".
+let resume = false, lastMode = 'DMR';
+const remembered: Record<string, { tune: string; ts?: string; at: string }> = {
+  DMR: { tune: '91', ts: '2', at: new Date(Date.now() - 5 * 60e3).toISOString() },
+  P25: { tune: '10100', at: new Date(Date.now() - 3 * 3600e3).toISOString() },
+};
+const resumeView = () => ({ resume, lastMode, perMode: remembered });
 
 export interface DVCtx {
   m: string; p: string; url?: URL; body?: Body; user?: { username: string; role: string };
@@ -186,6 +194,29 @@ export function handleDVSwitch(c: DVCtx): boolean {
     if (c.user.role === 'viewer') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
     progress();
     c.json(200, dmrStatus());
+    return true;
+  }
+  if (c.p === '/dvswitch/resume' && c.m === 'GET') {
+    if (c.user.role === 'viewer') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
+    c.json(200, resumeView());
+    return true;
+  }
+  if (c.p === '/dvswitch/resume' && c.m === 'PUT') {
+    if (c.user.role !== 'admin') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
+    const r = (c.body ?? {}).resume;
+    if (typeof r !== 'boolean') { c.err(400, 'resume must be true or false', 'bad_request'); return true; }
+    resume = r;
+    c.json(200, resumeView());
+    return true;
+  }
+  if (c.p === '/dvswitch/tune' && c.m === 'POST') {
+    if (c.user.role === 'viewer') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
+    const b = (c.body ?? {}) as { mode?: string; tune?: string };
+    const re: Record<string, RegExp> = { DMR: /^[0-9]{1,8}$/, YSF: /^(disconnect|[A-Za-z0-9._-]{1,32}|[A-Za-z0-9.-]{1,253}:[0-9]{1,5})$/, P25: /^[0-9]{1,5}$/, NXDN: /^[0-9]{1,5}$/ };
+    if (!b.mode || !re[b.mode] || typeof b.tune !== 'string' || !re[b.mode].test(b.tune)) return bad(c, 'tune'), true;
+    if (!['4000', 'disconnect', '9999'].includes(b.tune)) remembered[b.mode] = { tune: b.tune, ...(b.mode === 'DMR' ? { ts: '2' } : {}), at: new Date().toISOString() };
+    lastMode = b.mode;
+    c.json(200, { mode: b.mode, switched: true, confirmed: true });
     return true;
   }
   if (c.user.role !== 'admin') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }

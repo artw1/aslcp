@@ -426,6 +426,12 @@ func (c *Client) DVSwitchRestart(ctx context.Context, req DVSwitchRequest) (DVRe
 	return r, c.dvCall(ctx, OpDVSwitchRestart, req, &r)
 }
 
+// DVSwitchTune calls dvswitch-tune.
+func (c *Client) DVSwitchTune(ctx context.Context, req DVSwitchRequest) (DVTuneResult, error) {
+	var r DVTuneResult
+	return r, c.dvCall(ctx, OpDVSwitchTune, req, &r)
+}
+
 // DVSwitchLists calls dvswitch-lists for one mode (dmr, ysf, p25, nxdn).
 func (c *Client) DVSwitchLists(ctx context.Context, mode string) (DVList, error) {
 	var r DVList
