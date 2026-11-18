@@ -421,6 +421,14 @@ export function handleDVSwitch(c: DVCtx): boolean {
     c.json(200, resumeView());
     return true;
   }
+  if (c.p === '/dvswitch/link' && c.m === 'PUT') {
+    if (c.user.role === 'viewer') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
+    const x = (c.body ?? {}).exclusive;
+    if (typeof x !== 'boolean') { c.err(400, 'exclusive is required', 'bad_request'); return true; }
+    pb.exclusive = x;
+    c.json(200, { exclusive: x });
+    return true;
+  }
   if (panelHandler(c)) return true;
   if (c.p === '/dvswitch/private-node' || c.p === '/dvswitch/private-node/rollback') {
     if (c.user.role !== 'admin') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }

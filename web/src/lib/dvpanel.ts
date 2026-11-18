@@ -23,6 +23,21 @@ export function serviceDots(s: DVSnapshot | null | undefined): { unit: string; o
 }
 export const allOk = (s: DVSnapshot | null | undefined): boolean => !!s && s.bridge.source !== 'none' && serviceDots(s).every((d) => d.ok);
 
+/** Colour of the state line: warn when a service is down or the state is unknown, ok when all is well and a target is tuned, else neutral. */
+export function stateTone(s: DVSnapshot | null | undefined): 'ok' | 'warn' | '' {
+  if (!s || !allOk(s) || !s.bridge.mode) return 'warn';
+  return s.bridge.tune ? 'ok' : '';
+}
+
+/** Hover text of the state line: the units that are down, or that all run. */
+export function stateTitle(s: DVSnapshot | null | undefined): string {
+  if (!s) return 'No service state';
+  const down = serviceDots(s).filter((d) => !d.ok).map((d) => `${d.unit}: not running`);
+  if (down.length) return down.join(', ');
+  if (s.bridge.source === 'none' || !s.bridge.mode) return 'The bridge state is unknown';
+  return s.services.length ? 'All services running' : 'No service state';
+}
+
 /** True when the bridge node is linked to the local node (the snapshot's `link`, established only). The talkgroup or reflector does not matter. Decides the card's green tint. */
 export const bridgeLinked = (s: Pick<DVSnapshot, 'bridgeNode' | 'link'> | null | undefined): boolean => !!s && !!s.bridgeNode?.present && !!s.bridgeNode.node && !!s.link?.linked;
 

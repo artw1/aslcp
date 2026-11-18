@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIRM_MS, allOk, bridgeLinked, controlsLocked, defaultFavName, favoriteBlock, favoritesFor, pendingOutcome, serviceDots, shownMode, stateLine, validFavName, validTune } from './dvpanel.ts';
+import { CONFIRM_MS, allOk, bridgeLinked, controlsLocked, defaultFavName, favoriteBlock, favoritesFor, pendingOutcome, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validTune } from './dvpanel.ts';
 import type { DVFavorite, DVSnapshot } from './types';
 
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
@@ -108,4 +108,15 @@ test('the card is tinted only when the bridge node is linked to the local node',
   assert.equal(bridgeLinked(snap({ link: link(true), bridgeNode: { present: true, node: '' } })), false);
   assert.equal(bridgeLinked(null), false);
   assert.equal(bridgeLinked(undefined), false);
+});
+
+test('state tone and title: warn for a down unit or unknown state, ok when tuned', () => {
+  assert.equal(stateTone(snap()), snap().bridge.tune ? 'ok' : '');
+  assert.equal(stateTone(snap({ bridge: { ...bridge, tune: '' } })), '');
+  const down = snap({ services: [{ unit: 'analog_bridge', active: true }, { unit: 'ysfgateway', active: false }] });
+  assert.equal(stateTone(down), 'warn');
+  assert.equal(stateTitle(down), 'ysfgateway: not running');
+  assert.equal(stateTone(snap({ bridge: { ...bridge, source: 'none', mode: '' } })), 'warn');
+  assert.equal(stateTone(null), 'warn');
+  assert.equal(stateTitle(snap()), 'All services running');
 });

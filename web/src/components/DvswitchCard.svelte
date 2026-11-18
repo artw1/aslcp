@@ -6,9 +6,9 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-  import { CONFIRM_MS, allOk, bridgeLinked, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, serviceDots, shownMode, stateLine, validFavName, validTune } from '../lib/dvpanel';
+  import { CONFIRM_MS, allOk, bridgeLinked, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, stateLine, stateTitle, stateTone, validFavName, validTune } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
-  import { linkButton, linkExclusiveOnClick, linkLine, pausedHint } from '../lib/dvbridge';
+  import { exclusiveHint, linkButton, linkExclusiveOnClick, linkLine, pausedHint } from '../lib/dvbridge';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
   import NodePicker from './NodePicker.svelte';
   import Dialog from './Dialog.svelte';
@@ -24,7 +24,7 @@
   const b = $derived(snap?.bridge);
   const mode = $derived((b && b.source !== 'none' ? b.mode : '') as DVTuneMode | '');
   const live = $derived(!!snap?.configured);
-  const dots = $derived(serviceDots(snap));
+  const tone = $derived(stateTone(snap));
   const ok = $derived(allOk(snap));
   const linked = $derived(bridgeLinked(snap));
   let busy = $state(false);
@@ -102,6 +102,14 @@
     } catch (e) { toastError(e); } finally { busy = false; }
   }
 
+  // "Disconnect other links first": a settings write (no config apply, no restart).
+  async function setExclusive(on: boolean) {
+    if (busy || !op) return;
+    busy = true;
+    try { await api.dvswitchSetLinkExclusive(on); app.dvswitch = await api.dvswitchSnapshot(); }
+    catch (e) { toastError(e); app.dvswitch = await api.dvswitchSnapshot().catch(() => app.dvswitch); } finally { busy = false; }
+  }
+
   // Favourites: shared by the whole node, chips for the current mode.
   let favs = $state<DVFavorite[]>([]);
   let favsLoaded = false;
@@ -138,11 +146,8 @@
   <section class="space-y-2 rounded-md border px-2 py-1.5 text-sm {linked ? 'border-ok/50 bg-ok/10' : 'border-line bg-surface'}" aria-label="DVSwitch" data-linked={linked}>
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
       <span class="inline-flex items-center gap-1.5 font-medium"><RadioTower size={15} class="text-accent" aria-hidden="true" />DVSwitch</span>
-      <span class="inline-flex items-center gap-1" role="img" aria-label={ok ? 'All services running' : 'A service is down or the state is unknown'}>
-        {#each dots as d (d.unit)}<span class="inline-block size-2 rounded-full {d.ok ? 'bg-ok' : 'bg-warn'}" title="{d.unit}: {d.ok ? 'running' : 'not running'}"></span>{/each}
-        {#if !dots.length}<span class="inline-block size-2 rounded-full bg-warn" title="No service state"></span>{/if}
-      </span>
-      <span class={mode ? '' : 'text-warn'}>{stateLine(b)}</span>
+      <span class={tone === 'warn' ? 'text-warn' : tone === 'ok' ? 'text-ok' : ''} title={stateTitle(snap)} data-tone={tone}>{stateLine(b)}</span>
+      <span class="sr-only">{ok ? 'All services running' : 'A service is down or the state is unknown'}</span>
       {#if linked}<span class="sr-only">Bridge node linked</span>{/if}
       {#if admin}<a href="#/dvswitch" class="ml-auto text-xs text-accent underline hover:no-underline">Setup</a>{/if}
     </div>
@@ -159,6 +164,8 @@
         <span class={link.mode === 'permanent' && !link.linked ? 'text-warn' : ''} title={linked ? 'Bridge node linked' : undefined}>{linkLine(bn.node, link)}</span>
         {#if op && nodeBtn}<button type="button" class="btn btn-sm" disabled={busy} title={nodeBtn.title} onclick={toggleLink}>{nodeBtn.label}</button>{/if}
       </p>
+      <label class="inline-flex cursor-pointer items-center gap-1.5 text-xs" title={exclusiveHint(link.mode, link.exclusive)} data-testid="dv-exclusive">
+        <input type="checkbox" class="size-4 accent-[var(--accent)]" checked={link.exclusive} onchange={(e) => setExclusive(e.currentTarget.checked)} disabled={!op || busy} />Disconnect other links first</label>
       {#if pausedHint(link)}<p class="text-xs text-muted">{pausedHint(link)}</p>{/if}
     {/if}
     {#if snap.running && !snap.bridgeNode.present}

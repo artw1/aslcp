@@ -255,6 +255,19 @@ func (r *LinkReconciler) Saved(ctx context.Context, prev, cur LinkSettings) {
 	r.Kick()
 }
 
+// ExclusiveChanged is called after the operator saved "Disconnect other links
+// first" on its own. Turning it off disarms a pending exclusive connect;
+// turning it on arms nothing (only a link made in the panel is exclusive), and
+// the pause is left alone.
+func (r *LinkReconciler) ExclusiveChanged(on bool) {
+	if on {
+		return
+	}
+	r.mu.Lock()
+	r.exclUntil = time.Time{}
+	r.mu.Unlock()
+}
+
 // Unlink removes the permanent link before an uninstall (own command). It is
 // a no-op unless the link is permanent.
 func (r *LinkReconciler) Unlink(ctx context.Context) error {

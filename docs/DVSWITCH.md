@@ -432,7 +432,7 @@ Terminology in the UI: the talkgroup "Unlink" button of the card is now labelled
 
 ### Disconnect other links first
 
-The "Bridge node" section has a checkbox "Disconnect other links first" (`dvswitch.link_exclusive`, request field `linkExclusive`, default on like the analog Connect). It reuses the analog `exclusive` semantics and code (`connectLink` / `disconnectOthers`): a normal (non-permanent) `ilink 1` for every other direct link of the local node, then the connect. Permanent links stay.
+The dashboard DVSwitch panel (not the DVSwitch settings page) has a checkbox "Disconnect other links first" next to the Link node button (`dvswitch.link_exclusive`, default on like the analog Connect). Operators and admins can toggle it; it is saved with `PUT /api/dvswitch/link {exclusive}`, which writes the setting only (no config apply, no Asterisk restart). The bridge-node form no longer sends `linkExclusive`, so saving it keeps the saved value (the request field still exists; absent keeps it). It reuses the analog `exclusive` semantics and code (`connectLink` / `disconnectOthers`): a normal (non-permanent) `ilink 1` for every other direct link of the local node, then the connect. Permanent links stay.
 
 | Where | Exclusive? |
 |---|---|
@@ -440,7 +440,7 @@ The "Bridge node" section has a checkbox "Disconnect other links first" (`dvswit
 | **Save** of the bridge section (permanent mode) | Yes, once: `LinkReconciler.Saved` arms it and the connect the save triggers is exclusive. If the link is already up nothing is connected and the armed flag is dropped. It expires after 5 minutes. A rollback is a save too. |
 | Reconciler start, periodic tick, Asterisk restart (also one done through the panel) | **Never.** These relinks are automatic, so they must not fight links made by hand. |
 
-The reconciler's `Linker.Connect(ctx, local, bridge, exclusive)` takes the flag explicitly; only `Saved` can make it true. The panel has no other relink or resume action for a paused permanent link: saving the section is it, and linking the bridge node by hand through the normal Connect uses that Connect's own checkbox. Saving the checkbox alone needs no Asterisk restart.
+The reconciler's `Linker.Connect(ctx, local, bridge, exclusive)` takes the flag explicitly; only `Saved` can make it true. The panel has no other relink or resume action for a paused permanent link: saving the section is it, and linking the bridge node by hand through the normal Connect uses that Connect's own checkbox. Toggling the checkbox needs no Asterisk restart and arms nothing (`LinkReconciler.ExclusiveChanged`; turning it off drops a pending armed exclusive).
 
 The panel holds the reconciler (`LinkReconciler.Hold`) for the whole of an apply, removal or rollback, and releasing it checks the link at once. Without that, the reconciler's tick could relink non-exclusively as soon as the apply's Asterisk restart finished, before `Saved` armed the exclusive.
 
@@ -746,13 +746,13 @@ Docs touched at implementation time: `docs/API.md`, `docs/BACKUP.md`, `docs/CONF
 
 `DvswitchCard.svelte` right after the Connect bar (before `SchedulesCard`), rendered when the snapshot says `installed` (implemented). The snapshot is fetched after login (`GET /api/dvswitch/snapshot`) and kept current by the `dvswitch` SSE event. The pure logic is in `web/src/lib/dvpanel.ts` (tests: `dvpanel.test.ts`).
 
-- Header "DVSwitch" with service dots (analog_bridge, mmdvm_bridge, active gateways); amber when a unit is down or the state is unknown (`bridge.source` is `none`).
+- Header "DVSwitch" with the state line coloured instead of status dots: amber (`text-warn`) when a service (analog_bridge, mmdvm_bridge, active gateways) is down or the state is unknown (`bridge.source` is `none` or no mode), green when all services run and a target is tuned, neutral otherwise. Its hover text names the units that are down; a screen-reader text says whether all services run.
 - Line: "Mode YSF, tuned to Example room (192.0.2.10:42000)", the name resolved by the server from the lists or a favourite; "Mode unknown" when `source` is `none`. A line "Analog_Bridge is not running" shows when it is down, and "No bridge node yet: audio through AllStar needs the bridge node setup" when `bridgeNode.present` is false.
 - Mode buttons DMR / YSF / P25 / NXDN: the current one is highlighted; a mode that is not enabled in MMDVM_Bridge is greyed out with a tooltip. A click highlights the new mode at once (pending); the next snapshot confirms it, and after 5 s without it the card shows "Not confirmed: the bridge still reports X" until a snapshot confirms or the user dismisses it.
 - Tune: `NodePicker` in list mode over `GET /api/dvswitch/lists` for YSF, P25 and NXDN, a plain number field for DMR, validated like the server (`validTune`), and a "Go" button. **DMR has no talkgroup list**: the `dmr` list holds master servers, not talkgroups, so DMR takes a free number only.
 - Favourites: chips for the current mode (a click tunes; a "..." menu renames or deletes), and a star that saves the current target (`bridge.tune`, for YSF the host:port ABInfo reports) after a name prompt that starts with the resolved name. The star is disabled with a reason when nothing valid is tuned, when the target is the unlink value, when it is already a favourite, or at 50 per mode.
 - "Unlink" button: sends the unlink value of the current mode (DMR `4000`, YSF `disconnect`, P25 and NXDN `9999`).
-- Operator and admin get the controls; viewers get text only (state line, dots, favourite names). Admin sees a "Setup" link to the DVSwitch tab. 
+- Operator and admin get the controls; viewers get text only (coloured state line, favourite names). Admin sees a "Setup" link to the DVSwitch tab. 
 - Bridge node line (M2): "Bridge node 1999 linked to 2006 (permanent)", or "not linked ... (permanent, reconnecting)" / "(permanent, paused: you disconnected it)"; in `ondemand` mode a "Link node" / "Unlink node" button for operator and admin (`web/src/lib/dvbridge.ts`, tests `dvbridge.test.ts`). "No bridge node yet" stays when none is configured.
 - Green tint: the whole card (background and border, `ok` token at low opacity, so it works in light and dark mode) is tinted light green only while the bridge node is linked to the local node (`bridgeLinked(snap)`: `bridgeNode.present` with a node, and `link.linked`, established only). The talkgroup or reflector does not matter and there is no second tint. Not colour alone: the card carries `data-linked`, a screen-reader-only "Bridge node linked" and a tooltip on the node line. The mock shows it after "Link node".
 

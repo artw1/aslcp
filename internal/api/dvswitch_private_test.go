@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -66,12 +67,18 @@ func (h logHelper) ConfigRestore(ctx context.Context, commit, author string) (he
 }
 
 // okNodes answers every rpt status unless fail is set.
-type okNodes struct{ fail *atomic.Bool }
+type okNodes struct {
+	fail *atomic.Bool
+	bad  *sync.Map // nodes whose status never answers
+}
 
 func (n okNodes) LocalNodes(context.Context) ([]string, error) { return []string{localNode}, nil }
 func (n okNodes) XStat(_ context.Context, node string) (*rpt.XStat, error) {
 	if n.fail.Load() {
 		return nil, errors.New("no answer")
+	}
+	if _, bad := n.bad.Load(node); bad {
+		return nil, errors.New("no such node")
 	}
 	return &rpt.XStat{Node: node}, nil
 }
@@ -81,6 +88,7 @@ type privEnv struct {
 	dv   *fakeDV
 	dh   *configsvc.DemoHelper
 	fail *atomic.Bool
+	bad  *sync.Map
 }
 
 func newPrivEnv(t *testing.T, rptConf string, dvlink bool) *privEnv {
@@ -92,12 +100,12 @@ func newPrivEnv(t *testing.T, rptConf string, dvlink bool) *privEnv {
 // rpt.conf (the snapshot's view of a USRP node, owned by ASLCP or not).
 func newPrivEnvNode(t *testing.T, rptConf string, dvlink bool, dvNode func(context.Context) (string, bool)) *privEnv {
 	t.Helper()
-	pe := &privEnv{dv: &fakeDV{}, fail: new(atomic.Bool)}
+	pe := &privEnv{dv: &fakeDV{}, fail: new(atomic.Bool), bad: new(sync.Map)}
 	pe.env = newEnv(t, opts{dvswitch: pe.dv, dvInstalled: installed, dvlink: dvlink, dvNode: dvNode, configFn: func(c rpt.API) *configsvc.Service {
 		pe.dh = configsvc.NewDemoHelper()
 		pe.dh.SetFile("rpt.conf", rptConf)
 		pe.dh.SetFile("modules.conf", modConf)
-		s := configsvc.New(logHelper{pe.dh, pe.dv}, c.(configsvc.AMI), okNodes{pe.fail})
+		s := configsvc.New(logHelper{pe.dh, pe.dv}, c.(configsvc.AMI), okNodes{pe.fail, pe.bad})
 		s.HealthTimeout, s.HealthPoll = 300*time.Millisecond, 20*time.Millisecond
 		return s
 	}})
@@ -1100,4 +1108,61 @@ func TestDVReconcilerAutoRelinkNeverExclusive(t *testing.T) {
 	if cmds := e.fake.ilinkCommands(); ilinkIndex(cmds, "ilink 1 50241") >= 0 {
 		t.Fatalf("automatic relink disconnected a link made by hand: %v", cmds)
 	}
+}
+
+// After a renumber the monitor may still list the old bridge node, which is no
+// longer in rpt.conf and never answers: the health check must not wait for it.
+func TestDVPrivateRenumberHealthIgnoresOldNode(t *testing.T) {
+	pe := newPrivEnv(t, nodesRpt, false)
+	pe.set("1998", nil)
+	pe.mon.SetNodes([]string{localNode, "1998"})
+	pe.bad.Store("1998", true)
+	var out struct {
+		dvApplyOut
+		Health struct{ Checks []struct{ Name string } }
+	}
+	start := time.Now()
+	body := map[string]any{"node": "1999", "renumber": true, "restart": true}
+	if c := pe.do("admin", "PUT", "/api/dvswitch/private-node", body, &out); c != 200 || !out.Applied || out.Step != "" {
+		t.Fatalf("%d %+v", c, out)
+	}
+	if d := time.Since(start); d >= 300*time.Millisecond {
+		t.Errorf("apply took %v: it waited for the health timeout", d)
+	}
+	for _, c := range out.Health.Checks {
+		if c.Name == "node 1998" {
+			t.Errorf("the old node was checked: %+v", out.Health.Checks)
+		}
+	}
+}
+
+// PUT /api/dvswitch/link saves the setting alone (no apply, no restart) for
+// operators; the bridge form keeps it when it does not send it.
+func TestDVLinkExclusiveEndpoint(t *testing.T) {
+	pe := newPrivEnv(t, tmplRpt, true)
+	pe.set("1996", nil)
+	restarts := countCmd(pe.env, "core restart gracefully")
+	var out struct{ Exclusive bool }
+	if c := pe.do("op", "PUT", "/api/dvswitch/link", map[string]any{"exclusive": false}, &out); c != 200 || out.Exclusive {
+		t.Fatalf("%d %+v", c, out)
+	}
+	if v, _ := pe.st.GetSetting(dvswitch.SettingLinkExclusive); v != "0" {
+		t.Fatalf("setting = %q", v)
+	}
+	if countCmd(pe.env, "core restart gracefully") != restarts {
+		t.Fatal("restarted Asterisk")
+	}
+	// saving the bridge form without the field keeps it
+	pe.set("1996", nil)
+	if dvswitch.ReadLinkSettings(pe.st).Exclusive {
+		t.Fatal("the form reset the setting")
+	}
+	if c := pe.do("op", "PUT", "/api/dvswitch/link", map[string]any{"exclusive": true}, nil); c != 200 {
+		t.Fatal(c)
+	}
+	if !dvswitch.ReadLinkSettings(pe.st).Exclusive {
+		t.Fatal("not saved")
+	}
+	expectErr(t, pe.env, "op", "PUT", "/api/dvswitch/link", map[string]any{}, 400, "bad_request")
+	expectErr(t, pe.env, "viewer", "PUT", "/api/dvswitch/link", map[string]any{"exclusive": false}, 403, "forbidden")
 }

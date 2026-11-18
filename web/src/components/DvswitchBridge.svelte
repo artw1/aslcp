@@ -4,12 +4,12 @@
   import { api, ApiError } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
   import type { DVApplyResult, DVBridgeSetup, DVPlan, DVLinkMode } from '../lib/types';
-  import { DUPLEX_TEXT, NODE_HINT, canChange, doneText, formError, nodeError, planApplyLabel, planConfirm, planOrder, planTitle, prefill, pausedHint, exclusiveHint } from '../lib/dvbridge';
+  import { DUPLEX_TEXT, NODE_HINT, canChange, doneText, formError, nodeError, planApplyLabel, planConfirm, planOrder, planTitle, prefill, pausedHint } from '../lib/dvbridge';
   import Dialog from './Dialog.svelte';
 
   let { b, base, onsaved }: { b: DVBridgeSetup; base: Record<string, string>; onsaved: () => void | Promise<void> } = $props();
 
-  let f = $state({ node: '', rxPort: '', txPort: '', linkMode: 'ondemand' as DVLinkMode, localNode: '', linkExclusive: true });
+  let f = $state({ node: '', rxPort: '', txPort: '', linkMode: 'ondemand' as DVLinkMode, localNode: '' });
   let seeded = '';
   // Fill the form from the server's view once, and again after a save changed it.
   $effect(() => {
@@ -31,7 +31,7 @@
 
   let busy = $state(false), plan = $state<DVPlan | null>(null), open = $state(false), problem = $state('');
   let result = $state<DVApplyResult | null>(null), failed = $state<{ message: string; step: string; rollback: boolean } | null>(null);
-  const body = () => ({ node: f.node.trim(), rxPort: Number(f.rxPort), txPort: Number(f.txPort), linkMode: f.linkMode, localNode: f.localNode, linkExclusive: f.linkExclusive, base, ...(renumbering ? { renumber: true } : {}) });
+  const body = () => ({ node: f.node.trim(), rxPort: Number(f.rxPort), txPort: Number(f.txPort), linkMode: f.linkMode, localNode: f.localNode, base, ...(renumbering ? { renumber: true } : {}) });
 
   async function preview() {
     if (err || busy) return;
@@ -101,8 +101,6 @@
       <p class="mt-1 text-xs text-muted">{f.linkMode === 'permanent' ? 'ASLCP keeps the link up and re-links after a restart. Disconnecting it by hand pauses that until the next save or Asterisk restart.' : 'You link and unlink from the dashboard card.'}</p></fieldset>
     <div class="col-span-2"><label class="label" for="dvb-local">Link to local node</label>
       <select id="dvb-local" class="input" bind:value={f.localNode}><option value="">Choose a node</option>{#each nodes as n}<option value={n}>{n}</option>{/each}</select></div>
-    <div class="col-span-2 sm:col-span-4"><label class="inline-flex cursor-pointer items-center gap-1.5 text-sm"><input type="checkbox" class="size-4 accent-[var(--accent)]" bind:checked={f.linkExclusive} />Disconnect other links first</label>
-      <p class="mt-1 text-xs text-muted" data-testid="dvb-exclusive-hint">{exclusiveHint(f.linkMode, f.linkExclusive)}</p></div>
     <div class="col-span-2 sm:col-span-4"><button class="btn btn-primary" disabled={busy || !!err}>Review changes</button>
       <span class="ml-2 text-xs {err && f.node ? 'text-warn' : 'text-muted'}">{err ?? 'Shows what would change before anything is written.'}</span></div>
   </form>

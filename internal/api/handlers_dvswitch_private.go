@@ -33,8 +33,45 @@ const (
 func (s *Server) dvPrivateRoutes() {
 	m := s.mux
 	m.HandleFunc("PUT /api/dvswitch/private-node", s.authed(store.RoleAdmin, s.handleDVPrivate))
+	// "Disconnect other links first" is an operator's panel setting: a settings
+	// write, no config apply and no restart.
+	m.HandleFunc("PUT /api/dvswitch/link", s.authed(store.RoleOperator, s.handleDVLinkExclusive))
 	m.HandleFunc("DELETE /api/dvswitch/private-node", s.authed(store.RoleAdmin, s.handleDVPrivateRemove))
 	m.HandleFunc("POST /api/dvswitch/private-node/rollback", s.authed(store.RoleAdmin, s.handleDVPrivateRollback))
+}
+
+// handleDVLinkExclusive: PUT /api/dvswitch/link {"exclusive": bool} saves
+// dvswitch.link_exclusive alone.
+func (s *Server) handleDVLinkExclusive(w http.ResponseWriter, r *http.Request, u store.User) {
+	var in struct {
+		Exclusive *bool `json:"exclusive"`
+	}
+	if !decode(w, r, &in, false) {
+		return
+	}
+	if in.Exclusive == nil {
+		writeErr(w, http.StatusBadRequest, "bad_request", "exclusive is required")
+		return
+	}
+	if s.d.Store == nil {
+		writeErr(w, http.StatusServiceUnavailable, "unavailable", "settings are not available")
+		return
+	}
+	val := "0"
+	if *in.Exclusive {
+		val = "1"
+	}
+	if err := s.d.Store.SetSetting(dvswitch.SettingLinkExclusive, val); err != nil {
+		s.internal(w, err)
+		return
+	}
+	if s.d.DVLink != nil {
+		s.d.DVLink.ExclusiveChanged(*in.Exclusive)
+	}
+	s.audit(u, "dvswitch.link", map[string]any{"exclusive": *in.Exclusive})
+	s.dvs.invalidate()
+	s.dvLinkChanged()
+	writeJSON(w, 200, map[string]any{"exclusive": *in.Exclusive})
 }
 
 // dvPrivReq is the request of PUT /api/dvswitch/private-node.
@@ -842,7 +879,7 @@ func (s *Server) dvPrivateApply(w http.ResponseWriter, r *http.Request, u store.
 	if plan.Kind == dvKindRemove {
 		healthNode = ""
 	}
-	h := s.dvPrivHealth(ctx, healthNode, states)
+	h := s.dvPrivHealth(ctx, healthNode, plan.OldNode, states)
 	if !h.OK {
 		steps = append(steps, dvStep{Name: "health", Detail: "a check failed"})
 		fail("health", "the health check failed after the change", h)
@@ -866,13 +903,25 @@ func (s *Server) dvPrivateApply(w http.ResponseWriter, r *http.Request, u store.
 		"keepRecord": plan.KeepRecord, "rollback": s.dvPrivRollbackInfo()})
 }
 
-func (s *Server) dvPrivHealth(ctx context.Context, node string, states []helper.DVSwitchUnit) configsvc.Health {
+// dvPrivHealth checks node (when set) and the monitored nodes that still exist
+// in rpt.conf as the apply wrote it: after a renumber or removal the monitor
+// may still list the old bridge node, which no longer answers.
+func (s *Server) dvPrivHealth(ctx context.Context, node, oldNode string, states []helper.DVSwitchUnit) configsvc.Health {
 	var nodes []string
 	if node != "" {
 		nodes = append(nodes, node)
 	}
 	if m := s.monitor(); m != nil {
-		nodes = append(nodes, m.Nodes()...)
+		present := s.dvRptNodes(ctx)
+		for _, n := range m.Nodes() {
+			if n == oldNode && n != node {
+				continue
+			}
+			if present != nil && !present[n] {
+				continue
+			}
+			nodes = append(nodes, n)
+		}
 	}
 	h := configsvc.Health{OK: true, Checks: []configsvc.Check{}}
 	if svc := s.d.ConfigEditor; svc != nil {
@@ -889,6 +938,30 @@ func (s *Server) dvPrivHealth(ctx context.Context, node string, states []helper.
 		}
 	}
 	return h
+}
+
+// dvRptNodes is the set of numeric node stanzas in rpt.conf as it is now, or
+// nil when it cannot be read.
+func (s *Server) dvRptNodes(ctx context.Context) map[string]bool {
+	svc := s.d.ConfigEditor
+	if svc == nil {
+		return nil
+	}
+	c, err := svc.Read(ctx, dvRptFile)
+	if err != nil {
+		return nil
+	}
+	f, err := astconf.Parse(dvRptFile, []byte(c.Content))
+	if err != nil {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, sec := range f.Sections() {
+		if !sec.Template && isAllDigits(sec.Name) {
+			out[sec.Name] = true
+		}
+	}
+	return out
 }
 
 // waitAsteriskBack waits, up to AsteriskBackWait and polling every
