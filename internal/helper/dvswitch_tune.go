@@ -31,9 +31,27 @@ var ErrDVNoPorts = errors.New("no_ports: DVSwitch.ini has no ports for this mode
 var DVTuneModes = []string{"DMR", "YSF", "P25", "NXDN"}
 
 // DVTune is the argument of dvswitch-tune.
+//
+// ModeOnly switches the mode and sends no tune (Tune must be empty); a node
+// already in the mode gets no command at all.
 type DVTune struct {
-	Mode string `json:"mode"`
-	Tune string `json:"tune"`
+	Mode     string `json:"mode"`
+	Tune     string `json:"tune"`
+	ModeOnly bool   `json:"modeOnly,omitempty"`
+}
+
+// DVUnlinkTune is the tune value that unlinks the mode (dvswitch.sh): DMR
+// 4000, YSF disconnect, P25 and NXDN 9999. "" for an unknown mode.
+func DVUnlinkTune(mode string) string {
+	switch mode {
+	case "DMR":
+		return "4000"
+	case "YSF":
+		return "disconnect"
+	case "P25", "NXDN":
+		return "9999"
+	}
+	return ""
 }
 
 // DVTuneResult is the reply. Confirmed: ABInfo shows the mode and tune after
@@ -202,11 +220,15 @@ func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneRes
 	if !ok {
 		return DVTuneResult{}, dvInvalid("tune/mode")
 	}
-	if !DVValidTune(t.Mode, t.Tune) {
+	if t.ModeOnly {
+		if t.Tune != "" {
+			return DVTuneResult{}, dvInvalid("tune/value")
+		}
+	} else if !DVValidTune(t.Mode, t.Tune) {
 		return DVTuneResult{}, dvInvalid("tune/value")
 	}
 	value := t.Tune
-	if t.Mode == "YSF" {
+	if t.Mode == "YSF" && !t.ModeOnly {
 		if value, ok = o.dvYSFTarget(t.Tune); !ok {
 			return DVTuneResult{}, dvInvalid("tune/value")
 		}
@@ -230,7 +252,13 @@ func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneRes
 		cmds = append(cmds, "rxport="+strconv.Itoa(dvTLVSwitchPort), "ambeMode="+t.Mode, "txport="+strconv.Itoa(rx), "rxport="+strconv.Itoa(tx), "info")
 		res.Switched = true
 	}
-	cmds = append(cmds, "txTg="+value, "info")
+	if !t.ModeOnly {
+		cmds = append(cmds, "txTg="+value, "info")
+	}
+	if len(cmds) == 0 {
+		res.Confirmed = true // already in the mode, nothing to send
+		return res, nil
+	}
 	if err := o.dvTLVSend(ctx, info.tlvRx, cmds); err != nil {
 		return res, err
 	}
@@ -244,7 +272,7 @@ func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneRes
 	case <-time.After(settle):
 	}
 	if now, err := o.DVSwitchInfo(ctx); err == nil && now.Found && DVNormMode(now.Mode) == t.Mode {
-		res.Confirmed = now.Tune == value || t.Mode == "DMR" && now.TG == value
+		res.Confirmed = t.ModeOnly || now.Tune == value || t.Mode == "DMR" && now.TG == value
 	}
 	return res, nil
 }

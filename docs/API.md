@@ -378,9 +378,26 @@ Design: docs/DVSWITCH.md "Tune and resume". `503 dvswitch_unavailable` when the 
 
 | Method | Path | Role | Body | Response / errors |
 |---|---|---|---|---|
-| POST | `/api/dvswitch/tune` | operator, admin | `{"mode":"DMR\|YSF\|P25\|NXDN","tune":"91"}` | `200` `{"mode","switched","confirmed"}`. `400 invalid_field` (value invalid for the mode), `409 no_info` (bridge not running), `409 no_ports` (no ports for the mode in `DVSwitch.ini`), `502 helper_error`. Audited as `dvswitch.tune` (or `.refused`); the value is in the audit log only when valid |
+| POST | `/api/dvswitch/tune` | operator, admin | `{"mode":"DMR\|YSF\|P25\|NXDN","tune":"91"}` | `200` `{"mode","switched","confirmed","snapshot"}`. `400 invalid_field` (value invalid for the mode), `409 no_info` (bridge not running), `409 no_ports` (no ports for the mode in `DVSwitch.ini`), `502 helper_error`. Audited as `dvswitch.tune` (or `.refused`); the value is in the audit log only when valid |
 | GET | `/api/dvswitch/resume` | operator, admin | | `200` `{"resume":false,"lastMode":"P25","perMode":{"DMR":{"tune":"91","ts":"2","at":"2026-11-17T11:55:00Z"}}}` (`at` RFC 3339 UTC; modes without a remembered tune are absent) |
 | PUT | `/api/dvswitch/resume` | admin | `{"resume":true}` | `200` as GET; `400 bad_request` when `resume` is not a boolean. Audited as `dvswitch.resume` |
+
+### DVSwitch panel (snapshot, mode, unlink, favourites)
+
+Design: docs/DVSWITCH.md "API". `503 dvswitch_unavailable` when the helper is missing. Non-GET needs `X-ASLCP: 1`. Every write is audited (`dvswitch.mode`, `dvswitch.unlink`, `dvswitch.tune`, `dvswitch.favorite.add|update|delete`).
+
+| Method | Path | Role | Body | Response / errors |
+|---|---|---|---|---|
+| GET | `/api/dvswitch/snapshot` | viewer, operator, admin | | `200` `{installed,running,configured,bridge:{mode,tune,targetName?,slot,muted,source:"abinfo"\|"none",updated},modes:[{id,enabled,unlink}],services:[{unit,active}],bridgeNode:{present,node?}}`. No install logs, no identity, no password. `installed:false` is a normal `200`. `configured` = installed and analog_bridge running |
+| POST | `/api/dvswitch/mode` | operator, admin | `{"mode":"DMR\|YSF\|P25\|NXDN"}` | `200` `{mode,switched,confirmed,snapshot}`; `400 bad_request`; `409 mode_disabled`; `409 no_info`; `409 no_ports`; `502 helper_error`. Switches the mode only, no tune |
+| POST | `/api/dvswitch/unlink` | operator, admin | `{}` | `200` as mode. Sends the unlink value of the current mode (DMR `4000`, YSF `disconnect`, P25 `9999`, NXDN `9999`); `409 no_info`, `409 mode_unknown` |
+| POST | `/api/dvswitch/tune` | operator, admin | see above | `200` `{mode,switched,confirmed,snapshot}` |
+| GET | `/api/dvswitch/favorites` | viewer and up | | `200` `[{id,mode,value,name,sort}]` |
+| POST | `/api/dvswitch/favorites` | operator, admin | `{mode,value,name}` | `201` favourite; `400 bad_request` (name 1-40 printable characters, value valid for the mode); `409 duplicate`; `409 limit` (50 per mode) |
+| PUT | `/api/dvswitch/favorites/{id}` | operator, admin | `{name?,sort?}` | `200` favourite; `404 not_found` |
+| DELETE | `/api/dvswitch/favorites/{id}` | operator, admin | | `204`; `404 not_found` |
+
+SSE event `dvswitch` carries the snapshot (all roles), sent only when it changed.
 
 ### DVSwitch DMR login status (operator)
 

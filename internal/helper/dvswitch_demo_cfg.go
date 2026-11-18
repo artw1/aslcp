@@ -115,11 +115,22 @@ func (d *DemoDVSwitch) DVSwitchTune(_ context.Context, r DVSwitchRequest) (DVTun
 	if t == nil {
 		return DVTuneResult{}, errors.New("invalid request: tune only")
 	}
-	if !DVValidTune(t.Mode, t.Tune) {
+	okMode := false
+	for _, m := range DVTuneModes {
+		okMode = okMode || m == t.Mode
+	}
+	if !okMode {
+		return DVTuneResult{}, dvInvalid("tune/mode")
+	}
+	if t.ModeOnly {
+		if t.Tune != "" {
+			return DVTuneResult{}, dvInvalid("tune/value")
+		}
+	} else if !DVValidTune(t.Mode, t.Tune) {
 		return DVTuneResult{}, dvInvalid("tune/value")
 	}
 	value := t.Tune
-	if t.Mode == "YSF" {
+	if t.Mode == "YSF" && !t.ModeOnly {
 		ok := false
 		if d.Lists != nil {
 			value, ok = d.Lists.dvYSFTarget(t.Tune)
@@ -146,6 +157,9 @@ func (d *DemoDVSwitch) DVSwitchTune(_ context.Context, r DVSwitchRequest) (DVTun
 		if t.Mode == "YSF" {
 			c.live.mode = "YSFN"
 		}
+	}
+	if t.ModeOnly {
+		return res, nil
 	}
 	c.live.tune = value
 	if t.Mode == "DMR" {

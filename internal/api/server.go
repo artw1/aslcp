@@ -51,6 +51,12 @@ type Deps struct {
 	// DVResume holds the last tune per mode and the resume setting (nil: 503
 	// dvswitch_unavailable).
 	DVResume DVResume
+	// DVInstalled says whether DVSwitch is on this node, without asking the
+	// helper (nil: assume it may be).
+	DVInstalled func() bool
+	// DVBridgeNode finds the local node that uses a USRP channel (rpt.conf,
+	// read-only; nil: never found).
+	DVBridgeNode func(ctx context.Context) (string, bool)
 	// ConfigEditor is the configuration editing service (nil: 503
 	// config_unavailable).
 	ConfigEditor *configsvc.Service
@@ -122,6 +128,8 @@ type Server struct {
 	monMu sync.RWMutex
 	mon   *rpt.Monitor
 
+	dvs *dvSnapper // DVSwitch snapshot and its change events
+
 	stop     chan struct{}
 	stopOnce sync.Once
 
@@ -169,6 +177,7 @@ func New(d Deps) *Server {
 	s.rec.OnRecord = s.pub.ActivityRecorded
 	s.initFavStats()
 	s.initSchedules()
+	s.initDVSwitch()
 	s.routes()
 	return s
 }

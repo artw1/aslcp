@@ -207,3 +207,71 @@ func TestDVTuneOpDispatch(t *testing.T) {
 		t.Fatal("no datagrams")
 	}
 }
+
+func TestDVUnlinkTune(t *testing.T) {
+	for mode, want := range map[string]string{"DMR": "4000", "YSF": "disconnect", "P25": "9999", "NXDN": "9999"} {
+		if got := DVUnlinkTune(mode); got != want || !DVUnlinkValue(mode, got) {
+			t.Errorf("DVUnlinkTune(%s) = %q", mode, got)
+		}
+	}
+	if DVUnlinkTune("DSTAR") != "" {
+		t.Error("unknown mode has an unlink value")
+	}
+}
+
+func TestDVTuneModeOnlySwitch(t *testing.T) {
+	o, recv := tuneEnv(t, "DMR", "")
+	res, err := o.DVSwitchTune(context.Background(), &DVSwitchRequest{Tune: &DVTune{Mode: "P25", ModeOnly: true}})
+	if err != nil || !res.Switched || res.Mode != "P25" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	want := "rxport=30000|ambeMode=P25|txport=31300|rxport=31303|info"
+	if got := strings.Join(recv(), "|"); got != want {
+		t.Fatalf("datagrams %q, want %q", got, want)
+	}
+}
+
+func TestDVTuneModeOnlySameModeIsQuiet(t *testing.T) {
+	o, recv := tuneEnv(t, "DMR", "")
+	res, err := o.DVSwitchTune(context.Background(), &DVSwitchRequest{Tune: &DVTune{Mode: "DMR", ModeOnly: true}})
+	if err != nil || res.Switched || !res.Confirmed {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if got := recv(); len(got) != 0 {
+		t.Fatalf("datagrams %q", got)
+	}
+}
+
+func TestDVTuneModeOnlyRefusesATarget(t *testing.T) {
+	o, recv := tuneEnv(t, "DMR", "")
+	_, err := o.DVSwitchTune(context.Background(), &DVSwitchRequest{Tune: &DVTune{Mode: "YSF", Tune: "12345", ModeOnly: true}})
+	if !errors.Is(err, ErrDVInvalid) || len(recv()) != 0 {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestDemoDVSwitchModeOnly(t *testing.T) {
+	d := NewDemoDVSwitch()
+	d.installed = true
+	ctx := context.Background()
+	before, _ := d.DVSwitchInfo(ctx)
+	other := "P25"
+	if DVNormMode(before.Mode) == other {
+		other = "NXDN"
+	}
+	res, err := d.DVSwitchTune(ctx, DVSwitchRequest{Tune: &DVTune{Mode: other, ModeOnly: true}})
+	if err != nil || !res.Switched || !res.Confirmed {
+		t.Fatalf("%+v %v", res, err)
+	}
+	after, _ := d.DVSwitchInfo(ctx)
+	if DVNormMode(after.Mode) != other || after.Tune != before.Tune {
+		t.Fatalf("before %+v after %+v", before, after)
+	}
+	if _, err := d.DVSwitchTune(ctx, DVSwitchRequest{Tune: &DVTune{Mode: "DSTAR", ModeOnly: true}}); err == nil {
+		t.Error("unknown mode accepted")
+	}
+	// unlink value goes through the normal tune path
+	if _, err := d.DVSwitchTune(ctx, DVSwitchRequest{Tune: &DVTune{Mode: other, Tune: DVUnlinkTune(other)}}); err != nil {
+		t.Errorf("unlink: %v", err)
+	}
+}

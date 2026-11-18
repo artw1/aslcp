@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -291,5 +292,50 @@ func TestSchedules(t *testing.T) {
 	}
 	if l, _ := s.ListSchedules(); len(l) != 1 {
 		t.Fatalf("list: %v", l)
+	}
+}
+
+func TestDVFavorites(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	a, err := st.AddDVFavorite("YSF", "12345", "Room A")
+	if err != nil || a.Sort != 0 {
+		t.Fatalf("add: %+v %v", a, err)
+	}
+	b, _ := st.AddDVFavorite("YSF", "54321", "Room B")
+	if b.Sort != 1 {
+		t.Fatalf("sort %d", b.Sort)
+	}
+	if _, err := st.AddDVFavorite("YSF", "12345", "again"); !errors.Is(err, ErrDuplicate) {
+		t.Fatalf("duplicate: %v", err)
+	}
+	if _, err := st.AddDVFavorite("P25", "12345", "same value other mode"); err != nil {
+		t.Fatal(err)
+	}
+	n := "Renamed"
+	s0 := 5
+	if f, err := st.UpdateDVFavorite(a.ID, &n, &s0); err != nil || f.Name != n || f.Sort != 5 {
+		t.Fatalf("update: %+v %v", f, err)
+	}
+	l, _ := st.ListDVFavorites()
+	if len(l) != 3 || l[0].Mode != "P25" || l[1].ID != b.ID || l[2].ID != a.ID {
+		t.Fatalf("list order: %+v", l)
+	}
+	if err := st.DeleteDVFavorite(a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteDVFavorite(a.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("delete twice: %v", err)
+	}
+	for i := 0; i < MaxDVFavoritesPerMode; i++ {
+		if _, err := st.AddDVFavorite("NXDN", strconv.Itoa(i+1), "x"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.AddDVFavorite("NXDN", "9000", "x"); !errors.Is(err, ErrLimit) {
+		t.Fatalf("limit: %v", err)
 	}
 }

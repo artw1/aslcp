@@ -9,7 +9,8 @@ import (
 
 // Tune and resume (docs/DVSWITCH.md, "Tune and resume").
 
-// handleDVSwitchTune: POST /api/dvswitch/tune {mode, tune}. The helper
+// handleDVSwitchTune: POST /api/dvswitch/tune {mode, tune}; the reply is
+// {mode, switched, confirmed, snapshot}. The helper
 // validates both per mode; the audit log gets the mode and the value only
 // when they passed the same validators (a TG or a reflector is public data).
 func (s *Server) handleDVSwitchTune(w http.ResponseWriter, r *http.Request, u store.User) {
@@ -36,7 +37,7 @@ func (s *Server) handleDVSwitchTune(w http.ResponseWriter, r *http.Request, u st
 	}
 	s.audit(u, "dvswitch.tune", fields)
 	s.d.Logger.Printf("dvswitch.tune %s by %s", res.Mode, u.Username)
-	writeJSON(w, 200, res)
+	writeJSON(w, 200, s.dvDone(r.Context(), res))
 }
 
 // handleDVSwitchResume: GET /api/dvswitch/resume, the last tune of each mode

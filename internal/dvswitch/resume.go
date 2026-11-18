@@ -7,6 +7,7 @@ package dvswitch
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"regexp"
 	"sync"
@@ -28,6 +29,12 @@ const (
 	// still happen.
 	DefaultWindow = 3 * time.Minute
 )
+
+// ErrNotInstalled is what OnPoll gets when Installed says there is no DVSwitch.
+var ErrNotInstalled = errors.New("dvswitch not installed")
+
+// DefaultViewerInterval is the poll period while a client watches.
+const DefaultViewerInterval = 5 * time.Second
 
 // Source is the part of the helper the tracker uses.
 type Source interface {
@@ -76,6 +83,16 @@ type Tracker struct {
 	// Interval, Fast and Window default to DefaultInterval, FastInterval and
 	// DefaultWindow. Fast is used while a resume is pending (nextInterval).
 	Interval, Fast, Window time.Duration
+	// ViewerInterval (default 5 s) replaces Interval while Viewers reports at
+	// least one connected client, so the dashboard card follows changes made
+	// elsewhere (the Fast period of a pending resume still wins).
+	ViewerInterval time.Duration
+	// Viewers returns the number of connected SSE clients. Nil: none.
+	Viewers func() int
+	// OnPoll is called after every poll with what it read: err is the helper
+	// error, or ErrNotInstalled when the node has no DVSwitch (info is empty
+	// then and the helper was not asked). It runs in the poll goroutine.
+	OnPoll func(info helper.DVSwitchInfo, err error)
 
 	mu     sync.Mutex
 	st     State
@@ -188,6 +205,12 @@ func (t *Tracker) save() error {
 	return t.Store.SetSetting(SettingKey, string(b))
 }
 
+// SetOnPoll and SetViewers wire the hooks; call them before Run.
+func (t *Tracker) SetOnPoll(f func(helper.DVSwitchInfo, error)) { t.OnPoll = f }
+
+// SetViewers sets the client counter (see Viewers).
+func (t *Tracker) SetViewers(f func() int) { t.Viewers = f }
+
 // Get returns the remembered tunes and the setting.
 func (t *Tracker) Get() View {
 	t.mu.Lock()
@@ -242,6 +265,15 @@ func (t *Tracker) delay() time.Duration {
 	if s.Normal <= 0 {
 		s.Normal = DefaultInterval
 	}
+	if t.Viewers != nil && t.Viewers() > 0 {
+		v := t.ViewerInterval
+		if v <= 0 {
+			v = DefaultViewerInterval
+		}
+		if v < s.Normal {
+			s.Normal = v
+		}
+	}
 	if s.Fast <= 0 {
 		s.Fast = FastInterval
 	}
@@ -251,9 +283,16 @@ func (t *Tracker) delay() time.Duration {
 // Poll is one round: read the state, resume if due, record.
 func (t *Tracker) Poll(ctx context.Context) {
 	if t.Installed != nil && !t.Installed() {
+		if t.OnPoll != nil {
+			t.OnPoll(helper.DVSwitchInfo{}, ErrNotInstalled)
+		}
 		return
 	}
 	info, err := t.Src.DVSwitchInfo(ctx)
+	if t.OnPoll != nil {
+		// Reported last, after the resume and the recording of this poll.
+		defer func() { t.OnPoll(info, err) }()
+	}
 	if err != nil {
 		t.mu.Lock()
 		t.ps.Errors++

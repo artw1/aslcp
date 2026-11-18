@@ -190,6 +190,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 	var bkHelper backupsvc.Helper
 	var dvsw api.DVSwitch
 	var dvTrack *dvswitch.Tracker
+	var dvInstalled func() bool
 	var restart func()
 	var restartReq atomic.Bool
 	var firewall func(context.Context) (helper.Firewall, error)
@@ -228,6 +229,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 		ddv := helper.NewDemoDVSwitch()
 		ddv.Lists = ops
 		dvsw = ddv
+		dvInstalled = ddv.Installed
 		// The demo tracker reads the in-memory demo ABInfo, keeps its state in
 		// the demo database (a temporary dir) and polls fast.
 		dvTrack = &dvswitch.Tracker{Src: ddv, Store: st, Logger: logger, Installed: ddv.Installed, Interval: 3 * time.Second}
@@ -245,6 +247,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 		upd.OS.Logger = logger
 		power = hc
 		dvsw = hc
+		dvInstalled = dvswitchInstalled
 		dvTrack = &dvswitch.Tracker{Src: hc, Store: st, Logger: logger, Installed: dvswitchInstalled}
 		bg(func() { upd.Run(ctx) })
 		bg(func() { upd.OS.Run(ctx) })
@@ -288,7 +291,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 		RescanNodes:  func() { kick(rescan) },
 		Tuning:       tune,
 		ConfigEditor: cfgSvc,
-		Auth:         as, Store: st, AMI: proxy, Nodelist: nl, System: sys, Updates: upd, Power: power, DVSwitch: dvsw, DVResume: dvTrack, Version: version,
+		Auth:         as, Store: st, AMI: proxy, Nodelist: nl, System: sys, Updates: upd, Power: power, DVSwitch: dvsw, DVResume: dvTrack, DVInstalled: dvInstalled, DVBridgeNode: dvBridgeNode(cfgHelper), Version: version,
 		UI: webui.Handler(), AllowedOrigins: origins, AllScanDirs: allscan.DefaultDirs, Logger: logger,
 		Log: ring, Config: cfg, ConfigPath: cfgPath, Firewall: firewall,
 		PublicDefaultEnabled: demoMode,
@@ -632,4 +635,14 @@ func seedDemoSchedules(st *store.Store, now time.Time) {
 func dvswitchInstalled() bool {
 	fi, err := os.Stat(filepath.Join(helper.DefaultDVOptDir, "Analog_Bridge", "Analog_Bridge.ini"))
 	return err == nil && fi.Mode().IsRegular()
+}
+
+// dvBridgeNode finds the node with a USRP channel in rpt.conf (read-only), for
+// the "No bridge node yet" line of the DVSwitch card.
+func dvBridgeNode(src any) func(context.Context) (string, bool) {
+	cs, ok := src.(susb.ConfigSource)
+	if !ok {
+		return nil
+	}
+	return func(ctx context.Context) (string, bool) { return susb.USRPNode(ctx, cs) }
 }

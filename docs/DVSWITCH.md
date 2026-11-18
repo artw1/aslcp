@@ -533,15 +533,16 @@ Base `/api/dvswitch`. Errors `{error, code}` as everywhere; all non-GET need `X-
 
 | Method | Path | Role | Body | Response / errors |
 |---|---|---|---|---|
-| GET | `/api/dvswitch` | viewer (M1); **admin in M3** | | `200` Snapshot (below). M3 ships the install/uninstall status here (admin only, see docs/API.md); M1 extends it |
-| POST | `/api/dvswitch/mode` | operator | `{"mode": "dmr\|ysf\|p25\|nxdn"}` | `200` Snapshot plus `confirmed: bool` (ABInfo shows the new mode); `400 bad_request`; `409 mode_disabled`; `409 not_configured`; `502 bridge_unreachable` (no ABInfo/TLV port) |
-| POST | `/api/dvswitch/tune` | operator | `{"mode": "ysf", "target": "192.0.2.10:42000"}` | `200` Snapshot + `confirmed`; `400 bad_target` (validator); `409 mode_mismatch` (bridge is in another mode now) |
-| POST | `/api/dvswitch/unlink` | operator | `{}` | `200` Snapshot; sends the unlink value of the current mode |
+| GET | `/api/dvswitch` | **admin** | | `200` install/uninstall status (M3, docs/API.md). Not the snapshot: it carries install logs |
+| GET | `/api/dvswitch/snapshot` | viewer, operator, admin | | M1, implemented: `200` Snapshot (below), no install logs, no secrets. `installed: false` when DVSwitch is absent (200, not an error) |
+| POST | `/api/dvswitch/mode` | operator | `{"mode": "DMR\|YSF\|P25\|NXDN"}` (any case) | M1, implemented: `200` `{mode, switched, confirmed, snapshot}`; `400 bad_request`; `409 mode_disabled` (not enabled in MMDVM_Bridge); `409 no_info`; `409 no_ports`; `502 helper_error`. Mode only, never a tune |
+| POST | `/api/dvswitch/tune` | operator | `{"mode": "YSF", "tune": "192.0.2.10:42000"}` | M1, implemented: `200` `{mode, switched, confirmed, snapshot}`; `400 invalid_field`; `409 no_info`, `409 no_ports` |
+| POST | `/api/dvswitch/unlink` | operator | `{}` (or no body) | M1, implemented: `200` as mode; sends the unlink value of the mode ABInfo reports; `409 no_info`, `409 mode_unknown` |
 | GET | `/api/dvswitch/lists?mode=dmr\|ysf\|p25\|nxdn` | operator (admin too; **viewer is refused**, a pick is a control action) | | Implemented (host and TG lists, see below): `200` `{"mode", "items": [{"value", "name", "detail"?, "address", "port"}], "truncated"?, "etag"}` (max 5000, `ETag` header, `304` on `If-None-Match`); `400 bad_request` (mode not in the enum); `404 no_list` when the file is missing (the UI falls back to free input) |
-| GET | `/api/dvswitch/favorites` | viewer | | `200` `[{"id","mode","value","name","sort"}]` |
-| POST | `/api/dvswitch/favorites` | operator | `{"mode","value","name"}` | `201` favourite; `400`; `409 duplicate` (mode+value) |
-| PUT | `/api/dvswitch/favorites/{id}` | operator | `{"name","sort"}` | `200`; `404 not_found` |
-| DELETE | `/api/dvswitch/favorites/{id}` | operator | | `204`; `404` |
+| GET | `/api/dvswitch/favorites` | viewer | | M1, implemented: `200` `[{"id","mode","value","name","sort"}]` ordered by mode, sort, id |
+| POST | `/api/dvswitch/favorites` | operator | `{"mode","value","name"}` | `201` favourite; `400 bad_request` (mode, value per mode, name 1-40 printable characters); `409 duplicate` (mode+value); `409 limit` (50 per mode) |
+| PUT | `/api/dvswitch/favorites/{id}` | operator | `{"name"?,"sort"?}` | `200` favourite; `400`; `404 not_found` |
+| DELETE | `/api/dvswitch/favorites/{id}` | operator | | `204`; `404 not_found` |
 | GET | `/api/dvswitch/setup` | admin | | M4, implemented: `200` Setup view (docs/API.md "DVSwitch setup") |
 | POST | `/api/dvswitch/install` | admin | none | M3, implemented: `202` status (job running); `409 job_running`, `409 apt_busy`, `409 already_installed`, `409 unsupported_platform`, `409 clock_unset`, `502 key_mismatch`, `503 dvswitch_unavailable` |
 | POST | `/api/dvswitch/uninstall` | admin | none | M3, implemented: `202` status; `409 not_aslcp_installed`, `409 job_running`, `409 apt_busy`, `503` |
@@ -551,33 +552,45 @@ Base `/api/dvswitch`. Errors `{error, code}` as everywhere; all non-GET need `X-
 | PUT | `/api/dvswitch/credentials` | admin | `{"dmrAddress"?, "dmrPort"?, "dmrPassword"?: "...", "clearPassword"?: true}` | M4, implemented: `200` Setup view (password only as `passwordSet`); an empty body (no key) is a no-op: `200`, nothing written, no `changed` or `restartHint`; an empty or invalid password `400 invalid_field`; write-only. The body keys are `dmrAddress`, `dmrPort`, `dmrPassword`, `clearPassword` (`dmrPassword` together with `clearPassword: true` is `400 invalid_field`; `clearPassword: false` is the same as absent) |
 | PUT | `/api/dvswitch/modes` | admin | `{"dmr": true, "ysf": true, "p25": false, "nxdn": false}` | M4, implemented: `200` Setup view with `restartHint`; restarts proposed, not forced |
 | PUT | `/api/dvswitch/startup` | admin | `{ambeMode?, txTg?, txTs?, colorCode?, ysf?, p25?, nxdn?}` | `200` Setup view; only the given fields are written. `{"useCurrent":true}` no longer exists (an unknown field is ignored by the API and nothing is written) |
-| POST | `/api/dvswitch/tune` | operator | `{mode, tune}` | `200` `{mode, switched, confirmed}`; `400 invalid_field`, `409 no_info`, `409 no_ports`; audited (`dvswitch.tune`) |
 | GET | `/api/dvswitch/resume` | operator | | `200` `{resume, lastMode, perMode}` |
 | PUT | `/api/dvswitch/resume` | admin | `{resume: bool}` | `200` as GET; `400` without the field; audited |
 | POST | `/api/dvswitch/restart` | admin | `{"scope": "bridge\|gateways\|all"}` | M4, implemented: `200` `{action, units, skipped, states, warning}`; `action` `restart` (default) or `start`; `409 not_installed` when no unit of the scope exists |
 | POST | `/api/dvswitch/rollback` | admin | `{"file": "analog_bridge"}` | M4, implemented: `200` Setup view; `404 no_history` |
 
-Snapshot (also the SSE payload):
+Snapshot (M1, implemented; also the SSE payload; `GET /api/dvswitch/snapshot`):
 
 ```json
 {
-  "supported": true,
   "installed": true,
+  "running": true,
   "configured": true,
-  "version": "1.0.0",
-  "node": "1999",
-  "link": { "mode": "permanent", "localNode": "2006", "linked": true, "paused": false },
-  "bridge": { "mode": "ysf", "target": "192.0.2.10:42000", "targetName": "Example room", "slot": 2, "muted": false,
+  "bridge": { "mode": "YSF", "tune": "192.0.2.10:42000", "targetName": "Example room", "slot": 2, "muted": false,
               "source": "abinfo", "updated": "2026-11-17T18:42:00+01:00" },
-  "modes": [ { "id": "dmr", "enabled": true, "unlink": "4000" }, { "id": "ysf", "enabled": true, "unlink": "disconnect" } ],
-  "services": [ { "unit": "analog_bridge", "active": true, "enabled": true } ],
-  "install": { "job": "idle", "jobLog": "" }
+  "modes": [ { "id": "DMR", "enabled": true, "unlink": "4000" }, { "id": "YSF", "enabled": true, "unlink": "disconnect" },
+             { "id": "P25", "enabled": false, "unlink": "9999" }, { "id": "NXDN", "enabled": false, "unlink": "9999" } ],
+  "services": [ { "unit": "analog_bridge", "active": true }, { "unit": "mmdvm_bridge", "active": true } ],
+  "bridgeNode": { "present": true, "node": "1999" }
 }
 ```
 
-`bridge.source` is `abinfo`, `commanded` (option D, unverified) or `none`. `supported` is false when arch/codename are not in the verified matrix (the setup page hides Install then). Setup view (admin): `{identity: {callsign, dmrId, essid}, dmr: {address, port, passwordSet}, usrp: {rxPort, txPort}, privateNode: {node, exists, moduleLoaded}, link, modes, gateways: {ysf: {present, startup}, ...}, files: [{id, present, writable}]}`; no secret values anywhere.
+What the code does differently from the first design (the code wins):
 
-SSE: event `dvswitch` (all roles) carries the Snapshot, sent on change (own commands, service state changes, job log lines) and not in the initial state: the client fetches `GET /api/dvswitch` after login, like schedules.
+- The snapshot is its own endpoint, `GET /api/dvswitch/snapshot`; `GET /api/dvswitch` stays the admin install status, because it carries install logs.
+- Mode ids are upper case (`DMR`, `YSF`, `P25`, `NXDN`), as in `/tune`; `/mode` accepts any case. The tune body is `{mode, tune}`, not `{mode, target}`; `bridge.tune` is the value ABInfo reports (for DMR the talkgroup).
+- `slot` is an integer (0 when unknown). No `supported`, `version`, `node`, `link` or `install` fields; the link line and its reconciler belong to M2. `bridge.source` is `abinfo` or `none` (no `commanded` fallback).
+- `installed` is the DVSwitch install check; `running` is analog_bridge active; **`configured` = installed and running** (the card shows the controls on it). `bridgeNode` is read-only from `rpt.conf`: the first numeric node section whose rxchannel is `USRP/...`, cached 60 s. When absent the card says "No bridge node yet: audio through AllStar needs the bridge node setup".
+- `services` lists analog_bridge, mmdvm_bridge and the gateway of every enabled mode. No `enabled` field per unit.
+- `targetName` is resolved from the host lists (YSF by id or `host:port`, P25, NXDN and DMR by value) and falls back to a favourite with the same value; cached per mode for 10 minutes (1 minute after a read error). It never contains the callsign, the DMR ID or a password.
+- A `last_tune` that ABInfo kept from another mode is not shown: the tracker remembers the mode it saw it in.
+- Mode `/mode` is mode-only: the helper tune op takes `modeOnly: true`, sends the switch datagrams without `txTg` and without the YSF host lookup, and sends nothing when the bridge is already in the mode. `confirmed` is true when ABInfo shows the mode (the handler re-reads for up to about 1.8 s).
+- **Unlink values** (the same table the tune validator accepts): DMR `4000`, YSF `disconnect`, P25 `9999`, NXDN `9999`. `/unlink` sends the value of the mode ABInfo reports, so it cannot unlink a mode the bridge is not in. It sends a normal tune with that value (`txTg=<value>`).
+- Favourites are node-wide, in the ASLCP database (migration 5), at most 50 per mode, name 1-40 printable characters (trimmed), value checked with the mode's tune validator. `POST` answers `201` with the object. There is an extra `409 limit`.
+- No rate limit on the new endpoints (they are operator-only and the helper serializes TLV writes).
+- Audit actions: `dvswitch.mode`, `dvswitch.unlink`, `dvswitch.tune`, `dvswitch.favorite.add`, `.update`, `.delete`, each with `.refused` where a refusal is audited (`mode`, `unlink`).
+
+Setup view (admin): `{identity: {callsign, dmrId, essid}, dmr: {address, port, passwordSet}, usrp: {rxPort, txPort}, privateNode: {node, exists, moduleLoaded}, link, modes, gateways: {ysf: {present, startup}, ...}, files: [{id, present, writable}]}`; no secret values anywhere.
+
+SSE: event `dvswitch` (all roles) carries the Snapshot, published only when it changed (the comparison ignores `bridge.updated`) and only while a client is connected; not in the initial state: the client fetches `GET /api/dvswitch/snapshot` after login, like schedules. Drivers: the tracker poll (every 15 s, every 2 s while a resume is pending, about 5 s while at least one SSE client is connected), and after an own command (mode, tune, unlink, install, config write, restart) a re-read at about 300 ms and 1.5 s. Reads inside the poll are cached (status and setup 15 s) so the 5 s cadence costs one ABInfo read.
 
 ## Settings and storage
 
@@ -587,8 +600,7 @@ SSE: event `dvswitch` (all roles) carries the Snapshot, sent on change (own comm
 | `dvswitch.link_mode` | `ondemand` (default) or `permanent` |
 | `dvswitch.link_node` | local node the permanent link starts from |
 | `dvswitch.link_paused` | reconciler pause after a manual disconnect |
-| `dvswitch.last_cmd` | JSON `{mode, target, at, by}` for the degraded display |
-| table `dvswitch_favorites` (new migration, appended to `migrations`) | `id INTEGER PRIMARY KEY, mode TEXT, value TEXT, name TEXT, sort INTEGER, created INTEGER`, `UNIQUE(mode, value)`; part of the ASLCP database, so already in backups |
+| table `dvswitch_favorites` (migration 5, implemented) | `id INTEGER PRIMARY KEY, mode TEXT, value TEXT, name TEXT, sort INTEGER, created INTEGER`, `UNIQUE(mode, value)`; part of the ASLCP database, so already in backups |
 
 The source of truth for node, ports and identity is always the config files, never these settings.
 
@@ -613,7 +625,7 @@ Docs touched at implementation time: `docs/API.md`, `docs/BACKUP.md`, `docs/CONF
 
 ### Dashboard card
 
-`DvswitchCard.svelte` after `SchedulesCard`, rendered only when `snapshot.configured`.
+`DvswitchCard.svelte` after `SchedulesCard`, rendered when the snapshot says `installed` (the controls need `configured`).
 
 - Header "DVSwitch" with service dots (analog_bridge, mmdvm_bridge, active gateways); amber when a unit is down or the state is unknown.
 - Line: "Mode YSF, tuned to Example room (192.0.2.10:42000)", name resolved from the lists or a favourite; "Mode unknown" when `source` is `none`.
@@ -640,7 +652,7 @@ Each milestone is shippable alone and useful on a node where DVSwitch was instal
 
 | M | Content | Must be verified on a real node first |
 |---|---|---|
-| **M1 Panel** | `dvswitch-status`, `dvswitch-info`, native TLV control, snapshot/SSE, lists, favourites, card, demo/mock, API docs. Configured = a USRP node exists and `analog_bridge` is loaded; nothing is written to any config | ABInfo sample, option A works (or B), exact datagram sequence and timing of `mode`, a real mode switch and tune per mode, host file formats and permissions |
+| **M1 Panel (backend implemented 2026-11-18)** | `dvswitch-status`, `dvswitch-info`, native TLV control, snapshot/SSE, lists, favourites, card, demo/mock, API docs. Configured = a USRP node exists and `analog_bridge` is loaded; nothing is written to any config | ABInfo sample, option A works (or B), exact datagram sequence and timing of `mode`, a real mode switch and tune per mode, host file formats and permissions |
 | **M2 Private node + USRP** | astconf node and modules edits, preview/apply plan, ports through `dvswitch-config-apply` (USRP keys only), `dvswitch-restart`, link toggle + reconciler, DVSwitch tab (Node section), DVSwitch part in backups, mask.go rule | Stanza and `duplex` on a working bridge, chan_usrp load behaviour, `update-config.sh` effect, unit dependencies, backup/restore round trip |
 | **M3 Installer (implemented, install and uninstall unverified on a real node)** | `dvswitch-install`, `dvswitch-uninstall`, job UI, platform gating, explicit package set (no `dvswitch-server`) | Minimal set works without recommends at runtime (the packages ship the scripts, inis, units and host files: verified 2026-11-17), armhf and amd64 against arm64 behaviour, trixie architectures, keyring holds one primary key, licence, whether Asterisk config is touched. Installer content, key, bookworm repo and package facts: verified 2026-11-17 |
 | **M4 Credentials and config (implemented; gateway ini keys verified from the packages, the rest unverified on a real node)** | Identity, DMR network password, enabled modes, startup values, gateway startup reflectors, rollback, restart/start, DVSwitch tab sections, mask.go rule | Password character handling, DMR connect with a test hotspot account, restarts per change, 9-digit MMDVM `Id`; see the M4 checklist |

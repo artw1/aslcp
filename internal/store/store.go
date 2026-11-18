@@ -125,6 +125,16 @@ var migrations = []string{
 		created INTEGER NOT NULL,
 		updated INTEGER NOT NULL
 	);`,
+	// 5: DVSwitch favourites, shared node-wide (docs/DVSWITCH.md).
+	`CREATE TABLE dvswitch_favorites (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		mode TEXT NOT NULL,
+		value TEXT NOT NULL,
+		name TEXT NOT NULL,
+		sort INTEGER NOT NULL DEFAULT 0,
+		created INTEGER NOT NULL,
+		UNIQUE(mode, value)
+	);`,
 }
 
 // Open opens (creating if needed) the database at path and migrates it.

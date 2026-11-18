@@ -460,3 +460,40 @@ func TestFirstPollIsFastWhenResumePending(t *testing.T) {
 		t.Fatalf("%v", d)
 	}
 }
+
+func TestViewersShortenThePoll(t *testing.T) {
+	tr, _, _, _ := newTracker(t)
+	tr.Poll(context.Background())
+	if d := tr.delay(); d != DefaultInterval {
+		t.Fatalf("no viewers: %v", d)
+	}
+	n := 0
+	tr.SetViewers(func() int { return n })
+	if d := tr.delay(); d != DefaultInterval {
+		t.Fatalf("viewers 0: %v", d)
+	}
+	n = 2
+	if d := tr.delay(); d != DefaultViewerInterval {
+		t.Fatalf("viewers 2: %v", d)
+	}
+	tr.ViewerInterval = time.Hour // never slower than the normal period
+	if d := tr.delay(); d != DefaultInterval {
+		t.Fatalf("slow viewer interval: %v", d)
+	}
+}
+
+func TestOnPollReports(t *testing.T) {
+	tr, src, _, _ := newTracker(t)
+	var got []error
+	var infos []helper.DVSwitchInfo
+	tr.SetOnPoll(func(i helper.DVSwitchInfo, err error) { infos, got = append(infos, i), append(got, err) })
+	src.info = started(other(t, "P25", "10100"), t0)
+	tr.Poll(context.Background())
+	src.err = errors.New("down")
+	tr.Poll(context.Background())
+	tr.Installed = func() bool { return false }
+	tr.Poll(context.Background())
+	if len(got) != 3 || got[0] != nil || infos[0].Mode != "P25" || got[1] == nil || !errors.Is(got[2], ErrNotInstalled) {
+		t.Fatalf("%v %+v", got, infos)
+	}
+}

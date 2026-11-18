@@ -69,6 +69,8 @@ func (s *Server) dvWrite(w http.ResponseWriter, r *http.Request, u store.User, a
 	}
 	s.audit(u, action, map[string]any{"keys": keys, "files": res.Files})
 	s.d.Logger.Printf("%s by %s (%d files)", action, u.Username, len(res.Files))
+	s.dvs.invalidate()
+	s.dvs.refreshSoon()
 	s.dvSetupView(w, r, &res)
 }
 
@@ -250,6 +252,8 @@ func (s *Server) handleDVSwitchRestart(w http.ResponseWriter, r *http.Request, u
 	}
 	s.audit(u, "dvswitch."+res.Action, map[string]any{"scope": safeScope(b.Scope), "units": res.Units})
 	s.d.Logger.Printf("dvswitch.%s %s by %s", res.Action, b.Scope, u.Username)
+	s.dvs.invalidate()
+	s.dvs.afterCommand()
 	writeJSON(w, 200, map[string]any{"action": res.Action, "units": res.Units, "skipped": res.Skipped, "states": res.States, "warning": dvRestartWarning})
 }
 

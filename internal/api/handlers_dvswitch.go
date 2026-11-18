@@ -45,6 +45,7 @@ type DVResume interface {
 // restart are admin only (they change system packages and files); the lists,
 // the DMR login state, the tune and the remembered tunes are for operators.
 func (s *Server) dvswitchRoutes() {
+	s.dvswitchCtlRoutes()
 	m := s.mux
 	m.HandleFunc("GET /api/dvswitch", s.authed(store.RoleAdmin, s.handleDVSwitchStatus))
 	m.HandleFunc("GET /api/dvswitch/job", s.authed(store.RoleAdmin, s.handleDVSwitchJob))
@@ -132,6 +133,7 @@ func (s *Server) dvswitchStart(w http.ResponseWriter, r *http.Request, u store.U
 	}
 	s.audit(u, action, nil)
 	s.d.Logger.Printf("%s started by %s", action, u.Username)
+	s.dvs.invalidate()
 	writeJSON(w, http.StatusAccepted, st)
 }
 

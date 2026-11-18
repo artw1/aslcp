@@ -166,14 +166,18 @@ type opts struct {
 	power     api.Power
 	dvswitch  api.DVSwitch
 	dvresume  api.DVResume
-	config    *configsvc.Service
-	configFn  func(rpt.API) *configsvc.Service
-	log       *diag.Ring
-	cfg       func(secret string) config.Config
-	backupFn  func(st *store.Store) *backupsvc.Service
-	restart   func()
-	tuning    func() *susb.Service
-	favstats  *favstats.Service
+	// dvInstalled and dvNode feed the DVSwitch snapshot; without dvInstalled
+	// the node has no DVSwitch and the snapshot never calls the fake.
+	dvInstalled func() bool
+	dvNode      func(context.Context) (string, bool)
+	config      *configsvc.Service
+	configFn    func(rpt.API) *configsvc.Service
+	log         *diag.Ring
+	cfg         func(secret string) config.Config
+	backupFn    func(st *store.Store) *backupsvc.Service
+	restart     func()
+	tuning      func() *susb.Service
+	favstats    *favstats.Service
 	// schedules builds a schedule engine on a fake clock (env.clk), in New
 	// York time; the clock starts on Tuesday 2026-11-17 18:59:50.
 	schedules bool
@@ -227,6 +231,10 @@ func newEnv(t *testing.T, o opts) *env {
 	deps.Power = o.power
 	deps.DVSwitch = o.dvswitch
 	deps.DVResume = o.dvresume
+	deps.DVInstalled, deps.DVBridgeNode = o.dvInstalled, o.dvNode
+	if deps.DVInstalled == nil {
+		deps.DVInstalled = func() bool { return false }
+	}
 	if o.backupFn != nil {
 		deps.Backup = o.backupFn(st)
 		deps.Restart = o.restart
