@@ -6,7 +6,7 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-  import { CONFIRM_MS, allOk, bridgeLinked, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, stateLine, stateTitle, stateTone, validFavName, validTune } from '../lib/dvpanel';
+  import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, stateLine, stateTitle, stateTone, validFavName, validTune } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import { exclusiveHint, linkButton, linkExclusiveOnClick, linkLine, pausedHint } from '../lib/dvbridge';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
@@ -27,6 +27,8 @@
   const tone = $derived(stateTone(snap));
   const ok = $derived(allOk(snap));
   const linked = $derived(bridgeLinked(snap));
+  const nodeName = $derived(bridgeNodeName(snap));
+  // What keys the bridge from the digital side: the bridge node's link is keyed (live from the node status), mode and target from ABInfo.
   let busy = $state(false);
 
   // Mode switch: highlighted at once, confirmed by the next snapshot, "Not confirmed" after 5 s.
@@ -161,8 +163,8 @@
     {/if}
     {#if bn?.present && bn.node && link}
       <p class="flex flex-wrap items-center gap-2" data-testid="dv-node-link">
-        <span class={link.mode === 'permanent' && !link.linked ? 'text-warn' : ''} title={linked ? 'Bridge node linked' : undefined}>{linkLine(bn.node, link)}</span>
-        {#if op && nodeBtn}<button type="button" class="btn btn-sm" disabled={busy} title={nodeBtn.title} onclick={toggleLink}>{nodeBtn.label}</button>{/if}
+        <span class={link.mode === 'permanent' && !link.linked ? 'text-warn' : ''} title={linked ? 'Bridge node linked' : undefined}>{linkLine(bn.node, link, nodeName)}</span>
+        {#if op && nodeBtn}<button type="button" class="btn btn-sm {nodeLinkClass(nodeBtn.action)}" disabled={busy} title={nodeBtn.title} onclick={toggleLink}>{nodeBtn.label}</button>{/if}
         <label class="inline-flex cursor-pointer items-center gap-1.5 text-xs" title={exclusiveHint(link.mode, link.exclusive)} data-testid="dv-exclusive">
           <input type="checkbox" class="size-4 accent-[var(--accent)]" checked={link.exclusive} onchange={(e) => setExclusive(e.currentTarget.checked)} disabled={!op || busy} />Disconnect other links first</label>
       </p>

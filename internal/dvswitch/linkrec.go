@@ -28,7 +28,16 @@ const (
 	// SettingLinkExclusive is "Disconnect other links first": "1" or "0";
 	// absent means DefaultLinkExclusive. It needs no rpt.conf change.
 	SettingLinkExclusive = "dvswitch.link_exclusive"
+	// SettingNodeName is the display name of the bridge node (absent: the
+	// default). It is shown only; nothing in Asterisk or DVSwitch uses it.
+	SettingNodeName = "dvswitch.node_name"
 )
+
+// DefaultNodeName is the label of the bridge node when no name is set.
+const DefaultNodeName = "DVSwitch linked node"
+
+// NodeNameMax is the longest name, in characters.
+const NodeNameMax = 40
 
 // DefaultLinkExclusive is the default of "Disconnect other links first": on,
 // like the analog Connect's "Disconnect before Connect" checkbox.

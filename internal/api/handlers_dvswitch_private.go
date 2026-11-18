@@ -36,8 +36,67 @@ func (s *Server) dvPrivateRoutes() {
 	// "Disconnect other links first" is an operator's panel setting: a settings
 	// write, no config apply and no restart.
 	m.HandleFunc("PUT /api/dvswitch/link", s.authed(store.RoleOperator, s.handleDVLinkExclusive))
+	m.HandleFunc("PUT /api/dvswitch/private-node/name", s.authed(store.RoleAdmin, s.handleDVNodeName))
 	m.HandleFunc("DELETE /api/dvswitch/private-node", s.authed(store.RoleAdmin, s.handleDVPrivateRemove))
 	m.HandleFunc("POST /api/dvswitch/private-node/rollback", s.authed(store.RoleAdmin, s.handleDVPrivateRollback))
+}
+
+// dvNodeName is the display name of the bridge node: the saved one or the default.
+func (s *Server) dvNodeName() string {
+	if s.d.Store != nil {
+		if v, err := s.d.Store.GetSetting(dvswitch.SettingNodeName); err == nil {
+			if n, ok := dvNodeNameValid(v); ok && n != "" {
+				return n
+			}
+		}
+	}
+	return dvswitch.DefaultNodeName
+}
+
+// dvNodeNameValid trims a name and checks it: at most 40 printable
+// characters; empty is allowed (it means the default).
+func dvNodeNameValid(v string) (string, bool) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "", true
+	}
+	return dvFavName(v)
+}
+
+// handleDVNodeName: PUT /api/dvswitch/private-node/name {"name": "..."} saves
+// the display name of the bridge node (dvswitch.node_name alone: no config
+// apply, no restart). An empty name restores the default.
+func (s *Server) handleDVNodeName(w http.ResponseWriter, r *http.Request, u store.User) {
+	var in struct {
+		Name *string `json:"name"`
+	}
+	if !decode(w, r, &in, false) {
+		return
+	}
+	if in.Name == nil {
+		writeErr(w, http.StatusBadRequest, "bad_request", "name is required")
+		return
+	}
+	name, ok := dvNodeNameValid(*in.Name)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "bad_request", "the name must be 1 to 40 printable characters, or empty for the default")
+		return
+	}
+	if s.d.Store == nil {
+		writeErr(w, http.StatusServiceUnavailable, "unavailable", "settings are not available")
+		return
+	}
+	if err := s.d.Store.SetSetting(dvswitch.SettingNodeName, name); err != nil {
+		s.internal(w, err)
+		return
+	}
+	s.audit(u, "dvswitch.node_name", map[string]any{"name": name})
+	s.dvs.refreshSoon()
+	n := name
+	if n == "" {
+		n = dvswitch.DefaultNodeName
+	}
+	writeJSON(w, 200, map[string]any{"name": n})
 }
 
 // handleDVLinkExclusive: PUT /api/dvswitch/link {"exclusive": bool} saves
@@ -891,6 +950,9 @@ func (s *Server) dvPrivateApply(w http.ResponseWriter, r *http.Request, u store.
 	}
 	switch plan.Kind {
 	case dvKindRemove:
+		if s.d.Store != nil { // the name belonged to the removed node
+			_ = s.d.Store.SetSetting(dvswitch.SettingNodeName, "")
+		}
 		s.audit(u, "dvswitch.private.remove", map[string]any{"node": plan.Node, "restart": plan.RestartAsterisk, "ini": plan.iniChange, "keepRecord": plan.KeepRecord, "unlinked": len(plan.Unlinks)})
 		s.d.Logger.Printf("dvswitch private node %s removed by %s (record kept: %v)", plan.Node, u.Username, plan.KeepRecord)
 	default:
@@ -1130,6 +1192,8 @@ type DVBridgeSetup struct {
 	TxPort     int                   `json:"txPort"`
 	Link       dvswitch.LinkSettings `json:"link"`
 	Paused     bool                  `json:"paused"`
+	// Name is the display name of the bridge node (the default when unset).
+	Name string `json:"name"`
 }
 
 func (s *Server) dvBridgeSetup(ctx context.Context, v helper.DVSwitchSetup) DVBridgeSetup {
@@ -1156,6 +1220,7 @@ func (s *Server) dvBridgeSetup(ctx context.Context, v helper.DVSwitchSetup) DVBr
 	if b.Node != "" && v.USRP.RxPort != 0 && v.USRP.TxPort != 0 && v.USRP.RxPort != v.USRP.TxPort {
 		b.RxPort, b.TxPort = v.USRP.RxPort, v.USRP.TxPort
 	}
+	b.Name = s.dvNodeName()
 	b.Link = s.dvLinkSettings()
 	b.Link.Bridge = b.Node
 	if b.Link.LocalNode == "" {

@@ -88,6 +88,13 @@ func (s *Server) dvRememberedTune(mode string) string {
 	return t
 }
 
+// dvForget erases the remembered tune of a mode (the operator disconnected it).
+func (s *Server) dvForget(mode string) {
+	if f, ok := s.d.DVResume.(interface{ Forget(string) }); ok {
+		f.Forget(mode)
+	}
+}
+
 // handleDVSwitchMode: POST /api/dvswitch/mode {mode}. Switches the mode and,
 // when the node remembers a tune for it, tunes there (dvRememberedTune). 409 mode_disabled when MMDVM_Bridge does not enable it.
 func (s *Server) handleDVSwitchMode(w http.ResponseWriter, r *http.Request, u store.User) {
@@ -121,6 +128,11 @@ func (s *Server) handleDVSwitchMode(w http.ResponseWriter, r *http.Request, u st
 	// (a YSF reflector's leading digits show up as a DMR talkgroup).
 	tn := &helper.DVTune{Mode: mode, ModeOnly: true}
 	cur, ierr := s.d.DVSwitch.DVSwitchInfo(r.Context())
+	// A mode that is disconnected now stays so: the poll may not have seen
+	// the unlink yet, so drop its remembered tune here.
+	if ierr == nil && cur.Found && helper.DVNormMode(cur.Mode) != "" && helper.DVUnlinkValue(helper.DVNormMode(cur.Mode), cur.Tune) {
+		s.dvForget(helper.DVNormMode(cur.Mode))
+	}
 	if last := s.dvRememberedTune(mode); last != "" && ierr == nil && cur.Found && helper.DVNormMode(cur.Mode) != mode {
 		tn = &helper.DVTune{Mode: mode, Tune: last}
 	}
@@ -182,6 +194,7 @@ func (s *Server) handleDVSwitchUnlink(w http.ResponseWriter, r *http.Request, u 
 		s.dvswitchError(w, err)
 		return
 	}
+	s.dvForget(mode)
 	s.audit(u, "dvswitch.unlink", map[string]any{"mode": mode, "tune": value})
 	s.d.Logger.Printf("dvswitch.unlink %s by %s", mode, u.Username)
 	writeJSON(w, 200, s.dvDone(r.Context(), res))

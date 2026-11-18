@@ -196,6 +196,8 @@ export interface DVSwitchInfo { found: boolean; version: string; mode: string; t
 export interface DVBridgeSetup {
   node: string; owned: boolean; suggested: string; used: string[]; localNodes: string[];
   rxPort: number; txPort: number; link: { mode: DVLinkMode; localNode: string; bridge: string; exclusive: boolean }; paused: boolean;
+  /** Display name of the bridge node (the default when none was saved). */
+  name?: string;
 }
 /** PUT /api/dvswitch/private-node (docs/API.md "DVSwitch private node"). */
 export interface DVPrivateReq { node: string; rxPort: number; txPort: number; linkMode: DVLinkMode; localNode: string; /** "Disconnect other links first"; absent keeps the saved value. */ linkExclusive?: boolean; dryRun?: boolean; restart?: boolean; base?: Record<string, string>; renumber?: boolean }
@@ -249,7 +251,8 @@ export interface DVSnapshot {
   bridge: DVBridge;
   modes: { id: DVTuneMode; enabled: boolean; unlink: string }[];
   services: { unit: string; active: boolean }[];
-  bridgeNode: { present: boolean; node?: string };
+  /** `name` is the display name of the bridge node (the default "DVSwitch linked node" when none was saved); present with `present`. */
+  bridgeNode: { present: boolean; node?: string; name?: string };
   /** The link of the bridge node to a local node (docs/DVSWITCH.md "Link mode"). */
   link: DVLink;
 }

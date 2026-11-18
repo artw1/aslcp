@@ -4,6 +4,7 @@
   import { api, ApiError } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
   import type { DVApplyResult, DVBridgeSetup, DVPlan, DVLinkMode } from '../lib/types';
+  import { DEFAULT_NODE_NAME, NODE_NAME_MAX, validNodeName } from '../lib/dvpanel';
   import { DUPLEX_TEXT, NODE_HINT, canChange, doneText, formError, nodeError, planApplyLabel, planConfirm, planOrder, planTitle, prefill, pausedHint } from '../lib/dvbridge';
   import Dialog from './Dialog.svelte';
 
@@ -28,6 +29,19 @@
   function startChange() { changing = true; queueMicrotask(() => nodeEl?.focus()); }
   function cancelChange() { changing = false; f.node = b.node; }
   const nodeMsg = $derived(f.node ? nodeError(f.node, b.used, b.node, changing) : null);
+
+  // The display name is saved on its own: a settings write, no Asterisk change and no restart.
+  let nameVal = $state(''), nameSeen = '';
+  $effect(() => { const n = b.name ?? ''; if (n !== nameSeen) { nameSeen = n; nameVal = n === DEFAULT_NODE_NAME ? '' : n; } });
+  const nameChecked = $derived(validNodeName(nameVal));
+  const nameDirty = $derived(nameChecked !== null && nameChecked !== (b.name === DEFAULT_NODE_NAME ? '' : b.name ?? ''));
+  let nameBusy = $state(false);
+  async function saveName() {
+    if (nameChecked === null || nameBusy) return;
+    nameBusy = true;
+    try { await api.dvswitchSetNodeName(nameChecked); toast(nameChecked ? 'Bridge node name saved.' : 'Bridge node name reset to the default.'); await onsaved(); }
+    catch (e) { toastError(e); } finally { nameBusy = false; }
+  }
 
   let busy = $state(false), plan = $state<DVPlan | null>(null), open = $state(false), problem = $state('');
   let result = $state<DVApplyResult | null>(null), failed = $state<{ message: string; step: string; rollback: boolean } | null>(null);
@@ -104,6 +118,14 @@
     <div class="col-span-2 sm:col-span-4"><button class="btn btn-primary" disabled={busy || !!err}>Review changes</button>
       <span class="ml-2 text-xs {err && f.node ? 'text-warn' : 'text-muted'}">{err ?? 'Shows what would change before anything is written.'}</span></div>
   </form>
+  {#if b.node}
+    <form class="flex flex-wrap items-end gap-2 border-t border-line pt-3" onsubmit={(e) => { e.preventDefault(); void saveName(); }}>
+      <div class="min-w-48 flex-1"><label class="label" for="dvb-name">Name <span class="font-normal">(shown on the dashboard)</span></label>
+        <input id="dvb-name" class="input" bind:value={nameVal} maxlength={NODE_NAME_MAX} placeholder={DEFAULT_NODE_NAME} autocomplete="off" aria-invalid={nameChecked === null ? 'true' : undefined} aria-describedby="dvb-name-hint" /></div>
+      <button class="btn" disabled={nameBusy || !nameDirty}>{nameBusy ? 'Saving…' : 'Save name'}</button>
+      <p id="dvb-name-hint" class="w-full text-xs {nameChecked === null ? 'text-danger' : 'text-muted'}">{nameChecked === null ? `Use up to ${NODE_NAME_MAX} printable characters.` : `Display only: saved at once, nothing restarts. Empty uses "${DEFAULT_NODE_NAME}".`}</p>
+    </form>
+  {/if}
   {#if mine}
     <div class="border-t border-line pt-3"><button type="button" class="btn btn-danger" disabled={busy} onclick={previewRemove}>Remove bridge node</button>
       <span class="ml-2 text-xs text-muted">Takes node {b.node} out of rpt.conf, restores the USRP ports and unlinks it. Shows the plan first.</span></div>

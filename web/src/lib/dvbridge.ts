@@ -55,15 +55,16 @@ export function formError(f: { node: string; rxPort: string; txPort: string; lin
 }
 
 /** The card's bridge-node line: "Bridge node 1999 linked to 2006 (permanent)". */
-export function linkLine(node: string, l: DVLink): string {
+export function linkLine(node: string, l: DVLink, name = ''): string {
+  const label = name ? `${name} (node ${node})` : `Bridge node ${node}`;
   const how = l.mode === 'permanent' ? 'permanent' : 'on demand';
   if (l.mode === 'permanent') {
-    if (l.linked) return `Bridge node ${node} linked to ${l.localNode} (${how})`;
-    if (l.paused) return `Bridge node ${node} not linked to ${l.localNode} (${how}, paused: you disconnected it)`;
-    return `Bridge node ${node} not linked to ${l.localNode} (${how}, reconnecting)`;
+    if (l.linked) return `${label} linked to ${l.localNode} (${how})`;
+    if (l.paused) return `${label} not linked to ${l.localNode} (${how}, paused: you disconnected it)`;
+    return `${label} not linked to ${l.localNode} (${how}, reconnecting)`;
   }
-  if (!l.localNode) return `Bridge node ${node}, no local node chosen`;
-  return l.linked ? `Bridge node ${node} linked to ${l.localNode} (${how})` : `Bridge node ${node} not linked to ${l.localNode} (${how})`;
+  if (!l.localNode) return `${label}, no local node chosen`;
+  return l.linked ? `${label} linked to ${l.localNode} (${how})` : `${label} not linked to ${l.localNode} (${how})`;
 }
 
 /** The node link button of the card. Ondemand mode only; the talkgroup button stays "Unlink" and is a different thing. */

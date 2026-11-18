@@ -120,3 +120,8 @@ test('review dialog texts per kind', () => {
   assert.equal(doneText({ kind: 'renumber', node: '1996' }), 'Bridge node renumbered to 1996.');
   assert.equal(doneText({ kind: 'set', node: '1996' }), 'Bridge node saved.');
 });
+
+test('the link line names the bridge node when it has a name', () => {
+  assert.equal(linkLine('1999', L({ mode: 'permanent', localNode: '2006', linked: true }), 'Example room'), 'Example room (node 1999) linked to 2006 (permanent)');
+  assert.equal(linkLine('1999', L({ localNode: '2006' }), 'DVSwitch linked node'), 'DVSwitch linked node (node 1999) not linked to 2006 (on demand)');
+});

@@ -594,3 +594,43 @@ func TestDVModeSwitchBackSendsRememberedTune(t *testing.T) {
 		t.Fatalf("%+v", sent)
 	}
 }
+
+// Disconnect DMR, switch to YSF and back: DMR stays disconnected (no tune is
+// sent on the way back). Tuning DMR again is remembered as usual.
+func TestDVModeSwitchBackAfterDisconnectStaysDisconnected(t *testing.T) {
+	f := newCtlDV()
+	f.atoiTG = true
+	f.info.Tune = ""
+	f.info.TG = "9"
+	tr := &dvswitch.Tracker{Src: f, Store: &memSettings{}}
+	e := newEnv(t, opts{dvswitch: f, dvInstalled: installed, dvresume: tr,
+		dvNode: func(context.Context) (string, bool) { return "1999", true }})
+	ctx := context.Background()
+	var rep struct{ Confirmed bool }
+	post := func(path string, body map[string]any) {
+		t.Helper()
+		if c := e.do("op", "POST", path, body, &rep); c != 200 {
+			t.Fatalf("%s: %d", path, c)
+		}
+		tr.Poll(ctx)
+		tr.Poll(ctx)
+	}
+	post("/api/dvswitch/tune", map[string]any{"mode": "DMR", "tune": "3100"})
+	post("/api/dvswitch/unlink", map[string]any{})
+	if got := tr.Get().PerMode["DMR"].Tune; got != "" {
+		t.Fatalf("the disconnect was not remembered: %q", got)
+	}
+	post("/api/dvswitch/mode", map[string]any{"mode": "YSF"})
+	n := len(f.lastTunes())
+	post("/api/dvswitch/mode", map[string]any{"mode": "DMR"})
+	for _, s := range f.lastTunes()[n:] {
+		if s.Tune != "" && !s.ModeOnly {
+			t.Fatalf("switching back re-tuned DMR: %+v", s)
+		}
+	}
+	// a new connection is remembered again
+	post("/api/dvswitch/tune", map[string]any{"mode": "DMR", "tune": "3100"})
+	if got := tr.Get().PerMode["DMR"].Tune; got != "3100" {
+		t.Fatalf("a new tune was not remembered: %q", got)
+	}
+}

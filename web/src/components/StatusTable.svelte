@@ -1,8 +1,10 @@
 <script lang="ts">
   import type { Link, NodeStatus } from '../lib/types';
   import { app, clock, canOperate } from '../lib/store.svelte';
+  import { openNode } from '../lib/form.svelte';
   import { disconnectFrom, disconnectAll } from '../lib/actions.svelte';
   import { fmtDuration, infoLine, KIND_LABEL, MODE_LABEL } from '../lib/util';
+  import { nodeLabel, bridgeRxTarget } from '../lib/dvpanel';
   import Menu from './Menu.svelte';
   import Confirm from './Confirm.svelte';
   import Unplug from '@lucide/svelte/icons/unplug';
@@ -24,8 +26,10 @@
   const SHORT: Record<string, string> = { T: 'Xcvr', R: 'Mon', L: 'Local', C: '…' };
   const connTime = (l: Link) => fmtDuration(l.connected + elapsed);
   const received = (l: Link) => (l.keyed ? 'now' : l.sinceKey == null ? 'never' : fmtDuration(l.sinceKey + elapsed));
-  const title = (l: Link) => l.info?.callsign || (l.kind === 'echolink' ? 'EchoLink' : '');
-  const nodeLine = $derived([node.info?.callsign, node.info?.description, node.info?.location].filter(Boolean).join(' '));
+  const title = (l: Link) => l.info?.callsign || nodeLabel(app.dvswitch, l.node) || (l.kind === 'echolink' ? 'EchoLink' : '');
+  const bridgeName = $derived(nodeLabel(app.dvswitch, node.node));
+  const nodeLine = $derived(bridgeName || [node.info?.callsign, node.info?.description, node.info?.location].filter(Boolean).join(' '));
+  const rxTarget = $derived(bridgeName && node.rxKeyed ? bridgeRxTarget(app.dvswitch) : null);
   const localTx = $derived(node.txKeyed);
   const localState = $derived(localTx ? 'TX keyed' : node.rxKeyed ? 'RX keyed' : 'Idle');
   const localClass = $derived(node.stale ? '' : localTx ? 'row-tx' : node.rxKeyed ? 'row-rx' : '');
@@ -73,7 +77,7 @@
           {#if node.stale}<span class="font-medium text-warn" title={node.staleReason}>Stale — {staleText}</span><span class="muted text-muted">· last state: {localState}</span>
           {:else}
             {#if localTx}<Mic size={14} class="shrink-0" aria-hidden="true" />{:else if node.rxKeyed}<Ear size={14} class="shrink-0" aria-hidden="true" />{:else}<Minus size={14} class="shrink-0 text-muted" aria-hidden="true" />{/if}
-            <span class="font-semibold">{localState}</span>
+            <span class="font-semibold">{localState}</span>{#if rxTarget && !localTx}<span class="muted text-muted">·</span><span class="font-semibold" data-testid="dv-rx">{rxTarget}</span>{/if}
             {#if localTx && node.rxKeyed}<span class="rounded border border-white/60 px-1 text-xs font-semibold"><Ear size={11} class="mr-0.5 inline" aria-hidden="true" />RX</span>{/if}
             {#if links.length === 0}<span class="muted text-muted">· no links</span>{/if}
           {/if}
@@ -82,7 +86,7 @@
     </tr>
     {#each links as l (l.node)}
       <tr class={l.keyed ? 'row-tx' : ''}>
-        <td class="num font-semibold" title={l.ip ? `${KIND_LABEL[l.kind]} · ${l.ip}` : KIND_LABEL[l.kind]}>{l.node}</td>
+        <td class="num font-semibold" title={l.ip ? `${KIND_LABEL[l.kind]} · ${l.ip}` : KIND_LABEL[l.kind]}><button type="button" class="font-mono font-semibold underline decoration-dotted underline-offset-2 hover:decoration-solid" onclick={() => openNode(l.node, node.node)} aria-label="Connect options for node {l.node}">{l.node}</button></td>
         <td class="max-w-0">
           <div class="flex items-center gap-1.5">
             {#if l.keyed}<span class="inline-flex shrink-0 items-center gap-1 rounded border border-white/60 px-1 text-xs font-bold" role="img" aria-label="Keyed: audio coming in"><Audio size={12} aria-hidden="true" /><span class="max-sm:hidden">KEY</span></span>{/if}

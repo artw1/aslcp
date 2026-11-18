@@ -63,6 +63,9 @@ type DVServiceView struct {
 type DVBridgeNode struct {
 	Present bool   `json:"present"`
 	Node    string `json:"node,omitempty"`
+	// Name is the display name (never empty when Present: the default
+	// "DVSwitch linked node" when none was set).
+	Name string `json:"name,omitempty"`
 }
 
 const (
@@ -209,6 +212,10 @@ func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, i
 		d.fillBridge(ctx, &sn, info)
 	}
 	sn.BridgeNode = d.getBridgeNode(ctx)
+	if sn.BridgeNode.Present {
+		// read on every build (not cached with the node): a rename shows at once
+		sn.BridgeNode.Name = d.s.dvNodeName()
+	}
 	sn.Link = d.s.dvLinkView(sn.BridgeNode)
 	return sn
 }

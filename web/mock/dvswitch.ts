@@ -147,13 +147,14 @@ function write(c: DVCtx, body: Body): boolean {
 // Private bridge node (PUT /dvswitch/private-node). Starts without one so "No bridge node yet" and the
 // suggestion can be seen. Local nodes of the mock: 2001. Nothing here touches a real Asterisk.
 const LOCALS = ['2001'];
-const pb = { node: '', owned: false, rxPort: 34001, txPort: 32001, mode: 'ondemand', local: '', paused: false, linked: false, exclusive: true };
+const pb = { name: '', node: '', owned: false, rxPort: 34001, txPort: 32001, mode: 'ondemand', local: '', paused: false, linked: false, exclusive: true };
 // the stock [USRP] ports that a removal puts back (the mock never recorded others)
 const STOCK = { rx: 31001, tx: 31001 };
 let pbUndo: { node: string; owned: boolean; rxPort: number; txPort: number; mode: string; local: string } | null = null;
+const NODE_NAME = 'DVSwitch linked node';
 const bridgeSetup = () => ({
   node: pb.node, owned: pb.owned, suggested: pb.node ? '' : '1900', used: [...LOCALS, ...(pb.node ? [pb.node] : [])], localNodes: LOCALS,
-  rxPort: pb.rxPort, txPort: pb.txPort, link: { mode: pb.mode, localNode: pb.local, bridge: pb.node, exclusive: pb.exclusive }, paused: pb.paused,
+  rxPort: pb.rxPort, txPort: pb.txPort, link: { mode: pb.mode, localNode: pb.local, bridge: pb.node, exclusive: pb.exclusive }, paused: pb.paused, name: pb.name || NODE_NAME,
 });
 const linkView = () => ({ mode: pb.mode, localNode: pb.local, linked: !!pb.node && (pb.mode === 'permanent' ? !pb.paused : pb.linked), paused: pb.paused, exclusive: pb.exclusive });
 /** plugin.ts calls this for a node connect or disconnect so the card's link state follows the Link/Unlink node button. */
@@ -224,7 +225,7 @@ function removeNode(c: DVCtx, body: Body): boolean {
   }
   if (!confirmed) { c.err(409, 'restart_required: this change needs an Asterisk restart: send restart: true to confirm', 'restart_required'); return true; }
   pbUndo = { node: pb.node, owned: pb.owned, rxPort: pb.rxPort, txPort: pb.txPort, mode: pb.mode, local: pb.local };
-  Object.assign(pb, { node: '', owned: false, rxPort: STOCK.rx, txPort: STOCK.tx, mode: 'ondemand', local: '', paused: false, linked: false });
+  Object.assign(pb, { name: '', node: '', owned: false, rxPort: STOCK.rx, txPort: STOCK.tx, mode: 'ondemand', local: '', paused: false, linked: false });
   const steps = [{ name: 'disconnect', ok: true }, { name: 'asterisk config', ok: true }, { name: 'analog_bridge ini', ok: true }, { name: 'asterisk restart', ok: true }, { name: 'bridge restart', ok: true }];
   c.json(200, { applied: true, kind: 'remove', node, steps, warnings: [], keepRecord: false, rollback: { available: true, before: true, ini: true } });
   c.push?.('dvswitch', snapshot());
@@ -305,7 +306,7 @@ function snapshot() {
       : { mode: '', tune: '', slot: 0, muted: false, source: 'none', updated: '' },
     modes: (['DMR', 'YSF', 'P25', 'NXDN'] as PMode[]).map((id) => ({ id, enabled: modeOn[id], unlink: UNLINK[id] })),
     services: installed ? ['analog_bridge', 'mmdvm_bridge', ...gw].map((u) => ({ unit: u, active: unit(u) })) : [],
-    bridgeNode: pb.node ? { present: true, node: pb.node } : { present: false },
+    bridgeNode: pb.node ? { present: true, node: pb.node, name: pb.name || NODE_NAME } : { present: false },
     link: linkView(),
   };
 }
@@ -421,6 +422,15 @@ export function handleDVSwitch(c: DVCtx): boolean {
     c.json(200, resumeView());
     return true;
   }
+  if (c.p === '/dvswitch/private-node/name' && c.m === 'PUT') {
+    if (c.user.role !== 'admin') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
+    const n = (c.body ?? {}).name;
+    if (typeof n !== 'string' || [...n.trim()].length > 40) { c.err(400, 'the name must be 1 to 40 printable characters, or empty for the default', 'bad_request'); return true; }
+    pb.name = n.trim();
+    c.json(200, { name: pb.name || NODE_NAME });
+    c.push?.('dvswitch', snapshot());
+    return true;
+  }
   if (c.p === '/dvswitch/link' && c.m === 'PUT') {
     if (c.user.role === 'viewer') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
     const x = (c.body ?? {}).exclusive;
@@ -453,7 +463,7 @@ export function handleDVSwitch(c: DVCtx): boolean {
     if (s.install.job === 'running' || s.uninstall.job === 'running') c.err(409, 'an install, uninstall or update is already running', 'job_running');
     else if (kind === 'install' && installed) c.err(409, 'already_installed: DVSwitch is already installed', 'already_installed');
     else if (kind === 'uninstall' && !installed) c.err(409, 'DVSwitch was installed outside ASLCP', 'not_aslcp_installed');
-    else { if (kind === 'uninstall') { Object.assign(pb, { node: '', owned: false, mode: 'ondemand', local: '', paused: false, linked: false }); pbUndo = null; } job = { kind, at: Date.now() }; c.json(202, status()); setTimeout(() => c.push?.('dvswitch', snapshot()), DURATION + 200); }
+    else { if (kind === 'uninstall') { Object.assign(pb, { name: '', node: '', owned: false, mode: 'ondemand', local: '', paused: false, linked: false }); pbUndo = null; } job = { kind, at: Date.now() }; c.json(202, status()); setTimeout(() => c.push?.('dvswitch', snapshot()), DURATION + 200); }
     return true;
   }
   return false;
