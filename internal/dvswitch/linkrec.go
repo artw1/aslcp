@@ -25,7 +25,18 @@ const (
 	SettingLinkMode   = "dvswitch.link_mode"   // "ondemand" (default) or "permanent"
 	SettingLinkNode   = "dvswitch.link_node"   // the local node the bridge links to
 	SettingLinkPaused = "dvswitch.link_paused" // "1" after a manual disconnect
+	// SettingLinkExclusive is "Disconnect other links first": "1" or "0";
+	// absent means DefaultLinkExclusive. It needs no rpt.conf change.
+	SettingLinkExclusive = "dvswitch.link_exclusive"
 )
+
+// DefaultLinkExclusive is the default of "Disconnect other links first": on,
+// like the analog Connect's "Disconnect before Connect" checkbox.
+const DefaultLinkExclusive = true
+
+// ExclusiveWindow is how long a save's "disconnect others first" stays armed
+// for the reconciler's next connect (it is dropped when the link is up).
+const ExclusiveWindow = 5 * time.Minute
 
 // Link modes.
 const (
@@ -41,8 +52,10 @@ type LinkStore interface {
 
 // Linker sends the link commands and reports the link state.
 type Linker interface {
-	// Connect issues a permanent transceive link from local to bridge.
-	Connect(ctx context.Context, local, bridge string) error
+	// Connect issues a permanent transceive link from local to bridge. With
+	// exclusive it first disconnects the other links of local (the analog
+	// "disconnect before connect" path).
+	Connect(ctx context.Context, local, bridge string, exclusive bool) error
 	// Disconnect removes the link; permanent also removes it from the
 	// node's rc.conf-style reconnect list (ilink 11).
 	Disconnect(ctx context.Context, local, bridge string, permanent bool) error
@@ -57,6 +70,8 @@ type LinkSettings struct {
 	Mode      string `json:"mode"`
 	LocalNode string `json:"localNode"`
 	Bridge    string `json:"bridge"`
+	// Exclusive is "Disconnect other links first" (SettingLinkExclusive).
+	Exclusive bool `json:"exclusive"`
 }
 
 // ReadLinkSettings reads the settings; the mode defaults to ondemand.
@@ -69,12 +84,23 @@ func ReadLinkSettings(st LinkStore) LinkSettings {
 	if l.Mode != LinkPermanent {
 		l.Mode = LinkOnDemand
 	}
+	switch get(SettingLinkExclusive) {
+	case "1":
+		l.Exclusive = true
+	case "0":
+	default:
+		l.Exclusive = DefaultLinkExclusive
+	}
 	return l
 }
 
 // WriteLinkSettings saves the settings.
 func WriteLinkSettings(st LinkStore, l LinkSettings) error {
-	for _, kv := range [][2]string{{SettingNode, l.Bridge}, {SettingLinkMode, l.Mode}, {SettingLinkNode, l.LocalNode}} {
+	excl := "0"
+	if l.Exclusive {
+		excl = "1"
+	}
+	for _, kv := range [][2]string{{SettingNode, l.Bridge}, {SettingLinkMode, l.Mode}, {SettingLinkNode, l.LocalNode}, {SettingLinkExclusive, excl}} {
 		if err := st.SetSetting(kv[0], kv[1]); err != nil {
 			return err
 		}
@@ -100,9 +126,12 @@ type LinkReconciler struct {
 
 	once sync.Once
 	wake chan struct{}
-	mu   sync.Mutex // guards lastTry
+	mu   sync.Mutex // guards last and exclUntil
 	run  sync.Mutex // serialises RunOnce
 	last time.Time
+	// exclUntil: until then the next connect is exclusive (armed by Saved
+	// when the operator saved the setup with "disconnect others first").
+	exclUntil time.Time
 }
 
 func (r *LinkReconciler) init() {
@@ -181,10 +210,12 @@ func (r *LinkReconciler) ManualConnect(node, target string) {
 	}
 }
 
-// AsteriskRestarted clears the pause and checks the link again.
+// AsteriskRestarted clears the pause and checks the link again. This relink
+// is automatic, so it is never exclusive (and drops an armed exclusive).
 func (r *LinkReconciler) AsteriskRestarted() {
 	r.setPaused(false)
 	r.mu.Lock()
+	r.exclUntil = time.Time{}
 	r.last = time.Time{}
 	r.mu.Unlock()
 	r.Kick()
@@ -208,6 +239,14 @@ func (r *LinkReconciler) Saved(ctx context.Context, prev, cur LinkSettings) {
 	r.setPaused(false)
 	r.mu.Lock()
 	r.last = time.Time{}
+	// EXCLUSIVITY RULE: only an operator action in the panel may disconnect
+	// other links. A save is one, so it arms "disconnect others first" for
+	// the connect it triggers. The reconciler's own relinks (start, tick,
+	// Asterisk restart) never arm it, so they cannot fight links made by hand.
+	r.exclUntil = time.Time{}
+	if cur.Exclusive && cur.Mode == LinkPermanent {
+		r.exclUntil = r.now().Add(ExclusiveWindow)
+	}
 	r.mu.Unlock()
 	r.Kick()
 }
@@ -271,7 +310,13 @@ func (r *LinkReconciler) RunOnce(ctx context.Context) {
 		return
 	}
 	linked, known := r.Linker.Linked(l.LocalNode, l.Bridge)
-	if linked || !known {
+	if linked {
+		r.mu.Lock()
+		r.exclUntil = time.Time{} // nothing to connect: the armed exclusive is spent
+		r.mu.Unlock()
+		return
+	}
+	if !known {
 		return
 	}
 	retry := r.Retry
@@ -284,9 +329,17 @@ func (r *LinkReconciler) RunOnce(ctx context.Context) {
 		return
 	}
 	r.last = r.now()
+	// exclusive only when armed by a save in the panel and still fresh
+	excl := !r.exclUntil.IsZero() && r.now().Before(r.exclUntil)
 	r.mu.Unlock()
-	r.logf("dvswitch link: node %s is not linked to the bridge node %s, linking it (permanent)", l.LocalNode, l.Bridge)
-	if err := r.cmd(ctx, func(c context.Context) error { return r.Linker.Connect(c, l.LocalNode, l.Bridge) }); err != nil {
+	r.logf("dvswitch link: node %s is not linked to the bridge node %s, linking it (permanent, exclusive=%v)", l.LocalNode, l.Bridge, excl)
+	err := r.cmd(ctx, func(c context.Context) error { return r.Linker.Connect(c, l.LocalNode, l.Bridge, excl) })
+	if err == nil && excl {
+		r.mu.Lock()
+		r.exclUntil = time.Time{}
+		r.mu.Unlock()
+	}
+	if err != nil {
 		r.logf("dvswitch link: cannot link %s to %s: %v", l.LocalNode, l.Bridge, err)
 	}
 }

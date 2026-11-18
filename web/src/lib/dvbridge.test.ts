@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DUPLEX_TEXT, NODE_HINT, canChange, doneText, formError, planApplyLabel, planOrder, planTitle, linkButton, linkLine, nodeError, nodeWarning, pausedHint, planConfirm, prefill, suggestNode, uninstallNote, validPort } from './dvbridge.ts';
+import { DUPLEX_TEXT, NODE_HINT, canChange, doneText, formError, planApplyLabel, planOrder, planTitle, linkButton, linkLine, nodeError, nodeWarning, pausedHint, planConfirm, prefill, linkExclusiveOnClick, exclusiveHint, suggestNode, uninstallNote, validPort } from './dvbridge.ts';
 import type { DVLink } from './types';
 
-const L = (o: Partial<DVLink> = {}): DVLink => ({ mode: 'ondemand', localNode: '1997', linked: false, paused: false, ...o });
+const L = (o: Partial<DVLink> = {}): DVLink => ({ mode: 'ondemand', localNode: '1997', linked: false, paused: false, exclusive: false, ...o });
 
 test('suggestion is the first free node of 1900-1997', () => {
   assert.equal(suggestNode([]), '1900');
@@ -40,8 +40,8 @@ test('ports', () => {
 });
 
 test('prefill uses the stock ports and the suggestion', () => {
-  const b = { node: '', suggested: '1900', rxPort: 0, txPort: 0, link: { mode: 'ondemand' as const, localNode: '', bridge: '' }, localNodes: ['1997'] };
-  assert.deepEqual(prefill(b), { node: '1900', rxPort: '34001', txPort: '32001', linkMode: 'ondemand', localNode: '1997' });
+  const b = { node: '', suggested: '1900', rxPort: 0, txPort: 0, link: { mode: 'ondemand' as const, localNode: '', bridge: '', exclusive: true }, localNodes: ['1997'] };
+  assert.deepEqual(prefill(b), { node: '1900', rxPort: '34001', txPort: '32001', linkMode: 'ondemand', linkExclusive: true, localNode: '1997' });
   assert.equal(prefill({ ...b, node: '1999', rxPort: 34010, txPort: 32010 }).rxPort, '34010');
 });
 
@@ -71,6 +71,17 @@ test('node link button is distinct from the talkgroup Unlink', () => {
   assert.equal(linkButton(L({ linked: true }), '1999')?.action, 'disconnect');
   assert.equal(linkButton(L({ localNode: '' }), '1999'), null);
   assert.equal(linkButton(L(), ''), null);
+});
+
+test('Link node honours the saved "Disconnect other links first"', () => {
+  assert.match(linkButton(L({ exclusive: true }), '1999')!.title, /disconnects other links first/);
+  assert.doesNotMatch(linkButton(L({ exclusive: false }), '1999')!.title, /disconnects/);
+  assert.doesNotMatch(linkButton(L({ exclusive: true, linked: true }), '1999')!.title, /disconnects other/);
+  assert.equal(linkExclusiveOnClick(L({ exclusive: true })), true);
+  assert.equal(linkExclusiveOnClick(L({ exclusive: false })), false);
+  assert.match(exclusiveHint('permanent', true), /when you save.*never disconnect/);
+  assert.match(exclusiveHint('ondemand', true), /Link node button/);
+  assert.match(exclusiveHint('ondemand', false), /left alone/);
 });
 
 test('confirmation texts', () => {

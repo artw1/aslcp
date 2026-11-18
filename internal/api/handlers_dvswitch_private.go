@@ -39,14 +39,17 @@ func (s *Server) dvPrivateRoutes() {
 
 // dvPrivReq is the request of PUT /api/dvswitch/private-node.
 type dvPrivReq struct {
-	Node      string            `json:"node"`
-	RxPort    int               `json:"rxPort"`
-	TxPort    int               `json:"txPort"`
-	LinkMode  string            `json:"linkMode"`
-	LocalNode string            `json:"localNode"`
-	DryRun    bool              `json:"dryRun"`
-	Restart   bool              `json:"restart"`
-	Base      map[string]string `json:"base"`
+	Node      string `json:"node"`
+	RxPort    int    `json:"rxPort"`
+	TxPort    int    `json:"txPort"`
+	LinkMode  string `json:"linkMode"`
+	LocalNode string `json:"localNode"`
+	// LinkExclusive is "Disconnect other links first". Absent keeps the
+	// saved value (the default when none was saved).
+	LinkExclusive *bool             `json:"linkExclusive"`
+	DryRun        bool              `json:"dryRun"`
+	Restart       bool              `json:"restart"`
+	Base          map[string]string `json:"base"`
 	// Renumber says that Node replaces the bridge node ASLCP added (the old
 	// stanza and [nodes] line are removed, the new ones added, one restart).
 	// Without it a different number is node_in_use, so a stale form or a
@@ -238,6 +241,10 @@ func (s *Server) dvPrivatePlan(ctx context.Context, in dvPrivReq) (*DVPlan, erro
 			in.RxPort, in.TxPort = setup.USRP.RxPort, setup.USRP.TxPort
 		}
 	}
+	linkExclusive := s.dvLinkSettings().Exclusive
+	if in.LinkExclusive != nil {
+		linkExclusive = *in.LinkExclusive
+	}
 	switch in.LinkMode {
 	case "":
 		in.LinkMode = dvswitch.LinkOnDemand
@@ -308,7 +315,7 @@ func (s *Server) dvPrivatePlan(ctx context.Context, in dvPrivReq) (*DVPlan, erro
 	}
 
 	plan := &DVPlan{Kind: kind, OldNode: oldNode, Unlinks: []string{}, Node: node, RxPort: in.RxPort, TxPort: in.TxPort, Files: []DVPlanFile{}, Restarts: []string{}, Warnings: []string{},
-		Base: map[string]string{}, Link: dvswitch.LinkSettings{Mode: in.LinkMode, LocalNode: in.LocalNode, Bridge: node}, hadRecord: setup.Private, oldNode: oldNode}
+		Base: map[string]string{}, Link: dvswitch.LinkSettings{Mode: in.LinkMode, LocalNode: in.LocalNode, Bridge: node, Exclusive: linkExclusive}, hadRecord: setup.Private, oldNode: oldNode}
 	if w := dvswitch.NodeWarning(node); w != "" {
 		plan.Warnings = append(plan.Warnings, w)
 	}
@@ -552,7 +559,7 @@ func (s *Server) dvPrivateRemovePlan(ctx context.Context, in dvPrivReq) (*DVPlan
 		return nil, err
 	}
 	plan := &DVPlan{Kind: dvKindRemove, Unlinks: s.dvBridgeLocals(rec.Node), Node: rec.Node, Files: []DVPlanFile{}, Restarts: []string{}, Warnings: []string{},
-		Base: map[string]string{dvRptFile: rptC.SHA256}, Link: dvswitch.LinkSettings{Mode: dvswitch.LinkOnDemand}, hadRecord: rec, oldNode: rec.Node}
+		Base: map[string]string{dvRptFile: rptC.SHA256}, Link: dvswitch.LinkSettings{Mode: dvswitch.LinkOnDemand, Exclusive: s.dvLinkSettings().Exclusive}, hadRecord: rec, oldNode: rec.Node}
 	plan.RxPort, plan.TxPort = setup.USRP.RxPort, setup.USRP.TxPort
 
 	modC, mErr := svc.Read(ctx, dvModulesFile)
@@ -732,7 +739,7 @@ func (s *Server) dvPrivateApply(w http.ResponseWriter, r *http.Request, u store.
 		steps = append(steps, st)
 		unlinked = true
 		if s.d.Store != nil {
-			if err := dvswitch.WriteLinkSettings(s.d.Store, dvswitch.LinkSettings{Mode: dvswitch.LinkOnDemand}); err != nil {
+			if err := dvswitch.WriteLinkSettings(s.d.Store, dvswitch.LinkSettings{Mode: dvswitch.LinkOnDemand, Exclusive: undo.prev.Exclusive}); err != nil {
 				rollbackAll()
 				s.internal(w, err)
 				return

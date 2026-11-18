@@ -132,7 +132,7 @@ func (s *Server) handleDVSwitchUninstall(w http.ResponseWriter, r *http.Request,
 		st, err := s.d.DVSwitch.DVSwitchUninstall(ctx)
 		if err == nil && s.d.Store != nil {
 			// no node left to link to: the reconciler must not retry
-			_ = dvswitch.WriteLinkSettings(s.d.Store, dvswitch.LinkSettings{Mode: dvswitch.LinkOnDemand})
+			_ = dvswitch.WriteLinkSettings(s.d.Store, dvswitch.LinkSettings{Mode: dvswitch.LinkOnDemand, Exclusive: s.dvLinkSettings().Exclusive})
 		}
 		return st, err
 	})

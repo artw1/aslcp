@@ -46,6 +46,7 @@ export function prefill(b: Pick<DVBridgeSetup, 'node' | 'suggested' | 'rxPort' |
     rxPort: String(b.rxPort || DEFAULT_RX),
     txPort: String(b.txPort || DEFAULT_TX),
     linkMode: b.link.mode,
+    linkExclusive: b.link.exclusive,
     localNode: b.link.localNode || b.localNodes.find((n) => n !== b.node) || '',
   };
 }
@@ -78,7 +79,18 @@ export function linkButton(l: DVLink, node: string): { label: string; action: 'c
   if (!node || !l.localNode) return null;
   return l.linked
     ? { label: 'Unlink node', action: 'disconnect', title: `Disconnect bridge node ${node} from ${l.localNode}` }
-    : { label: 'Link node', action: 'connect', title: `Connect bridge node ${node} to ${l.localNode}` };
+    : { label: 'Link node', action: 'connect', title: `Connect bridge node ${node} to ${l.localNode}${l.exclusive ? ' (disconnects other links first)' : ''}` };
+}
+
+/** Whether the Link node click sends an exclusive connect (the saved setting; the analog Connect's flag, same backend path). */
+export const linkExclusiveOnClick = (l: Pick<DVLink, 'exclusive'>): boolean => l.exclusive === true;
+
+/** The hint under the "Disconnect other links first" checkbox: where it applies and where it does not. */
+export function exclusiveHint(mode: string, on: boolean): string {
+  if (!on) return 'Other links of the local node are left alone.';
+  return mode === 'permanent'
+    ? 'Applies when you save here: the other links of the local node are disconnected, then the bridge node is linked. Automatic relinks after an Asterisk restart never disconnect anything.'
+    : 'The Link node button on the dashboard disconnects the other links of the local node first. Permanent links stay.';
 }
 
 /** A permanent link that was disconnected by hand: say how to get it back. */

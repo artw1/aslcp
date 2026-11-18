@@ -419,7 +419,7 @@ The record is `privatenode.json` (root, 0600, in the helper's DVSwitch state dir
 
 ### Link mode
 
-Settings: `dvswitch.link_mode`, `dvswitch.link_node` (the local node), `dvswitch.node` (the bridge node), `dvswitch.link_paused`.
+Settings: `dvswitch.link_mode`, `dvswitch.link_node` (the local node), `dvswitch.node` (the bridge node), `dvswitch.link_paused`, `dvswitch.link_exclusive`.
 
 | Mode | Behaviour |
 |---|---|
@@ -429,6 +429,18 @@ Settings: `dvswitch.link_mode`, `dvswitch.link_node` (the local node), `dvswitch
 The reconciler is **level-triggered**: it checks after `StartDelay` (15 s) at start, when kicked (setup change, Asterisk restart through the panel, un-pause) and on a 60 s tick, so an Asterisk restart done outside the panel is caught too. "Connecting" counts as linked. A failed attempt is retried after `Retry` (not on every tick). The pause persists across an ASLCP restart. The `Linker` reads the link state from the monitor (`Status(local).Links`).
 
 Terminology in the UI: the talkgroup "Unlink" button of the card is now labelled "Unlink DMR target" (mode name) and sends the mode's unlink value to Analog_Bridge; "Link node" / "Unlink node" act on the app_rpt link of the bridge node. They are different things and the tooltips say so.
+
+### Disconnect other links first
+
+The "Bridge node" section has a checkbox "Disconnect other links first" (`dvswitch.link_exclusive`, request field `linkExclusive`, default on like the analog Connect). It reuses the analog `exclusive` semantics and code (`connectLink` / `disconnectOthers`): a normal (non-permanent) `ilink 1` for every other direct link of the local node, then the connect. Permanent links stay.
+
+| Where | Exclusive? |
+|---|---|
+| **Link node** button (on demand) | Yes when the setting is on: it sends `POST /api/nodes/{node}/connect` with `exclusive: true`, the very request of the analog Connect, so audit, log and the schedule manual-action hooks behave the same. The button title says "disconnects other links first". |
+| **Save** of the bridge section (permanent mode) | Yes, once: `LinkReconciler.Saved` arms it and the connect the save triggers is exclusive. If the link is already up nothing is connected and the armed flag is dropped. It expires after 5 minutes. A rollback is a save too. |
+| Reconciler start, periodic tick, Asterisk restart (also one done through the panel) | **Never.** These relinks are automatic, so they must not fight links made by hand. |
+
+The reconciler's `Linker.Connect(ctx, local, bridge, exclusive)` takes the flag explicitly; only `Saved` can make it true. The panel has no other relink or resume action for a paused permanent link: saving the section is it, and linking the bridge node by hand through the normal Connect uses that Connect's own checkbox. Saving the checkbox alone needs no Asterisk restart.
 
 ### Verify on a real node (M2 checklist)
 
@@ -704,6 +716,7 @@ SSE: event `dvswitch` (all roles) carries the Snapshot, published only when it c
 | `dvswitch.link_mode` | `ondemand` (default) or `permanent` |
 | `dvswitch.link_node` | local node the permanent link starts from |
 | `dvswitch.link_paused` | reconciler pause after a manual disconnect |
+| `dvswitch.link_exclusive` | `1` or `0`: "Disconnect other links first" (default `1` when absent, like the analog Connect's "Disconnect before Connect", which is on at page load). A pure setting: saving it changes no Asterisk file, so no restart |
 | table `dvswitch_favorites` (migration 5, implemented) | `id INTEGER PRIMARY KEY, mode TEXT, value TEXT, name TEXT, sort INTEGER, created INTEGER`, `UNIQUE(mode, value)`; part of the ASLCP database, so already in backups |
 
 The source of truth for node, ports and identity is always the config files, never these settings.

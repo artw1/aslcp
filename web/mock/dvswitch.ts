@@ -147,15 +147,15 @@ function write(c: DVCtx, body: Body): boolean {
 // Private bridge node (PUT /dvswitch/private-node). Starts without one so "No bridge node yet" and the
 // suggestion can be seen. Local nodes of the mock: 2001. Nothing here touches a real Asterisk.
 const LOCALS = ['2001'];
-const pb = { node: '', owned: false, rxPort: 34001, txPort: 32001, mode: 'ondemand', local: '', paused: false, linked: false };
+const pb = { node: '', owned: false, rxPort: 34001, txPort: 32001, mode: 'ondemand', local: '', paused: false, linked: false, exclusive: true };
 // the stock [USRP] ports that a removal puts back (the mock never recorded others)
 const STOCK = { rx: 31001, tx: 31001 };
 let pbUndo: { node: string; owned: boolean; rxPort: number; txPort: number; mode: string; local: string } | null = null;
 const bridgeSetup = () => ({
   node: pb.node, owned: pb.owned, suggested: pb.node ? '' : '1900', used: [...LOCALS, ...(pb.node ? [pb.node] : [])], localNodes: LOCALS,
-  rxPort: pb.rxPort, txPort: pb.txPort, link: { mode: pb.mode, localNode: pb.local, bridge: pb.node }, paused: pb.paused,
+  rxPort: pb.rxPort, txPort: pb.txPort, link: { mode: pb.mode, localNode: pb.local, bridge: pb.node, exclusive: pb.exclusive }, paused: pb.paused,
 });
-const linkView = () => ({ mode: pb.mode, localNode: pb.local, linked: !!pb.node && (pb.mode === 'permanent' ? !pb.paused : pb.linked), paused: pb.paused });
+const linkView = () => ({ mode: pb.mode, localNode: pb.local, linked: !!pb.node && (pb.mode === 'permanent' ? !pb.paused : pb.linked), paused: pb.paused, exclusive: pb.exclusive });
 /** plugin.ts calls this for a node connect or disconnect so the card's link state follows the Link/Unlink node button. */
 export function dvNodeLink(local: string, target: string, on: boolean, push?: DVCtx['push']) {
   if (!pb.node || local !== pb.local || target !== pb.node) return;
@@ -167,6 +167,7 @@ function privateNode(c: DVCtx, body: Body): boolean {
   progress();
   if (!installed) { c.err(409, 'not_installed: DVSwitch is not installed (its ini files are missing)', 'not_installed'); return true; }
   const node = String(body.node ?? ''), rx = Number(body.rxPort), tx = Number(body.txPort), mode = String(body.linkMode ?? 'ondemand'), local = String(body.localNode ?? '');
+  const exclusive = typeof body.linkExclusive === 'boolean' ? body.linkExclusive : pb.exclusive;
   if (!/^[0-9]{1,7}$/.test(node) || Number(node) < 1 || Number(node) >= 2000) { c.err(400, 'invalid_node: a private node is a number below 2000', 'invalid_node'); return true; }
   const renumber = body.renumber === true && pb.owned && !!pb.node && node !== pb.node;
   if (body.renumber === true && !pb.owned) { c.err(409, 'no_bridge_node: there is no bridge node added by ASLCP to renumber', 'no_bridge_node'); return true; }
@@ -185,14 +186,14 @@ function privateNode(c: DVCtx, body: Body): boolean {
         { path: '/opt/Analog_Bridge/Analog_Bridge.ini', diff: `--- a\n+++ b\n@@ [USRP]\n+rxPort = ${tx}\n+txPort = ${rx}\n`, changed: rx !== pb.rxPort || tx !== pb.txPort },
       ],
       kind: renumber ? 'renumber' : 'set', oldNode: renumber ? pb.node : '', unlinks: renumber && (pb.mode === 'permanent' || pb.linked) && pb.local ? [pb.local] : [], keepRecord: false,
-      restartAsterisk: asteriskChange, restarts: [...(asteriskChange ? ['asterisk'] : []), 'analog_bridge'], warnings: node === '1998' || node === '1999' ? [`${node} is a node number other DVSwitch guides use`] : [], base: {}, link: { mode, localNode: local, bridge: node },
+      restartAsterisk: asteriskChange, restarts: [...(asteriskChange ? ['asterisk'] : []), 'analog_bridge'], warnings: node === '1998' || node === '1999' ? [`${node} is a node number other DVSwitch guides use`] : [], base: {}, link: { mode, localNode: local, bridge: node, exclusive },
     });
     return true;
   }
   if (asteriskChange && body.restart !== true) { c.err(409, 'restart_required: this change needs an Asterisk restart: send restart: true to confirm', 'restart_required'); return true; }
   pbUndo = { node: pb.node, owned: pb.owned, rxPort: pb.rxPort, txPort: pb.txPort, mode: pb.mode, local: pb.local };
   if (asteriskChange) pb.owned = true;
-  Object.assign(pb, { node, rxPort: rx, txPort: tx, mode, local, paused: false, linked: mode === 'permanent' });
+  Object.assign(pb, { node, rxPort: rx, txPort: tx, mode, local, exclusive, paused: false, linked: mode === 'permanent' });
   const steps = [{ name: 'asterisk config', ok: asteriskChange }, { name: 'analog_bridge ini', ok: true }, { name: 'asterisk restart', ok: asteriskChange }, { name: 'bridge restart', ok: true }, { name: 'health', ok: true }];
   c.json(200, { applied: true, kind: renumber ? 'renumber' : 'set', node, steps, warnings: [], keepRecord: false, health: { ok: true }, rollback: { available: true, before: asteriskChange, ini: true } });
   c.push?.('dvswitch', snapshot());
@@ -217,7 +218,7 @@ function removeNode(c: DVCtx, body: Body): boolean {
         { path: '/etc/asterisk/modules.conf', changed: true, diff: '--- a/modules.conf\n+++ b/modules.conf\n-load   = chan_usrp.so\n+noload = chan_usrp.so\n' },
         { path: '/opt/Analog_Bridge/Analog_Bridge.ini', changed: true, diff: `--- a\n+++ b\n@@ [USRP]\n-rxPort = ${pb.txPort}\n-txPort = ${pb.rxPort}\n+rxPort = ${STOCK.tx}\n+txPort = ${STOCK.rx}\n` },
       ],
-      restartAsterisk: true, restarts: ['asterisk', 'analog_bridge'], warnings: [], base: {}, link: { mode: 'ondemand', localNode: '', bridge: '' },
+      restartAsterisk: true, restarts: ['asterisk', 'analog_bridge'], warnings: [], base: {}, link: { mode: 'ondemand', localNode: '', bridge: '', exclusive: pb.exclusive },
     });
     return true;
   }

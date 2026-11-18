@@ -15,8 +15,8 @@ import (
 // handlers. Its commands are not manual ones: they never reach the hooks.
 type dvLinker struct{ s *Server }
 
-func (l dvLinker) Connect(ctx context.Context, local, bridge string) error {
-	return l.s.connectLink(ctx, local, bridge, rpt.ConnTransceive, true, false)
+func (l dvLinker) Connect(ctx context.Context, local, bridge string, exclusive bool) error {
+	return l.s.connectLink(ctx, local, bridge, rpt.ConnTransceive, true, exclusive)
 }
 
 func (l dvLinker) Disconnect(ctx context.Context, local, bridge string, permanent bool) error {
@@ -96,12 +96,15 @@ type DVLink struct {
 	LocalNode string `json:"localNode"`
 	Linked    bool   `json:"linked"`
 	Paused    bool   `json:"paused"`
+	// Exclusive is the saved "Disconnect other links first" (the Link node
+	// button sends exclusive connects when it is on).
+	Exclusive bool `json:"exclusive"`
 }
 
 // dvLinkSettings reads the saved link settings (ondemand when there are none).
 func (s *Server) dvLinkSettings() dvswitch.LinkSettings {
 	if s.d.Store == nil {
-		return dvswitch.LinkSettings{Mode: dvswitch.LinkOnDemand}
+		return dvswitch.LinkSettings{Mode: dvswitch.LinkOnDemand, Exclusive: dvswitch.DefaultLinkExclusive}
 	}
 	return dvswitch.ReadLinkSettings(s.d.Store)
 }
@@ -128,7 +131,7 @@ func (s *Server) dvLocalFor(set dvswitch.LinkSettings, bridge string) string {
 // dvLinkView computes the link of the snapshot for the bridge node.
 func (s *Server) dvLinkView(bn DVBridgeNode) DVLink {
 	set := s.dvLinkSettings()
-	v := DVLink{Mode: set.Mode}
+	v := DVLink{Mode: set.Mode, Exclusive: set.Exclusive}
 	bridge := set.Bridge
 	if bn.Present {
 		bridge = bn.Node

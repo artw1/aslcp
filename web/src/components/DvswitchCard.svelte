@@ -8,7 +8,7 @@
   import type { DVIndexed } from '../lib/dvlist';
   import { CONFIRM_MS, allOk, bridgeLinked, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, serviceDots, shownMode, stateLine, validFavName, validTune } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
-  import { linkButton, linkLine, pausedHint } from '../lib/dvbridge';
+  import { linkButton, linkExclusiveOnClick, linkLine, pausedHint } from '../lib/dvbridge';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
   import NodePicker from './NodePicker.svelte';
   import Dialog from './Dialog.svelte';
@@ -95,7 +95,7 @@
     if (busy || !nodeBtn || !link || !bn?.node) return;
     busy = true;
     try {
-      if (nodeBtn.action === 'connect') await api.connect(link.localNode, bn.node, 'transceive', false);
+      if (nodeBtn.action === 'connect') await api.connect(link.localNode, bn.node, 'transceive', false, linkExclusiveOnClick(link));
       else await api.disconnect(link.localNode, bn.node, false);
       toast(nodeBtn.action === 'connect' ? 'Linking the bridge node' : 'Bridge node unlinked', 'info');
       app.dvswitch = await api.dvswitchSnapshot();

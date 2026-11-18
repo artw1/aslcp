@@ -1013,3 +1013,94 @@ func TestDVPrivateRemoveRollbackRestores(t *testing.T) {
 		t.Fatal("not restored")
 	}
 }
+
+// ---- "Disconnect other links first" (dvswitch.link_exclusive)
+
+func ilinkIndex(cmds []string, sub string) int {
+	for i, c := range cmds {
+		if strings.Contains(c, sub) {
+			return i
+		}
+	}
+	return -1
+}
+
+// Saving the setting alone is a settings write: no rpt.conf change, no
+// restart; and it defaults to on, like the analog Connect.
+func TestDVPrivateExclusiveSavedWithoutRestart(t *testing.T) {
+	pe := newPrivEnv(t, tmplRpt, false)
+	if c := pe.do("admin", "PUT", "/api/dvswitch/private-node", map[string]any{"node": "1996", "localNode": "1997", "restart": true}, nil); c != 200 {
+		t.Fatal(c)
+	}
+	if !dvswitch.ReadLinkSettings(pe.st).Exclusive {
+		t.Fatal("default is not on")
+	}
+	pe.dh.SetFile("rpt.conf", pe.file("rpt.conf"))
+	restarts := countCmd(pe.env, "core restart gracefully")
+	body := map[string]any{"node": "1996", "localNode": "1997", "linkExclusive": false}
+	var p api.DVPlan
+	if c := pe.do("admin", "PUT", "/api/dvswitch/private-node", map[string]any{"node": "1996", "localNode": "1997", "linkExclusive": false, "dryRun": true}, &p); c != 200 || p.RestartAsterisk || len(p.Restarts) != 0 || p.Link.Exclusive {
+		t.Fatalf("%d %+v", c, p)
+	}
+	if c := pe.do("admin", "PUT", "/api/dvswitch/private-node", body, nil); c != 200 {
+		t.Fatalf("save: %d", c)
+	}
+	if v, _ := pe.st.GetSetting(dvswitch.SettingLinkExclusive); v != "0" {
+		t.Fatalf("setting = %q", v)
+	}
+	if countCmd(pe.env, "core restart gracefully") != restarts {
+		t.Fatal("saving the setting restarted Asterisk")
+	}
+	// absent keeps the saved value
+	if c := pe.do("admin", "PUT", "/api/dvswitch/private-node", map[string]any{"node": "1996", "localNode": "1997"}, nil); c != 200 {
+		t.Fatal(c)
+	}
+	if dvswitch.ReadLinkSettings(pe.st).Exclusive {
+		t.Fatal("an absent linkExclusive reset the saved value")
+	}
+}
+
+// A save in the panel (permanent mode, setting on) links the bridge node
+// exclusively: the other links go first. The reconciler's own relinks never do.
+func TestDVPrivateSavePermanentExclusiveConnect(t *testing.T) {
+	pe := newPrivEnv(t, tmplRpt, true)
+	pe.srv.LinkGoneWait = 20 * time.Millisecond
+	pe.setLinks("50241", "1999")
+	body := map[string]any{"node": "1996", "localNode": "1997", "linkMode": "permanent", "linkExclusive": true, "restart": true}
+	if c := pe.do("admin", "PUT", "/api/dvswitch/private-node", body, nil); c != 200 {
+		t.Fatal(c)
+	}
+	waitFor(t, func() bool { return ilink13(pe.env) >= 1 })
+	cmds := pe.fake.ilinkCommands()
+	a, b, c13 := ilinkIndex(cmds, "ilink 1 50241"), ilinkIndex(cmds, "ilink 1 1999"), ilinkIndex(cmds, "ilink 13 1996")
+	if a < 0 || b < 0 || c13 < a || c13 < b {
+		t.Fatalf("the other links were not disconnected before the link: %v", cmds)
+	}
+}
+
+func TestDVPrivateSavePermanentNotExclusiveWhenOff(t *testing.T) {
+	pe := newPrivEnv(t, tmplRpt, true)
+	pe.setLinks("50241")
+	body := map[string]any{"node": "1996", "localNode": "1997", "linkMode": "permanent", "linkExclusive": false, "restart": true}
+	if c := pe.do("admin", "PUT", "/api/dvswitch/private-node", body, nil); c != 200 {
+		t.Fatal(c)
+	}
+	waitFor(t, func() bool { return ilink13(pe.env) >= 1 })
+	if cmds := pe.fake.ilinkCommands(); ilinkIndex(cmds, "ilink 1 50241") >= 0 {
+		t.Fatalf("disconnected with the setting off: %v", cmds)
+	}
+}
+
+// The reconciler's automatic relink (here: first check after start) never
+// disconnects other links, even with the setting on.
+func TestDVReconcilerAutoRelinkNeverExclusive(t *testing.T) {
+	e := dvLinkEnv(t, true)
+	e.setLinks("50241")
+	if err := dvswitch.WriteLinkSettings(e.st, dvswitch.LinkSettings{Mode: "permanent", LocalNode: localNode, Bridge: "1996", Exclusive: true}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return ilink13(e) >= 1 })
+	if cmds := e.fake.ilinkCommands(); ilinkIndex(cmds, "ilink 1 50241") >= 0 {
+		t.Fatalf("automatic relink disconnected a link made by hand: %v", cmds)
+	}
+}

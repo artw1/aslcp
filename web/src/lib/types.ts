@@ -195,10 +195,10 @@ export interface DVSwitchInfo { found: boolean; version: string; mode: string; t
 /** The "Bridge node" part of GET /api/dvswitch/setup. `suggested` is the first free node of 1900-1997. */
 export interface DVBridgeSetup {
   node: string; owned: boolean; suggested: string; used: string[]; localNodes: string[];
-  rxPort: number; txPort: number; link: { mode: DVLinkMode; localNode: string; bridge: string }; paused: boolean;
+  rxPort: number; txPort: number; link: { mode: DVLinkMode; localNode: string; bridge: string; exclusive: boolean }; paused: boolean;
 }
 /** PUT /api/dvswitch/private-node (docs/API.md "DVSwitch private node"). */
-export interface DVPrivateReq { node: string; rxPort: number; txPort: number; linkMode: DVLinkMode; localNode: string; dryRun?: boolean; restart?: boolean; base?: Record<string, string>; renumber?: boolean }
+export interface DVPrivateReq { node: string; rxPort: number; txPort: number; linkMode: DVLinkMode; localNode: string; /** "Disconnect other links first"; absent keeps the saved value. */ linkExclusive?: boolean; dryRun?: boolean; restart?: boolean; base?: Record<string, string>; renumber?: boolean }
 export type DVPlanKind = 'set' | 'renumber' | 'remove';
 /** `kind` says what the plan does: save the node, renumber it (`oldNode` goes away) or remove it. `unlinks` are the local nodes disconnected first; `keepRecord` says the removal leaves ASLCP's record because something could not be reverted. */
 export interface DVPlan {
@@ -206,7 +206,7 @@ export interface DVPlan {
   node: string; rxPort: number; txPort: number; layout: string;
   files: { path: string; diff: string; changed: boolean }[];
   restartAsterisk: boolean; restarts: string[]; warnings: string[]; base: Record<string, string>;
-  link: { mode: DVLinkMode; localNode: string; bridge: string };
+  link: { mode: DVLinkMode; localNode: string; bridge: string; exclusive: boolean };
 }
 export interface DVStep { name: string; ok: boolean; detail?: string }
 export interface DVRollbackInfo { available: boolean; before?: boolean; ini?: boolean }
@@ -254,7 +254,8 @@ export interface DVSnapshot {
   link: DVLink;
 }
 export type DVLinkMode = 'ondemand' | 'permanent';
-export interface DVLink { mode: DVLinkMode; localNode: string; linked: boolean; paused: boolean }
+/** `exclusive` is the saved "Disconnect other links first" (dvswitch.link_exclusive). */
+export interface DVLink { mode: DVLinkMode; localNode: string; linked: boolean; paused: boolean; exclusive: boolean }
 /** The reply of POST /api/dvswitch/mode, /unlink and /tune. */
 export interface DVCmdReply { mode: string; switched: boolean; confirmed: boolean; snapshot: DVSnapshot }
 export interface DVFavorite { id: number; mode: DVTuneMode; value: string; name: string; sort: number }

@@ -27,11 +27,13 @@ func (s *memStore) SetSetting(k, v string) error {
 type fakeLinker struct {
 	linked, known bool
 	connects      []string
+	exclusives    []bool
 	disconnects   []string
 }
 
-func (f *fakeLinker) Connect(_ context.Context, l, b string) error {
+func (f *fakeLinker) Connect(_ context.Context, l, b string, excl bool) error {
 	f.connects = append(f.connects, l+">"+b)
+	f.exclusives = append(f.exclusives, excl)
 	f.linked = true
 	return nil
 }
@@ -158,5 +160,83 @@ func TestReconcilerChangedNode(t *testing.T) {
 	r.Saved(context.Background(), prev, cur)
 	if len(fl.disconnects) != 1 || fl.disconnects[0] != "1999>1997" {
 		t.Fatalf("%v", fl.disconnects)
+	}
+}
+
+func TestLinkExclusiveSettingDefaultAndRoundTrip(t *testing.T) {
+	st := &memStore{m: map[string]string{}}
+	if !ReadLinkSettings(st).Exclusive {
+		t.Fatal("default must be on, like the analog Connect")
+	}
+	if err := WriteLinkSettings(st, LinkSettings{Mode: LinkOnDemand}); err != nil {
+		t.Fatal(err)
+	}
+	if st.m[SettingLinkExclusive] != "0" || ReadLinkSettings(st).Exclusive {
+		t.Fatalf("off not saved: %v", st.m)
+	}
+	_ = WriteLinkSettings(st, LinkSettings{Mode: LinkOnDemand, Exclusive: true})
+	if st.m[SettingLinkExclusive] != "1" || !ReadLinkSettings(st).Exclusive {
+		t.Fatalf("on not saved: %v", st.m)
+	}
+}
+
+// Automatic relinks (start, tick, Asterisk restart) are never exclusive, even
+// with the setting on; only the connect a panel save triggers is, once.
+func TestReconcilerAutoRelinkNeverExclusive(t *testing.T) {
+	r, fl, st, now := newRec(LinkPermanent)
+	st.m[SettingLinkExclusive] = "1"
+	ctx := context.Background()
+	r.RunOnce(ctx) // start / tick
+	fl.linked = false
+	*now = now.Add(time.Minute)
+	r.AsteriskRestarted() // restart (also through the panel)
+	r.RunOnce(ctx)
+	fl.linked = false
+	*now = now.Add(time.Minute)
+	r.RunOnce(ctx) // tick
+	if len(fl.connects) != 3 {
+		t.Fatalf("%v", fl.connects)
+	}
+	for i, x := range fl.exclusives {
+		if x {
+			t.Fatalf("automatic connect %d was exclusive", i)
+		}
+	}
+}
+
+func TestReconcilerSaveRelinkExclusiveOnce(t *testing.T) {
+	r, fl, st, now := newRec(LinkPermanent)
+	st.m[SettingLinkExclusive] = "1"
+	ctx := context.Background()
+	set := LinkSettings{Mode: LinkPermanent, LocalNode: "1999", Bridge: "1997", Exclusive: true}
+	r.Saved(ctx, set, set)
+	r.RunOnce(ctx)
+	if len(fl.exclusives) != 1 || !fl.exclusives[0] {
+		t.Fatalf("save relink not exclusive: %v", fl.exclusives)
+	}
+	fl.linked = false
+	*now = now.Add(time.Minute)
+	r.RunOnce(ctx) // the next one is automatic again
+	if len(fl.exclusives) != 2 || fl.exclusives[1] {
+		t.Fatalf("armed exclusive was not spent: %v", fl.exclusives)
+	}
+	// setting off: a save is not exclusive
+	set.Exclusive = false
+	fl.linked = false
+	*now = now.Add(time.Minute)
+	r.Saved(ctx, set, set)
+	r.RunOnce(ctx)
+	if fl.exclusives[2] {
+		t.Fatalf("exclusive with the setting off: %v", fl.exclusives)
+	}
+	// armed, but the window passed: automatic
+	set.Exclusive = true
+	fl.linked = false
+	*now = now.Add(time.Minute)
+	r.Saved(ctx, set, set)
+	*now = now.Add(ExclusiveWindow + time.Second)
+	r.RunOnce(ctx)
+	if fl.exclusives[3] {
+		t.Fatalf("stale armed exclusive used: %v", fl.exclusives)
 	}
 }

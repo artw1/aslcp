@@ -7,7 +7,7 @@ import type { DVFavorite, DVSnapshot } from './types';
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
 const snap = (over: Partial<DVSnapshot> = {}): DVSnapshot => ({
   installed: true, running: true, configured: true, bridge, modes: [],
-  services: [{ unit: 'analog_bridge', active: true }, { unit: 'mmdvm_bridge', active: true }], bridgeNode: { present: true, node: '1999' }, link: { mode: 'ondemand', localNode: '', linked: false, paused: false }, ...over,
+  services: [{ unit: 'analog_bridge', active: true }, { unit: 'mmdvm_bridge', active: true }], bridgeNode: { present: true, node: '1999' }, link: { mode: 'ondemand', localNode: '', linked: false, paused: false, exclusive: true }, ...over,
 });
 
 test('state line', () => {
@@ -98,7 +98,7 @@ test('controls are locked while a command is pending, free on reply, confirmatio
 });
 
 test('the card is tinted only when the bridge node is linked to the local node', () => {
-  const link = (linked: boolean) => ({ mode: 'ondemand' as const, localNode: '1998', linked, paused: false });
+  const link = (linked: boolean) => ({ mode: 'ondemand' as const, localNode: '1998', linked, paused: false, exclusive: true });
   assert.equal(bridgeLinked(snap({ link: link(true) })), true);
   assert.equal(bridgeLinked(snap({ link: link(false) })), false);
   // a talkgroup or reflector on its own does not count, nor does a missing tune
