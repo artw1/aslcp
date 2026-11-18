@@ -442,6 +442,8 @@ The "Bridge node" section has a checkbox "Disconnect other links first" (`dvswit
 
 The reconciler's `Linker.Connect(ctx, local, bridge, exclusive)` takes the flag explicitly; only `Saved` can make it true. The panel has no other relink or resume action for a paused permanent link: saving the section is it, and linking the bridge node by hand through the normal Connect uses that Connect's own checkbox. Saving the checkbox alone needs no Asterisk restart.
 
+The panel holds the reconciler (`LinkReconciler.Hold`) for the whole of an apply, removal or rollback, and releasing it checks the link at once. Without that, the reconciler's tick could relink non-exclusively as soon as the apply's Asterisk restart finished, before `Saved` armed the exclusive.
+
 ### Verify on a real node (M2 checklist)
 
 Placeholders: bridge node `1999`, local node `2006`. Do this on a spare or quiet node; the apply restarts Asterisk.

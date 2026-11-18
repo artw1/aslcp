@@ -712,6 +712,9 @@ type dvStep struct {
 // link, the Asterisk config, the ini, the record and the link settings, then
 // the Asterisk restart, the bridge restart and the health check.
 func (s *Server) dvPrivateApply(w http.ResponseWriter, r *http.Request, u store.User, in dvPrivReq, plan *DVPlan) {
+	if s.d.DVLink != nil {
+		defer s.d.DVLink.Hold()() // no automatic relink until this is done (Saved arms the exclusive)
+	}
 	ctx := r.Context()
 	svc := s.d.ConfigEditor
 	undo := &dvPrivateUndo{hadRecord: plan.hadRecord, prev: s.dvLinkSettings(), cur: plan.Link, at: time.Now()}
@@ -991,6 +994,9 @@ func (s *Server) handleDVPrivateRollback(w http.ResponseWriter, r *http.Request,
 	if s.d.DVSwitch == nil {
 		s.dvswitchError(w, errDVUnavailable)
 		return
+	}
+	if s.d.DVLink != nil {
+		defer s.d.DVLink.Hold()() // no automatic relink until this is done (Saved arms the exclusive)
 	}
 	s.dvUndoMu.Lock()
 	undo := s.dvUndo

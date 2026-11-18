@@ -132,6 +132,10 @@ type LinkReconciler struct {
 	// exclUntil: until then the next connect is exclusive (armed by Saved
 	// when the operator saved the setup with "disconnect others first").
 	exclUntil time.Time
+	// hold > 0 while the panel applies a change (Hold): RunOnce does nothing,
+	// so an Asterisk restart in the middle of an apply cannot relink before
+	// Saved has armed the operator's "disconnect others first".
+	hold int
 }
 
 func (r *LinkReconciler) init() {
@@ -273,6 +277,24 @@ func (r *LinkReconciler) cmd(ctx context.Context, f func(context.Context) error)
 	return err
 }
 
+// Hold stops the reconciler until the returned release is called (once);
+// the release checks the link again. The panel holds it for the whole of an
+// apply, rollback or removal.
+func (r *LinkReconciler) Hold() (release func()) {
+	r.mu.Lock()
+	r.hold++
+	r.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			r.mu.Lock()
+			r.hold--
+			r.mu.Unlock()
+			r.Kick()
+		})
+	}
+}
+
 // Run checks at start (after StartDelay), when kicked and on every tick.
 func (r *LinkReconciler) Run(ctx context.Context) {
 	r.init()
@@ -305,6 +327,12 @@ func (r *LinkReconciler) RunOnce(ctx context.Context) {
 	r.init()
 	r.run.Lock()
 	defer r.run.Unlock()
+	r.mu.Lock()
+	held := r.hold > 0
+	r.mu.Unlock()
+	if held {
+		return
+	}
 	l := ReadLinkSettings(r.Store)
 	if l.Mode != LinkPermanent || l.LocalNode == "" || l.Bridge == "" || r.Paused() {
 		return
