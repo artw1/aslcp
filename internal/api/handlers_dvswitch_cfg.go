@@ -57,6 +57,12 @@ func (s *Server) handleDVSwitchSetup(w http.ResponseWriter, r *http.Request, _ s
 // reply with the Setup view.
 func (s *Server) dvWrite(w http.ResponseWriter, r *http.Request, u store.User, action string, keys []string,
 	call func(*Server, *http.Request) (helper.DVApplyResult, error)) {
+	if len(keys) == 0 {
+		// A request with no values is a no-op, not an error: nothing is
+		// written, so nothing changes and nothing needs a restart.
+		s.dvSetupView(w, r, &helper.DVApplyResult{})
+		return
+	}
 	res, err := call(s, r)
 	if err != nil {
 		s.audit(u, action+".refused", map[string]any{"keys": keys})

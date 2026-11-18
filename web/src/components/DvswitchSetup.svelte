@@ -6,6 +6,7 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import type { DVDMRStatus, DVListItem, DVListMode, DVRestartScope, DVSwitchSetup, DVSwitchStatus } from '../lib/types';
   import { badge, bridgeInUse, IDLE_POLL_MS, outcomeFor, waitForLogin, type Outcome } from '../lib/dmrlogin';
+  import { dvErrorMessage, formChanged } from '../lib/dvmsg';
   import { findByValue, indexList, optionLabel, searchList } from '../lib/dvlist';
   import Confirm from './Confirm.svelte';
   import NodePicker from './NodePicker.svelte';
@@ -35,12 +36,15 @@
   let scope = $state<DVRestartScope>('bridge');
   let confirmRestart = $state(false), rbOpen = $state(false), rollbackFile = $state('');
 
+  // The form as loaded: a save with nothing different sends nothing.
+  let snap = $state.raw({ id: { callsign: '', dmrId: '', essid: '', nxdnId: '' }, net: { address: '', port: '', password: '' }, modes: { dmr: false, ysf: false, p25: false, nxdn: false }, st: { ambeMode: 'DMR', txTg: '', txTs: '2', colorCode: '1', ysf: '', p25: '', nxdn: '' } });
   function fill(s: DVSwitchSetup) {
     v = s;
     id = { callsign: s.identity.callsign, dmrId: s.identity.dmrId, essid: s.identity.essid, nxdnId: s.identity.nxdnId ?? '' };
     net = { address: s.dmr.address, port: s.dmr.port ? String(s.dmr.port) : '', password: '' };
     modes = { ...s.modes };
     st = { ambeMode: s.startup.ambeMode || 'DMR', txTg: s.startup.txTg, txTs: String(s.startup.txTs || 2), colorCode: String(s.startup.colorCode), ysf: s.gateways.ysf.startup, p25: s.gateways.p25.startup, nxdn: s.gateways.nxdn.startup };
+    snap = { id: { ...id }, net: { ...net }, modes: { ...modes }, st: { ...st } };
   }
   async function load() { try { fill(await api.dvswitchSetup()); err = ''; } catch (e) { err = e instanceof Error ? e.message : String(e); } }
 
@@ -97,6 +101,9 @@
 
   const base = () => Object.fromEntries((v?.files ?? []).filter((f) => f.sha256).map((f) => [f.id, f.sha256]));
 
+  // Nothing differs from what is saved: no request, no restart.
+  const noChanges = (what: string) => { toast(`${what}: No changes.`, 'info'); };
+
   async function save(what: string, call: () => Promise<DVSwitchSetup>, check = false) {
     busy = true;
     try {
@@ -109,19 +116,20 @@
       if (check) { if (changed) { busy = false; await verifyLogin(); } else pollOnce(); }
     } catch (e) {
       if (e instanceof ApiError && e.code === 'conflict') { toast('A file changed on disk. The values were reloaded; check them and save again.', 'error'); await load(); }
-      else toastError(e);
+      else toast(dvErrorMessage(e), 'error');
     } finally { busy = false; }
   }
-  const saveIdentity = () => save('Identity', () => api.dvswitchIdentity({ ...id, nxdnId: id.nxdnId.trim() || undefined, base: base() }), true);
+  const saveIdentity = () => formChanged(snap.id, id) ? save('Identity', () => api.dvswitchIdentity({ ...id, nxdnId: id.nxdnId.trim() || undefined, base: base() }), true) : noChanges('Identity');
   function saveNet() {
     const b: { dmrAddress?: string; dmrPort?: number; dmrPassword?: string; base: Record<string, string> } = { base: base() };
-    if (net.address !== v?.dmr.address) b.dmrAddress = net.address;
-    if (Number(net.port) !== v?.dmr.port) b.dmrPort = Number(net.port);
+    if (net.address !== snap.net.address) b.dmrAddress = net.address;
+    if (net.port !== snap.net.port && net.port.trim() !== '') b.dmrPort = Number(net.port);
     if (net.password) b.dmrPassword = net.password;
+    if (b.dmrAddress === undefined && b.dmrPort === undefined && b.dmrPassword === undefined) return noChanges('DMR master');
     return save('DMR master', async () => { try { return await api.dvswitchCredentials(b); } finally { net.password = ''; } }, true);
   }
-  const saveModes = () => save('Modes', () => api.dvswitchModes({ ...modes, base: base() }));
-  const saveStartup = () => save('Startup values', () => api.dvswitchStartup({
+  const saveModes = () => formChanged(snap.modes, modes) ? save('Modes', () => api.dvswitchModes({ ...modes, base: base() })) : noChanges('Modes');
+  const saveStartup = () => !formChanged(snap.st, st) ? noChanges('Startup values') : save('Startup values', () => api.dvswitchStartup({
     ambeMode: st.ambeMode, txTg: st.txTg, txTs: Number(st.txTs), colorCode: Number(st.colorCode),
     ...(v?.gateways.ysf.present ? { ysf: st.ysf } : {}), ...(v?.gateways.p25.present ? { p25: st.p25 } : {}), ...(v?.gateways.nxdn.present ? { nxdn: st.nxdn } : {}), base: base(),
   }));

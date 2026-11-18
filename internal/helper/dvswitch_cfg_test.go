@@ -170,17 +170,34 @@ func TestDVValidationNeverEchoes(t *testing.T) {
 			t.Errorf("error echoes the password")
 		}
 	}
-	for _, c := range []DVCredentials{{Port: ip(0)}, {Port: ip(65536)}, {Address: sp("bad host")}, {Address: sp("")}, {}} {
+	for _, c := range []DVCredentials{{Port: ip(0)}, {Port: ip(65536)}, {Address: sp("bad host")}, {Address: sp("")}} {
 		c := c
 		if _, err := o.DVSwitchCredentials(ctx, &DVSwitchRequest{Credentials: &c}); !errors.Is(err, ErrDVInvalid) {
 			t.Errorf("%+v: %v", c, err)
 		}
 	}
 	for _, s := range []DVStartup{{AmbeMode: sp("DSTAR")}, {TxTg: sp("123456789")}, {TxTs: ip(3)}, {ColorCode: ip(16)},
-		{YSF: sp(" ab")}, {YSF: sp("a;b")}, {P25: sp("abc")}, {NXDN: sp("123456")}, {}} {
+		{YSF: sp(" ab")}, {YSF: sp("a;b")}, {P25: sp("abc")}, {NXDN: sp("123456")}} {
 		s := s
 		if _, err := o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &s}); !errors.Is(err, ErrDVInvalid) {
 			t.Errorf("%+v: %v", s, err)
+		}
+	}
+	// empty requests are a harmless no-op, not an error
+	for name, r := range map[string]DVSwitchRequest{"credentials": {Credentials: &DVCredentials{}}, "modes": {Modes: &DVModes{}}, "startup": {Startup: &DVStartup{}}} {
+		r := r
+		var res DVApplyResult
+		var err error
+		switch name {
+		case "credentials":
+			res, err = o.DVSwitchCredentials(ctx, &r)
+		case "modes":
+			res, err = o.DVSwitchModes(ctx, &r)
+		default:
+			res, err = o.DVSwitchStartup(ctx, &r)
+		}
+		if err != nil || len(res.Files) != 0 || len(res.RestartHint) != 0 || res.Files == nil {
+			t.Errorf("empty %s: %+v %v", name, res, err)
 		}
 	}
 	// a request with a field its op does not take

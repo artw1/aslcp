@@ -1,0 +1,22 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { dvErrorMessage, fieldLabel, formChanged } from './dvmsg.ts';
+
+class ApiError extends Error { code: string; status: number; constructor(status: number, code: string, m: string) { super(m); this.code = code; this.status = status; } }
+const inv = (m: string) => new ApiError(400, 'invalid_field', m);
+
+test('invalid_field names the field', () => {
+  assert.equal(fieldLabel('invalid_field: a value is not allowed (identity/dmrId)'), 'DMR ID');
+  assert.equal(fieldLabel('invalid_field: a value is not allowed (mmdvm_bridge/DMR Network/Password)'), 'DMR master password');
+  assert.match(dvErrorMessage(inv('invalid_field: a value is not allowed (mmdvm_bridge/DMR Network/Port)')), /DMR master port is not valid/);
+  assert.doesNotMatch(dvErrorMessage(inv('invalid_field: a value is not allowed (credentials)')), /invalid_field/);
+});
+test('unknown field and other errors', () => {
+  assert.match(dvErrorMessage(inv('invalid_field: a value is not allowed')), /A value is not valid/);
+  assert.equal(dvErrorMessage(new ApiError(409, 'conflict', 'busy')), 'busy');
+  assert.equal(dvErrorMessage('x'), 'x');
+});
+test('formChanged', () => {
+  assert.equal(formChanged({ a: '1', p: '' }, { a: '1', p: '' }), false);
+  assert.equal(formChanged({ a: '1', p: '' }, { a: '1', p: 'example-pass' }), true);
+});

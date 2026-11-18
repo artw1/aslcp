@@ -66,6 +66,12 @@ var (
 	ErrDVNoInfo       = errors.New("no_info: Analog_Bridge is not running or has not written its state file")
 )
 
+// dvNoChange is the result of a request that carries no values: nothing is
+// written, nothing changed and no unit needs a restart.
+func dvNoChange() DVApplyResult {
+	return DVApplyResult{Files: []string{}, Skipped: []string{}, RestartHint: []string{}, Hashes: map[string]string{}}
+}
+
 func dvInvalid(what string) error { return fmt.Errorf("%w (%s)", ErrDVInvalid, what) }
 
 // DVFile ids.
@@ -673,7 +679,8 @@ func (o *Ops) DVSwitchCredentials(ctx context.Context, req *DVSwitchRequest) (DV
 		add("Password", *c.Password)
 	}
 	if len(ch) == 0 {
-		return DVApplyResult{}, dvInvalid("credentials")
+		// nothing to write: a harmless no-op, not an error
+		return dvNoChange(), nil
 	}
 	return o.dvApply(ctx, ch, req.Base)
 }
@@ -710,7 +717,8 @@ func (o *Ops) DVSwitchModes(ctx context.Context, req *DVSwitchRequest) (DVApplyR
 		}
 	}
 	if len(ch) == 0 {
-		return DVApplyResult{}, dvInvalid("modes")
+		// nothing to write: a harmless no-op, not an error
+		return dvNoChange(), nil
 	}
 	return o.dvApply(ctx, ch, req.Base)
 }
@@ -799,7 +807,8 @@ func (o *Ops) DVSwitchStartup(ctx context.Context, req *DVSwitchRequest) (DVAppl
 		}
 	}
 	if len(ch) == 0 {
-		return DVApplyResult{}, dvInvalid("startup")
+		// nothing to write: a harmless no-op, not an error
+		return dvNoChange(), nil
 	}
 	return o.dvApply(ctx, ch, req.Base)
 }

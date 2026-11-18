@@ -392,3 +392,25 @@ func TestDVSwitchRestartScopeDMR(t *testing.T) {
 		t.Fatalf("%d %+v scope %q", c, r, f.last.Scope)
 	}
 }
+
+// A request with no values is a no-op success: the helper is not called, no
+// file changes and nothing needs a restart.
+func TestDVSwitchEmptyWritesAreNoOps(t *testing.T) {
+	f := &fakeDV{cfgErr: helper.ErrDVInvalid} // would fail if it were called
+	e := newEnv(t, opts{dvswitch: f})
+	for _, ep := range []struct{ path, body string }{
+		{"/api/dvswitch/credentials", `{"base":{}}`},
+		{"/api/dvswitch/modes", `{}`},
+		{"/api/dvswitch/startup", `{}`},
+	} {
+		var body map[string]any
+		_ = json.Unmarshal([]byte(ep.body), &body)
+		code, raw, _ := e.raw("PUT", ep.path, body, e.ck["admin"], nil)
+		if code != 200 || strings.Contains(string(raw), `"changed"`) || strings.Contains(string(raw), `"restartHint"`) {
+			t.Errorf("%s: %d %s", ep.path, code, raw)
+		}
+	}
+	if f.calls != 0 {
+		t.Errorf("helper called %d times for empty requests", f.calls)
+	}
+}

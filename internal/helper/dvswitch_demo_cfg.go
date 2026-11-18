@@ -127,7 +127,7 @@ func (d *DemoDVSwitch) DVSwitchIdentity(_ context.Context, r DVSwitchRequest) (D
 func (d *DemoDVSwitch) DVSwitchCredentials(_ context.Context, r DVSwitchRequest) (DVApplyResult, error) {
 	cr := r.Credentials
 	if cr == nil || cr.Address == nil && cr.Port == nil && cr.Password == nil {
-		return DVApplyResult{}, dvInvalid("credentials")
+		return dvNoChange(), nil
 	}
 	if cr.Address != nil && !reDVHost.MatchString(*cr.Address) {
 		return DVApplyResult{}, dvInvalid("DMR Network/Address")
@@ -156,7 +156,7 @@ func (d *DemoDVSwitch) DVSwitchCredentials(_ context.Context, r DVSwitchRequest)
 func (d *DemoDVSwitch) DVSwitchModes(_ context.Context, r DVSwitchRequest) (DVApplyResult, error) {
 	m := r.Modes
 	if m == nil || m.DMR == nil && m.YSF == nil && m.P25 == nil && m.NXDN == nil {
-		return DVApplyResult{}, dvInvalid("modes")
+		return dvNoChange(), nil
 	}
 	return d.demoWrite([]string{DVFileMMDVMBridge}, []string{"analog_bridge", "mmdvm_bridge"}, func(c *demoDVCfg) error {
 		for _, e := range []struct {
@@ -174,8 +174,8 @@ func (d *DemoDVSwitch) DVSwitchModes(_ context.Context, r DVSwitchRequest) (DVAp
 // DVSwitchStartup implements the API's DVSwitch interface.
 func (d *DemoDVSwitch) DVSwitchStartup(_ context.Context, r DVSwitchRequest) (DVApplyResult, error) {
 	s := r.Startup
-	if s == nil {
-		return DVApplyResult{}, dvInvalid("startup")
+	if s == nil || !s.UseCurrent && s.AmbeMode == nil && s.TxTg == nil && s.TxTs == nil && s.ColorCode == nil && s.YSF == nil && s.P25 == nil && s.NXDN == nil {
+		return dvNoChange(), nil
 	}
 	if s.AmbeMode != nil && !dvAmbeModes[*s.AmbeMode] {
 		return DVApplyResult{}, dvInvalid("AMBE_AUDIO/ambeMode")
