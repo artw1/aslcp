@@ -1,4 +1,4 @@
-import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVSwitchRestartResult } from './types';
+import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVSwitchRestartResult, DVList, DVListMode } from './types';
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public body?: Record<string, unknown>) { super(message); }
@@ -147,6 +147,7 @@ export const api = {
   dvswitchCredentials: (b: { dmrAddress?: string; dmrPort?: number; dmrPassword?: string; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/credentials', b),
   dvswitchModes: (b: { dmr?: boolean; ysf?: boolean; p25?: boolean; nxdn?: boolean; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/modes', b),
   dvswitchStartup: (b: { useCurrent?: boolean; ambeMode?: string; txTg?: string; txTs?: number; colorCode?: number; ysf?: string; p25?: string; nxdn?: string; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/startup', b),
+  dvswitchList: (mode: DVListMode) => req<DVList>('GET', `/dvswitch/lists?mode=${mode}`),
   dvswitchRestart: (scope: 'bridge' | 'gateways' | 'all', action: 'restart' | 'start' = 'restart') => req<DVSwitchRestartResult>('POST', '/dvswitch/restart', { scope, action }),
   dvswitchRollback: (file: string, base?: Record<string, string>) => req<DVSwitchSetup>('POST', '/dvswitch/rollback', { file, base }),
   setUpdateChannel: (channel: 'stable' | 'beta') => req<UpdateInfo>('PUT', '/updates/channel', { channel }),

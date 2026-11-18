@@ -114,7 +114,7 @@ Mode names sent are `DMR`, `YSF`, `P25`, `NXDN`, as the script does (AB also kno
 | Mode | Tune value | List source (read directly by the server, data files only) |
 |---|---|---|
 | DMR | `^[0-9]{1,8}$` (TG) | optional `TGList_BM.txt` / `TGList_TGIF.txt` in `/var/lib/mmdvm`; favourites |
-| YSF | `host:port` (hosts file fields 4:5) or `disconnect` | `/var/lib/mmdvm/YSFHosts.txt` (`;`-separated), optional `FCSRooms.txt` later |
+| YSF | `host:port` (hosts file fields 4:5) or `disconnect` | `/var/lib/mmdvm/YSFHosts.txt` (`;`-separated, read by the helper op `dvswitch-lists`), optional `FCSRooms.txt` later |
 | P25 | `^[0-9]{1,5}$` | `/var/lib/mmdvm/P25Hosts.txt` (`id host port`) |
 | NXDN | `^[0-9]{1,5}$` | `/var/lib/mmdvm/NXDNHosts.txt` |
 
@@ -362,10 +362,33 @@ Code: `internal/dvswitch/ini` (editor and stock fixtures), `internal/helper/dvsw
 - The MMDVM_Bridge `Id` is written as DMR ID + ESSID (9 digits), like `repeaterID`. The stock value is the 7-digit `1234567`; until the identity is saved once the Setup view reports `consistent: false` for a stock file.
 - `passwordSet` is false for an empty password and for the stock `passw0rd`.
 - The setup identity is "consistent" when MMDVM `Callsign`/`Id`, AB `gatewayDmrId`/`repeaterID`, the gateways' `Callsign` and YSF `Id` all agree.
-- "Use current" reads ABInfo. In DMR it writes `ambeMode`, `txTg`, `txTs` and `colorCode`; in a YSF, P25 or NXDN mode it writes `ambeMode` and the gateway's `Startup` from ABInfo's last tune, if there is one (`tg` of ABInfo is a DMR value only).
+- "Use current" reads ABInfo. In DMR it writes `ambeMode`, `txTg`, `txTs` and `colorCode`; in a YSF, P25 or NXDN mode it writes `ambeMode` and the gateway's `Startup` from ABInfo's last tune, if there is one (`tg` of ABInfo is a DMR value only). The YSF tune is `host:port` and is mapped to the reflector id through `YSFHosts.txt`; without a match Startup is left alone and `applyWarnings` says so (see "Host and TG lists").
 - The restart reply has no `unitFailed` (no 10 s check); the UI shows the unit states after the call.
 - The ABInfo file of the bridge's own PID is read, so a stale file of a stopped bridge is never shown.
 - The history dir is removed by the uninstall; one history copy per write that changed the file. A rollback deletes the copy it restored.
+
+### Host and TG lists for the pickers (implemented 2026-11-18)
+
+The four fields **DMR master address**, **YSF startup reflector**, **P25 startup reflector** and **NXDN startup reflector** on the setup page are searchable pickers. They reuse `NodePicker.svelte` (the combobox of the node fields) in its new local mode (`options` instead of a server search); the text stays free-form, so a typed address, port or reflector always works. Search matches the name, the ID or TG, the description and the address (all words must match, case-insensitive, first 50 shown, one lowercase haystack per entry built once). A row reads `name — id — address:port` (the ID only for YSF; DMR and TG lists show `name — address:port`). Picking a DMR master fills **address and port**; it never touches the password.
+
+Code: `internal/helper/dvswitch_lists.go` (parsers, op), `dvswitch_demo_lists.go` (demo placeholders), `internal/api/handlers_dvswitch_cfg.go` (`handleDVSwitchLists`), `web/src/lib/dvlist.ts` (search, labels; `npm test`), `web/src/components/NodePicker.svelte`, `DvswitchSetup.svelte`, `web/mock/dvswitch.ts`. Tests: `internal/helper/dvswitch_lists_test.go` (+ `testdata/*Hosts.txt`, trimmed copies of the real files), `internal/api/dvswitch_test.go`, `web/src/lib/dvlist.test.ts`.
+
+**File formats (checked 2026-11-18 against the real files from pistar.uk; they are the source DVSwitch's daily update copies):**
+
+| Mode | File (fixed, below `/var/lib/mmdvm`) | Format | Value written | Notes |
+|---|---|---|---|---|
+| DMR | `DMR_Hosts.txt` | whitespace separated, **five fields: name, network ID, address, password, port** (not four: the ID is the second field). `#` comment lines, blank lines, CRLF on some lines. 1,483 lines in all | `[DMR Network] Address` and `Port` | the password column is never read into a value or reply (the real file holds both `passw0rd` and real passwords such as a hotspot server's own). A four-field line (name, address, password, port) is accepted. Loopback entries (`DMRGateway`, `DMR2YSF`, `DMR2NXDN`, 127.x) are dropped. Network ID `0000` shows no detail |
+| YSF | `YSFHosts.txt` | `;` separated, **seven fields with a trailing `;`**: `id;name;description;address;port;000;` (5-digit id, names may hold spaces and `*`) | the 5-digit id | `YSFGateway` accepts the id (or the name) as `Startup` |
+| P25 | `P25Hosts.txt` | TAB separated: `TG host port`, header comments say `designator<TAB>host<TAB>port` | the TG number | up to 5 digits |
+| NXDN | `NXDNHosts.txt` | TAB separated: `TG host port` | the TG number | up to 5 digits |
+
+The file name differs from Pi-Star's download name for three of them (`YSF_Hosts.txt` there, `YSFHosts.txt` here). The picker parsers check every field (host `[A-Za-z0-9.-]`, port 1-65535, id digits) and skip every line that fails, so a bad line costs one entry, not the list. A file with no usable line is an empty list, a missing or unreadable one is `404 no_list`.
+
+**Sandbox decision.** The helper reads the files (op `dvswitch-lists`), the server does not. `aslcp.service` has `ProtectSystem=strict`: that makes `/var` read-only, not invisible, so the server could read `/var/lib/mmdvm` if the directory is world-readable (the files are 0644 root; the directory mode was not checked), but nothing in the packaging promises it, a hardening change would break the pickers silently, and every other DVSwitch read already goes through the helper. The op takes an enum mode, maps it to one constant file name, and never takes a path from the client. The demo wires its own `Ops` whose host dir is a temporary directory filled with placeholder lists (`NewDemoOps`), so it never reads the real `/var/lib/mmdvm`.
+
+**Roles.** `operator` and `admin` may read the lists, `viewer` may not (the reply is public reflector data, but the only use is choosing a target, and M1's tune and favourites are operator actions). The setup page itself is admin only.
+
+**"Use current" in YSF mode** used to copy ABInfo's last tune (`host:port`) into `YSFGateway.ini [Network] Startup`, which `YSFGateway` does not accept. It now maps `host:port` to the reflector id through `YSFHosts.txt` (host case-insensitive, port exact, first match). A tune that already is a 5-digit id is kept. With no match, or without the file, **Startup is not written**; the rest of the startup values still are, and the reply carries `applyWarnings` (no tune value in the text). The same applies to P25 and NXDN: a tune that is not a TG number is skipped with a warning instead of failing the whole write with `400 invalid_field`.
 
 ### Verify on a real node (M4 checklist)
 
@@ -417,6 +440,7 @@ New file `internal/helper/dvswitch.go`; constants in `proto.go`; dispatch in `Op
 | `dvswitch-startup` | `startup: {useCurrent}` or `{ambeMode?, txTg?, txTs?, colorCode?, ysf?, p25?, nxdn?}`, `base` | as above | M4; `useCurrent` reads ABInfo (`ErrDVNoInfo` when the bridge is not running); the gateway `Startup` of a missing gateway is skipped |
 | `dvswitch-rollback` | `file` (enum), `base` | as above | M4; restores the newest history copy |
 | `dvswitch-restart` | `scope: bridge\|gateways\|all`, `action: restart\|start` | `{action, units, skipped, states}` | M4; fixed argv |
+| `dvswitch-lists` | `mode` (enum `dmr\|ysf\|p25\|nxdn`) | `{mode, items, truncated?, etag}` | Host and TG lists, read-only. One fixed file per mode below the host dir, `O_NOFOLLOW`, regular file, 4 MiB cap, at most 5000 items. `no_list:` when the file is missing |
 | | | | The typed ops are not a single `dvswitch-config-apply` with free `changes`: each op builds its own fixed change list, so no client chooses a file, section or key. All write ops refuse with `busy` while an install or uninstall runs, and with `not_installed` when `Analog_Bridge.ini` or `MMDVM_Bridge.ini` is missing |
 
 Request size stays at the default small limit. Rollback granularity per file; apply across files is best effort (same stance as DESIGN 6).
@@ -431,7 +455,7 @@ Base `/api/dvswitch`. Errors `{error, code}` as everywhere; all non-GET need `X-
 | POST | `/api/dvswitch/mode` | operator | `{"mode": "dmr\|ysf\|p25\|nxdn"}` | `200` Snapshot plus `confirmed: bool` (ABInfo shows the new mode); `400 bad_request`; `409 mode_disabled`; `409 not_configured`; `502 bridge_unreachable` (no ABInfo/TLV port) |
 | POST | `/api/dvswitch/tune` | operator | `{"mode": "ysf", "target": "192.0.2.10:42000"}` | `200` Snapshot + `confirmed`; `400 bad_target` (validator); `409 mode_mismatch` (bridge is in another mode now) |
 | POST | `/api/dvswitch/unlink` | operator | `{}` | `200` Snapshot; sends the unlink value of the current mode |
-| GET | `/api/dvswitch/lists?mode=ysf` | viewer | | `200` `{"mode", "items": [{"value", "name", "detail"}], "updated"}` (max 5000, `ETag`); `404 no_list` when the file is missing (the UI falls back to free input) |
+| GET | `/api/dvswitch/lists?mode=dmr\|ysf\|p25\|nxdn` | operator (admin too; **viewer is refused**, a pick is a control action) | | Implemented (host and TG lists, see below): `200` `{"mode", "items": [{"value", "name", "detail"?, "address", "port"}], "truncated"?, "etag"}` (max 5000, `ETag` header, `304` on `If-None-Match`); `400 bad_request` (mode not in the enum); `404 no_list` when the file is missing (the UI falls back to free input) |
 | GET | `/api/dvswitch/favorites` | viewer | | `200` `[{"id","mode","value","name","sort"}]` |
 | POST | `/api/dvswitch/favorites` | operator | `{"mode","value","name"}` | `201` favourite; `400`; `409 duplicate` (mode+value) |
 | PUT | `/api/dvswitch/favorites/{id}` | operator | `{"name","sort"}` | `200`; `404 not_found` |
@@ -559,7 +583,7 @@ The installer, the repository key, the bookworm repo and the package facts were 
 | Unit details and dependencies | restart order, PrivateTmp, `update-config.sh` | `systemctl cat analog_bridge mmdvm_bridge ysfgateway p25gateway nxdngateway`; `systemctl list-dependencies analog_bridge mmdvm_bridge`; `systemctl list-unit-files \| grep -i -E 'analog\|mmdvm\|gateway\|md380\|dvswitch'`; `cat /usr/local/sbin/update-config.sh` |
 | Gateway ini keys | allowlist for P25/NXDN | `grep -n -E '^\[\|^(Callsign\|Id\|Suffix\|Startup\|HostsFile1)\s*=' /opt/YSFGateway/YSFGateway.ini /opt/P25Gateway/P25Gateway.ini /opt/NXDNGateway/NXDNGateway.ini` (replace the callsign and ID values in the output) |
 | MMDVM_Bridge keys | allowlist, password character rules | `grep -n -E '^\[\|^(Callsign\|Id\|Enable\|Address\|Port\|Local\|Options\|Duplex)\s*=' /opt/MMDVM_Bridge/MMDVM_Bridge.ini` (this pattern deliberately excludes `Password`; test special characters on a spare setup, not by posting values) |
-| Host and TG file formats | picker parsers | `ls -l /var/lib/mmdvm/`; `head -n 4 /var/lib/mmdvm/YSFHosts.txt /var/lib/mmdvm/P25Hosts.txt /var/lib/mmdvm/NXDNHosts.txt /var/lib/mmdvm/TGList_BM.txt 2>&1`; `wc -l /var/lib/mmdvm/*Hosts.txt` |
+| Host and TG file formats | picker parsers (the formats were checked on the pistar.uk downloads; confirm that `/var/lib/mmdvm/DMR_Hosts.txt` exists on a DVSwitch node and has the same five columns, and the directory mode) | `ls -l /var/lib/mmdvm/`; `head -n 4 /var/lib/mmdvm/YSFHosts.txt /var/lib/mmdvm/P25Hosts.txt /var/lib/mmdvm/NXDNHosts.txt /var/lib/mmdvm/TGList_BM.txt 2>&1`; `wc -l /var/lib/mmdvm/*Hosts.txt` |
 | Bridge node stanza and `duplex` | M2 defaults | `awk '/^\[1999\]/,/^\[[^1]/' /etc/asterisk/rpt.conf \| grep -v -i -E 'pass\|secret'` (use your bridge node's number); `grep -n usrp /etc/asterisk/modules.conf`; `asterisk -rx 'module show like usrp'`; the stock `[node-main]` comment recommends `duplex = 0` for external controllers, check what works with real traffic |
 | Inherited template keys on a bridge | which keys to unset | `asterisk -rx 'rpt show variables 1999' 2>&1 \| head -40` and compare `idrecording`, `idtalkover`, `tailmessagetime` against the stock `[node-main]` |
 | Licence | whether ASLCP may even mention/offer the install | `dpkg -S /opt/Analog_Bridge/Analog_Bridge /opt/MMDVM_Bridge/MMDVM_Bridge`; then `ls /usr/share/doc/<package>/` and `head -n 60 /usr/share/doc/<package>/copyright` for each owning package |

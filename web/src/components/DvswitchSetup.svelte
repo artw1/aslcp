@@ -4,8 +4,10 @@
   import { onMount } from 'svelte';
   import { api, ApiError } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
-  import type { DVSwitchSetup, DVSwitchStatus } from '../lib/types';
+  import type { DVListItem, DVListMode, DVSwitchSetup, DVSwitchStatus } from '../lib/types';
+  import { findByValue, indexList, optionLabel, searchList } from '../lib/dvlist';
   import Confirm from './Confirm.svelte';
+  import NodePicker from './NodePicker.svelte';
 
   let { units, onunits }: { units: DVSwitchStatus['units']; onunits: (u: DVSwitchStatus['units']) => void } = $props();
 
@@ -13,7 +15,18 @@
   const WARNING = 'A restart resets the running mode and talkgroup to the startup values.';
 
   let v = $state<DVSwitchSetup | null>(null), err = $state(''), busy = $state(false);
-  let hint = $state<string[]>([]);
+  let hint = $state<string[]>([]), notes = $state<string[]>([]);
+  // Host and TG lists of the pickers. A mode without a list (404 no_list, or any error) stays empty:
+  // its field is then plain text, which is always allowed.
+  const MODES: DVListMode[] = ['dmr', 'ysf', 'p25', 'nxdn'];
+  let lists = $state<Record<DVListMode, DVListItem[]>>({ dmr: [], ysf: [], p25: [], nxdn: [] });
+  const index = $derived({ dmr: indexList(lists.dmr), ysf: indexList(lists.ysf), p25: indexList(lists.p25), nxdn: indexList(lists.nxdn) });
+  const find = (m: DVListMode) => (t: string) => searchList(index[m], t);
+  const label = (m: DVListMode) => (o: DVListItem) => optionLabel(m, o);
+  async function loadLists() {
+    await Promise.all(MODES.map(async (m) => { try { lists[m] = (await api.dvswitchList(m)).items; } catch { /* no list: free text */ } }));
+  }
+  const hit = (m: Exclude<DVListMode, 'dmr'>, value: string) => findByValue(lists[m], value);
   let id = $state({ callsign: '', dmrId: '', essid: '', nxdnId: '' });
   let net = $state({ address: '', port: '', password: '' });
   let modes = $state({ dmr: false, ysf: false, p25: false, nxdn: false });
@@ -29,7 +42,7 @@
     st = { ambeMode: s.startup.ambeMode || 'DMR', txTg: s.startup.txTg, txTs: String(s.startup.txTs || 2), colorCode: String(s.startup.colorCode), ysf: s.gateways.ysf.startup, p25: s.gateways.p25.startup, nxdn: s.gateways.nxdn.startup };
   }
   async function load() { try { fill(await api.dvswitchSetup()); err = ''; } catch (e) { err = e instanceof Error ? e.message : String(e); } }
-  onMount(load);
+  onMount(() => { load(); loadLists(); });
 
   const base = () => Object.fromEntries((v?.files ?? []).filter((f) => f.sha256).map((f) => [f.id, f.sha256]));
 
@@ -39,6 +52,7 @@
       const s = await call();
       fill(s);
       hint = s.restartHint ?? [];
+      notes = s.applyWarnings ?? [];
       toast(s.changed && s.changed.length ? `${what} saved.` : `${what}: nothing to change.`, 'info');
     } catch (e) {
       if (e instanceof ApiError && e.code === 'conflict') { toast('A file changed on disk. The values were reloaded; check them and save again.', 'error'); await load(); }
@@ -81,6 +95,7 @@
 {:else if !ok}
   <p class="text-sm text-muted" role="status">The DVSwitch ini files are not there, so there is nothing to set up.</p>
 {:else}
+  {#each notes as n}<p class="rounded border border-warn/60 p-2 text-sm text-warn" role="status">{n}</p>{/each}
   {#if hint.length}
     <p class="rounded border border-warn/60 p-2 text-sm text-warn" role="status">Saved. These services pick the change up on a restart: <span class="font-mono">{hint.join(', ')}</span>. {WARNING}</p>
   {/if}
@@ -97,8 +112,10 @@
         <div class="sm:col-span-3"><button class="btn btn-primary" disabled={busy}>Save identity</button><span class="ml-2 text-xs text-muted">Written to every place that holds it.</span></div>
       </form>
       <form class="grid grid-cols-1 gap-2 border-t border-line pt-3 sm:grid-cols-3" onsubmit={(e) => { e.preventDefault(); saveNet(); }}>
-        <div class="sm:col-span-2"><label class="label" for="dv-addr">DMR master address</label><input id="dv-addr" class="input font-mono" bind:value={net.address} placeholder="master.example.invalid" /></div>
+        <div class="sm:col-span-2"><label class="label" for="dv-addr">DMR master address</label>
+          <NodePicker id="dv-addr" bind:value={net.address} options={lists.dmr} search={find('dmr')} label={label('dmr')} onpickoption={(o) => { net.port = String(o.port); }} placeholder="Search a master or type an address" inputmode="text" maxlength={253} describedby="dv-addr-hint" /></div>
         <div><label class="label" for="dv-port">Port</label><input id="dv-port" class="input font-mono" bind:value={net.port} inputmode="numeric" maxlength="5" /></div>
+        <p id="dv-addr-hint" class="text-xs text-muted sm:col-span-3">{lists.dmr.length ? 'Search by name, network ID or address. Picking a master fills the address and the port; you can also type your own.' : 'Type the master address and port.'} The list never holds your password: enter your own below.</p>
         <div class="sm:col-span-3">
           <label class="label" for="dv-pw">DMR password <span class="text-muted">({v.dmr.passwordSet ? 'set' : 'not set'})</span></label>
           <input id="dv-pw" class="input font-mono" type="password" autocomplete="new-password" bind:value={net.password} placeholder={v.dmr.passwordSet ? 'Leave empty to keep the password' : 'Enter the password'} maxlength="64" />
@@ -124,9 +141,9 @@
         <div><label class="label" for="dv-tg">Talkgroup</label><input id="dv-tg" class="input font-mono" bind:value={st.txTg} inputmode="numeric" maxlength="8" /></div>
         <div><label class="label" for="dv-ts">Slot</label><select id="dv-ts" class="input" bind:value={st.txTs}><option value="1">1</option><option value="2">2</option></select></div>
         <div><label class="label" for="dv-cc">Color code</label><input id="dv-cc" class="input font-mono" bind:value={st.colorCode} inputmode="numeric" maxlength="2" /></div>
-        {#if v.gateways.ysf.present}<div class="col-span-2"><label class="label" for="dv-ysf">YSF reflector</label><input id="dv-ysf" class="input font-mono" bind:value={st.ysf} maxlength="32" aria-describedby="dv-ysf-hint" /><p id="dv-ysf-hint" class="mt-1 text-xs text-muted">reflector ID (5 digits, e.g. 12345) or name exactly as in YSFHosts.txt</p></div>{/if}
-        {#if v.gateways.p25.present}<div><label class="label" for="dv-p25">P25 reflector</label><input id="dv-p25" class="input font-mono" bind:value={st.p25} inputmode="numeric" maxlength="5" /></div>{/if}
-        {#if v.gateways.nxdn.present}<div><label class="label" for="dv-nxdn">NXDN reflector</label><input id="dv-nxdn" class="input font-mono" bind:value={st.nxdn} inputmode="numeric" maxlength="5" /></div>{/if}
+        {#if v.gateways.ysf.present}<div class="col-span-2"><label class="label" for="dv-ysf">YSF reflector</label><NodePicker id="dv-ysf" bind:value={st.ysf} options={lists.ysf} search={find('ysf')} label={label('ysf')} placeholder="Search or type an ID" inputmode="text" maxlength={32} describedby="dv-ysf-hint" /><p id="dv-ysf-hint" class="mt-1 text-xs text-muted">{#if hit('ysf', st.ysf)}{hit('ysf', st.ysf)?.name}, {hit('ysf', st.ysf)?.address}:{hit('ysf', st.ysf)?.port}{:else}reflector ID (5 digits, e.g. 12345) or name exactly as in YSFHosts.txt{/if}</p></div>{/if}
+        {#if v.gateways.p25.present}<div class="col-span-2"><label class="label" for="dv-p25">P25 reflector</label><NodePicker id="dv-p25" bind:value={st.p25} options={lists.p25} search={find('p25')} label={label('p25')} placeholder="Search or type a TG" inputmode="numeric" maxlength={5} describedby="dv-p25-hint" /><p id="dv-p25-hint" class="mt-1 text-xs text-muted">{#if hit('p25', st.p25)}{hit('p25', st.p25)?.address}:{hit('p25', st.p25)?.port}{:else}talkgroup number, up to 5 digits{/if}</p></div>{/if}
+        {#if v.gateways.nxdn.present}<div class="col-span-2"><label class="label" for="dv-nxdn">NXDN reflector</label><NodePicker id="dv-nxdn" bind:value={st.nxdn} options={lists.nxdn} search={find('nxdn')} label={label('nxdn')} placeholder="Search or type a TG" inputmode="numeric" maxlength={5} describedby="dv-nxdn-hint" /><p id="dv-nxdn-hint" class="mt-1 text-xs text-muted">{#if hit('nxdn', st.nxdn)}{hit('nxdn', st.nxdn)?.address}:{hit('nxdn', st.nxdn)?.port}{:else}talkgroup number, up to 5 digits{/if}</p></div>{/if}
         <div class="col-span-2 flex flex-wrap items-center gap-2 sm:col-span-4">
           <button class="btn btn-primary" disabled={busy}>Save startup values</button>
           <button type="button" class="btn" disabled={busy || !v.current.found} onclick={useCurrent} title="Take mode, talkgroup, slot and color code from the running bridge">Use current</button>

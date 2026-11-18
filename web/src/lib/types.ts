@@ -203,5 +203,13 @@ export interface DVSwitchSetup {
   files: DVFileView[];
   current: DVSwitchInfo;
   changed?: string[]; skipped?: string[]; restartHint?: string[];
+  /** Values a write left out and why (for example a YSF reflector that is not in YSFHosts.txt). */
+  applyWarnings?: string[];
 }
 export interface DVSwitchRestartResult { action: 'restart' | 'start'; units: string[]; skipped: string[]; states: DVSwitchStatus['units']; warning: string }
+
+/** GET /api/dvswitch/lists?mode=... (operator and admin; docs/API.md "DVSwitch host lists"). 404 `no_list` when the node has no file for the mode. */
+export type DVListMode = 'dmr' | 'ysf' | 'p25' | 'nxdn';
+/** `value` is what gets written: the master address (dmr), the 5-digit reflector ID (ysf) or the TG (p25, nxdn). `port` is the master port for dmr. The DMR list never carries a password. */
+export interface DVListItem { value: string; name: string; detail?: string; address: string; port: number }
+export interface DVList { mode: DVListMode; items: DVListItem[]; truncated?: boolean; etag: string }

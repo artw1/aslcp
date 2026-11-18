@@ -118,13 +118,45 @@ function write(c: DVCtx, body: Body): boolean {
 }
 
 export interface DVCtx {
-  m: string; p: string; body?: Body; user?: { username: string; role: string };
+  m: string; p: string; url?: URL; body?: Body; user?: { username: string; role: string };
   json: (code: number, body?: unknown) => void; err: (code: number, msg: string, c: string) => void;
 }
+
+// Placeholder host and TG lists (RFC 5737 addresses, made-up names) for GET /dvswitch/lists.
+const LISTS: Record<string, { value: string; name: string; detail?: string; address: string; port: number }[]> = {
+  dmr: [
+    { value: 'example-master.invalid', name: 'BM_0000_Example', detail: 'ID 2001', address: 'example-master.invalid', port: 62031 },
+    { value: '192.0.2.11', name: 'BM_3100_Example', detail: 'ID 3100', address: '192.0.2.11', port: 62031 },
+    { value: '198.51.100.20', name: 'XLX_000', address: '198.51.100.20', port: 62030 },
+    { value: '203.0.113.30', name: 'TGIF_Example', address: '203.0.113.30', port: 62031 },
+  ],
+  ysf: [
+    { value: '00001', name: 'US-Example', detail: 'Example reflector', address: '192.0.2.21', port: 42000 },
+    { value: '00002', name: 'XX-Europe-Example', detail: 'Example link', address: '198.51.100.22', port: 42000 },
+    { value: '00003', name: 'XX-World-Example', detail: 'Example world link', address: '203.0.113.23', port: 42500 },
+  ],
+  p25: [
+    { value: '10100', name: 'P25 TG 10100', address: '192.0.2.31', port: 41000 },
+    { value: '10200', name: 'P25 TG 10200', address: '198.51.100.32', port: 41000 },
+    { value: '31100', name: 'P25 TG 31100', address: '203.0.113.33', port: 41000 },
+  ],
+  nxdn: [
+    { value: '10', name: 'NXDN TG 10', address: '192.0.2.41', port: 41400 },
+    { value: '20', name: 'NXDN TG 20', address: '198.51.100.42', port: 41400 },
+    { value: '65', name: 'NXDN TG 65', address: '203.0.113.43', port: 41400 },
+  ],
+};
 
 export function handleDVSwitch(c: DVCtx): boolean {
   if (!c.p.startsWith('/dvswitch')) return false;
   if (!c.user) { c.err(401, 'authentication required', 'unauthorized'); return true; }
+  if (c.m === 'GET' && c.p === '/dvswitch/lists') {
+    if (c.user.role === 'viewer') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
+    const mode = c.url?.searchParams.get('mode') ?? '';
+    if (!(mode in LISTS)) { c.err(400, 'mode must be dmr, ysf, p25 or nxdn', 'bad_request'); return true; }
+    c.json(200, { mode, items: LISTS[mode], etag: 'mock' });
+    return true;
+  }
   if (c.user.role !== 'admin') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
   if (c.m === 'GET' && c.p === '/dvswitch') { c.json(200, status()); return true; }
   if (c.m === 'GET' && c.p === '/dvswitch/job') { c.json(200, progress()); return true; }
