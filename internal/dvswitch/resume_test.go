@@ -532,7 +532,7 @@ func TestRecordIgnoresDMRTGLeftByYSFTune(t *testing.T) {
 func withTG(i helper.DVSwitchInfo, tg string) helper.DVSwitchInfo { i.TG = tg; return i }
 
 func TestLoadDropsInvalidStoredTunes(t *testing.T) {
-	st := &fakeStore{m: map[string]string{SettingKey: `{"lastMode":"DMR","perMode":{"DMR":{"tune":"76.196.0.1:42000","at":"x"},"YSF":{"tune":"192.0.2.10:42000","at":"x"},"P25":{"tune":"9 9","at":"x"}},"resume":true}`}}
+	st := &fakeStore{m: map[string]string{SettingKey: `{"lastMode":"DMR","perMode":{"DMR":{"tune":"192.0.2.76:42000","at":"x"},"YSF":{"tune":"192.0.2.10:42000","at":"x"},"P25":{"tune":"9 9","at":"x"}},"resume":true}`}}
 	tr := &Tracker{Src: &fakeSrc{}, Store: st}
 	v := tr.Get()
 	if len(v.PerMode) != 1 || v.PerMode["YSF"].Tune == "" || v.LastMode != "" {
