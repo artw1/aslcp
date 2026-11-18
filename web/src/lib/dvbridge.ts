@@ -19,13 +19,6 @@ export function suggestNode(used: string[]): string {
   return '';
 }
 
-/** A warning for a node that is valid but unwise (1998 and 1999 are the private numbers most DVSwitch guides use), else null. */
-export function nodeWarning(node: string): string | null {
-  const n = node.trim();
-  if (n === '1998' || n === '1999') return `1998 and 1999 are the private node numbers most DVSwitch guides use, so other nodes often have them too. If a node you link to already has the same number in its network, the link can be refused as a loop. A number from ${BRIDGE_MIN} to ${BRIDGE_MAX} is less likely to clash.`;
-  return null;
-}
-
 /** Why `node` cannot be the bridge node (null: fine). `own` is the bridge node that already exists, if any. */
 /** `renumbering` is the Change number mode: a different number than `own` is then what the form is for. */
 export function nodeError(node: string, used: string[], own = '', renumbering = false): string | null {

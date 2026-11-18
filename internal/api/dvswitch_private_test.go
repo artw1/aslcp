@@ -20,8 +20,7 @@ import (
 )
 
 // Tests of the private bridge node (docs/DVSWITCH.md, M2). The local node of
-// the test environment is 1997; the bridge node is 1996 (1998 and 1999 draw a
-// warning).
+// the test environment is 1997; the bridge node is 1996.
 
 var reLoad = regexp.MustCompile(`(?m)^\+?load\s+= chan_usrp\.so`)
 
@@ -204,11 +203,9 @@ func TestDVPrivateNodeValidation(t *testing.T) {
 			t.Errorf("node %s: %d %s", n, c, code)
 		}
 	}
-	// 1998 and 1999 are allowed with a warning
+	// 1998 and 1999 are allowed, without a warning
 	for _, n := range []string{"1998", "1999"} {
-		c, p := pe.plan(map[string]any{"node": n})
-		if c != 200 || len(p.Warnings) == 0 || !strings.Contains(strings.Join(p.Warnings, " "), "1998 and 1999 are the private node numbers most DVSwitch guides use") ||
-			!strings.Contains(strings.Join(p.Warnings, " "), "A number from 1900 to 1997 is less likely to clash.") {
+		if c, p := pe.plan(map[string]any{"node": n}); c != 200 || len(p.Warnings) != 0 {
 			t.Errorf("node %s: %d %v", n, c, p.Warnings)
 		}
 	}

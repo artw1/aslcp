@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DUPLEX_TEXT, NODE_HINT, canChange, doneText, formError, planApplyLabel, planOrder, planTitle, linkButton, linkLine, nodeError, nodeWarning, pausedHint, planConfirm, prefill, linkExclusiveOnClick, exclusiveHint, suggestNode, uninstallNote, validPort } from './dvbridge.ts';
+import { DUPLEX_TEXT, NODE_HINT, canChange, doneText, formError, planApplyLabel, planOrder, planTitle, linkButton, linkLine, nodeError, pausedHint, planConfirm, prefill, linkExclusiveOnClick, exclusiveHint, suggestNode, uninstallNote, validPort } from './dvbridge.ts';
 import type { DVLink } from './types';
 
 const L = (o: Partial<DVLink> = {}): DVLink => ({ mode: 'ondemand', localNode: '1997', linked: false, paused: false, exclusive: false, ...o });
@@ -22,14 +22,6 @@ test('node validation', () => {
   assert.match(nodeError('1996', ['1997'], '1997')!, /already has.*Change number/);
   assert.equal(nodeError('1996', ['1997'], '1997', true), null);
   assert.match(nodeError('1997', ['1997'], '1996', true)!, /in use/);
-  for (const n of ['1998', '1999']) {
-    const w = nodeWarning(n)!;
-    assert.match(w, /^1998 and 1999 are the private node numbers most DVSwitch guides use/);
-    assert.match(w, /refused as a loop/);
-    assert.match(w, /A number from 1900 to 1997 is less likely to clash\.$/);
-    assert.doesNotMatch(w, /public node|1995/);
-  }
-  assert.equal(nodeWarning('1997'), null);
 });
 
 test('ports', () => {

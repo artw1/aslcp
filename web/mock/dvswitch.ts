@@ -186,7 +186,7 @@ function privateNode(c: DVCtx, body: Body): boolean {
         { path: '/opt/Analog_Bridge/Analog_Bridge.ini', diff: `--- a\n+++ b\n@@ [USRP]\n+rxPort = ${tx}\n+txPort = ${rx}\n`, changed: rx !== pb.rxPort || tx !== pb.txPort },
       ],
       kind: renumber ? 'renumber' : 'set', oldNode: renumber ? pb.node : '', unlinks: renumber && (pb.mode === 'permanent' || pb.linked) && pb.local ? [pb.local] : [], keepRecord: false,
-      restartAsterisk: asteriskChange, restarts: [...(asteriskChange ? ['asterisk'] : []), 'analog_bridge'], warnings: node === '1998' || node === '1999' ? [`${node} is a node number other DVSwitch guides use`] : [], base: {}, link: { mode, localNode: local, bridge: node, exclusive },
+      restartAsterisk: asteriskChange, restarts: [...(asteriskChange ? ['asterisk'] : []), 'analog_bridge'], warnings: [], base: {}, link: { mode, localNode: local, bridge: node, exclusive },
     });
     return true;
   }

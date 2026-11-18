@@ -316,9 +316,6 @@ func (s *Server) dvPrivatePlan(ctx context.Context, in dvPrivReq) (*DVPlan, erro
 
 	plan := &DVPlan{Kind: kind, OldNode: oldNode, Unlinks: []string{}, Node: node, RxPort: in.RxPort, TxPort: in.TxPort, Files: []DVPlanFile{}, Restarts: []string{}, Warnings: []string{},
 		Base: map[string]string{}, Link: dvswitch.LinkSettings{Mode: in.LinkMode, LocalNode: in.LocalNode, Bridge: node, Exclusive: linkExclusive}, hadRecord: setup.Private, oldNode: oldNode}
-	if w := dvswitch.NodeWarning(node); w != "" {
-		plan.Warnings = append(plan.Warnings, w)
-	}
 
 	// rpt.conf
 	local := in.LocalNode

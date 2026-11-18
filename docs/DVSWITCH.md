@@ -346,7 +346,7 @@ Status: **implemented, unverified on a real node.** Where the first design and t
 
 Admin chooses `node`, `rxPort`/`txPort` and the link mode in the "Bridge node" section of the DVSwitch tab. Rules (server and `web/src/lib/dvbridge.ts` use the same ones):
 
-- Node: digits, **below 2000** (`400 invalid_node` otherwise). The form suggests the first free number in **1900-1997**; 1998 and 1999 are allowed but warned about (they are the private numbers most DVSwitch guides use, so a node you link to may already have the same number in its network and refuse the link as a loop; the stock ASL3 config also ships a `[1999]` stanza). A node that exists in `rpt.conf`, in `[nodes]` or as a local node is `409 node_in_use`.
+- Node: digits, **below 2000** (`400 invalid_node` otherwise). The form suggests the first free number in **1900-1997**; 1998 and 1999 are allowed (the stock ASL3 config also ships a `[1999]` stanza, so a node you link to may already have the same number in its network and refuse the link as a loop). A node that exists in `rpt.conf`, in `[nodes]` or as a local node is `409 node_in_use`.
 - Ports: 1024-65535, different from each other. They are prefilled with the stock values **rx 34001, tx 32001** (the `Analog_Bridge.ini` stock `[USRP]` ports are the mirror image: the node's `rxchannel` is `USRP/127.0.0.1:<rxPort>:<txPort>` and the ini's `rxPort`/`txPort` are swapped, which the helper does). A port used by another USRP stanza, by `DVSwitch.ini` or by the other bridge ports is `409 port_conflict`.
 - Duplex is fixed at `0` (half duplex), and the new stanza also neutralises ID, telemetry, courtesy tones and hang time (stanza example below; unverified on a real node).
 - Only one bridge node per node. When one exists (recorded by ASLCP, or detected in `rpt.conf` with a USRP `rxchannel`), choosing a different number is `409 node_in_use` unless the request has `renumber: true` and ASLCP owns the node (see "Change number and Remove" below).
@@ -448,7 +448,7 @@ The panel holds the reconciler (`LinkReconciler.Hold`) for the whole of an apply
 
 Placeholders: bridge node `1999`, local node `2006`. Do this on a spare or quiet node; the apply restarts Asterisk.
 
-1. Setup, "Bridge node": the suggestion is the first free number of 1900-1997; 1998 and 1999 show a warning; 2000 and up and a used node are refused; the ports show 34001 and 32001.
+1. Setup, "Bridge node": the suggestion is the first free number of 1900-1997; 2000 and up and a used node are refused; the ports show 34001 and 32001.
 2. "Review changes" lists `rpt.conf`, `modules.conf` and `Analog_Bridge.ini` with diffs and says that Asterisk restarts. Compare the diff with your layout (template or flat).
 3. Apply with the restart. Afterwards: `asterisk -rx 'module show like usrp'` shows chan_usrp loaded; `asterisk -rx 'rpt show variables 1999'` answers; `grep -n -A8 '^\[1999\]' /etc/asterisk/rpt.conf`; `grep -n usrp /etc/asterisk/modules.conf`; `grep -n -A6 '^\[USRP\]' /opt/Analog_Bridge/Analog_Bridge.ini` shows the swapped ports; `systemctl is-active analog_bridge`.
 4. Audio: with Analog_Bridge in DMR (or another mode) connect 1999 to 2006 and check audio both ways; check that the neutral stanza works (no ID, courtesy tones, telemetry or hang time reach the other side) and that no loop protection trips.

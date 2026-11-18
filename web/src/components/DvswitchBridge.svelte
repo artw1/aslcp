@@ -4,7 +4,7 @@
   import { api, ApiError } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
   import type { DVApplyResult, DVBridgeSetup, DVPlan, DVLinkMode } from '../lib/types';
-  import { DUPLEX_TEXT, NODE_HINT, canChange, doneText, formError, nodeError, nodeWarning, planApplyLabel, planConfirm, planOrder, planTitle, prefill, pausedHint, exclusiveHint } from '../lib/dvbridge';
+  import { DUPLEX_TEXT, NODE_HINT, canChange, doneText, formError, nodeError, planApplyLabel, planConfirm, planOrder, planTitle, prefill, pausedHint, exclusiveHint } from '../lib/dvbridge';
   import Dialog from './Dialog.svelte';
 
   let { b, base, onsaved }: { b: DVBridgeSetup; base: Record<string, string>; onsaved: () => void | Promise<void> } = $props();
@@ -27,7 +27,6 @@
   const err = $derived(formError(f, b, changing));
   function startChange() { changing = true; queueMicrotask(() => nodeEl?.focus()); }
   function cancelChange() { changing = false; f.node = b.node; }
-  const warn = $derived(nodeWarning(f.node));
   const nodeMsg = $derived(f.node ? nodeError(f.node, b.used, b.node, changing) : null);
 
   let busy = $state(false), plan = $state<DVPlan | null>(null), open = $state(false), problem = $state('');
@@ -86,7 +85,7 @@
   <form class="grid grid-cols-2 gap-2 sm:grid-cols-4" onsubmit={(e) => { e.preventDefault(); void preview(); }}>
     <div class="col-span-2 sm:col-span-1"><label class="label" for="dvb-node">Node number</label>
       <input id="dvb-node" class="input font-mono" bind:this={nodeEl} bind:value={f.node} inputmode="numeric" maxlength="7" readonly={locked} aria-describedby="dvb-node-hint" aria-invalid={nodeMsg ? 'true' : undefined} />
-      <p id="dvb-node-hint" class="mt-1 text-xs {nodeMsg ? 'text-danger' : warn ? 'text-warn' : 'text-muted'}">{nodeMsg ?? warn ?? (locked ? (mine ? NODE_HINT : 'This node was not added by ASLCP and is left as it is.') : changing ? 'Enter the new number. The old node is removed and the new one added in one restart.' : 'The first free number of 1900-1997 is suggested.')}</p>
+      <p id="dvb-node-hint" class="mt-1 text-xs {nodeMsg ? 'text-danger' : 'text-muted'}">{nodeMsg ?? (locked ? (mine ? NODE_HINT : 'This node was not added by ASLCP and is left as it is.') : changing ? 'Enter the new number. The old node is removed and the new one added in one restart.' : 'The first free number of 1900-1997 is suggested.')}</p>
       {#if mine}
         <div class="mt-1.5 flex flex-wrap gap-2">
           {#if changing}<button type="button" class="btn btn-sm" disabled={busy} onclick={cancelChange}>Cancel change</button>
