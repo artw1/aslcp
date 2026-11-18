@@ -208,6 +208,31 @@ func (t *Tracker) save() error {
 	return t.Store.SetSetting(SettingKey, string(b))
 }
 
+// Forget erases the remembered tune of a mode. It is what a disconnect (an
+// unlink value) does: the mode stays disconnected when the operator switches
+// away and back, and a resume after a restart does not re-tune it. A later
+// tune is remembered as usual.
+func (t *Tracker) Forget(mode string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.load()
+	t.forgetLocked(helper.DVNormMode(mode))
+}
+
+// forgetLocked is Forget; callers hold mu.
+func (t *Tracker) forgetLocked(mode string) {
+	if _, had := t.st.PerMode[mode]; !had {
+		return
+	}
+	delete(t.st.PerMode, mode)
+	if t.st.LastMode == mode {
+		t.st.LastMode = ""
+	}
+	if err := t.save(); err != nil {
+		t.logf("dvswitch tracker: cannot save the state: %v", err)
+	}
+}
+
 // SetOnPoll and SetViewers wire the hooks; call them before Run.
 func (t *Tracker) SetOnPoll(f func(helper.DVSwitchInfo, error)) { t.OnPoll = f }
 
@@ -435,7 +460,8 @@ var reYSFID = regexp.MustCompile(`^[0-9]{5}$`)
 //   - Every value must pass the mode's validator (DMR: digits only, no prefix
 //     parsing) before it is stored.
 //   - Unlink values (DMR 4000, YSF disconnect, P25 and NXDN 9999) are not
-//     remembered.
+//     remembered as a place to return to; they erase the remembered tune of
+//     the mode (a disconnect is remembered, see Forget).
 func (t *Tracker) record(info helper.DVSwitchInfo, now time.Time) {
 	if !info.Found {
 		return
@@ -484,12 +510,15 @@ func (t *Tracker) record(info helper.DVSwitchInfo, now time.Time) {
 		if info.Tune == "" || t.tuneMode != mode || !helper.DVValidTune(mode, info.Tune) {
 			return
 		}
-		if mode == "YSF" && !reHostPort.MatchString(info.Tune) && !reYSFID.MatchString(info.Tune) {
+		if mode == "YSF" && !helper.DVUnlinkValue(mode, info.Tune) && !reHostPort.MatchString(info.Tune) && !reYSFID.MatchString(info.Tune) {
 			return
 		}
 		tune = info.Tune
 	}
 	if helper.DVUnlinkValue(mode, tune) {
+		// The operator disconnected the target: forget it, so switching to
+		// another mode and back does not re-tune the old one.
+		t.forgetLocked(mode)
 		return
 	}
 	cur, had := t.st.PerMode[mode]

@@ -1,6 +1,6 @@
 // Pure logic of the dashboard DVSwitch card (docs/DVSWITCH.md "Dashboard card"): the state line,
 // favourite and tune validation (the same rules as the server), and the pending/confirm logic.
-import type { DVBridge, DVFavorite, DVSnapshot, DVTuneMode } from './types';
+import type { DVBridge, DVFavorite, DVSnapshot, DVTuneMode, NodeStatus } from './types';
 
 export const PANEL_MODES: DVTuneMode[] = ['DMR', 'YSF', 'P25', 'NXDN'];
 /** How long a mode switch may stay unconfirmed before the card says so. */
@@ -101,3 +101,41 @@ export function shownMode(p: Pending | null, outcome: Outcome, bridgeMode: strin
 
 /** True while a command is in flight or its mode switch still waits for confirmation: the mode buttons, Go, the favourite chips and Unlink are disabled then (one command at a time). */
 export const controlsLocked = (busy: boolean, outcome: Outcome): boolean => busy || outcome === 'waiting';
+
+/** The label of the bridge node when the operator set no name (the same default as the server). */
+export const DEFAULT_NODE_NAME = 'DVSwitch linked node';
+export const NODE_NAME_MAX = 40;
+
+/** The display name of the bridge node: the saved one, else the default. */
+export const bridgeNodeName = (s: Pick<DVSnapshot, 'bridgeNode'> | null | undefined): string => s?.bridgeNode?.name?.trim() || DEFAULT_NODE_NAME;
+
+/** The name to show next to `node` wherever the dashboard lists it (the status table, say): the bridge node's display name, or '' for any other node. */
+export function nodeLabel(s: Pick<DVSnapshot, 'bridgeNode'> | null | undefined, node: string): string {
+  return s?.bridgeNode?.present && s.bridgeNode.node === node ? bridgeNodeName(s) : '';
+}
+
+/** The trimmed name when it is empty (use the default) or 1 to 40 printable characters; null when it is not allowed. */
+export function validNodeName(name: string): string | null {
+  const t = name.trim();
+  if (t === '') return '';
+  return [...t].length <= NODE_NAME_MAX && printable(t) ? t : null;
+}
+
+/** Button class of the node link button: green to link, red to unlink (solid colours, readable in both themes). */
+export const nodeLinkClass = (action: 'connect' | 'disconnect'): string => (action === 'connect' ? 'btn-ok' : 'btn-bad');
+
+/**
+ * What is keying the bridge from the digital side right now: "RX: DMR TG 3100", "RX: YSF Example room",
+ * or null when nothing is. The keyup is the bridge node's link on the local node (links[].keyed, or the
+ * bridge node's own rxKeyed when it is monitored); mode and target are what the bridge is tuned to
+ * (ABInfo), not what the talker sent. The caller is not known here.
+ */
+export function bridgeRx(nodes: Pick<NodeStatus, 'node' | 'rxKeyed' | 'links'>[], s: Pick<DVSnapshot, 'bridgeNode' | 'bridge'> | null | undefined): string | null {
+  const bn = s?.bridgeNode;
+  if (!s || !bn?.present || !bn.node || s.bridge.source === 'none' || !s.bridge.mode) return null;
+  const keyed = nodes.some((n) => (n.node === bn.node && n.rxKeyed) || n.links.some((l) => l.node === bn.node && l.keyed));
+  if (!keyed) return null;
+  const { mode, tune, targetName } = s.bridge;
+  if (!tune) return `RX: ${mode}`;
+  return mode === 'YSF' ? `RX: YSF ${targetName || tune}` : `RX: ${mode} TG ${tune}`;
+}

@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIRM_MS, allOk, bridgeLinked, controlsLocked, defaultFavName, favoriteBlock, favoritesFor, pendingOutcome, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validTune } from './dvpanel.ts';
+import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, bridgeRx, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, nodeLabel, nodeLinkClass, pendingOutcome, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validNodeName, validTune } from './dvpanel.ts';
 import type { DVFavorite, DVSnapshot } from './types';
 
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
@@ -119,4 +119,40 @@ test('state tone and title: warn for a down unit or unknown state, ok when tuned
   assert.equal(stateTone(snap({ bridge: { ...bridge, source: 'none', mode: '' } })), 'warn');
   assert.equal(stateTone(null), 'warn');
   assert.equal(stateTitle(snap()), 'All services running');
+});
+
+test('bridge node name and label', () => {
+  assert.equal(bridgeNodeName(snap()), DEFAULT_NODE_NAME);
+  assert.equal(bridgeNodeName(snap({ bridgeNode: { present: true, node: '1999', name: ' Example room ' } })), 'Example room');
+  assert.equal(bridgeNodeName(null), DEFAULT_NODE_NAME);
+  const named = snap({ bridgeNode: { present: true, node: '1999', name: 'Example room' } });
+  assert.equal(nodeLabel(named, '1999'), 'Example room');
+  assert.equal(nodeLabel(named, '2001'), '');
+  assert.equal(nodeLabel(snap({ bridgeNode: { present: false } }), '1999'), '');
+  assert.equal(validNodeName('  '), '');
+  assert.equal(validNodeName(' Shack bridge '), 'Shack bridge');
+  assert.equal(validNodeName('x'.repeat(41)), null);
+  assert.equal(validNodeName('bad\u0007name'), null);
+  assert.equal(nodeLinkClass('connect'), 'btn-ok');
+  assert.equal(nodeLinkClass('disconnect'), 'btn-bad');
+});
+
+test('RX line shows the mode and target while the bridge node is keyed', () => {
+  const link = (keyed: boolean, node = '1999') => ({ node, kind: 'allstar', info: null, ip: '', direction: 'OUT', connected: 0, state: 'ESTABLISHED', mode: 'T', keyed, sinceKey: null, sinceUnkey: null }) as never;
+  const local = (links: never[], rxKeyed = false) => ({ node: '2001', rxKeyed, links });
+  const dmr = snap({ bridge: { ...bridge, mode: 'DMR', tune: '3100', targetName: undefined } });
+  assert.equal(bridgeRx([local([link(true)])], dmr), 'RX: DMR TG 3100');
+  assert.equal(bridgeRx([local([link(true)])], snap()), 'RX: YSF Example room');
+  assert.equal(bridgeRx([local([link(true)])], snap({ bridge: { ...bridge, targetName: undefined } })), 'RX: YSF 192.0.2.10:42000');
+  assert.equal(bridgeRx([local([link(true)])], snap({ bridge: { ...bridge, mode: 'P25', tune: '10100', targetName: undefined } })), 'RX: P25 TG 10100');
+  assert.equal(bridgeRx([local([link(true)])], snap({ bridge: { ...bridge, tune: '', targetName: undefined } })), 'RX: YSF');
+  // the bridge node monitored on its own
+  assert.equal(bridgeRx([{ node: '1999', rxKeyed: true, links: [] }], dmr), 'RX: DMR TG 3100');
+  // not keyed, another node keyed, no bridge node, unknown bridge
+  assert.equal(bridgeRx([local([link(false)])], dmr), null);
+  assert.equal(bridgeRx([local([link(true, '2006')])], dmr), null);
+  assert.equal(bridgeRx([local([link(true)])], snap({ bridgeNode: { present: false } })), null);
+  assert.equal(bridgeRx([local([link(true)])], snap({ bridge: { ...bridge, source: 'none', mode: '' } })), null);
+  assert.equal(bridgeRx([], dmr), null);
+  assert.equal(bridgeRx([local([link(true)])], null), null);
 });

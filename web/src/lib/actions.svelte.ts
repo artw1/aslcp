@@ -39,9 +39,9 @@ export async function connectTo(local: string, target: string, mode: ConnectMode
   } catch (e) { clearPending(key); toastError(e); return false; }
 }
 
-export async function disconnectFrom(local: string, target: string, permanent = false) {
-  try { await api.disconnect(local, target, permanent); toast(`Disconnecting ${target}${permanent ? ' (permanent)' : ''}…`); }
-  catch (e) { toastError(e); }
+export async function disconnectFrom(local: string, target: string, permanent = false): Promise<boolean> {
+  try { await api.disconnect(local, target, permanent); toast(`Disconnecting ${target}${permanent ? ' (permanent)' : ''}…`); return true; }
+  catch (e) { toastError(e); return false; }
 }
 export async function disconnectAll(local: string) {
   try { await api.disconnectAll(local); toast('Disconnecting all links…'); } catch (e) { toastError(e); }

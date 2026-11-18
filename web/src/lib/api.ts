@@ -162,6 +162,7 @@ export const api = {
   dvswitchDmrRestart: (action: 'restart' | 'start') => req<DVSwitchRestartResult>('POST', '/dvswitch/restart', { scope: 'dmr', action }),
   dvswitchRestart: (scope: DVRestartScope, action: 'restart' | 'start' = 'restart') => req<DVSwitchRestartResult>('POST', '/dvswitch/restart', { scope, action }),
   dvswitchSetLinkExclusive: (exclusive: boolean) => req<{ exclusive: boolean }>('PUT', '/dvswitch/link', { exclusive }),
+  dvswitchSetNodeName: (name: string) => req<{ name: string }>('PUT', '/dvswitch/private-node/name', { name }),
   dvswitchPrivatePlan: (b: DVPrivateReq) => req<DVPlan>('PUT', '/dvswitch/private-node', { ...b, dryRun: true }),
   dvswitchPrivateApply: (b: DVPrivateReq) => req<DVApplyResult>('PUT', '/dvswitch/private-node', { ...b, dryRun: false }),
   dvswitchPrivateRemovePlan: (base?: Record<string, string>) => req<DVPlan>('DELETE', '/dvswitch/private-node', { dryRun: true, base }),

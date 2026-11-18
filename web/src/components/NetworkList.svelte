@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { NodeStatus } from '../lib/types';
   import { KIND_LABEL, infoLine } from '../lib/util';
-  import { pickNode } from '../lib/form.svelte';
+  import { openNode } from '../lib/form.svelte';
   import Search from '@lucide/svelte/icons/search';
   let { node, showNode = false }: { node: NodeStatus; showNode?: boolean } = $props();
   let q = $state('');
@@ -24,7 +24,7 @@
       <ul class="grid grid-cols-2 gap-x-3 sm:grid-cols-3 lg:grid-cols-4">
         {#each shown as n (n.node)}
           <li class="min-w-0">
-            <button type="button" class="flex w-full min-w-0 items-baseline gap-1.5 rounded-sm px-0.5 py-px text-left text-[13px] hover:bg-surface-2" title="{n.node} {infoLine(n.info)} ({KIND_LABEL[n.kind]}, {n.mode})" onclick={() => pickNode(n.node)}>
+            <button type="button" class="flex w-full min-w-0 items-baseline gap-1.5 rounded-sm px-0.5 py-px text-left text-[13px] hover:bg-surface-2" title="{n.node} {infoLine(n.info)} ({KIND_LABEL[n.kind]}, {n.mode})" onclick={() => openNode(n.node, node.node)}>
               <span class="shrink-0 font-mono font-semibold">{n.node}</span>
               <span class="min-w-0 truncate text-muted">{n.info?.callsign ?? ''}</span>
             </button>

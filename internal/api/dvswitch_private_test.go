@@ -1166,3 +1166,34 @@ func TestDVLinkExclusiveEndpoint(t *testing.T) {
 	expectErr(t, pe.env, "op", "PUT", "/api/dvswitch/link", map[string]any{}, 400, "bad_request")
 	expectErr(t, pe.env, "viewer", "PUT", "/api/dvswitch/link", map[string]any{"exclusive": false}, 403, "forbidden")
 }
+
+// PUT /api/dvswitch/private-node/name saves a display name alone (admin, no
+// restart); the snapshot carries it, with the default when none is saved.
+func TestDVNodeNameEndpoint(t *testing.T) {
+	pe := &privEnv{env: dvLinkEnv(t, false)}
+	pe.st = pe.env.st
+	restarts := countCmd(pe.env, "core restart gracefully")
+	var out struct{ Name string }
+	if c := pe.do("admin", "PUT", "/api/dvswitch/private-node/name", map[string]any{"name": "  Example room  "}, &out); c != 200 || out.Name != "Example room" {
+		t.Fatalf("%d %+v", c, out)
+	}
+	if v, _ := pe.st.GetSetting(dvswitch.SettingNodeName); v != "Example room" {
+		t.Fatalf("setting = %q", v)
+	}
+	if countCmd(pe.env, "core restart gracefully") != restarts {
+		t.Fatal("restarted Asterisk")
+	}
+	var sn api.DVSnapshot
+	if c := pe.do("viewer", "GET", "/api/dvswitch/snapshot", nil, &sn); c != 200 || sn.BridgeNode.Name != "Example room" {
+		t.Fatalf("%d %+v", c, sn.BridgeNode)
+	}
+	if c := pe.do("admin", "PUT", "/api/dvswitch/private-node/name", map[string]any{"name": ""}, &out); c != 200 || out.Name != dvswitch.DefaultNodeName {
+		t.Fatalf("%d %+v", c, out)
+	}
+	if c := pe.do("viewer", "GET", "/api/dvswitch/snapshot", nil, &sn); c != 200 || sn.BridgeNode.Name != dvswitch.DefaultNodeName {
+		t.Fatalf("%d %+v", c, sn.BridgeNode)
+	}
+	expectErr(t, pe.env, "admin", "PUT", "/api/dvswitch/private-node/name", map[string]any{}, 400, "bad_request")
+	expectErr(t, pe.env, "admin", "PUT", "/api/dvswitch/private-node/name", map[string]any{"name": strings.Repeat("x", 41)}, 400, "bad_request")
+	expectErr(t, pe.env, "op", "PUT", "/api/dvswitch/private-node/name", map[string]any{"name": "x"}, 403, "forbidden")
+}

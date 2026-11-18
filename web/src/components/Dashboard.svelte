@@ -7,6 +7,7 @@
   import SchedulesCard from './SchedulesCard.svelte';
   import DvswitchCard from './DvswitchCard.svelte';
   import Favorites from './Favorites.svelte';
+  import NodeConnectDialog from './NodeConnectDialog.svelte';
   import Footer from './Footer.svelte';
 
   const node = $derived(app.nodes.find((n) => n.node === app.selectedNode));
@@ -19,6 +20,7 @@
   {:else if app.nodes.length === 0}
     <p class="rounded-md border border-line bg-surface px-3 py-8 text-center text-sm text-muted">No local nodes found. Is Asterisk running with app_rpt?</p>
   {:else}
+    <SchedulesCard />
     <section class="space-y-2" aria-label="Connection status">
       {#each app.nodes as n (n.node)}
         <div class="rounded-md border border-line bg-surface"><StatusTable node={n} /></div>
@@ -26,9 +28,9 @@
     </section>
     <ConnectBar />
     <DvswitchCard />
-    <SchedulesCard />
     <Favorites />
     {#if node}<NetworkList {node} showNode={app.nodes.length > 1} />{/if}
   {/if}
+  <NodeConnectDialog />
   <Footer />
 </div>

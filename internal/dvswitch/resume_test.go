@@ -123,10 +123,10 @@ func TestRecordDMRSample(t *testing.T) {
 	if e := tr.Get().PerMode["DMR"]; e.Tune != "9" {
 		t.Fatalf("%+v", e)
 	}
-	// unlink (4000) is not a place to return to
+	// unlink (4000) is not a place to return to: it erases the old tune
 	src.info = started(dmr(t, "4000", "2", "4000"), boot)
 	tr.Poll(context.Background())
-	if e := tr.Get().PerMode["DMR"]; e.Tune != "9" {
+	if e := tr.Get().PerMode["DMR"]; e.Tune != "" {
 		t.Fatalf("%+v", e)
 	}
 }
@@ -191,7 +191,8 @@ func TestRecordIgnoresEmptyDefaultStaleAndInvalid(t *testing.T) {
 	src.info = started(other(t, "DSTAR", "10100"), boot)
 	tr.Poll(ctx)
 	v := tr.Get()
-	if len(v.PerMode) != 2 || v.PerMode["P25"].Tune != "10100" || v.PerMode["DMR"].Tune != "262" || v.LastMode != "DMR" {
+	// (the P25 9999 unlink erased the P25 tune)
+	if len(v.PerMode) != 1 || v.PerMode["DMR"].Tune != "262" || v.LastMode != "DMR" {
 		t.Fatalf("%+v", v)
 	}
 	// the bridge not found: nothing changes, nothing breaks
@@ -199,7 +200,7 @@ func TestRecordIgnoresEmptyDefaultStaleAndInvalid(t *testing.T) {
 	tr.Poll(ctx)
 	src.err = errors.New("helper down")
 	tr.Poll(ctx)
-	if len(tr.Get().PerMode) != 2 {
+	if len(tr.Get().PerMode) != 1 {
 		t.Fatal("state lost")
 	}
 }
@@ -537,5 +538,46 @@ func TestLoadDropsInvalidStoredTunes(t *testing.T) {
 	v := tr.Get()
 	if len(v.PerMode) != 1 || v.PerMode["YSF"].Tune == "" || v.LastMode != "" {
 		t.Fatalf("%+v", v)
+	}
+}
+
+// A disconnect (unlink value) erases the remembered tune of the mode, whatever
+// order the poll and the mode switch happen in; a later tune is remembered.
+func TestDisconnectForgetsTune(t *testing.T) {
+	tr, src, _, now := newTracker(t)
+	ctx := context.Background()
+	boot := t0.Add(-time.Hour)
+	src.info = started(dmr(t, "9", "2", ""), boot)
+	tr.Poll(ctx)
+	src.info = started(dmr(t, "3100", "2", "3100"), boot)
+	*now = t0.Add(time.Minute)
+	tr.Poll(ctx)
+	if tr.Get().PerMode["DMR"].Tune != "3100" {
+		t.Fatal("not remembered")
+	}
+	// disconnect seen by a poll
+	src.info = started(dmr(t, "4000", "2", "4000"), boot)
+	tr.Poll(ctx)
+	if v := tr.Get(); len(v.PerMode) != 0 || v.LastMode != "" {
+		t.Fatalf("still remembered: %+v", v)
+	}
+	// connect again: remembered as normal
+	src.info = started(dmr(t, "262", "1", "262"), boot)
+	tr.Poll(ctx)
+	if e := tr.Get().PerMode["DMR"]; e.Tune != "262" {
+		t.Fatalf("%+v", e)
+	}
+	// Forget (the unlink request) does the same without a poll
+	tr.Forget("DMR")
+	if len(tr.Get().PerMode) != 0 {
+		t.Fatal("Forget kept it")
+	}
+	// YSF disconnect
+	src.info = started(other(t, "YSFN", "192.0.2.10:42000"), boot)
+	tr.Poll(ctx)
+	src.info = started(other(t, "YSFN", "disconnect"), boot)
+	tr.Poll(ctx)
+	if _, ok := tr.Get().PerMode["YSF"]; ok {
+		t.Fatal("YSF disconnect not remembered")
 	}
 }

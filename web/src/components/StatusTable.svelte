@@ -1,8 +1,10 @@
 <script lang="ts">
   import type { Link, NodeStatus } from '../lib/types';
   import { app, clock, canOperate } from '../lib/store.svelte';
+  import { openNode } from '../lib/form.svelte';
   import { disconnectFrom, disconnectAll } from '../lib/actions.svelte';
   import { fmtDuration, infoLine, KIND_LABEL, MODE_LABEL } from '../lib/util';
+  import { nodeLabel } from '../lib/dvpanel';
   import Menu from './Menu.svelte';
   import Confirm from './Confirm.svelte';
   import Unplug from '@lucide/svelte/icons/unplug';
@@ -24,7 +26,7 @@
   const SHORT: Record<string, string> = { T: 'Xcvr', R: 'Mon', L: 'Local', C: '…' };
   const connTime = (l: Link) => fmtDuration(l.connected + elapsed);
   const received = (l: Link) => (l.keyed ? 'now' : l.sinceKey == null ? 'never' : fmtDuration(l.sinceKey + elapsed));
-  const title = (l: Link) => l.info?.callsign || (l.kind === 'echolink' ? 'EchoLink' : '');
+  const title = (l: Link) => l.info?.callsign || nodeLabel(app.dvswitch, l.node) || (l.kind === 'echolink' ? 'EchoLink' : '');
   const nodeLine = $derived([node.info?.callsign, node.info?.description, node.info?.location].filter(Boolean).join(' '));
   const localTx = $derived(node.txKeyed);
   const localState = $derived(localTx ? 'TX keyed' : node.rxKeyed ? 'RX keyed' : 'Idle');
@@ -82,7 +84,7 @@
     </tr>
     {#each links as l (l.node)}
       <tr class={l.keyed ? 'row-tx' : ''}>
-        <td class="num font-semibold" title={l.ip ? `${KIND_LABEL[l.kind]} · ${l.ip}` : KIND_LABEL[l.kind]}>{l.node}</td>
+        <td class="num font-semibold" title={l.ip ? `${KIND_LABEL[l.kind]} · ${l.ip}` : KIND_LABEL[l.kind]}><button type="button" class="font-mono font-semibold underline decoration-dotted underline-offset-2 hover:decoration-solid" onclick={() => openNode(l.node, node.node)} aria-label="Connect options for node {l.node}">{l.node}</button></td>
         <td class="max-w-0">
           <div class="flex items-center gap-1.5">
             {#if l.keyed}<span class="inline-flex shrink-0 items-center gap-1 rounded border border-white/60 px-1 text-xs font-bold" role="img" aria-label="Keyed: audio coming in"><Audio size={12} aria-hidden="true" /><span class="max-sm:hidden">KEY</span></span>{/if}
