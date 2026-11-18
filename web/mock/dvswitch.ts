@@ -6,7 +6,8 @@ const FP = '6DDFC33CD5FC678659642DF572147EC1E788D4C3';
 const DURATION = 6000;
 
 let installed = false;
-let job: { kind: 'install' | 'uninstall'; at: number } | null = null;
+// Starts with an old failed install (3 weeks ago) so the collapsed, failed summary can be seen; start a job to see the expanded log.
+let job: { kind: 'install' | 'uninstall'; at: number; old?: boolean } | null = { kind: 'install', at: Date.now() - 21 * 86400e3, old: true };
 const LOG = {
   install: ['Hit:1 http://deb.debian.org/debian bookworm InRelease', 'Get:2 https://dvswitch.org/apt bookworm InRelease', 'recorded 9 newly installed packages: analog-bridge dvswitch-base md380-emu mmdvm-bridge nxdngateway p25gateway qemu-user-static wget ysfgateway', 'Setting up dvswitch-base ...', 'Setting up analog-bridge ...', 'host files ok', 'dvswitch install finished'],
   uninstall: ['purge plan: analog-bridge dvswitch-base md380-emu mmdvm-bridge nxdngateway p25gateway qemu-user-static ysfgateway', 'Stopping analog_bridge.service ...', 'Removing analog-bridge ...', 'Purging configuration files for dvswitch-base ...', 'dvswitch uninstall finished'],
@@ -17,8 +18,10 @@ function progress() {
   if (!job) return { install: idle, uninstall: idle };
   const lines = LOG[job.kind], el = Date.now() - job.at;
   let cur;
-  if (el >= DURATION) { installed = job.kind === 'install'; cur = { job: 'succeeded', log: lines.join('\n') }; }
-  else cur = { job: 'running', log: lines.slice(0, Math.floor((el / DURATION) * lines.length)).join('\n') };
+  const at = Math.floor(job.at / 1000);
+  if (job.old) cur = { job: 'failed', log: LOG.install.slice(0, 3).join('\n'), at };
+  else if (el >= DURATION) { installed = job.kind === 'install'; cur = { job: 'succeeded', log: lines.join('\n'), at: Math.floor((job.at + DURATION) / 1000) }; }
+  else cur = { job: 'running', log: lines.slice(0, Math.floor((el / DURATION) * lines.length)).join('\n'), at };
   return job.kind === 'install' ? { install: cur, uninstall: idle } : { install: idle, uninstall: cur };
 }
 

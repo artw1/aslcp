@@ -3,6 +3,7 @@
   import { api } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
   import type { DVSwitchStatus } from '../lib/types';
+  import { dismissKey, isDismissed, jobSummary, pickJobKind, setDismissed } from '../lib/dvjob';
   import Dialog from './Dialog.svelte';
   import DvswitchSetup from './DvswitchSetup.svelte';
   import Refresh from '@lucide/svelte/icons/refresh-cw';
@@ -14,16 +15,19 @@
   const running = $derived(st?.install.job === 'running' || st?.uninstall.job === 'running');
   // Show the running job, else the newer of the two (an old uninstall log
   // must not hide a later install).
-  const showUninstall = $derived.by(() => {
-    if (!st) return false;
-    const i = st.install, u = st.uninstall;
-    if (u.job === 'running') return true;
-    if (i.job === 'running' || u.job === 'idle') return false;
-    if (i.job === 'idle') return true;
-    return (u.at ?? 0) > (i.at ?? 0);
-  });
-  const log = $derived(st ? (showUninstall ? st.uninstall : st.install) : null);
+  const kind = $derived(st ? pickJobKind(st) : 'install');
+  const showUninstall = $derived(kind === 'uninstall');
+  const log = $derived(st ? st[kind] : null);
   const logTitle = $derived(showUninstall ? 'Uninstall log' : 'Install log');
+  // A job seen running (or just finished) on this page keeps its log open; an old one is a summary.
+  let watched = $state(false), expanded = $state(false), dismissedKey = $state('');
+  const fmtAt = (unix: number) => new Date(unix * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  const summary = $derived(log ? jobSummary(kind, log, fmtAt) : '');
+  const key = $derived(log ? dismissKey(kind, log) : '');
+  const dismissed = $derived(!!key && (dismissedKey === key || isDismissed(key)));
+  const logOpen = $derived(running || watched || expanded);
+  $effect(() => { void key; expanded = false; });
+  $effect(() => { if (running) watched = true; });
 
   async function load() { try { st = await api.dvswitch(); err = ''; } catch (e) { err = e instanceof Error ? e.message : String(e); } }
   onMount(load);
@@ -100,7 +104,16 @@
         <p class="text-sm text-muted">No job has run.</p>
       {/if}
       {#if log && log.log}
-        <pre class="max-h-96 overflow-auto rounded border border-line bg-surface-2/40 p-2 text-xs whitespace-pre-wrap" aria-label={logTitle}>{log.log}</pre>
+        {#if logOpen}
+          {#if !running && !watched}<button class="btn" onclick={() => (expanded = false)}>Hide log</button>{/if}
+          <pre class="max-h-96 overflow-auto rounded border border-line bg-surface-2/40 p-2 text-xs whitespace-pre-wrap" aria-label={logTitle}>{log.log}</pre>
+        {:else if summary && !dismissed}
+          <div class="flex flex-wrap items-center gap-2 text-sm">
+            <span class={log.job === 'failed' ? 'font-semibold text-danger' : 'text-muted'} role={log.job === 'failed' ? 'alert' : 'status'}>{summary}</span>
+            <button class="btn" onclick={() => (expanded = true)}>Show log</button>
+            <button class="btn" onclick={() => { setDismissed(key); dismissedKey = key; }}>Dismiss</button>
+          </div>
+        {/if}
       {/if}
     </section>
   </div>

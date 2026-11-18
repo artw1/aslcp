@@ -144,6 +144,8 @@ Helper op `dvswitch-install`, no arguments, same pattern as `osupdate.go`: fixed
 | Removal | Implemented in M3, see Uninstall (M3) below. Only an install ASLCP made (the marker) can be removed from the panel |
 | Packaging | ASLCP gains no Depends/Recommends/Suggests on any DVSwitch package; the install is a runtime action |
 
+**Job log panel.** A running job, or one that finished while the page was open, shows its log expanded. Any other (an older job) shows one line, e.g. "Last install: succeeded, <date>", with "Show log" / "Hide log". A failed job's line is marked in the danger colour. "Dismiss" hides the line; it is remembered per browser in localStorage under `aslcp.dvjob.dismissed.<kind>.<at>`, so a newer job shows again. No server change: `DVSwitchJob` already has `job` and `at`. Logic in `web/src/lib/dvjob.ts`.
+
 ### Implemented in M3 (2026-11-17)
 
 Code: `internal/helper/dvswitch.go` (status, install, uninstall, scripts, marker, parsers), `dvswitch_key.go` (key check), `dvswitch_step.go` (guards and plans), `dvswitch_demo.go`; `internal/api/handlers_dvswitch.go`; `web/src/components/Dvswitch.svelte`, `web/mock/dvswitch.ts`. Tests: `internal/helper/dvswitch_test.go`, `internal/api/dvswitch_test.go`. Deviations from the design above:
