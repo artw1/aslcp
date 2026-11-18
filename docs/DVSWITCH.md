@@ -392,6 +392,8 @@ The file name differs from Pi-Star's download name for three of them (`YSF_Hosts
 
 ### Verify on a real node (M4 checklist)
 
+**Result 2026-11-18 (maintainer's node, trixie arm64):** identity, DMR master picked from the list (a BrandMeister US master, port 62031 filled from `DMR_Hosts.txt`) and the hotspot password set from the setup page; after starting `mmdvm_bridge`, its log (`/var/log/mmdvm/MMDVM_Bridge-<date>.log`) shows `DMR, Logged into the master successfully: <master>:62031`. So the 9-digit ID (DMR ID + ESSID) and the password handling are accepted by BrandMeister. The login state is only visible in that log so far; known log lines: `Logged into the master successfully`, `Login to the master has failed, retrying login|network`, `Connection to the master has timed out`, `Socket has failed ...`, `Master is closing down`.
+
 All read-only unless a step says to change a setting through the panel. Replace callsigns, IDs and addresses by hand (`N0CALL`, `1234567`, `01`, `192.0.2.10`) before sharing output. **Never paste a password or the content of `MMDVM_Bridge.ini`.**
 
 1. Open the DVSwitch tab on a node with DVSwitch installed. Identity shows the stock values, "DMR password: not set". `consistent` warning shown for a stock install is expected.
