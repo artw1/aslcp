@@ -14,6 +14,7 @@ Goal: download one file from a working node, re-image the SD card with a fresh A
 | Other AMI clients | `/etc/allmon3/` if present | on when present | Allmon3 config (it shares the AMI login). |
 | Custom sounds | `/var/lib/asterisk/sounds/custom` and `/usr/share/asterisk/sounds/custom` (both exist on ASL3; de-duplicated by real path in case one links to the other) | on when present | Announcements, IDs. |
 | SA818 radio settings | `/etc/sa818.conf` if present (written by `sa818-menu`) | always when present | The SA818 keeps its programmed settings in its own EEPROM, which survives a re-image, but they cannot be read back from the module; this file is the only copy. Restored to the same path, root-owned. |
+| DVSwitch | `/opt/Analog_Bridge/Analog_Bridge.ini`, `/opt/Analog_Bridge/dvsm.macro`, `/opt/MMDVM_Bridge/MMDVM_Bridge.ini`, `/opt/YSFGateway/YSFGateway.ini`, `/opt/P25Gateway/P25Gateway.ini`, `/opt/NXDNGateway/NXDNGateway.ini` (those that exist) | on when `/opt/Analog_Bridge` exists | Exactly the files the DVSwitch setup page may edit, plus the macro file, and nothing else. Not redacted: `MMDVM_Bridge.ini` holds the DVSwitch (DMR master) password. The setup page's own history copies (`/var/lib/aslcp-dvswitch-history`) are not included: they hold older passwords, and the restore makes a fresh copy of every file it replaces. Symlinks, non-regular files and files over 1 MiB are skipped and listed as skipped. |
 | Update channel | suite in `/etc/apt/sources.list.d/aslcp.list` | always | Stored in the manifest, re-applied on restore. |
 
 **Not included** (listed on the restore page as "set up separately"): network and Wi-Fi, hostname, timezone, SSH keys and OS user accounts, other software (for example an M17 bridge and its service), firewall rules other than ASLCP's own, cron jobs, anything installed outside the packages above. The manifest records hostname, timezone and the list of installed `asl3*`, `allmon3` and related package names, and the restore page shows them as a checklist so nothing is forgotten.
@@ -31,9 +32,10 @@ aslcp/aslcp.conf
 history/...                 (optional, the bare git repository)
 allmon3/...                 (optional)
 sounds/...                  (optional)
+dvswitch/opt/...            (optional, the six DVSwitch files at their /opt paths)
 ```
 
-`manifest.json`: format version (1), created time, created by (ASLCP user), ASLCP version, ASL3 and Asterisk versions, hostname, timezone, architecture, the Debian release (`osId`, `osCodename`, `osName`: `ID`, `VERSION_CODENAME` and `PRETTY_NAME` of `/etc/os-release`; optional, backups made before they existed lack them and the format stays 1), local node numbers, update channel, installed package list, and one entry per file: path, size, sha256, owner and group name, mode, type (file, dir, symlink with target), and for files in `/etc/asterisk` the stock/changed classification with the owning package and its version.
+`manifest.json`: format version (1), created time, created by (ASLCP user), ASLCP version, ASL3 and Asterisk versions, hostname, timezone, architecture, the Debian release (`osId`, `osCodename`, `osName`: `ID`, `VERSION_CODENAME` and `PRETTY_NAME` of `/etc/os-release`; optional, backups made before they existed lack them and the format stays 1), local node numbers, update channel, `parts` (including `dvswitch`, true when the archive has the DVSwitch files; added after format 1 shipped, so older backups lack it and the format stays 1), installed package list, and one entry per file: path, size, sha256, owner and group name, mode, type (file, dir, symlink with target), and for files in `/etc/asterisk` the stock/changed classification with the owning package and its version.
 
 **No encryption in beta.3** (maintainer's decision). A backup holds every secret of the node (node passwords, IAX and AMI secrets, EchoLink password, ASLCP password hashes); the download dialog says so and the file should be stored like a password. Passphrase encryption ([age](https://age-encryption.org), scrypt mode) can be added later without changing the inner format.
 
@@ -95,9 +97,10 @@ Later (not in beta.3): scheduled automatic backups kept on the node (last N) and
    2. Restore the config history repository (if in the backup), then commit the current `/etc/asterisk` to it as "Before restore from backup <date>", so the restore itself can be undone from History.
    3. Apply the `/etc/asterisk` rules above: write each restored file with its owner, group (by name, falling back to `asterisk:asterisk` when a name does not exist) and mode, write `.dpkg-dist` copies where needed, delete only files the user ticked. Atomic per file; on error the snapshot is written back.
    4. Replace AstDB, Allmon3 config and sounds if present in the backup.
-   5. Set the update channel.
-   6. Commit "Restored from backup <date>" to the history.
-   7. Start Asterisk.
+   5. Restore the DVSwitch files (if in the backup), step "Restore DVSwitch configuration": only when `/opt/Analog_Bridge` exists, i.e. DVSwitch is installed. Otherwise nothing is written (and `/opt` is not created); the preview warns, and the step reads "DVSwitch is not installed on this node: install DVSwitch, then restore this part again". A file whose own directory is missing (a gateway that is not installed) is skipped and named in the step. Every target is checked first: a symlink or non-regular file at a target refuses the step and nothing is written; a missing target file is created. Each replaced file first gets a history copy (the same `/var/lib/aslcp-dvswitch-history`, last 10 kept, so the setup page can roll it back), then is replaced atomically with the owner, group (by name, else the replaced file's owner, else root) and mode of the manifest. Identical files are left alone. The services are not restarted; the step does not touch them.
+   6. Set the update channel.
+   7. Commit "Restored from backup <date>" to the history.
+   8. Start Asterisk.
    8. ASLCP's own database and config: the server stages `aslcp.db.restore` and `aslcp.conf` and restarts itself; on start it swaps the database in (the previous one is kept as `aslcp.db.pre-restore`) and runs migrations forward.
 4. **Result.** After the restart the page reconnects and shows the health check (Asterisk running, AMI answers, the app_rpt module is loaded, every node in the backup is up and registered) and the "set up separately" checklist. Log in with the old ASLCP account.
 
@@ -110,7 +113,8 @@ Later (not in beta.3): scheduled automatic backups kept on the node (last N) and
 ## Security
 
 - Admin only (or setup code on a fresh install); every backup, upload and restore audited.
-- Not encrypted in beta.3: the download dialog warns that the file contains every secret of the node.
+- Not encrypted in beta.3: the download dialog warns that the file contains every secret of the node, and names the DVSwitch password when the DVSwitch part is selected.
+- Older ASLCP versions reject an archive with a DVSwitch part ("not part of the backup layout"): restore it with this version or newer.
 - The helper validates the archive again itself (paths, types, sizes, sha256 from the manifest) and writes only to the fixed destinations above; it never trusts the server's check.
 - Upload size limit 256 MiB; decompression limit (total size from the manifest, checked while extracting) against archive bombs.
 
@@ -120,6 +124,7 @@ Later (not in beta.3): scheduled automatic backups kept on the node (last N) and
 - Archive validation: traversal, absolute paths, symlink escape, device files, sha256 mismatch, truncated file, oversized entries, newer format version.
 - AstDB copy while it is being written.
 - Restore rules: a fake dpkg conffile list for an old and a new package version; stock/changed/local/missing-stock cases and the `.dpkg-dist` copy.
+- DVSwitch part: round trip in temp roots (secrets kept, modes kept, history copies of replaced files), target directory missing (nothing written, warning), symlink at a target (refused, nothing written, Asterisk started), part not requested or DVSwitch not installed, older manifest without the flag, only the six fixed paths valid in the archive.
 - Demo mode: backup and restore of the in-memory files and the demo database.
 - On hardware: back up a node, re-image a second SD card, install ASLCP, restore, compare `/etc/asterisk` (`diff -r` against the old card), check the nodes come up and favorites and users are there.
 
@@ -138,4 +143,4 @@ Later (not in beta.3): scheduled automatic backups kept on the node (last N) and
 - **Helper operations.** Besides `backup-create` and `backup-restore` there is a small `backup-info` operation that tells the Backup page which optional parts exist and their sizes; the dry run of `backup-restore` also reports the node's versions and whether the SA818 serial port exists (the server has `PrivateDevices`).
 - **Spooling.** The server writes the created archive to a private temporary directory under its data directory before sending it, so a failure maps to a proper HTTP status and `Content-Length` is known. Uploads are spooled the same way (256 MiB limit; credentials are checked after the form fields have been read, but a request that can never be authorised is refused before the body is read).
 - **Result.** The last restore (steps, health checks, checklist) is kept in `restore-result.json` in the data directory. `health.pending` is `true` until the post-restart checks (ASLCP up, Asterisk connection, app_rpt module, one check per node) have passed or three minutes have gone by.
-- **Step names** shown to the user: Stop Asterisk, Restore config history, Snapshot current /etc/asterisk to history, Restore /etc/asterisk, Replace AstDB, Replace Allmon3 config, Replace custom sounds, Restore SA818 settings, Restore ASLCP settings, Set update channel, Commit restored configuration to history, Start Asterisk, Stage ASLCP database.
+- **Step names** shown to the user: Stop Asterisk, Restore config history, Snapshot current /etc/asterisk to history, Restore /etc/asterisk, Replace AstDB, Replace Allmon3 config, Replace custom sounds, Restore DVSwitch configuration, Restore SA818 settings, Restore ASLCP settings, Set update channel, Commit restored configuration to history, Start Asterisk, Stage ASLCP database.

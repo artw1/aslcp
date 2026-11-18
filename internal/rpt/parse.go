@@ -344,7 +344,7 @@ func Merge(node string, x *XStat, saw []SawConn, now time.Time) NodeStatus {
 		RxKeyed:    x.RxKeyed,
 		TxKeyed:    x.TxKeyed,
 		ExtTxKeyed: x.ExtTxKeyed,
-		Network:    append([]LinkedNode(nil), x.Network...),
+		Network:    dedupeNetwork(x.Network),
 		NumLinks:   x.NumLinks,
 		NumALinks:  x.NumALinks,
 		Flags:      x.Flags,
@@ -365,6 +365,7 @@ func Merge(node string, x *XStat, saw []SawConn, now time.Time) NodeStatus {
 			adj[n.Node] = n.Mode
 		}
 	}
+	linkAt := make(map[string]int, len(x.Conns))
 	for _, c := range x.Conns {
 		l := Link{Node: c.Node, Kind: c.Kind, IP: c.IP, Direction: c.Direction,
 			Reconnects: c.Reconnects, Connected: c.Connected, State: c.State}
@@ -378,9 +379,37 @@ func Merge(node string, x *XStat, saw []SawConn, now time.Time) NodeStatus {
 		} else if a, ok := alBy[c.Node]; ok {
 			l.Keyed = a.Keyed
 		}
+		// One entry per node (the UI keys its rows by node): the same node
+		// can be listed twice, e.g. IN and OUT or while it reconnects. The
+		// first entry keeps its place; a later one replaces it only when the
+		// first is still CONNECTING and the later one is ESTABLISHED (the
+		// established link is the one carrying audio and has the real
+		// connected time and keyed state). Otherwise the first wins.
+		if i, dup := linkAt[l.Node]; dup {
+			if st.Links[i].State != StateEstablished && l.State == StateEstablished {
+				st.Links[i] = l
+			}
+			continue
+		}
+		linkAt[l.Node] = len(st.Links)
 		st.Links = append(st.Links, l)
 	}
 	return st
+}
+
+// dedupeNetwork returns a copy of the network list with one entry per node,
+// the first one winning (the same rule as the adjacency modes in Merge).
+func dedupeNetwork(in []LinkedNode) []LinkedNode {
+	out := make([]LinkedNode, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for _, n := range in {
+		if _, ok := seen[n.Node]; ok {
+			continue
+		}
+		seen[n.Node] = struct{}{}
+		out = append(out, n)
+	}
+	return out
 }
 
 var (

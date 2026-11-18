@@ -143,8 +143,15 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
 		s.logf("bad request: %v", err)
+		drainUnread(conn, nil)
 		fail("invalid request")
 		return
+	}
+	if req.Op != OpBackupRestore {
+		// Only backup-restore has more to say after the request. Anything
+		// else left in the receive buffer (the encoder's trailing newline)
+		// would turn the close after our reply into a connection reset.
+		drainUnread(conn, dec.Buffered())
 	}
 	if !isConfigOp(req.Op) && dec.InputOffset() > maxRequest {
 		s.logf("request too large for op %s", safeOp(req.Op))
@@ -197,6 +204,34 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 	reply(res)
 }
 
+// drainTimeoutUnread bounds how long drainUnread waits for bytes that are not
+// there yet.
+const drainTimeoutUnread = 100 * time.Millisecond
+
+// drainUnread consumes what the client sent after the request, so that
+// closing the connection does not reset it: on a unix stream socket, close
+// with unread data makes the peer's read fail with ECONNRESET and the peer
+// loses our reply. json.Decoder stops at the closing brace, so the newline
+// the client's encoder appends can still be queued, depending on where the
+// read boundaries fell. buffered is what the decoder already read past the
+// request (nil after a failed decode). It never blocks on a client that sends
+// nothing more: it returns at EOF (the client closed its write side), at the
+// first timeout, or after a bounded amount of data.
+func drainUnread(conn net.Conn, buffered io.Reader) {
+	if buffered != nil {
+		// A trailing newline the decoder already read is the whole of what
+		// the encoder appends: nothing is left to wait for.
+		b, _ := io.ReadAll(io.LimitReader(buffered, 1<<20))
+		if len(b) > 0 && isJSONSpace(b[len(b)-1]) {
+			return
+		}
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(drainTimeoutUnread))
+	_, _ = io.Copy(io.Discard, io.LimitReader(conn, 1<<20))
+}
+
+func isJSONSpace(c byte) bool { return c == ' ' || c == '\t' || c == '\r' || c == '\n' }
+
 // skipLeadingSpace drops JSON whitespace (space, tab, CR, LF) from the start
 // of the stream on the first Read. gzip's magic (0x1f 0x8b) is not
 // whitespace, so no archive byte is ever lost.
@@ -229,7 +264,7 @@ func (s *skipLeadingSpace) Read(p []byte) (int, error) {
 
 func knownOp(op string) bool {
 	switch op {
-	case OpUpdateStatus, OpUpdateCheck, OpUpdateApply, OpOSCheck, OpOSStatus, OpOSApply, OpReboot, OpAslcpRestart, OpFirewallStatus, OpFirewallOpen, OpChannelStable, OpChannelBeta, OpAsteriskRestart, OpConfigList, OpConfigRead, OpConfigApply, OpConfigLog, OpConfigShow, OpConfigRestore, OpConfigRecord, OpBackupInfo, OpBackupCreate, OpBackupRestore:
+	case OpUpdateStatus, OpUpdateCheck, OpUpdateApply, OpOSCheck, OpOSStatus, OpOSApply, OpReboot, OpAslcpRestart, OpDVSwitchStatus, OpDVSwitchJob, OpDVSwitchInstall, OpDVSwitchUninstall, OpDVSwitchSetup, OpDVSwitchInfo, OpDVSwitchDMRStatus, OpDVSwitchIdentity, OpDVSwitchCredentials, OpDVSwitchModes, OpDVSwitchStartup, OpDVSwitchRollback, OpDVSwitchRestart, OpDVSwitchLists, OpDVSwitchTune, OpDVSwitchUSRP, OpDVSwitchPrivate, OpFirewallStatus, OpFirewallOpen, OpChannelStable, OpChannelBeta, OpAsteriskRestart, OpConfigList, OpConfigRead, OpConfigApply, OpConfigLog, OpConfigShow, OpConfigRestore, OpConfigRecord, OpBackupInfo, OpBackupCreate, OpBackupRestore:
 		return true
 	}
 	return false

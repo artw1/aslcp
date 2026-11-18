@@ -98,9 +98,9 @@ export interface ConfigCommit { commit: string; date: string; author: string; me
 export interface ConfigCommitDetail extends Omit<ConfigCommit, 'files'> { files: { path: string; status: 'added' | 'modified' | 'deleted'; diff: string }[] }
 
 // Backup and full restore (docs/BACKUP.md, /api/backup/*, /api/restore/*). Admin only (restore upload also with a setup code).
-export type BackupPartId = 'history' | 'allmon3' | 'sounds';
+export type BackupPartId = 'history' | 'allmon3' | 'sounds' | 'dvswitch';
 export interface BackupInfo { parts: { id: BackupPartId; present: boolean; size: number }[]; sa818: boolean }
-export interface BackupSelection { history: boolean; allmon3: boolean; sounds: boolean }
+export interface BackupSelection { history: boolean; allmon3: boolean; sounds: boolean; dvswitch: boolean }
 export type RestoreAction = 'restore' | 'restore_dist' | 'keep_stock' | 'keep_new' | 'delete_optional' | 'skip';
 export interface RestoreRadio {
   band: string; freqRx: string; freqTx: string; tone: string; ctcssRx: string; ctcssTx: string; dcsRx: string; dcsTx: string; port: string; portPresent: boolean;
@@ -117,7 +117,7 @@ export interface RestorePreview {
   installCommand: string;
   checklist: { item: string; value: string }[];
   radio: RestoreRadio | null;
-  parts: { history: boolean; allmon3: boolean; sounds: boolean; sa818: boolean };
+  parts: { history: boolean; allmon3: boolean; sounds: boolean; sa818: boolean; dvswitch?: boolean };
 }
 export interface RestoreUpload { id: string; preview: RestorePreview }
 export interface RestoreStep { name: string; ok: boolean; detail: string }
@@ -170,3 +170,92 @@ export interface SchedulesSnapshot {
   manualAction: ManualAction; lastCancel: CancelNotice | null; timezone: string; now: string;
   schedules: Schedule[]; active: { id: number; start: string; end: string }[]; upcoming: ScheduleEvent[];
 }
+
+/** GET /api/dvswitch (admin only; docs/API.md "DVSwitch"). */
+export interface DVSwitchJob { job: 'idle' | 'running' | 'succeeded' | 'failed'; log: string; at?: number }
+export interface DVSwitchStatus {
+  installed: boolean;
+  /** "aslcp": ASLCP installed it (marker); "external": installed outside ASLCP; "": not installed. */
+  installedBy: '' | 'aslcp' | 'external';
+  version: string; arch: string; osCodename: string; supported: boolean; unsupportedReason?: string;
+  repoPresent: boolean; keyPresent: boolean; keyOk: boolean; keyFingerprint?: string;
+  packages: { name: string; installed: boolean; version?: string }[];
+  units: { name: string; loaded: boolean; active: string; enabled: string }[];
+  hostFiles: { name: string; present: boolean; size: number }[]; hostFilesOk: boolean;
+  marker: { version: number; installedAt: string; wgetPreinstalled: boolean; packages: string[] } | null;
+  canInstall: boolean; canUninstall: boolean;
+  uninstallPackages: string[]; uninstallPaths: string[]; uninstallUnits: string[];
+  install: DVSwitchJob; uninstall: DVSwitchJob;
+}
+export interface DVSwitchJobs { install: DVSwitchJob; uninstall: DVSwitchJob }
+
+/** GET /api/dvswitch/setup and the reply of the PUT writes (docs/API.md "DVSwitch setup"). No secret value: the DMR password is write-only. */
+export interface DVFileView { id: string; present: boolean; writable: boolean; sha256: string; history: number }
+export interface DVSwitchInfo { found: boolean; version: string; mode: string; tg: string; slot: string; colorCode: string; tune: string; mute: string; gatewayId: string; repeaterId: string; updated: string }
+/** The "Bridge node" part of GET /api/dvswitch/setup. `suggested` is the first free node of 1900-1997. */
+export interface DVBridgeSetup {
+  node: string; owned: boolean; suggested: string; used: string[]; localNodes: string[];
+  rxPort: number; txPort: number; link: { mode: DVLinkMode; localNode: string; bridge: string; exclusive: boolean }; paused: boolean;
+}
+/** PUT /api/dvswitch/private-node (docs/API.md "DVSwitch private node"). */
+export interface DVPrivateReq { node: string; rxPort: number; txPort: number; linkMode: DVLinkMode; localNode: string; /** "Disconnect other links first"; absent keeps the saved value. */ linkExclusive?: boolean; dryRun?: boolean; restart?: boolean; base?: Record<string, string>; renumber?: boolean }
+export type DVPlanKind = 'set' | 'renumber' | 'remove';
+/** `kind` says what the plan does: save the node, renumber it (`oldNode` goes away) or remove it. `unlinks` are the local nodes disconnected first; `keepRecord` says the removal leaves ASLCP's record because something could not be reverted. */
+export interface DVPlan {
+  kind: DVPlanKind; oldNode: string; unlinks: string[]; keepRecord: boolean;
+  node: string; rxPort: number; txPort: number; layout: string;
+  files: { path: string; diff: string; changed: boolean }[];
+  restartAsterisk: boolean; restarts: string[]; warnings: string[]; base: Record<string, string>;
+  link: { mode: DVLinkMode; localNode: string; bridge: string; exclusive: boolean };
+}
+export interface DVStep { name: string; ok: boolean; detail?: string }
+export interface DVRollbackInfo { available: boolean; before?: boolean; ini?: boolean }
+export interface DVApplyResult { applied: boolean; kind: DVPlanKind; node: string; steps: DVStep[]; warnings?: string[]; keepRecord?: boolean; health?: unknown; rollback: DVRollbackInfo }
+export interface DVRollbackResult { rolledBack: boolean; problems: string[]; steps: DVStep[] }
+export interface DVSwitchSetup {
+  identity: { callsign: string; dmrId: string; essid: string; nxdnId: string; consistent: boolean };
+  warnings?: string[];
+  dmr: { address: string; port: number; passwordSet: boolean };
+  usrp: { address: string; rxPort: number; txPort: number };
+  modes: { dmr: boolean; ysf: boolean; p25: boolean; nxdn: boolean };
+  startup: { ambeMode: string; txTg: string; txTs: number; colorCode: number };
+  gateways: { ysf: { present: boolean; startup: string }; p25: { present: boolean; startup: string }; nxdn: { present: boolean; startup: string } };
+  files: DVFileView[];
+  current: DVSwitchInfo;
+  bridgeNode: DVBridgeSetup;
+  changed?: string[]; skipped?: string[]; restartHint?: string[];
+}
+/** GET /api/dvswitch/dmr-status (operator and admin; docs/API.md "DVSwitch DMR login status"). Never holds the password. */
+export type DVDMRState = 'not_installed' | 'disabled' | 'not_running' | 'connecting' | 'logged_in' | 'login_failed' | 'timed_out' | 'socket_failed' | 'master_closing';
+export interface DVDMRStatus { state: DVDMRState; master?: string; at?: string; since?: string; lastLine?: string }
+export type DVRestartScope = 'dmr' | 'bridge' | 'gateways' | 'all';
+export interface DVSwitchRestartResult { action: 'restart' | 'start'; units: string[]; skipped: string[]; states: DVSwitchStatus['units']; warning: string }
+
+/** GET /api/dvswitch/lists?mode=... (operator and admin; docs/API.md "DVSwitch host lists"). 404 `no_list` when the node has no file for the mode. */
+export type DVListMode = 'dmr' | 'ysf' | 'p25' | 'nxdn';
+/** `value` is what gets written: the master address (dmr), the 5-digit reflector ID (ysf) or the TG (p25, nxdn). `port` is the master port for dmr. The DMR list never carries a password. */
+export interface DVListItem { value: string; name: string; detail?: string; address: string; port: number }
+export interface DVList { mode: DVListMode; items: DVListItem[]; truncated?: boolean; etag: string }
+
+/** GET and PUT /api/dvswitch/resume (docs/API.md "DVSwitch tune and resume"): the last tune of each mode and the toggle. */
+export type DVTuneMode = 'DMR' | 'YSF' | 'P25' | 'NXDN';
+export interface DVRemembered { tune: string; ts?: string; at: string }
+export interface DVResume { resume: boolean; lastMode?: string; perMode: Partial<Record<DVTuneMode, DVRemembered>> }
+
+/** GET /api/dvswitch/snapshot and the SSE `dvswitch` event (all roles; docs/API.md "DVSwitch panel"). No install log, no identity, no secret. */
+export interface DVBridge { mode: string; tune: string; targetName?: string; slot: number; muted: boolean; source: 'abinfo' | 'none'; updated: string }
+export interface DVSnapshot {
+  installed: boolean; running: boolean; configured: boolean;
+  bridge: DVBridge;
+  modes: { id: DVTuneMode; enabled: boolean; unlink: string }[];
+  services: { unit: string; active: boolean }[];
+  bridgeNode: { present: boolean; node?: string };
+  /** The link of the bridge node to a local node (docs/DVSWITCH.md "Link mode"). */
+  link: DVLink;
+}
+export type DVLinkMode = 'ondemand' | 'permanent';
+/** `exclusive` is the saved "Disconnect other links first" (dvswitch.link_exclusive). */
+export interface DVLink { mode: DVLinkMode; localNode: string; linked: boolean; paused: boolean; exclusive: boolean }
+/** The reply of POST /api/dvswitch/mode, /unlink and /tune. */
+export interface DVCmdReply { mode: string; switched: boolean; confirmed: boolean; snapshot: DVSnapshot }
+export interface DVFavorite { id: number; mode: DVTuneMode; value: string; name: string; sort: number }

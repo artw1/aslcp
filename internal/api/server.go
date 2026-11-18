@@ -21,6 +21,7 @@ import (
 	"github.com/artw1/aslcp/internal/config"
 	"github.com/artw1/aslcp/internal/configsvc"
 	"github.com/artw1/aslcp/internal/diag"
+	"github.com/artw1/aslcp/internal/dvswitch"
 	"github.com/artw1/aslcp/internal/favstats"
 	"github.com/artw1/aslcp/internal/helper"
 	"github.com/artw1/aslcp/internal/nodelist"
@@ -45,6 +46,18 @@ type Deps struct {
 	// Power restarts the panel and reboots the machine through the helper
 	// (nil: 503 updates_unavailable).
 	Power Power
+	// DVSwitch reports, installs and removes DVSwitch (nil: 503
+	// dvswitch_unavailable).
+	DVSwitch DVSwitch
+	// DVResume holds the last tune per mode and the resume setting (nil: 503
+	// dvswitch_unavailable).
+	DVResume DVResume
+	// DVInstalled says whether DVSwitch is on this node, without asking the
+	// helper (nil: assume it may be).
+	DVInstalled func() bool
+	// DVBridgeNode finds the local node that uses a USRP channel (rpt.conf,
+	// read-only; nil: never found).
+	DVBridgeNode func(ctx context.Context) (string, bool)
 	// ConfigEditor is the configuration editing service (nil: 503
 	// config_unavailable).
 	ConfigEditor *configsvc.Service
@@ -85,6 +98,10 @@ type Deps struct {
 	// schedules_unavailable). New wires its link controller (unless set) and
 	// its change broadcast.
 	Schedules *schedules.Engine
+	// DVLink keeps the permanent link of the private bridge node (nil: the
+	// link features are off). New wires its Linker (unless set), Store (unless
+	// set) and its change notification; Run starts it.
+	DVLink *dvswitch.LinkReconciler
 }
 
 // Server is the HTTP API.
@@ -105,6 +122,11 @@ type Server struct {
 	// disconnected link to disappear before connecting anyway (a permanent
 	// link never goes away).
 	LinkGoneWait time.Duration
+	// AsteriskBackWait bounds how long a flow that restarted Asterisk (the
+	// DVSwitch bridge node apply and rollback) waits for it to answer again,
+	// polling every AsteriskBackPoll.
+	AsteriskBackWait time.Duration
+	AsteriskBackPoll time.Duration
 
 	schedMu sync.Mutex // serialises schedule saves (overlap check + write)
 
@@ -115,6 +137,11 @@ type Server struct {
 
 	monMu sync.RWMutex
 	mon   *rpt.Monitor
+
+	dvs *dvSnapper // DVSwitch snapshot and its change events
+	// dvUndo is what the last private-node apply changed (for its rollback).
+	dvUndo   *dvPrivateUndo
+	dvUndoMu sync.Mutex
 
 	stop     chan struct{}
 	stopOnce sync.Once
@@ -136,8 +163,9 @@ func New(d Deps) *Server {
 		d:        d, rpt: rpt.New(d.AMI), mux: http.NewServeMux(),
 		FastInterval: time.Second, SlowInterval: 10 * time.Second,
 		PingInterval: 15 * time.Second, SystemInterval: 10 * time.Second,
-		LinkGoneWait: 3 * time.Second,
-		stop:         make(chan struct{}),
+		LinkGoneWait:     3 * time.Second,
+		AsteriskBackWait: 90 * time.Second, AsteriskBackPoll: time.Second,
+		stop: make(chan struct{}),
 	}
 	s.hub = newHub(func(int) { s.updateInterval(0) })
 	if d.Updates != nil && d.Updates.OS != nil {
@@ -163,6 +191,8 @@ func New(d Deps) *Server {
 	s.rec.OnRecord = s.pub.ActivityRecorded
 	s.initFavStats()
 	s.initSchedules()
+	s.initDVSwitch()
+	s.initDVLink()
 	s.routes()
 	return s
 }
@@ -180,6 +210,9 @@ func (s *Server) Run(ctx context.Context) {
 	}
 	if s.d.Schedules != nil {
 		go s.d.Schedules.Run(ctx)
+	}
+	if s.d.DVLink != nil {
+		go s.d.DVLink.Run(ctx)
 	}
 	<-ctx.Done()
 	s.Shutdown()
@@ -328,6 +361,7 @@ func (s *Server) routes() {
 	s.configRoutes()
 	s.backupRoutes()
 	s.radioRoutes()
+	s.dvswitchRoutes()
 	m.HandleFunc("GET /api/updates", s.authed(store.RoleAdmin, s.handleUpdatesGet))
 	m.HandleFunc("POST /api/updates/check", s.authed(store.RoleAdmin, s.handleUpdatesCheck))
 	m.HandleFunc("POST /api/updates/apply", s.authed(store.RoleAdmin, s.handleUpdatesApply))

@@ -235,7 +235,7 @@ func (o *Ops) BackupInfo(ctx context.Context) (BackupInfo, error) {
 		sd.Present = true
 		sd.Size += dirSize(ctx, d.path)
 	}
-	info.Parts = append(info.Parts, hist, am, sd)
+	info.Parts = append(info.Parts, hist, am, sd, o.dvPartInfo())
 	if fi, err := os.Lstat(o.sa818Conf()); err == nil && fi.Mode().IsRegular() {
 		info.SA818 = true
 	}
@@ -527,6 +527,13 @@ func (o *Ops) BackupCreate(ctx context.Context, req *BackupRequest, w io.Writer)
 			}
 			hdr.Parts.Sounds = append(hdr.Parts.Sounds, d.id)
 		}
+	}
+	if req.DVSwitch && o.dvInstalled() {
+		added, err := o.collectDVSwitch(c)
+		if err != nil {
+			return false, err
+		}
+		hdr.Parts.DVSwitch = added
 	}
 	hdr.Skipped = append(hdr.Skipped, c.skipped...)
 	hdr.Entries = make([]backup.Entry, len(c.entries))

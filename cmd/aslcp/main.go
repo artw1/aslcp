@@ -27,6 +27,7 @@ import (
 	"github.com/artw1/aslcp/internal/configsvc"
 	"github.com/artw1/aslcp/internal/demo"
 	"github.com/artw1/aslcp/internal/diag"
+	"github.com/artw1/aslcp/internal/dvswitch"
 	"github.com/artw1/aslcp/internal/favstats"
 	"github.com/artw1/aslcp/internal/helper"
 	"github.com/artw1/aslcp/internal/nodelist"
@@ -187,6 +188,9 @@ func run(cfgPath string, dev, demoMode bool) error {
 	var power api.Power
 	var cfgHelper configsvc.Helper
 	var bkHelper backupsvc.Helper
+	var dvsw api.DVSwitch
+	var dvTrack *dvswitch.Tracker
+	var dvInstalled func() bool
 	var restart func()
 	var restartReq atomic.Bool
 	var firewall func(context.Context) (helper.Firewall, error)
@@ -222,6 +226,13 @@ func run(cfgPath string, dev, demoMode bool) error {
 		upd.OS = updates.NewOS(dh, st)
 		upd.OS.FirstCheck, upd.OS.Tick = time.Second, time.Second
 		power = dh
+		ddv := helper.NewDemoDVSwitch()
+		ddv.Lists = ops
+		dvsw = ddv
+		dvInstalled = ddv.Installed
+		// The demo tracker reads the in-memory demo ABInfo, keeps its state in
+		// the demo database (a temporary dir) and polls fast.
+		dvTrack = &dvswitch.Tracker{Src: ddv, Store: st, Logger: logger, Installed: ddv.Installed, Interval: 3 * time.Second}
 		bg(func() { upd.Run(ctx) })
 		bg(func() { upd.OS.Run(ctx) })
 	} else {
@@ -235,6 +246,9 @@ func run(cfgPath string, dev, demoMode bool) error {
 		upd.OS = updates.NewOS(hc, st)
 		upd.OS.Logger = logger
 		power = hc
+		dvsw = hc
+		dvInstalled = dvswitchInstalled
+		dvTrack = &dvswitch.Tracker{Src: hc, Store: st, Logger: logger, Installed: dvswitchInstalled}
 		bg(func() { upd.Run(ctx) })
 		bg(func() { upd.OS.Run(ctx) })
 	}
@@ -271,13 +285,20 @@ func run(cfgPath string, dev, demoMode bool) error {
 	favScan.SetRate(cfg.FavStatsRate)
 	// Schedules: the API wires the engine's link controller and broadcast.
 	sched := &schedules.Engine{Store: st, Logger: logger, StartDelay: 5 * time.Second}
+	// The permanent link of the private bridge node: the API wires its
+	// Linker and Store; it checks at start (after the monitor knows the nodes).
+	dvLink := &dvswitch.LinkReconciler{Store: st, StartDelay: 15 * time.Second}
+	if demoMode {
+		dvLink.StartDelay, dvLink.Tick = 3*time.Second, 5*time.Second
+	}
 	srv := api.New(api.Deps{
 		FavStats:     favScan,
 		Schedules:    sched,
+		DVLink:       dvLink,
 		RescanNodes:  func() { kick(rescan) },
 		Tuning:       tune,
 		ConfigEditor: cfgSvc,
-		Auth:         as, Store: st, AMI: proxy, Nodelist: nl, System: sys, Updates: upd, Power: power, Version: version,
+		Auth:         as, Store: st, AMI: proxy, Nodelist: nl, System: sys, Updates: upd, Power: power, DVSwitch: dvsw, DVResume: dvTrack, DVInstalled: dvInstalled, DVBridgeNode: dvBridgeNode(cfgHelper), Version: version,
 		UI: webui.Handler(), AllowedOrigins: origins, AllScanDirs: allscan.DefaultDirs, Logger: logger,
 		Log: ring, Config: cfg, ConfigPath: cfgPath, Firewall: firewall,
 		PublicDefaultEnabled: demoMode,
@@ -287,6 +308,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 		srv.AddSecret(demo.Secret)
 	}
 	bg(func() { srv.Run(ctx) })
+	bg(func() { dvTrack.Run(ctx) })
 	bg(func() { cleanupSessions(ctx, st) })
 
 	if !demoMode {
@@ -612,4 +634,22 @@ func seedDemoSchedules(st *store.Store, now time.Time) {
 		}
 		_, _ = st.AddSchedule(x)
 	}
+}
+
+// dvswitchInstalled says whether DVSwitch is on this node (Analog_Bridge's
+// ini is where its package puts it). The tracker polls the helper only then,
+// so a node without DVSwitch never wakes the helper for it.
+func dvswitchInstalled() bool {
+	fi, err := os.Stat(filepath.Join(helper.DefaultDVOptDir, "Analog_Bridge", "Analog_Bridge.ini"))
+	return err == nil && fi.Mode().IsRegular()
+}
+
+// dvBridgeNode finds the node with a USRP channel in rpt.conf (read-only), for
+// the "No bridge node yet" line of the DVSwitch card.
+func dvBridgeNode(src any) func(context.Context) (string, bool) {
+	cs, ok := src.(susb.ConfigSource)
+	if !ok {
+		return nil
+	}
+	return func(ctx context.Context) (string, bool) { return susb.USRPNode(ctx, cs) }
 }

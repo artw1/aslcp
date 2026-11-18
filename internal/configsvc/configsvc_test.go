@@ -54,6 +54,11 @@ func TestMask(t *testing.T) {
 		"register => 1998:p@ss@host.invalid:4569": "register => " + Masked + "@host.invalid:4569",
 		"duplex = 1":                              "duplex = 1",
 		"secretive = x":                           "secretive = x",
+		"Password=example-pass":                   "Password=" + Masked,
+		"RemotePassword = example-pass ; c":       "RemotePassword = " + Masked + " ; c",
+		"dmr_password=example-pass":               "dmr_password=" + Masked,
+		"  PasswordHint = x":                      "  PasswordHint = " + Masked,
+		"passport = x":                            "passport = x",
 	}
 	for in, want := range cases {
 		if got := MaskLine(in); got != want {

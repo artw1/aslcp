@@ -70,6 +70,41 @@ type Ops struct {
 	// OSCheckTimeout bounds apt-get update of os-check (default 5 minutes).
 	OSCheckTimeout time.Duration
 	osCheckMu      sync.Mutex
+
+	// DVSwitch install (dvswitch.go); defaults are the DefaultDV* constants.
+	DVKeyring    string
+	DVSourceList string
+	DVStateDir   string
+	DVHostDir    string
+	// DVSwitch config (dvswitch_cfg.go): the dir holding Analog_Bridge and
+	// the others, the history dir and the /proc root for ABInfo.
+	DVOptDir     string
+	DVHistoryDir string
+	DVProcDir    string
+	// DVTLVDelay spaces the TLV datagrams of one command (default 100 ms),
+	// DVTLVSettle is the wait before the result is read back (default 400 ms).
+	// After an rxport= command the helper polls ABInfo every DVPortPoll
+	// (default 100 ms) for up to DVPortWait (default 2 s) until Analog_Bridge
+	// reports the new listener port. DVParkPort is the port a mode switch
+	// parks Analog_Bridge on first (default 30000).
+	DVTLVDelay  time.Duration
+	DVTLVSettle time.Duration
+	DVPortPoll  time.Duration
+	DVPortWait  time.Duration
+	DVParkPort  int
+	// tuneSem holds one token while a tune or mode sequence runs (a channel,
+	// not a mutex, so that a waiter can give up with its context).
+	tuneOnce sync.Once
+	tuneSem  chan struct{}
+	// DVLogDir holds MMDVM_Bridge-YYYY-MM-DD.log (default /var/log/mmdvm).
+	DVLogDir string
+	// SelfPath is the helper binary the install and uninstall units call for
+	// their steps (default: this executable).
+	SelfPath string
+	// HTTPGet fetches the keyring (tests inject; default: fixed-URL client,
+	// redirects refused, 1 MiB cap). Now is the clock check's time source.
+	HTTPGet func(ctx context.Context, url string) ([]byte, error)
+	Now     func() time.Time
 }
 
 // jobCache remembers the classification of a finished job.
@@ -96,10 +131,39 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 	if req.Config != nil {
 		return nil, errors.New("invalid request: unexpected config field")
 	}
+	if req.DVSwitch != nil && !isDVConfigOp(op) {
+		return nil, errors.New("invalid request: unexpected dvswitch field")
+	}
 	if req.Backup != nil && op != OpBackupCreate || req.Restore != nil && op != OpBackupRestore {
 		return nil, errors.New("invalid request: unexpected field")
 	}
 	switch op {
+	case OpDVSwitchSetup:
+		return o.DVSwitchSetup(ctx)
+	case OpDVSwitchInfo:
+		return o.DVSwitchInfo(ctx)
+	case OpDVSwitchDMRStatus:
+		return o.DVSwitchDMRStatus(ctx)
+	case OpDVSwitchIdentity:
+		return o.DVSwitchIdentity(ctx, req.DVSwitch)
+	case OpDVSwitchCredentials:
+		return o.DVSwitchCredentials(ctx, req.DVSwitch)
+	case OpDVSwitchModes:
+		return o.DVSwitchModes(ctx, req.DVSwitch)
+	case OpDVSwitchStartup:
+		return o.DVSwitchStartup(ctx, req.DVSwitch)
+	case OpDVSwitchRollback:
+		return o.DVSwitchRollback(ctx, req.DVSwitch)
+	case OpDVSwitchRestart:
+		return o.DVSwitchRestart(ctx, req.DVSwitch)
+	case OpDVSwitchLists:
+		return o.DVSwitchLists(ctx, req.DVSwitch)
+	case OpDVSwitchTune:
+		return o.DVSwitchTune(ctx, req.DVSwitch)
+	case OpDVSwitchUSRP:
+		return o.DVSwitchUSRP(ctx, req.DVSwitch)
+	case OpDVSwitchPrivate:
+		return o.DVSwitchPrivate(ctx, req.DVSwitch)
 	case OpBackupInfo:
 		return o.BackupInfo(ctx)
 	case OpAsteriskRestart:
@@ -124,6 +188,14 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return o.Reboot(ctx)
 	case OpAslcpRestart:
 		return o.AslcpRestart(ctx)
+	case OpDVSwitchStatus:
+		return o.DVSwitchStatus(ctx)
+	case OpDVSwitchJob:
+		return o.DVSwitchJob(ctx)
+	case OpDVSwitchInstall:
+		return o.DVSwitchInstall(ctx)
+	case OpDVSwitchUninstall:
+		return o.DVSwitchUninstall(ctx)
 	case OpFirewallStatus:
 		return o.FirewallStatus(ctx)
 	case OpFirewallOpen:

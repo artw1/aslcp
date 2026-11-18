@@ -1,0 +1,11 @@
+#	DMR_Hosts.txt
+#
+# Name				DMR-ID	IP/Hostname			Password	Port #
+DMRGateway			0000	127.0.0.1				none		62031
+XLX_307				0000	72.21.76.154				passw0rd	62030
+XLX_000				0000	201.62.48.60				passw0rd	62030
+BM_2022_Greece			2022	2022.master.brandmeister.network	passw0rd	62031
+BM_2041_Netherlands		2041	2041.master.brandmeister.network	passw0rd	62031
+BM_2222_Italy			2222	2222.master.brandmeister.network	passw0rd	62031
+
+DMR2YSF				0000	127.0.0.2				none		62033

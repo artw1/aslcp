@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -508,4 +509,22 @@ func TestFollowsBodyWithBlankLines(t *testing.T) {
 		t.Fatalf("out = %q", out)
 	}
 	_ = bufio.ErrBufferFull
+}
+
+func TestConnectionLostAfterSendIsTyped(t *testing.T) {
+	s := amitest.New(t)
+	s.Handle("Command", func(ss *amitest.Session, _ *amitest.Request) string {
+		ss.Close()
+		return ""
+	})
+	c := dialOK(t, s)
+	_, err := c.Command(ctx5(t), "core restart gracefully")
+	if !errors.Is(err, ami.ErrLostAfterSend) || !errors.Is(err, io.EOF) {
+		t.Fatalf("got %v", err)
+	}
+	// once closed, a new action fails before anything is written
+	_, err = c.Command(ctx5(t), "core show uptime")
+	if err == nil || errors.Is(err, ami.ErrLostAfterSend) {
+		t.Fatalf("got %v", err)
+	}
 }

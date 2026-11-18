@@ -207,7 +207,8 @@
       <p class="mt-1 text-muted">{preview.favorites} favorite{preview.favorites === 1 ? '' : 's'}, {preview.schedules} schedule{preview.schedules === 1 ? '' : 's'}, settings and audit log.
         {#if preview.parts.history}Config history included.{/if}
         {#if preview.parts.allmon3} Allmon3 config included.{/if}
-        {#if preview.parts.sounds} Custom sounds included.{/if}</p>
+        {#if preview.parts.sounds} Custom sounds included.{/if}
+        {#if preview.parts.dvswitch} DVSwitch configuration included (written only if DVSwitch is installed).{/if}</p>
     </section>
 
     {#if preview.radio}

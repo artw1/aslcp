@@ -94,7 +94,7 @@ func (s *Server) handleBackupCreate(w http.ResponseWriter, r *http.Request, u st
 		return
 	}
 	defer c.Close()
-	s.audit(u, "backup.create", map[string]any{"history": in.History, "allmon3": in.Allmon3, "sounds": in.Sounds, "size": c.Size})
+	s.audit(u, "backup.create", map[string]any{"history": in.History, "allmon3": in.Allmon3, "sounds": in.Sounds, "dvswitch": in.DVSwitch, "size": c.Size})
 	h := w.Header()
 	h.Set("Content-Type", "application/gzip")
 	h.Set("Content-Disposition", `attachment; filename="`+c.Name+`"`)

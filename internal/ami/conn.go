@@ -68,6 +68,11 @@ var (
 	ErrClosed = errors.New("ami: connection closed")
 	// ErrNotConnected is returned by Client when no connection is up.
 	ErrNotConnected = errors.New("ami: not connected")
+	// ErrLostAfterSend is wrapped into the error returned when the connection
+	// closed after an action was written but before its reply arrived, so the
+	// server may or may not have processed it. Errors before the write never
+	// wrap it.
+	ErrLostAfterSend = errors.New("ami: connection lost after action was sent")
 )
 
 // ResponseError is returned for a "Response: Error" reply. Msg is the raw
@@ -389,7 +394,7 @@ func (c *Conn) roundTrip(ctx context.Context, name string, headers []Header) (*M
 		default:
 		}
 		p.finish()
-		return nil, c.closedErr()
+		return nil, fmt.Errorf("%w: %w", ErrLostAfterSend, c.closedErr())
 	case <-ctx.Done():
 		c.mu.Lock()
 		if c.pending == p {

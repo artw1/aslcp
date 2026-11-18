@@ -1,0 +1,15 @@
+# P25_Hosts.txt
+# Generated: 2026-11-18 00:17:42 UTC
+# By:        Pi-Star Host Files https://www.pistar.uk/
+# Source:    https://dvref.com/api/v2/p25/reflectors/
+# Reflector data provided by DVRef - https://dvref.com/aup/
+#
+# Format: designator<TAB>host<TAB>port
+#
+14	p25.xreflector.es	41004
+18	ref018.dstargateway.org	41000
+38	p2538.freeddns.org	41002
+49	xlx049.dyndns.org	41000
+69	103.91.205.89	41000
+70	xlx.dstar.com.br	41000
+73	162.213.130.92	41000

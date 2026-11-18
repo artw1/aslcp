@@ -67,16 +67,18 @@ func newBkNode(t *testing.T, ver string, conf map[string]string) *bkNode {
 	idleJob(rules)
 	n.fake = &fakeRunner{rules: rules}
 	n.o = &Ops{
-		Run:        bkRunner{n.fake},
-		ConfigRoot: filepath.Join(base, "etc-asterisk"),
-		HistoryDir: filepath.Join(base, "var", "hist"),
-		AstDBPath:  filepath.Join(base, "lib", "astdb.sqlite3"),
-		SoundsDirs: [2]string{filepath.Join(base, "lib", "sounds-custom"), filepath.Join(base, "share", "sounds-custom")},
-		SA818Conf:  filepath.Join(base, "etc", "sa818.conf"),
-		AllmonDir:  filepath.Join(base, "etc", "allmon3"),
-		AslcpConf:  filepath.Join(base, "etc", "aslcp", "aslcp.conf"),
-		SourceList: filepath.Join(base, "etc", "aslcp.list"),
-		TempDir:    base,
+		Run:          bkRunner{n.fake},
+		ConfigRoot:   filepath.Join(base, "etc-asterisk"),
+		HistoryDir:   filepath.Join(base, "var", "hist"),
+		AstDBPath:    filepath.Join(base, "lib", "astdb.sqlite3"),
+		SoundsDirs:   [2]string{filepath.Join(base, "lib", "sounds-custom"), filepath.Join(base, "share", "sounds-custom")},
+		SA818Conf:    filepath.Join(base, "etc", "sa818.conf"),
+		AllmonDir:    filepath.Join(base, "etc", "allmon3"),
+		AslcpConf:    filepath.Join(base, "etc", "aslcp", "aslcp.conf"),
+		DVOptDir:     filepath.Join(base, "opt"),
+		DVHistoryDir: filepath.Join(base, "var", "dv-history"),
+		SourceList:   filepath.Join(base, "etc", "aslcp.list"),
+		TempDir:      base,
 		NewFileOwner: func() (int, int, fs.FileMode) {
 			return os.Getuid(), os.Getgid(), 0o640
 		},
@@ -419,14 +421,14 @@ func TestBackupInfo(t *testing.T) {
 	n := newBkNode(t, "1.0", nil)
 	n.put("lib/sounds-custom/a.ul", "12345", 0o644)
 	info, err := n.o.BackupInfo(context.Background())
-	if err != nil || len(info.Parts) != 3 || info.SA818 {
+	if err != nil || len(info.Parts) != 4 || info.SA818 {
 		t.Fatalf("%+v %v", info, err)
 	}
 	for _, p := range info.Parts {
 		if p.ID == "sounds" && (!p.Present || p.Size != 5) {
 			t.Errorf("%+v", p)
 		}
-		if p.ID == "allmon3" && p.Present {
+		if (p.ID == "allmon3" || p.ID == "dvswitch") && p.Present {
 			t.Errorf("%+v", p)
 		}
 	}

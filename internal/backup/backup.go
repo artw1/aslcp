@@ -72,8 +72,33 @@ const (
 	PathSoundsUsr   = "sounds/usr-share"
 )
 
+// PathDVSwitchOpt is the archive prefix of the DVSwitch part: the file
+// /opt/<rel> is stored as dvswitch/opt/<rel>.
+const PathDVSwitchOpt = "dvswitch/opt"
+
+// DVSwitchFiles lists the only files of the DVSwitch part, relative to /opt:
+// the allowlisted ini files and the macro file. Each is a single-file entry
+// of the layout, so no other path below dvswitch/ is valid.
+var DVSwitchFiles = []string{
+	"Analog_Bridge/Analog_Bridge.ini",
+	"Analog_Bridge/dvsm.macro",
+	"MMDVM_Bridge/MMDVM_Bridge.ini",
+	"YSFGateway/YSFGateway.ini",
+	"P25Gateway/P25Gateway.ini",
+	"NXDNGateway/NXDNGateway.ini",
+}
+
+// DVSwitchPath returns the archive path of a DVSwitch part file.
+func DVSwitchPath(rel string) string { return PathDVSwitchOpt + "/" + rel }
+
 var treeRoots = []string{PathAsteriskEtc, PathHistory, PathAllmon3, PathSoundsVar, PathSoundsUsr}
-var singleFiles = []string{PathAstDB, PathAslcpDB, PathAslcpConf, PathSA818}
+var singleFiles = func() []string {
+	f := []string{PathAstDB, PathAslcpDB, PathAslcpConf, PathSA818}
+	for _, r := range DVSwitchFiles {
+		f = append(f, DVSwitchPath(r))
+	}
+	return f
+}()
 
 // Entry is one file, directory or symlink of the archive.
 type Entry struct {
@@ -115,6 +140,10 @@ type Parts struct {
 	Allmon3 bool `json:"allmon3"`
 	SA818   bool `json:"sa818"`
 	AstDB   bool `json:"astdb"`
+	// DVSwitch is true when the archive holds files under dvswitch/opt.
+	// Added after format 1 shipped: older archives lack it (false) and stay
+	// valid; the format number did not change.
+	DVSwitch bool `json:"dvswitch,omitempty"`
 	// Sounds lists the archived custom sound directories ("var-lib",
 	// "usr-share"); one only when both are the same directory.
 	Sounds []string `json:"sounds"`

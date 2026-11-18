@@ -228,3 +228,58 @@ func TestClientOverReconnectingAMIClient(t *testing.T) {
 		t.Fatalf("%v %v", nodes, err)
 	}
 }
+
+func TestRestartAsteriskConnectionDropAfterWriteIsSuccess(t *testing.T) {
+	f := newFakeNode(t, "1999")
+	f.Handle("Command", func(s *amitest.Session, r *amitest.Request) string {
+		f.mu.Lock()
+		f.commands = append(f.commands, r.Get("Command"))
+		f.mu.Unlock()
+		s.Close() // an idle Asterisk restarts and hangs up without a reply
+		return ""
+	})
+	c := connect(t, f)
+	if err := c.RestartAsterisk(ctxT(t)); err != nil {
+		t.Fatalf("a drop after the command was sent is a restart: %v", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.commands) != 1 || f.commands[0] != "core restart gracefully" {
+		t.Fatalf("commands %v", f.commands)
+	}
+}
+
+func TestRestartAsteriskErrorBeforeWriteIsError(t *testing.T) {
+	f := newFakeNode(t, "1999")
+	conn, err := ami.Dial(ctxT(t), f.cfg())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := New(conn)
+	conn.Close() // closed before the command is written
+	err = c.RestartAsterisk(ctxT(t))
+	if err == nil || errors.Is(err, ami.ErrLostAfterSend) {
+		t.Fatalf("want a plain closed error, got %v", err)
+	}
+	// Which close error wins (ErrClosed or the read loop's EOF) is a race;
+	// either is fine as long as it is not "lost after send".
+	if n := f.Count("Command"); n != 0 {
+		t.Fatalf("command was sent: %d", n)
+	}
+}
+
+func TestRestartAsteriskNotConnectedIsError(t *testing.T) {
+	cl := ami.NewClient(ami.Config{Addr: "127.0.0.1:1", Username: "u", Secret: "s", ReconnectMin: time.Hour, ReconnectMax: time.Hour})
+	t.Cleanup(func() { cl.Close() })
+	if err := New(cl).RestartAsterisk(ctxT(t)); !errors.Is(err, ami.ErrNotConnected) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestRestartAsteriskCommandErrorIsError(t *testing.T) {
+	f := newFakeNode(t, "1999")
+	f.Handle("Command", func(_ *amitest.Session, r *amitest.Request) string { return amitest.Error(r, "denied") })
+	if err := connect(t, f).RestartAsterisk(ctxT(t)); err == nil {
+		t.Fatal("a rejected command is an error")
+	}
+}

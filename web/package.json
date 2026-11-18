@@ -7,7 +7,8 @@
     "dev:mock": "VITE_MOCK=1 vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "svelte-check --tsconfig ./tsconfig.json"
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "node --experimental-strip-types --no-warnings --test src/lib/dvlist.test.ts src/lib/dmrlogin.test.ts src/lib/dvmsg.test.ts src/lib/dvstartup.test.ts src/lib/dvpanel.test.ts src/lib/dvbridge.test.ts"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "7.3.1",

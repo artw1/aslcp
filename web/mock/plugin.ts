@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { handleConfig } from './config.ts';
 import { handleBackup, downUntil } from './backup.ts';
 import { handleRadio } from './radio.ts';
+import { dvNodeLink, handleDVSwitch } from './dvswitch.ts';
 import { createSchedules } from './schedules.ts';
 
 type Info = { node: string; callsign: string; description: string; location: string };
@@ -238,6 +239,7 @@ export function mockApi(): Plugin {
         const forbid = () => err(res, 403, 'forbidden', 'forbidden');
         let mm: RegExpExecArray | null;
         if (handleRadio({ m, p, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }), links: (n) => locals[n]?.links.map((l) => l.node) ?? [] })) return;
+        if (handleDVSwitch({ push: (ev, d) => broadcast(ev, () => d), m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleConfig({ m, p, body, url, user, json: (c, b) => json(res, c, b), err: (c, msg, code, extra) => json(res, c, { error: msg, code, ...extra }) })) return;
 
         if (p === '/session') return json(res, 200, user);
@@ -341,6 +343,7 @@ export function mockApi(): Plugin {
           // a manual action pauses or cancels schedules per the manual-action setting (reason like the server's)
           sched.manual(mm[1], mm[2] === 'disconnect-all' ? `manual disconnect all on ${mm[1]} by ${user.username}` : `manual ${mm[2]} ${body.target ?? ''} on ${mm[1]} by ${user.username}`);
           if (mm[2] === 'disconnect-all') { local.links = []; push(); return json(res, 202); }
+          dvNodeLink(mm[1], String(body.target ?? ''), mm[2] === 'connect', (ev, d) => broadcast(ev, () => d));
           if (!/^\d{3,}$/.test(body.target ?? '')) return err(res, 400, 'invalid target node', 'bad_target');
           if (mm[2] === 'connect' && body.exclusive === true && (body.mode === 'transceive' || body.mode === 'monitor' || !body.mode)) {
             // like the server: drop every other direct link first (the mock has no permanent links)

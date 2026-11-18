@@ -3,6 +3,33 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [1.2.0] - 2026-11-18
+
+### Added
+- DVSwitch support (digital voice modes DMR, YSF, P25 and NXDN through Analog_Bridge / MMDVM_Bridge). The whole feature is built around the bridge node, a private USRP node that links to one of your local nodes.
+- DVSwitch tab (`#/dvswitch`, between Audio Tuning and Settings, admin only). It detects whether DVSwitch is installed (by ASLCP or by hand), shows the version, services and host files, and offers Install and Uninstall with a confirm dialog and a live job log. Install works on Debian bookworm and trixie (amd64, arm64, armhf), uses a fixed package set with a pinned repository key, and refuses to run when the clock is unset or an apt job is running. Uninstall is offered only for installs made by ASLCP, reverts the bridge node it added and restarts Asterisk.
+- DVSwitch setup: identity (callsign, DMR ID, ESSID, optional NXDN ID), DMR master address, port and password (write-only, never shown; "Clear password" for masters without one), which modes are enabled, and a startup card per mode (DMR talkgroup, slot and colour code; YSF, P25 and NXDN reflector or talkgroup). Picking a startup mode opens its tab. Searchable pickers for the DMR master, YSF reflectors and P25/NXDN talkgroups. Every save is a reviewed change with a per-file history and a rollback button, and nothing restarts by itself; the page lists which services need a restart and warns that a restart resets the running mode and talkgroup to the startup values. After saving credentials, the DMR login to the master is checked and reported.
+- Dashboard DVSwitch panel (after the Connect bar): current mode, target and slot with a coloured status line (amber when a service is down or the state is unknown, green when all services run and a target is tuned). Operators and admins switch mode, tune a talkgroup or reflector, and unlink; viewers see the status only. Commands run one at a time and the panel is locked until the bridge confirms.
+- DVSwitch favourites: save the current target with a name (up to 40 characters, 50 per mode) and tune it with one click from chips below the panel; rename and delete from the chip menu. Favourites are shared by the whole node.
+- Remembered talkgroup per mode: switching back to a mode re-tunes the target last used in it, so a YSF reflector never leaks into DMR as a talkgroup. Optional "Resume last tune after restart" (admin, off by default) returns the node to the last mode and target after an Analog_Bridge restart or a reboot.
+- The whole DVSwitch panel turns light green while the bridge node is linked to your local node.
+- Bridge node setup (admin): add the private node with its number, USRP ports, local node and link mode. The apply shows a diff of `rpt.conf`, `modules.conf` and `Analog_Bridge.ini` first, restarts Asterisk once and checks the bridge; if it fails, "Roll back" restores the previous files. The node is written neutral, with no ID, telemetry, courtesy tone or hang time. Numbers already in `rpt.conf` are refused.
+- Bridge node: Change number and Remove, each one reviewed apply with one Asterisk restart and a rollback. Remove disconnects the link, reverts what ASLCP added and restores the previous USRP ports. Only a bridge node added by ASLCP can be changed or removed.
+- Link modes for the bridge node: on-demand (Link node / Unlink node button on the panel) or permanent (ASLCP keeps the link up, also after an Asterisk restart; a manual disconnect pauses it until the next save or restart through the panel).
+- "Disconnect other links first" checkbox next to the Link node button on the panel (operators and admins, on by default like the Connect bar). It applies to the Link node button and to a save of the bridge section in permanent mode; automatic relinks never disconnect anything.
+- Backup: new DVSwitch part with the five `.ini` files and `dvsm.macro` (passwords included, as the download dialog warns). It is restored only when DVSwitch is installed on the target node; older ASLCP versions cannot restore such an archive.
+- Demo mode and `web/mock` simulate DVSwitch; `docs/DVSWITCH.md` holds the design and the checklist for a real node.
+- API: `GET /api/dvswitch`, `GET /api/dvswitch/job`, `POST /api/dvswitch/install`, `POST /api/dvswitch/uninstall` (admin); `GET /api/dvswitch/setup`, `PUT /api/dvswitch/identity`, `PUT /api/dvswitch/credentials`, `PUT /api/dvswitch/modes`, `PUT /api/dvswitch/startup`, `POST /api/dvswitch/rollback`, `POST /api/dvswitch/restart` (admin), `GET /api/dvswitch/dmr-status` and `GET /api/dvswitch/lists` (operator and admin); `GET /api/dvswitch/snapshot`, `POST /api/dvswitch/mode`, `POST /api/dvswitch/tune`, `POST /api/dvswitch/unlink`, `GET/POST /api/dvswitch/favorites`, `PUT/DELETE /api/dvswitch/favorites/{id}`, `GET/PUT /api/dvswitch/resume`, `PUT /api/dvswitch/link`; `PUT/DELETE /api/dvswitch/private-node`, `POST /api/dvswitch/private-node/rollback` (admin); SSE event `dvswitch`; `GET /api/backup/info` and `POST /api/backup` gain the `dvswitch` part.
+
+### Changed
+- Header menu: DVSwitch tab added before Settings.
+- A DVSwitch install or uninstall counts as an apt job: system and ASLCP updates are refused while one runs, and the other way round.
+
+### Fixed
+- Restart Asterisk: when the connection to Asterisk drops right after the restart command (an idle Asterisk restarts at once without replying), the panel now reports success instead of an error.
+- Node status and the dashboard showed a node twice when Asterisk listed it twice (for example while reconnecting); each node now appears once, and an established link wins over a connecting one.
+- Backup, restore and other panel actions could lose their reply with a "connection reset" error in rare cases; the helper now drains unread request bytes before closing.
+
 ## [1.1.24] - 2026-11-17
 
 ### Added

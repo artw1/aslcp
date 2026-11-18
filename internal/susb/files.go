@@ -184,3 +184,27 @@ func overlay(es []astconf.ResolvedEntry, base Params) (Params, map[string]bool, 
 	delay("txoffdelay", "txOffDelayMs", &p.TxOffDelayMs)
 	return p, have, nil
 }
+
+// USRPNode returns the first local node of rpt.conf whose rxchannel is a
+// chan_usrp channel ("USRP/..."), the bridge node of DVSwitch (read-only).
+func USRPNode(ctx context.Context, src ConfigSource) (string, bool) {
+	t, err := loadTree(ctx, src, "rpt.conf")
+	if err != nil {
+		return "", false
+	}
+	for _, s := range t.Sections {
+		if s.Template || !reNodeName.MatchString(s.Name) {
+			continue
+		}
+		es, err := astconf.Effective(t, s.Name)
+		if err != nil {
+			continue
+		}
+		if rx, ok := lastValue(es, "rxchannel"); ok {
+			if drv, _, _ := strings.Cut(rx, "/"); strings.EqualFold(strings.TrimSpace(drv), "usrp") {
+				return s.Name, true
+			}
+		}
+	}
+	return "", false
+}

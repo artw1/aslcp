@@ -332,7 +332,15 @@ func ParseNodeStat(m *ami.Message) []StatField {
 
 // RestartAsterisk asks Asterisk to restart once all calls end ("core restart
 // gracefully"). The AMI connection drops when it does; links are lost.
+//
+// An idle Asterisk restarts immediately and closes the AMI connection before
+// replying, so a connection lost after the command was written means the
+// restart started and is reported as success. Errors before the command was
+// written (not connected, write failure) are still returned.
 func (c *Client) RestartAsterisk(ctx context.Context) error {
 	_, err := c.api.Command(ctx, "core restart gracefully")
+	if err != nil && errors.Is(err, ami.ErrLostAfterSend) {
+		return nil
+	}
 	return err
 }

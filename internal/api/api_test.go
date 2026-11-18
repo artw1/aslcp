@@ -25,6 +25,7 @@ import (
 	"github.com/artw1/aslcp/internal/config"
 	"github.com/artw1/aslcp/internal/configsvc"
 	"github.com/artw1/aslcp/internal/diag"
+	"github.com/artw1/aslcp/internal/dvswitch"
 	"github.com/artw1/aslcp/internal/favstats"
 	"github.com/artw1/aslcp/internal/nodelist"
 	"github.com/artw1/aslcp/internal/rpt"
@@ -164,17 +165,26 @@ type opts struct {
 	updates   *updates.Manager
 	updatesFn func(st *store.Store) *updates.Manager
 	power     api.Power
-	config    *configsvc.Service
-	configFn  func(rpt.API) *configsvc.Service
-	log       *diag.Ring
-	cfg       func(secret string) config.Config
-	backupFn  func(st *store.Store) *backupsvc.Service
-	restart   func()
-	tuning    func() *susb.Service
-	favstats  *favstats.Service
+	dvswitch  api.DVSwitch
+	dvresume  api.DVResume
+	// dvInstalled and dvNode feed the DVSwitch snapshot; without dvInstalled
+	// the node has no DVSwitch and the snapshot never calls the fake.
+	dvInstalled func() bool
+	dvNode      func(context.Context) (string, bool)
+	config      *configsvc.Service
+	configFn    func(rpt.API) *configsvc.Service
+	log         *diag.Ring
+	cfg         func(secret string) config.Config
+	backupFn    func(st *store.Store) *backupsvc.Service
+	restart     func()
+	tuning      func() *susb.Service
+	favstats    *favstats.Service
 	// schedules builds a schedule engine on a fake clock (env.clk), in New
 	// York time; the clock starts on Tuesday 2026-11-17 18:59:50.
 	schedules bool
+	// dvlink runs the permanent-link reconciler of the private bridge node
+	// with short timers (M2).
+	dvlink bool
 }
 
 func newEnv(t *testing.T, o opts) *env {
@@ -223,6 +233,12 @@ func newEnv(t *testing.T, o opts) *env {
 		deps.Updates = o.updatesFn(st)
 	}
 	deps.Power = o.power
+	deps.DVSwitch = o.dvswitch
+	deps.DVResume = o.dvresume
+	deps.DVInstalled, deps.DVBridgeNode = o.dvInstalled, o.dvNode
+	if deps.DVInstalled == nil {
+		deps.DVInstalled = func() bool { return false }
+	}
 	if o.backupFn != nil {
 		deps.Backup = o.backupFn(st)
 		deps.Restart = o.restart
@@ -241,6 +257,9 @@ func newEnv(t *testing.T, o opts) *env {
 		clk = &fakeClock{t: time.Date(2026, 11, 17, 18, 59, 50, 0, ny)}
 		eng = &schedules.Engine{Store: st, Now: clk.now, Loc: ny, Zone: "America/New_York", Tick: time.Hour}
 		deps.Schedules = eng
+	}
+	if o.dvlink {
+		deps.DVLink = &dvswitch.LinkReconciler{Tick: 100 * time.Millisecond, Retry: 150 * time.Millisecond}
 	}
 	if o.cfg != nil {
 		deps.Config = o.cfg(fake.Secret)
