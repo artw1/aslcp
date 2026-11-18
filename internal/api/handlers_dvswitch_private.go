@@ -448,6 +448,11 @@ func (s *Server) dvPrivateApply(w http.ResponseWriter, r *http.Request, u store.
 			return
 		}
 		undo.restarted = true
+		if err := s.waitAsteriskBack(ctx); err != nil {
+			steps = append(steps, dvStep{Name: "asterisk_restart", Detail: err.Error()})
+			fail("asterisk_restart", err.Error(), nil)
+			return
+		}
 		steps = append(steps, dvStep{Name: "asterisk_restart", OK: true})
 	}
 	// 5. the bridge
@@ -500,6 +505,44 @@ func (s *Server) dvPrivHealth(ctx context.Context, node string, states []helper.
 		}
 	}
 	return h
+}
+
+// waitAsteriskBack waits, up to AsteriskBackWait and polling every
+// AsteriskBackPoll, until AMI is connected again and Asterisk lists a local
+// node, after a restart (which drops the AMI connection). The bridge must not
+// be restarted against a down Asterisk. The health check that follows still
+// verifies the nodes themselves.
+func (s *Server) waitAsteriskBack(ctx context.Context) error {
+	wait, poll := s.AsteriskBackWait, s.AsteriskBackPoll
+	if poll <= 0 {
+		poll = time.Second
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		if s.asteriskAnswers(ctx) {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return fmt.Errorf("Asterisk did not come back: %w", ctx.Err())
+		}
+		if !time.Now().Add(poll).Before(deadline) {
+			return fmt.Errorf("Asterisk did not come back within %d s", int(wait.Round(time.Second)/time.Second))
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(poll):
+		}
+	}
+}
+
+func (s *Server) asteriskAnswers(ctx context.Context) bool {
+	if !s.amiUp() {
+		return false
+	}
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	nodes, err := s.rpt.LocalNodes(cctx)
+	return err == nil && len(nodes) > 0
 }
 
 func dedupe(in []string) []string {
@@ -576,7 +619,11 @@ func (s *Server) handleDVPrivateRollback(w http.ResponseWriter, r *http.Request,
 	problems := s.dvPrivateRevertState(ctx, u, undo)
 	var steps []dvStep
 	if undo.restarted {
-		if err := s.restartAsteriskNow(ctx); err != nil {
+		err := s.restartAsteriskNow(ctx)
+		if err == nil {
+			err = s.waitAsteriskBack(ctx)
+		}
+		if err != nil {
 			steps = append(steps, dvStep{Name: "asterisk_restart", Detail: err.Error()})
 		} else {
 			steps = append(steps, dvStep{Name: "asterisk_restart", OK: true})

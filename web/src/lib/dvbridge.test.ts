@@ -20,8 +20,13 @@ test('node validation', () => {
   assert.match(nodeError('1997', ['1997'])!, /in use/);
   assert.equal(nodeError('1997', ['1997'], '1997'), null);
   assert.match(nodeError('1996', ['1997'], '1997')!, /already has/);
-  assert.ok(nodeWarning('1999'));
-  assert.ok(nodeWarning('1998'));
+  for (const n of ['1998', '1999']) {
+    const w = nodeWarning(n)!;
+    assert.match(w, /^1998 and 1999 are the private node numbers most DVSwitch guides use/);
+    assert.match(w, /refused as a loop/);
+    assert.match(w, /A number from 1900 to 1997 is less likely to clash\.$/);
+    assert.doesNotMatch(w, /public node|1995/);
+  }
   assert.equal(nodeWarning('1997'), null);
 });
 

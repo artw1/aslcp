@@ -56,7 +56,7 @@ func SuggestNode(used map[string]bool) string {
 // NodeWarning is shown for numbers that examples and tutorials use.
 func NodeWarning(node string) string {
 	if node == "1998" || node == "1999" {
-		return "Nodes 1998 and 1999 are used in many examples; linking this node to public nodes can trigger loop protection. A number from 1900 to 1997 is safer."
+		return "1998 and 1999 are the private node numbers most DVSwitch guides use, so other nodes often have them too. If a node you link to already has the same number in its network, the link can be refused as a loop. A number from 1900 to 1997 is less likely to clash."
 	}
 	return ""
 }

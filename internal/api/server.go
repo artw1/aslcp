@@ -122,6 +122,11 @@ type Server struct {
 	// disconnected link to disappear before connecting anyway (a permanent
 	// link never goes away).
 	LinkGoneWait time.Duration
+	// AsteriskBackWait bounds how long a flow that restarted Asterisk (the
+	// DVSwitch bridge node apply and rollback) waits for it to answer again,
+	// polling every AsteriskBackPoll.
+	AsteriskBackWait time.Duration
+	AsteriskBackPoll time.Duration
 
 	schedMu sync.Mutex // serialises schedule saves (overlap check + write)
 
@@ -158,8 +163,9 @@ func New(d Deps) *Server {
 		d:        d, rpt: rpt.New(d.AMI), mux: http.NewServeMux(),
 		FastInterval: time.Second, SlowInterval: 10 * time.Second,
 		PingInterval: 15 * time.Second, SystemInterval: 10 * time.Second,
-		LinkGoneWait: 3 * time.Second,
-		stop:         make(chan struct{}),
+		LinkGoneWait:     3 * time.Second,
+		AsteriskBackWait: 90 * time.Second, AsteriskBackPoll: time.Second,
+		stop: make(chan struct{}),
 	}
 	s.hub = newHub(func(int) { s.updateInterval(0) })
 	if d.Updates != nil && d.Updates.OS != nil {

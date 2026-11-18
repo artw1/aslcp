@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/artw1/aslcp/internal/ami/amitest"
 	"github.com/artw1/aslcp/internal/api"
 	"github.com/artw1/aslcp/internal/configsvc"
 	"github.com/artw1/aslcp/internal/dvswitch"
@@ -198,7 +200,8 @@ func TestDVPrivateNodeValidation(t *testing.T) {
 	// 1998 and 1999 are allowed with a warning
 	for _, n := range []string{"1998", "1999"} {
 		c, p := pe.plan(map[string]any{"node": n})
-		if c != 200 || len(p.Warnings) == 0 || !strings.Contains(strings.Join(p.Warnings, " "), "1998 and 1999") {
+		if c != 200 || len(p.Warnings) == 0 || !strings.Contains(strings.Join(p.Warnings, " "), "1998 and 1999 are the private node numbers most DVSwitch guides use") ||
+			!strings.Contains(strings.Join(p.Warnings, " "), "A number from 1900 to 1997 is less likely to clash.") {
 			t.Errorf("node %s: %d %v", n, c, p.Warnings)
 		}
 	}
@@ -599,5 +602,83 @@ func TestDVUninstallUnlinksPermanentLink(t *testing.T) {
 	}
 	if v, _ := pe.st.GetSetting(dvswitch.SettingLinkPaused); v == "1" {
 		t.Fatal("the unlink counted as a manual disconnect")
+	}
+}
+
+// A real idle Asterisk restarts at once and hangs up before replying to
+// "core restart gracefully": the apply must count that as a restart, wait for
+// Asterisk to answer again and only then restart the bridge.
+func TestDVPrivateApplyAsteriskDropsConnectionOnRestart(t *testing.T) {
+	pe := newPrivEnv(t, tmplRpt, false)
+	pe.srv.AsteriskBackWait, pe.srv.AsteriskBackPoll = 5*time.Second, 20*time.Millisecond
+	var down atomic.Bool
+	pe.fake.Handle("RptLocalNodes", func(_ *amitest.Session, r *amitest.Request) string {
+		if down.Load() {
+			return amitest.Error(r, "starting")
+		}
+		return amitest.Raw(`<?xml version="1.0"?>`, `<nodes>`, `  <node>`+localNode+`</node>`, `</nodes>`)
+	})
+	pe.fake.Handle("Command", func(s *amitest.Session, r *amitest.Request) string {
+		cmd := r.Get("Command")
+		pe.fake.mu.Lock()
+		pe.fake.commands = append(pe.fake.commands, cmd)
+		pe.fake.mu.Unlock()
+		if cmd == "core restart gracefully" {
+			down.Store(true)
+			go func() { time.Sleep(300 * time.Millisecond); down.Store(false) }()
+			s.Close()
+			return ""
+		}
+		return amitest.CommandOutput(r, "System uptime: 5")
+	})
+	var bridgeAt time.Time
+	restarted := time.Now()
+	pe.dv.onRestart = func() { bridgeAt = time.Now() }
+	body := map[string]any{"node": "1996", "localNode": "1997", "restart": true}
+	var out struct {
+		Applied bool
+		Steps   []struct {
+			Name string
+			OK   bool
+		}
+		Health struct{ OK bool }
+	}
+	if c := pe.do("admin", "PUT", "/api/dvswitch/private-node", body, &out); c != 200 || !out.Applied || !out.Health.OK {
+		t.Fatalf("apply: %d %+v", c, out)
+	}
+	for _, s := range out.Steps {
+		if !s.OK {
+			t.Errorf("step %s failed", s.Name)
+		}
+	}
+	if countCmd(pe.env, "core restart gracefully") != 1 {
+		t.Fatal("Asterisk was not restarted once")
+	}
+	if bridgeAt.IsZero() || bridgeAt.Sub(restarted) < 250*time.Millisecond {
+		t.Fatalf("the bridge was restarted %v after the Asterisk restart, before it was back", bridgeAt.Sub(restarted))
+	}
+}
+
+func TestDVPrivateApplyAsteriskNeverComesBack(t *testing.T) {
+	pe := newPrivEnv(t, tmplRpt, false)
+	pe.srv.AsteriskBackWait, pe.srv.AsteriskBackPoll = 200*time.Millisecond, 20*time.Millisecond
+	pe.fake.Handle("RptLocalNodes", func(_ *amitest.Session, r *amitest.Request) string {
+		if countCmd(pe.env, "core restart gracefully") > 0 {
+			return amitest.Error(r, "down")
+		}
+		return amitest.Raw(`<?xml version="1.0"?>`, `<nodes>`, `  <node>`+localNode+`</node>`, `</nodes>`)
+	})
+	var out struct {
+		Error string
+		Step  string
+	}
+	body := map[string]any{"node": "1996", "localNode": "1997", "restart": true}
+	if c := pe.do("admin", "PUT", "/api/dvswitch/private-node", body, &out); c != http.StatusBadGateway || out.Step != "asterisk_restart" || !strings.Contains(out.Error, "did not come back within") {
+		t.Fatalf("%d %+v", c, out)
+	}
+	for _, o := range pe.dv.orderOf() {
+		if o == "restart" {
+			t.Fatal("the bridge was restarted although Asterisk was down")
+		}
 	}
 }
