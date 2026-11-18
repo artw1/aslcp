@@ -378,3 +378,85 @@ func TestResumeSkipIsMarked(t *testing.T) {
 }
 
 func newLogger(w *strings.Builder) *log.Logger { return log.New(w, "", 0) }
+
+func TestNextInterval(t *testing.T) {
+	base := pollState{Resume: true, Now: t0, Window: DefaultWindow, Normal: DefaultInterval, Fast: FastInterval}
+	with := func(f func(*pollState)) pollState { s := base; f(&s); return s }
+	boot := t0.Add(-20 * time.Second).UTC().Format(time.RFC3339)
+	old := t0.Add(-4 * time.Minute).UTC().Format(time.RFC3339)
+	cases := []struct {
+		name string
+		s    pollState
+		want time.Duration
+	}{
+		{"setting off", with(func(s *pollState) { s.Resume = false }), 15 * time.Second},
+		{"bridge down, just noticed", with(func(s *pollState) { s.PendingSince = t0 }), 2 * time.Second},
+		{"bridge down, window passed", with(func(s *pollState) { s.PendingSince = t0.Add(-4 * time.Minute) }), 15 * time.Second},
+		{"bridge down, never noticed", base, 15 * time.Second},
+		{"new start not yet resumed", with(func(s *pollState) { s.Active, s.Started = true, boot }), 2 * time.Second},
+		{"start handled", with(func(s *pollState) { s.Active, s.Started, s.HandledFor = true, boot, boot }), 15 * time.Second},
+		{"start older than the window", with(func(s *pollState) { s.Active, s.Started = true, old }), 15 * time.Second},
+		{"start time unknown", with(func(s *pollState) { s.Active = true }), 15 * time.Second},
+		{"fast, 1 error", with(func(s *pollState) { s.PendingSince, s.Errors = t0, 1 }), 4 * time.Second},
+		{"fast, 3 errors", with(func(s *pollState) { s.PendingSince, s.Errors = t0, 3 }), 16 * time.Second},
+		{"normal, 2 errors", with(func(s *pollState) { s.Errors = 2 }), 60 * time.Second},
+		{"many errors are capped", with(func(s *pollState) { s.Errors = 50 }), MaxBackoff},
+	}
+	for _, c := range cases {
+		if got := nextInterval(c.s); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestPollDrivesInterval(t *testing.T) {
+	tr, src, _, now := newTracker(t)
+	ctx := context.Background()
+	_ = tr.SetResume(true)
+	tr.Poll(ctx) // bridge not running
+	if d := tr.delay(); d != FastInterval {
+		t.Fatalf("down: %v", d)
+	}
+	*now = now.Add(4 * time.Minute)
+	tr.Poll(ctx)
+	if d := tr.delay(); d != DefaultInterval {
+		t.Fatalf("down past the window: %v", d)
+	}
+	// a start appears: fast until it is resumed, then normal
+	src.info = started(other(t, "DMR", ""), now.Add(-5*time.Second))
+	_ = tr.SetResume(false)
+	_ = tr.SetResume(true)
+	tr.Poll(ctx)
+	if d := tr.delay(); d != DefaultInterval {
+		t.Fatalf("after the resume: %v (tunes %d)", d, len(src.tunes))
+	}
+	// helper errors back off, and a good poll resets
+	src.err = errors.New("helper down")
+	tr.Poll(ctx)
+	tr.Poll(ctx)
+	if d := tr.delay(); d != 4*DefaultInterval {
+		t.Fatalf("backoff: %v", d)
+	}
+	src.err = nil
+	tr.Poll(ctx)
+	if d := tr.delay(); d != DefaultInterval {
+		t.Fatalf("reset: %v", d)
+	}
+}
+
+func TestFirstPollIsFastWhenResumePending(t *testing.T) {
+	tr, src, st, _ := newTracker(t)
+	_ = st.SetSetting(SettingKey, `{"resume":true,"perMode":{}}`)
+	src.info = started(other(t, "DMR", ""), t0.Add(-10*time.Second))
+	tr.Poll(context.Background()) // no remembered tune: skipped and marked
+	if d := tr.delay(); d != DefaultInterval {
+		t.Fatalf("%v", d)
+	}
+	tr2, src2, st2, _ := newTracker(t)
+	_ = st2.SetSetting(SettingKey, `{"resume":true,"perMode":{}}`)
+	src2.info = helper.DVSwitchInfo{}
+	tr2.Poll(context.Background())
+	if d := tr2.delay(); d != FastInterval {
+		t.Fatalf("%v", d)
+	}
+}

@@ -1,7 +1,7 @@
 // Run with `npm test`.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ambeModeFor, cardOrder, cardPatch, lastUsed, startupModeOf, timeAgo, type StartupForm } from './dvstartup.ts';
+import { ambeModeFor, nextTab, resumeHint, cardPatch, lastUsed, startupModeOf, timeAgo, type StartupForm, type StartupMode } from './dvstartup.ts';
 
 const snap: StartupForm = { ambeMode: 'DMR', txTg: '91', txTs: '2', colorCode: '1', ysf: '00001', p25: '10100', nxdn: '10' };
 const now = Date.parse('2026-11-17T12:00:00Z');
@@ -17,9 +17,21 @@ test('startup mode maps the ini values', () => {
   assert.equal(ambeModeFor('P25', 'YSFW'), 'P25');
 });
 
-test('the selected card comes first', () => {
-  assert.deepEqual(cardOrder('DMR'), ['DMR', 'YSF', 'P25', 'NXDN']);
-  assert.deepEqual(cardOrder('P25'), ['P25', 'DMR', 'YSF', 'NXDN']);
+test('arrow keys move between tabs and wrap', () => {
+  const t: StartupMode[] = ['DMR', 'YSF', 'P25', 'NXDN'];
+  assert.equal(nextTab(t, 'DMR', 'ArrowRight'), 'YSF');
+  assert.equal(nextTab(t, 'NXDN', 'ArrowRight'), 'DMR');
+  assert.equal(nextTab(t, 'DMR', 'ArrowLeft'), 'NXDN');
+  assert.equal(nextTab(t, 'P25', 'Home'), 'DMR');
+  assert.equal(nextTab(t, 'DMR', 'End'), 'NXDN');
+  assert.equal(nextTab(t, 'DMR', 'Enter'), null);
+  assert.equal(nextTab(['DMR', 'P25'], 'DMR', 'ArrowRight'), 'P25');
+  assert.equal(nextTab(['DMR'], 'YSF', 'ArrowRight'), null);
+});
+
+test('the resume hint', () => {
+  assert.equal(resumeHint(true), 'After Analog_Bridge restarts, ASLCP returns to your last mode and tune within a few seconds. Startup values are only used if nothing has been tuned yet.');
+  assert.match(resumeHint(false), /^Off:/);
 });
 
 test('a card sends only its own changed fields', () => {

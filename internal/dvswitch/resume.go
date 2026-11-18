@@ -20,6 +20,10 @@ const (
 	SettingKey = "dvswitch.resume"
 	// DefaultInterval is the poll period.
 	DefaultInterval = 15 * time.Second
+	// FastInterval is the poll period while a resume is still pending.
+	FastInterval = 2 * time.Second
+	// MaxBackoff caps the delay after helper errors.
+	MaxBackoff = 60 * time.Second
 	// DefaultWindow is how long after a start of Analog_Bridge a resume may
 	// still happen.
 	DefaultWindow = 3 * time.Minute
@@ -69,8 +73,9 @@ type Tracker struct {
 	// (and does not wake the helper) while it is false. Nil: always.
 	Installed func() bool
 	Now       func() time.Time
-	// Interval and Window default to DefaultInterval and DefaultWindow.
-	Interval, Window time.Duration
+	// Interval, Fast and Window default to DefaultInterval, FastInterval and
+	// DefaultWindow. Fast is used while a resume is pending (nextInterval).
+	Interval, Fast, Window time.Duration
 
 	mu     sync.Mutex
 	st     State
@@ -83,6 +88,57 @@ type Tracker struct {
 	tuneSeen          bool
 	tuneVal, tuneMode string
 	lastLogged        string
+
+	// What the last poll saw, for nextInterval (guarded by mu).
+	ps pollState
+}
+
+// pollState is what decides the delay before the next poll.
+type pollState struct {
+	Resume       bool      // the setting is on
+	Active       bool      // analog_bridge runs
+	Started      string    // its start time (RFC 3339), if known
+	HandledFor   string    // the start already resumed or skipped
+	Now          time.Time // time of the last poll
+	PendingSince time.Time // first poll that saw a resume pending without a start (zero: none)
+	Window       time.Duration
+	Normal, Fast time.Duration
+	Errors       int // consecutive helper errors
+}
+
+// pending says whether a resume may still happen: the setting is on and either
+// analog_bridge is not active (it may start any moment, for at most the
+// window from when we first noticed), or it is active with a start that was
+// not handled yet and is still inside the window.
+func (s pollState) pending() bool {
+	if !s.Resume {
+		return false
+	}
+	if !s.Active {
+		return !s.PendingSince.IsZero() && s.Now.Sub(s.PendingSince) <= s.Window
+	}
+	if s.Started == "" || s.Started == s.HandledFor {
+		return false
+	}
+	st, err := time.Parse(time.RFC3339, s.Started)
+	return err == nil && s.Now.Sub(st) <= s.Window
+}
+
+// nextInterval is the delay before the next poll: Fast while a resume is
+// pending, Normal otherwise. After helper errors it doubles per error
+// (never below the base, at most MaxBackoff) so a failing helper is not hammered.
+func nextInterval(s pollState) time.Duration {
+	d := s.Normal
+	if s.pending() && s.Fast > 0 && s.Fast < d {
+		d = s.Fast
+	}
+	for i := 0; i < s.Errors && d < MaxBackoff; i++ {
+		d *= 2
+	}
+	if d > MaxBackoff && s.Errors > 0 {
+		d = MaxBackoff
+	}
+	return d
 }
 
 func (t *Tracker) now() time.Time {
@@ -163,22 +219,33 @@ func (t *Tracker) SetResume(on bool) error {
 	return nil
 }
 
-// Run polls until ctx ends.
+// Run polls until ctx ends. It is one loop: a poll never starts before the
+// previous one returned, so at most one request is in flight.
 func (t *Tracker) Run(ctx context.Context) {
-	iv := t.Interval
-	if iv <= 0 {
-		iv = DefaultInterval
-	}
-	tk := time.NewTicker(iv)
-	defer tk.Stop()
 	for {
 		t.Poll(ctx)
+		tm := time.NewTimer(t.delay())
 		select {
 		case <-ctx.Done():
+			tm.Stop()
 			return
-		case <-tk.C:
+		case <-tm.C:
 		}
 	}
+}
+
+func (t *Tracker) delay() time.Duration {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	s := t.ps
+	s.Normal, s.Fast, s.Window = t.Interval, t.Fast, t.window()
+	if s.Normal <= 0 {
+		s.Normal = DefaultInterval
+	}
+	if s.Fast <= 0 {
+		s.Fast = FastInterval
+	}
+	return nextInterval(s)
 }
 
 // Poll is one round: read the state, resume if due, record.
@@ -188,7 +255,11 @@ func (t *Tracker) Poll(ctx context.Context) {
 	}
 	info, err := t.Src.DVSwitchInfo(ctx)
 	if err != nil {
-		// log a failure once, not every 15 s
+		t.mu.Lock()
+		t.ps.Errors++
+		t.ps.Now = t.now()
+		t.mu.Unlock()
+		// log a failure once, not on every poll
 		if t.lastLogged != "poll" {
 			t.lastLogged = "poll"
 			t.logf("dvswitch tracker: cannot read the bridge state: %v", err)
@@ -202,6 +273,7 @@ func (t *Tracker) Poll(ctx context.Context) {
 	t.load()
 	act, why := decideResume(now, t.window(), info, t.st)
 	mode, tune := t.st.LastMode, t.st.PerMode[t.st.LastMode].Tune
+	t.observe(info, now)
 	t.mu.Unlock()
 
 	switch act {
@@ -221,6 +293,21 @@ func (t *Tracker) Poll(ctx context.Context) {
 	t.record(info, now)
 }
 
+// observe updates the poll state from a successful poll. Callers hold mu.
+func (t *Tracker) observe(info helper.DVSwitchInfo, now time.Time) {
+	active := info.Found || info.Started != ""
+	p := &t.ps
+	p.Errors, p.Now = 0, now
+	p.Resume, p.Active, p.Started, p.HandledFor = t.st.Resume, active, info.Started, t.st.LastResumeFor
+	if t.st.Resume && !active {
+		if p.PendingSince.IsZero() {
+			p.PendingSince = now
+		}
+	} else {
+		p.PendingSince = time.Time{}
+	}
+}
+
 func (t *Tracker) window() time.Duration {
 	if t.Window > 0 {
 		return t.Window
@@ -232,6 +319,7 @@ func (t *Tracker) markResumed(started string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.st.LastResumeFor = started
+	t.ps.HandledFor = started
 	if err := t.save(); err != nil {
 		t.logf("dvswitch resume: cannot save the state: %v", err)
 	}

@@ -8,7 +8,7 @@
   import { badge, bridgeInUse, IDLE_POLL_MS, outcomeFor, waitForLogin, type Outcome } from '../lib/dmrlogin';
   import { credentialsPatch, dvErrorMessage, formChanged } from '../lib/dvmsg';
   import { findByValue, indexList, optionLabel, searchList } from '../lib/dvlist';
-  import { ambeModeFor, cardOrder, cardPatch, lastUsed, MODE_LABEL, startupModeOf, STARTUP_MODES, type StartupMode } from '../lib/dvstartup';
+  import { ambeModeFor, cardPatch, lastUsed, MODE_LABEL, nextTab, resumeHint, startupModeOf, STARTUP_MODES, type StartupMode } from '../lib/dvstartup';
   import Confirm from './Confirm.svelte';
   import NodePicker from './NodePicker.svelte';
 
@@ -40,8 +40,18 @@
   // The last tune of each mode and the resume toggle (GET /api/dvswitch/resume).
   let resume = $state<DVResume | null>(null), now = $state(Date.now());
   async function loadResume() { try { resume = await api.dvswitchResume(); now = Date.now(); } catch { /* no tracker: no hints */ } }
-  const order = $derived(cardOrder(choice));
+  // The tab shown; it starts on the startup mode (set once, on the first load).
+  let tab = $state<StartupMode>('DMR'), tabSet = false;
   const gw = (m: StartupMode) => m === 'DMR' || !!v?.gateways[m.toLowerCase() as 'ysf' | 'p25' | 'nxdn'].present;
+  const tabs = $derived(STARTUP_MODES.filter(gw));
+  const shown = $derived(tabs.includes(tab) ? tab : tabs[0]);
+  function onTabKey(e: KeyboardEvent, m: StartupMode) {
+    const n = nextTab(tabs, m, e.key);
+    if (n === null) return;
+    e.preventDefault();
+    tab = n;
+    document.getElementById(`dv-tab-${n}`)?.focus();
+  }
   let scope = $state<DVRestartScope>('bridge');
   let confirmRestart = $state(false), rbOpen = $state(false), rollbackFile = $state('');
 
@@ -55,6 +65,7 @@
     modes = { ...s.modes };
     st = { ambeMode: s.startup.ambeMode || 'DMR', txTg: s.startup.txTg, txTs: String(s.startup.txTs || 2), colorCode: String(s.startup.colorCode), ysf: s.gateways.ysf.startup, p25: s.gateways.p25.startup, nxdn: s.gateways.nxdn.startup };
     choice = startupModeOf(st.ambeMode);
+    if (!tabSet) { tabSet = true; tab = choice; }
     snap = { id: { ...id }, net: { ...net }, modes: { ...modes }, st: { ...st } };
   }
   async function load() { try { fill(await api.dvswitchSetup()); err = ''; } catch (e) { err = e instanceof Error ? e.message : String(e); } }
@@ -220,59 +231,52 @@
       <div><button class="btn btn-primary" disabled={busy} onclick={saveModes}>Save modes</button><span class="ml-2 text-xs text-muted">Sets the flag in the mode and its network section.</span></div>
 
       <h2 class="border-t border-line pt-3 text-base font-semibold">Startup</h2>
-      <p class="text-xs text-muted">What Analog_Bridge and the gateways start with. A restart goes back to these{resume?.resume ? ', unless the last tune is resumed (below)' : ''}.</p>
-      <form class="flex flex-wrap items-end gap-2" onsubmit={(e) => { e.preventDefault(); saveMode(); }} aria-label="Startup mode">
-        <div><label class="label" for="dv-mode">Startup mode</label><select id="dv-mode" class="input" bind:value={choice}>{#each STARTUP_MODES as m}<option value={m}>{MODE_LABEL[m]}</option>{/each}</select></div>
-        <button class="btn btn-primary" disabled={busy}>Save startup mode</button>
-      </form>
-      <div class="flex flex-col gap-3">
+      <div class="flex flex-wrap items-end gap-x-4 gap-y-2">
+        <form class="flex items-end gap-2" onsubmit={(e) => { e.preventDefault(); saveMode(); }} aria-label="Startup mode">
+          <div><label class="label" for="dv-mode">Startup mode</label><select id="dv-mode" class="input" bind:value={choice}>{#each STARTUP_MODES as m}<option value={m}>{MODE_LABEL[m]}</option>{/each}</select></div>
+          <button class="btn btn-primary" disabled={busy}>Save startup mode</button>
+        </form>
+        {#if resume}
+          <label class="inline-flex cursor-pointer items-center gap-2 pb-2 text-sm"><input type="checkbox" class="size-4 accent-[var(--accent)]" checked={resume.resume} disabled={busy} onchange={(e) => setResume(e.currentTarget.checked)} />Resume last tune after restart</label>
+        {/if}
+      </div>
+      {#if resume}<p class="text-xs text-muted" data-testid="dv-resume-hint">{resumeHint(resume.resume)}</p>{/if}
 
-        {#each order as m (m)}{#if gw(m)}{#if m === 'DMR'}
-        <div class="space-y-2 rounded border p-3 {choice === 'DMR' ? 'border-accent' : 'border-line'}" aria-label="DMR startup">
-          <h3 class="flex flex-wrap items-center gap-2 text-sm font-semibold">{MODE_LABEL['DMR']}{#if choice === 'DMR'}<span class="badge border-accent text-accent">used at startup</span>{/if}</h3>
+      <div class="flex gap-0.5" role="tablist" aria-label="Startup values by mode">
+        {#each tabs as m (m)}
+          <button type="button" role="tab" id="dv-tab-{m}" aria-selected={shown === m} aria-controls="dv-panel-{m}" tabindex={shown === m ? 0 : -1}
+            class="rounded px-2 py-1 text-[13px] font-medium {shown === m ? 'bg-surface-2 text-fg' : 'text-muted hover:text-fg'}"
+            onclick={() => (tab = m)} onkeydown={(e) => onTabKey(e, m)}>{m}{#if choice === m}<span class="ml-1 text-accent" title="used at startup" aria-label="used at startup">●</span>{/if}</button>
+        {/each}
+      </div>
+      {#each tabs as m (m)}{#if shown === m}
+        <div role="tabpanel" id="dv-panel-{m}" aria-labelledby="dv-tab-{m}" class="space-y-2" aria-label="{m} startup">
+          {#if m === 'DMR'}
           <form class="grid grid-cols-3 gap-2" onsubmit={(e) => { e.preventDefault(); saveCard('DMR'); }}>
             <div><label class="label" for="dv-tg">Talkgroup</label><input id="dv-tg" class="input font-mono" bind:value={st.txTg} inputmode="numeric" maxlength="8" /></div>
             <div><label class="label" for="dv-ts">Slot</label><select id="dv-ts" class="input" bind:value={st.txTs}><option value="1">1</option><option value="2">2</option></select></div>
             <div><label class="label" for="dv-cc">Color code</label><input id="dv-cc" class="input font-mono" bind:value={st.colorCode} inputmode="numeric" maxlength="2" /></div>
             <div class="col-span-3"><button class="btn btn-primary" disabled={busy}>Save DMR startup</button></div>
           </form>
-          {#if lastUsed(resume, 'DMR', now)}<p class="text-xs text-muted" data-testid="dv-last-DMR">{lastUsed(resume, 'DMR', now)}</p>{/if}
-        </div>
-        {:else if m === 'YSF'}
-        <div class="space-y-2 rounded border p-3 {choice === 'YSF' ? 'border-accent' : 'border-line'}" aria-label="YSF startup">
-          <h3 class="flex flex-wrap items-center gap-2 text-sm font-semibold">{MODE_LABEL['YSF']}{#if choice === 'YSF'}<span class="badge border-accent text-accent">used at startup</span>{/if}</h3>
+          {:else if m === 'YSF'}
           <form onsubmit={(e) => { e.preventDefault(); saveCard('YSF'); }}>
             <label class="label" for="dv-ysf">YSF reflector</label><NodePicker id="dv-ysf" bind:value={st.ysf} options={lists.ysf} search={find('ysf')} label={label('ysf')} placeholder="Search or type an ID" inputmode="text" maxlength={32} describedby="dv-ysf-hint" /><p id="dv-ysf-hint" class="mt-1 text-xs text-muted">{#if hit('ysf', st.ysf)}{hit('ysf', st.ysf)?.name}, {hit('ysf', st.ysf)?.address}:{hit('ysf', st.ysf)?.port}{:else}reflector ID (5 digits, e.g. 12345) or name exactly as in YSFHosts.txt{/if}</p>
             <button class="btn btn-primary mt-2" disabled={busy}>Save YSF startup</button>
           </form>
-          {#if lastUsed(resume, 'YSF', now)}<p class="text-xs text-muted" data-testid="dv-last-YSF">{lastUsed(resume, 'YSF', now)}</p>{/if}
-        </div>
-        {:else if m === 'P25'}
-        <div class="space-y-2 rounded border p-3 {choice === 'P25' ? 'border-accent' : 'border-line'}" aria-label="P25 startup">
-          <h3 class="flex flex-wrap items-center gap-2 text-sm font-semibold">{MODE_LABEL['P25']}{#if choice === 'P25'}<span class="badge border-accent text-accent">used at startup</span>{/if}</h3>
+          {:else if m === 'P25'}
           <form onsubmit={(e) => { e.preventDefault(); saveCard('P25'); }}>
             <label class="label" for="dv-p25">P25 reflector</label><NodePicker id="dv-p25" bind:value={st.p25} options={lists.p25} search={find('p25')} label={label('p25')} placeholder="Search or type a TG" inputmode="numeric" maxlength={5} describedby="dv-p25-hint" /><p id="dv-p25-hint" class="mt-1 text-xs text-muted">{#if hit('p25', st.p25)}{hit('p25', st.p25)?.address}:{hit('p25', st.p25)?.port}{:else}talkgroup number, up to 5 digits{/if}</p>
             <button class="btn btn-primary mt-2" disabled={busy}>Save P25 startup</button>
           </form>
-          {#if lastUsed(resume, 'P25', now)}<p class="text-xs text-muted" data-testid="dv-last-P25">{lastUsed(resume, 'P25', now)}</p>{/if}
-        </div>
-        {:else}
-        <div class="space-y-2 rounded border p-3 {choice === 'NXDN' ? 'border-accent' : 'border-line'}" aria-label="NXDN startup">
-          <h3 class="flex flex-wrap items-center gap-2 text-sm font-semibold">{MODE_LABEL['NXDN']}{#if choice === 'NXDN'}<span class="badge border-accent text-accent">used at startup</span>{/if}</h3>
+          {:else}
           <form onsubmit={(e) => { e.preventDefault(); saveCard('NXDN'); }}>
             <label class="label" for="dv-nxdn">NXDN reflector</label><NodePicker id="dv-nxdn" bind:value={st.nxdn} options={lists.nxdn} search={find('nxdn')} label={label('nxdn')} placeholder="Search or type a TG" inputmode="numeric" maxlength={5} describedby="dv-nxdn-hint" /><p id="dv-nxdn-hint" class="mt-1 text-xs text-muted">{#if hit('nxdn', st.nxdn)}{hit('nxdn', st.nxdn)?.address}:{hit('nxdn', st.nxdn)?.port}{:else}talkgroup number, up to 5 digits{/if}</p>
             <button class="btn btn-primary mt-2" disabled={busy}>Save NXDN startup</button>
           </form>
-          {#if lastUsed(resume, 'NXDN', now)}<p class="text-xs text-muted" data-testid="dv-last-NXDN">{lastUsed(resume, 'NXDN', now)}</p>{/if}
+          {/if}
+          {#if lastUsed(resume, m, now)}<p class="text-xs text-muted" data-testid="dv-last-{m}">{lastUsed(resume, m, now)}</p>{/if}
         </div>
-        {/if}{/if}{/each}
-      </div>
-      {#if resume}
-        <div class="space-y-1 border-t border-line pt-3">
-          <label class="inline-flex cursor-pointer items-center gap-2 text-sm"><input type="checkbox" class="size-4 accent-[var(--accent)]" checked={resume.resume} disabled={busy} onchange={(e) => setResume(e.currentTarget.checked)} />Resume last tune after restart</label>
-          <p class="text-xs text-muted" data-testid="dv-resume-hint">{resume.resume ? 'After a restart of Analog_Bridge the last tune of the last mode is set again within a few minutes. The startup values above are only a fallback, used when nothing was tuned yet.' : 'Off: a restart goes back to the startup values. Turn it on to continue with the last tune instead.'}</p>
-        </div>
-      {/if}
+      {/if}{/each}
     </section>
 
     <section class="card space-y-3 p-4" aria-label="Services">
