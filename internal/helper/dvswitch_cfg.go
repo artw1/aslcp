@@ -36,11 +36,12 @@ const (
 	OpDVSwitchStartup     = "dvswitch-startup"     // ambeMode/txTg/txTs/colorCode, gateway Startup
 	OpDVSwitchRollback    = "dvswitch-rollback"    // newest history copy of one file
 	OpDVSwitchRestart     = "dvswitch-restart"     // enum scope and action
+	// OpDVSwitchLists (dvswitch_lists.go) is the host and TG lists of the pickers.
 )
 
 func isDVConfigOp(op string) bool {
 	switch op {
-	case OpDVSwitchIdentity, OpDVSwitchCredentials, OpDVSwitchModes, OpDVSwitchStartup, OpDVSwitchRollback, OpDVSwitchRestart:
+	case OpDVSwitchIdentity, OpDVSwitchCredentials, OpDVSwitchModes, OpDVSwitchStartup, OpDVSwitchRollback, OpDVSwitchRestart, OpDVSwitchLists:
 		return true
 	}
 	return false
@@ -233,6 +234,8 @@ type DVSwitchRequest struct {
 	// (default) or "start".
 	Scope  string `json:"scope,omitempty"`
 	Action string `json:"action,omitempty"`
+	// Mode: lists, "dmr", "ysf", "p25" or "nxdn".
+	Mode string `json:"mode,omitempty"`
 }
 
 // DVIdentity: callsign, 7-digit DMR ID, 2-digit ESSID and the optional NXDN
@@ -282,6 +285,8 @@ type DVApplyResult struct {
 	RestartHint []string `json:"restartHint"`
 	// Hashes of the changed files after the write.
 	Hashes map[string]string `json:"hashes"`
+	// Warnings: values that were left out and why (no value in them).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 type dvChange struct{ file, section, key, value string }
@@ -721,6 +726,7 @@ func (o *Ops) DVSwitchStartup(ctx context.Context, req *DVSwitchRequest) (DVAppl
 		return DVApplyResult{}, errors.New("invalid request: startup only")
 	}
 	var ch []dvChange
+	var warn []string
 	if s.UseCurrent {
 		if s.AmbeMode != nil || s.TxTg != nil || s.TxTs != nil || s.ColorCode != nil || s.YSF != nil || s.P25 != nil || s.NXDN != nil {
 			return DVApplyResult{}, dvInvalid("startup/useCurrent")
@@ -742,19 +748,34 @@ func (o *Ops) DVSwitchStartup(ctx context.Context, req *DVSwitchRequest) (DVAppl
 				dvChange{DVFileAnalogBridge, "AMBE_AUDIO", "txTs", info.Slot},
 				dvChange{DVFileAnalogBridge, "AMBE_AUDIO", "colorCode", info.ColorCode})
 		case "YSFN", "YSFW":
+			// ABInfo's tune is "host:port", but YSFGateway wants the id.
 			if info.Tune != "" {
-				ch = append(ch, dvChange{DVFileYSFGateway, "Network", "Startup", info.Tune})
+				if id, ok := o.ysfIDForTune(info.Tune); ok {
+					ch = append(ch, dvChange{DVFileYSFGateway, "Network", "Startup", id})
+				} else {
+					warn = append(warn, "YSF startup was not changed: the current reflector is not in YSFHosts.txt")
+				}
 			}
 		case "P25":
 			if info.Tune != "" {
-				ch = append(ch, dvChange{DVFileP25Gateway, "Network", "Startup", info.Tune})
+				if reDVRefl.MatchString(info.Tune) {
+					ch = append(ch, dvChange{DVFileP25Gateway, "Network", "Startup", info.Tune})
+				} else {
+					warn = append(warn, "P25 startup was not changed: the current target is not a talkgroup number")
+				}
 			}
 		case "NXDN":
 			if info.Tune != "" {
-				ch = append(ch, dvChange{DVFileNXDNGateway, "Network", "Startup", info.Tune})
+				if reDVRefl.MatchString(info.Tune) {
+					ch = append(ch, dvChange{DVFileNXDNGateway, "Network", "Startup", info.Tune})
+				} else {
+					warn = append(warn, "NXDN startup was not changed: the current target is not a talkgroup number")
+				}
 			}
 		}
-		return o.dvApply(ctx, ch, req.Base)
+		res, err := o.dvApply(ctx, ch, req.Base)
+		res.Warnings = warn
+		return res, err
 	}
 	ab := func(k, v string) { ch = append(ch, dvChange{DVFileAnalogBridge, "AMBE_AUDIO", k, v}) }
 	if s.AmbeMode != nil {

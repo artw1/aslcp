@@ -223,7 +223,9 @@ func run(cfgPath string, dev, demoMode bool) error {
 		upd.OS = updates.NewOS(dh, st)
 		upd.OS.FirstCheck, upd.OS.Tick = time.Second, time.Second
 		power = dh
-		dvsw = helper.NewDemoDVSwitch()
+		ddv := helper.NewDemoDVSwitch()
+		ddv.Lists = ops
+		dvsw = ddv
 		bg(func() { upd.Run(ctx) })
 		bg(func() { upd.OS.Run(ctx) })
 	} else {

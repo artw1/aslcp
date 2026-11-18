@@ -413,3 +413,9 @@ func (c *Client) DVSwitchRestart(ctx context.Context, req DVSwitchRequest) (DVRe
 	var r DVRestartResult
 	return r, c.dvCall(ctx, OpDVSwitchRestart, req, &r)
 }
+
+// DVSwitchLists calls dvswitch-lists for one mode (dmr, ysf, p25, nxdn).
+func (c *Client) DVSwitchLists(ctx context.Context, mode string) (DVList, error) {
+	var r DVList
+	return r, c.do(ctx, Request{Op: OpDVSwitchLists, DVSwitch: &DVSwitchRequest{Mode: mode}}, &r, 4<<20)
+}

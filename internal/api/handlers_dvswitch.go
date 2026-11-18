@@ -25,6 +25,8 @@ type DVSwitch interface {
 	DVSwitchStartup(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
 	DVSwitchRollback(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
 	DVSwitchRestart(ctx context.Context, req helper.DVSwitchRequest) (helper.DVRestartResult, error)
+	// Host and TG lists of the pickers (read-only).
+	DVSwitchLists(ctx context.Context, mode string) (helper.DVList, error)
 }
 
 // dvswitchRoutes registers the DVSwitch endpoints. All are admin only: they
@@ -35,6 +37,8 @@ func (s *Server) dvswitchRoutes() {
 	m.HandleFunc("GET /api/dvswitch/job", s.authed(store.RoleAdmin, s.handleDVSwitchJob))
 	m.HandleFunc("POST /api/dvswitch/install", s.authed(store.RoleAdmin, s.handleDVSwitchInstall))
 	m.HandleFunc("POST /api/dvswitch/uninstall", s.authed(store.RoleAdmin, s.handleDVSwitchUninstall))
+	// The lists are public reflector data: any operator may read them (M1).
+	m.HandleFunc("GET /api/dvswitch/lists", s.authed(store.RoleOperator, s.handleDVSwitchLists))
 	m.HandleFunc("GET /api/dvswitch/setup", s.authed(store.RoleAdmin, s.handleDVSwitchSetup))
 	m.HandleFunc("PUT /api/dvswitch/identity", s.authed(store.RoleAdmin, s.handleDVSwitchIdentity))
 	m.HandleFunc("PUT /api/dvswitch/credentials", s.authed(store.RoleAdmin, s.handleDVSwitchCredentials))
@@ -129,6 +133,8 @@ func (s *Server) dvswitchError(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusConflict, "not_installed", err.Error())
 	case errors.Is(err, helper.ErrDVNoHistory):
 		writeErr(w, http.StatusNotFound, "no_history", err.Error())
+	case errors.Is(err, helper.ErrDVNoList):
+		writeErr(w, http.StatusNotFound, "no_list", err.Error())
 	case errors.Is(err, helper.ErrDVNoInfo):
 		writeErr(w, http.StatusConflict, "no_info", err.Error())
 	case errors.As(err, &ce):

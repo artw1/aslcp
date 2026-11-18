@@ -137,6 +137,8 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return o.DVSwitchRollback(ctx, req.DVSwitch)
 	case OpDVSwitchRestart:
 		return o.DVSwitchRestart(ctx, req.DVSwitch)
+	case OpDVSwitchLists:
+		return o.DVSwitchLists(ctx, req.DVSwitch)
 	case OpBackupInfo:
 		return o.BackupInfo(ctx)
 	case OpAsteriskRestart:

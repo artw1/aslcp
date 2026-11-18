@@ -97,7 +97,7 @@ var (
 	ErrDVOutsideASLCP     = errors.New("not_aslcp_installed: DVSwitch was installed outside ASLCP; ASLCP only removes what it installed")
 )
 
-var dvErrors = []error{ErrDVAlreadyInstalled, ErrDVUnsupported, ErrDVClockUnset, ErrDVKeyMismatch, ErrDVOutsideASLCP, ErrDVInvalid, ErrDVNotInstalled, ErrDVNoHistory, ErrDVNoInfo}
+var dvErrors = []error{ErrDVAlreadyInstalled, ErrDVUnsupported, ErrDVClockUnset, ErrDVKeyMismatch, ErrDVOutsideASLCP, ErrDVInvalid, ErrDVNotInstalled, ErrDVNoHistory, ErrDVNoInfo, ErrDVNoList}
 
 // DVSwitchPkg is one package of the install set.
 type DVSwitchPkg struct {

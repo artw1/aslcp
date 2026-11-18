@@ -16,6 +16,9 @@ type fakeDV struct {
 	last                 helper.DVSwitchRequest
 	calls                int
 	cfgErr               error
+	listMode             string
+	listCalls            int
+	listErr              error
 }
 
 func (f *fakeDV) rec(r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
@@ -55,6 +58,16 @@ func (f *fakeDV) DVSwitchRestart(_ context.Context, r helper.DVSwitchRequest) (h
 		return helper.DVRestartResult{}, f.cfgErr
 	}
 	return helper.DVRestartResult{Action: "restart", Units: []string{"analog_bridge"}, Skipped: []string{}, States: []helper.DVSwitchUnit{}}, nil
+}
+
+func (f *fakeDV) DVSwitchLists(_ context.Context, mode string) (helper.DVList, error) {
+	f.listMode = mode
+	f.listCalls++
+	if f.listErr != nil {
+		return helper.DVList{}, f.listErr
+	}
+	return helper.DVList{Mode: mode, ETag: "abc123", Items: []helper.DVListItem{
+		{Value: "192.0.2.10", Name: "Example Master", Detail: "ID 1", Address: "192.0.2.10", Port: 62031}}}, nil
 }
 
 func (f *fakeDV) DVSwitchStatus(context.Context) (helper.DVSwitchStatus, error) {
@@ -266,4 +279,75 @@ func TestDVSwitchRestartWarning(t *testing.T) {
 	if c := e.do("admin", "POST", "/api/dvswitch/restart", map[string]any{"scope": "bridge"}, &r); c != 200 || r.Warning == "" || len(r.Units) != 1 {
 		t.Fatalf("%d %+v", c, r)
 	}
+}
+
+func TestDVSwitchListsRolesAndMode(t *testing.T) {
+	f := &fakeDV{}
+	e := newEnv(t, opts{dvswitch: f})
+	expectErr(t, e, "", "GET", "/api/dvswitch/lists?mode=dmr", nil, 401, "unauthorized")
+	// viewers cannot pick, operators and admins can
+	expectErr(t, e, "viewer", "GET", "/api/dvswitch/lists?mode=dmr", nil, 403, "forbidden")
+	if f.listCalls != 0 {
+		t.Fatal("a viewer reached the helper")
+	}
+	for _, role := range []string{"op", "admin"} {
+		var l helper.DVList
+		if c := e.do(role, "GET", "/api/dvswitch/lists?mode=ysf", nil, &l); c != 200 || l.Mode != "ysf" || len(l.Items) != 1 || l.Items[0].Port != 62031 {
+			t.Fatalf("%s: %d %+v", role, c, l)
+		}
+	}
+	for _, m := range []string{"", "DMR", "dstar", "../x", "dmr,ysf", "dmr/../ysf"} {
+		before := f.listCalls
+		expectErr(t, e, "admin", "GET", "/api/dvswitch/lists?mode="+m, nil, 400, "bad_request")
+		if f.listCalls != before {
+			t.Errorf("mode %q reached the helper", m)
+		}
+	}
+	expectErr(t, e, "admin", "GET", "/api/dvswitch/lists", nil, 400, "bad_request")
+}
+
+func TestDVSwitchListsNoList(t *testing.T) {
+	e := newEnv(t, opts{dvswitch: &fakeDV{listErr: helper.ErrDVNoList}})
+	expectErr(t, e, "admin", "GET", "/api/dvswitch/lists?mode=p25", nil, 404, "no_list")
+	e = newEnv(t, opts{})
+	expectErr(t, e, "admin", "GET", "/api/dvswitch/lists?mode=p25", nil, 503, "dvswitch_unavailable")
+	e = newEnv(t, opts{dvswitch: &fakeDV{listErr: errors.New("boom")}})
+	expectErr(t, e, "admin", "GET", "/api/dvswitch/lists?mode=p25", nil, 502, "helper_error")
+}
+
+func TestDVSwitchListsETag(t *testing.T) {
+	e := newEnv(t, opts{dvswitch: &fakeDV{}})
+	code, _, h := e.raw("GET", "/api/dvswitch/lists?mode=nxdn", nil, e.ck["admin"], nil)
+	tag := h.Get("ETag")
+	if code != 200 || tag != `"nxdn-abc123"` {
+		t.Fatalf("%d %q", code, tag)
+	}
+	code, b, _ := e.raw("GET", "/api/dvswitch/lists?mode=nxdn", nil, e.ck["admin"], map[string]string{"If-None-Match": tag})
+	if code != 304 || len(b) != 0 {
+		t.Fatalf("%d %q", code, b)
+	}
+	// the tag of another mode does not match
+	code, _, _ = e.raw("GET", "/api/dvswitch/lists?mode=p25", nil, e.ck["admin"], map[string]string{"If-None-Match": tag})
+	if code != 200 {
+		t.Fatal(code)
+	}
+}
+
+func TestDVSwitchApplyWarningsInReply(t *testing.T) {
+	f := &fakeDVWarn{fakeDV: &fakeDV{}}
+	e := newEnv(t, opts{dvswitch: f})
+	var r struct {
+		ApplyWarnings []string `json:"applyWarnings"`
+	}
+	if c := e.do("admin", "PUT", "/api/dvswitch/startup", map[string]any{"useCurrent": true}, &r); c != 200 || len(r.ApplyWarnings) != 1 {
+		t.Fatalf("%d %+v", c, r)
+	}
+}
+
+type fakeDVWarn struct{ *fakeDV }
+
+func (f *fakeDVWarn) DVSwitchStartup(_ context.Context, r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
+	res, err := f.rec(r)
+	res.Warnings = []string{"YSF startup was not changed: the current reflector is not in YSFHosts.txt"}
+	return res, err
 }

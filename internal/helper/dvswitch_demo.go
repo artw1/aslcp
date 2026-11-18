@@ -18,6 +18,9 @@ type DemoDVSwitch struct {
 	started   time.Time
 	finished  bool
 	c         *demoDVCfg // M4 config (dvswitch_demo_cfg.go)
+	// Lists serves the host lists from a temporary directory (NewDemoOps);
+	// nil means there are none.
+	Lists *Ops
 }
 
 // NewDemoDVSwitch returns a demo node without DVSwitch.

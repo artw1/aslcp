@@ -22,6 +22,9 @@ type dvSetupReply struct {
 	Changed     []string            `json:"changed,omitempty"`
 	Skipped     []string            `json:"skipped,omitempty"`
 	RestartHint []string            `json:"restartHint,omitempty"`
+	// ApplyWarnings: values a write left out and why ("warnings" is taken by
+	// the Setup view's own warnings).
+	ApplyWarnings []string `json:"applyWarnings,omitempty"`
 }
 
 func (s *Server) dvSetupView(w http.ResponseWriter, r *http.Request, res *helper.DVApplyResult) {
@@ -37,7 +40,7 @@ func (s *Server) dvSetupView(w http.ResponseWriter, r *http.Request, res *helper
 		reply.Current = info
 	}
 	if res != nil {
-		reply.Changed, reply.Skipped, reply.RestartHint = res.Files, res.Skipped, res.RestartHint
+		reply.Changed, reply.Skipped, reply.RestartHint, reply.ApplyWarnings = res.Files, res.Skipped, res.RestartHint, res.Warnings
 	}
 	writeJSON(w, 200, reply)
 }
@@ -248,4 +251,33 @@ func safeScope(s string) string {
 		return s
 	}
 	return "?"
+}
+
+// handleDVSwitchLists serves the host and TG list of one mode for the
+// pickers: GET /api/dvswitch/lists?mode=dmr|ysf|p25|nxdn. The mode is an enum;
+// the file behind it is fixed in the helper. A missing file is 404 no_list
+// (the UI falls back to free text). The ETag is a hash of the file content.
+func (s *Server) handleDVSwitchLists(w http.ResponseWriter, r *http.Request, _ store.User) {
+	mode := r.URL.Query().Get("mode")
+	if !helper.ValidDVListMode(mode) {
+		writeErr(w, http.StatusBadRequest, "bad_request", "mode must be dmr, ysf, p25 or nxdn")
+		return
+	}
+	if s.d.DVSwitch == nil {
+		s.dvswitchError(w, errDVUnavailable)
+		return
+	}
+	l, err := s.d.DVSwitch.DVSwitchLists(r.Context(), mode)
+	if err != nil {
+		s.dvswitchError(w, err)
+		return
+	}
+	tag := `"` + mode + "-" + l.ETag + `"`
+	w.Header().Set("ETag", tag)
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	if inm := r.Header.Get("If-None-Match"); inm != "" && inm == tag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	writeJSON(w, 200, l)
 }

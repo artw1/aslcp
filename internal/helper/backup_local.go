@@ -86,6 +86,7 @@ func NewDemoOps(dir string, files map[string]string) (*Ops, error) {
 		AllmonDir:    filepath.Join(dir, "etc", "allmon3"),
 		AslcpConf:    filepath.Join(dir, "etc", "aslcp", "aslcp.conf"),
 		DVOptDir:     filepath.Join(dir, "opt"),
+		DVHostDir:    filepath.Join(dir, "var", "mmdvm"),
 		DVHistoryDir: filepath.Join(dir, "var", "dv-history"),
 		SourceList:   filepath.Join(dir, "etc", "aslcp.list"),
 		TempDir:      dir,
@@ -117,6 +118,9 @@ func NewDemoOps(dir string, files map[string]string) (*Ops, error) {
 		if err := put(p, c); err != nil {
 			return nil, err
 		}
+	}
+	if err := writeDemoDVLists(o.DVHostDir); err != nil {
+		return nil, err
 	}
 	db, err := sql.Open("sqlite", o.AstDBPath)
 	if err != nil {
