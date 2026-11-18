@@ -34,8 +34,12 @@ type dvCmdReply struct {
 	Switched  bool   `json:"switched"`
 	Confirmed bool   `json:"confirmed"`
 	// Left: the mode a switch left and unlinked first (helper.DVTuneResult).
-	Left     string     `json:"left,omitempty"`
-	Snapshot DVSnapshot `json:"snapshot"`
+	Left string `json:"left,omitempty"`
+	// BMLoginPending: BM was entered but STFU's login was not seen in time.
+	// STFUStopFailed: leaving BM, stfu could not be stopped.
+	BMLoginPending bool       `json:"bmLoginPending,omitempty"`
+	STFUStopFailed bool       `json:"stfuStopFailed,omitempty"`
+	Snapshot       DVSnapshot `json:"snapshot"`
 }
 
 // dvDone builds the reply of a command, publishes the new snapshot and
@@ -44,7 +48,7 @@ func (s *Server) dvDone(ctx context.Context, res helper.DVTuneResult) dvCmdReply
 	sn := s.dvs.snapshot(ctx, true)
 	s.dvs.publish(sn)
 	s.dvs.afterCommand()
-	return dvCmdReply{Mode: res.Mode, Switched: res.Switched, Confirmed: res.Confirmed, Left: res.Left, Snapshot: sn}
+	return dvCmdReply{Mode: res.Mode, Switched: res.Switched, Confirmed: res.Confirmed, Left: res.Left, BMLoginPending: res.BMLoginPending, STFUStopFailed: res.STFUStopFailed, Snapshot: sn}
 }
 
 // handleDVSwitchSnapshot: GET /api/dvswitch/snapshot, every role. The admin
@@ -173,6 +177,12 @@ func (s *Server) handleDVSwitchMode(w http.ResponseWriter, r *http.Request, u st
 	}
 	if res.LeftFailed {
 		s.d.Logger.Printf("dvswitch.mode: the unlink of %s could not be sent before the switch", res.Left)
+	}
+	if res.STFUStopFailed {
+		s.d.Logger.Printf("dvswitch.mode: stfu could not be stopped after leaving BM")
+	}
+	if res.BMLoginPending {
+		audit["bmLoginPending"] = true
 	}
 	s.audit(u, "dvswitch.mode", audit)
 	s.d.Logger.Printf("dvswitch.mode %s by %s", mode, u.Username)

@@ -41,7 +41,11 @@
   $effect(() => { if (outcome === 'confirmed') { pending = null; clearTimeout(timer); } });
   $effect(() => () => clearTimeout(timer));
 
-  function apply(r: DVCmdReply) { app.dvswitch = r.snapshot; }
+  function apply(r: DVCmdReply) {
+    app.dvswitch = r.snapshot;
+    if (r.bmLoginPending) toast('Switched to BM, but the BrandMeister login was not seen yet. Check the BrandMeister card.', 'error');
+    if (r.stfuStopFailed) toast('Switched, but STFU could not be stopped.', 'error');
+  }
   async function setMode(m: DVTuneMode) {
     if (locked || shown === m) return;
     clearTimeout(timer);

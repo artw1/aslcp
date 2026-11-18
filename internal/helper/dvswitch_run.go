@@ -306,7 +306,9 @@ func (o *Ops) DVSwitchRestart(ctx context.Context, req *DVSwitchRequest) (DVRest
 		return res, dvInvalid("scope")
 	}
 	if req.Scope == "dmr" || req.Scope == "all" {
-		if _, enabled := o.dvBMUnit(ctx); enabled {
+		// only when stfu is supposed to be running: on demand it is stopped
+		// outside BM mode, and a restart must not log it in
+		if _, configured := o.dvBMConfigured(ctx); configured && o.dvSTFUWanted(ctx) {
 			units = append(append([]string{}, units...), dvSTFUUnit)
 		}
 	}

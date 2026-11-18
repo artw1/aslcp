@@ -22,12 +22,19 @@ var demoSTFULog = []string{
 type demoSTFU struct {
 	installed bool
 	started   time.Time // install job start
-	enabled   bool      // BrandMeister saved: the unit is enabled
-	pwSet     bool
+	stay      bool      // stay logged in outside BM mode (the unit is enabled)
+	pwSet     bool      // BrandMeister saved
 	server    string
 	alias     string
 	startTG   string
 	at        time.Time // last (re)start of stfu (the simulated login)
+}
+
+// stfuRunning: the simulated stfu unit runs (caller holds d.mu): BrandMeister
+// is saved and either it stays logged in or the panel is in BM mode.
+func (d *DemoDVSwitch) stfuRunning() bool {
+	s := d.stfu()
+	return s.pwSet && (s.stay || d.cfg().live.panel == DVModeBM)
 }
 
 func (d *DemoDVSwitch) stfu() *demoSTFU {
@@ -100,7 +107,7 @@ func (d *DemoDVSwitch) DVSwitchSTFUInstall(context.Context) (DVSwitchStatus, err
 // bmView is the setup view part (caller holds d.mu).
 func (d *DemoDVSwitch) bmView() DVBMView {
 	s := d.stfu()
-	v := DVBMView{Installed: s.installed, Enabled: s.enabled}
+	v := DVBMView{Installed: s.installed, Enabled: s.stay && s.pwSet, StayLoggedIn: s.stay}
 	if !s.installed {
 		return v
 	}
@@ -110,7 +117,7 @@ func (d *DemoDVSwitch) bmView() DVBMView {
 	}
 	v.Present, v.Server, v.Port, v.TalkerAlias, v.StartTG = true, s.server, dvSTFUDefaultPort, alias, s.startTG
 	v.TxPort, v.RxPort, v.PasswordSet = dvSTFUTx, dvSTFURx, s.pwSet
-	v.Configured = s.enabled && s.pwSet && reDVDigits7.MatchString(d.cfg().identity.DMRID)
+	v.Configured = s.pwSet && reDVDigits7.MatchString(d.cfg().identity.DMRID)
 	return v
 }
 
@@ -136,7 +143,7 @@ func (d *DemoDVSwitch) DVSwitchBM(_ context.Context, r DVSwitchRequest) (DVApply
 			return DVApplyResult{}, dvInvalid("brandmeister/startTg")
 		}
 	case DVBMClear:
-		if b.Server != "" || b.Password != nil || b.TalkerAlias != nil || b.StartTG != nil {
+		if b.Server != "" || b.Password != nil || b.TalkerAlias != nil || b.StartTG != nil || b.StayLoggedIn != nil {
 			return DVApplyResult{}, dvInvalid("brandmeister")
 		}
 	default:
@@ -149,11 +156,12 @@ func (d *DemoDVSwitch) DVSwitchBM(_ context.Context, r DVSwitchRequest) (DVApply
 	}
 	s := d.stfu()
 	c := d.cfg()
+	var res DVApplyResult
 	if b.Action == DVBMClear {
-		if !s.enabled && !s.pwSet {
+		if !s.stay && !s.pwSet {
 			return dvNoChange(), nil
 		}
-		s.enabled, s.pwSet = false, false
+		s.stay, s.pwSet = false, false
 		if c.live.panel == DVModeBM {
 			c.live.panel = DVModeDMR
 		}
@@ -176,13 +184,18 @@ func (d *DemoDVSwitch) DVSwitchBM(_ context.Context, r DVSwitchRequest) (DVApply
 		if b.StartTG != nil {
 			s.startTG = *b.StartTG
 		}
-		s.enabled, s.pwSet, s.at = true, true, d.now()
+		if b.StayLoggedIn != nil {
+			s.stay = *b.StayLoggedIn
+		}
+		s.pwSet, s.at = true, d.now()
+		res.BMLogin = "logged_in"
 	}
 	c.times++
 	if c.hist[DVFileDVSwitch] < dvHistoryKeep {
 		c.hist[DVFileDVSwitch]++
 	}
-	return DVApplyResult{Files: []string{DVFileDVSwitch}, Skipped: []string{}, RestartHint: []string{}, Hashes: map[string]string{}}, nil
+	res.Files, res.Skipped, res.RestartHint, res.Hashes = []string{DVFileDVSwitch}, []string{}, []string{}, map[string]string{}
+	return res, nil
 }
 
 // demoSTFUStatus is the BrandMeister login (caller holds d.mu).

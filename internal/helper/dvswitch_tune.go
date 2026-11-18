@@ -68,6 +68,11 @@ type DVTuneResult struct {
 	// sent (the switch went ahead all the same).
 	Left       string `json:"left,omitempty"`
 	LeftFailed bool   `json:"leftFailed,omitempty"`
+	// BMLoginPending: the switch entered BM but STFU's login was not seen in
+	// time (the switch went ahead). STFUStopFailed: leaving BM, stfu could
+	// not be stopped (the switch went ahead).
+	BMLoginPending bool `json:"bmLoginPending,omitempty"`
+	STFUStopFailed bool `json:"stfuStopFailed,omitempty"`
 }
 
 // dvLinkedTune is what the bridge state shows the panel mode tuned to: for
@@ -403,6 +408,12 @@ func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneRes
 		section, ambe = dvSTFUSection, DVModeDMR
 	}
 	port := info.tlvRx
+	// On demand STFU logs in only while the panel is in BM: start it and wait
+	// for the login before Analog_Bridge is pointed at it. Whether it was
+	// reached is reported, never fatal.
+	if t.Mode == DVModeBM && !o.dvSTFUStay() {
+		res.BMLoginPending = o.dvSTFUEnsure(ctx, DVPanelMode(info) == DVModeBM)
+	}
 	if cur := DVPanelMode(info); cur != t.Mode {
 		tx, rx, err := o.dvModePorts(section)
 		if err != nil {
@@ -429,10 +440,18 @@ func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneRes
 	}
 	if len(cmds) == 0 {
 		res.Confirmed = true // already in the mode, nothing to send
+		if t.Mode != DVModeBM {
+			res.STFUStopFailed = o.dvSTFUStopIdle(ctx) // e.g. a resume: make sure it is stopped
+		}
 		return res, nil
 	}
 	if _, err := o.dvTLVSend(ctx, port, cmds); err != nil {
 		return res, err
+	}
+	// Analog_Bridge no longer points at STFU: log it out of BrandMeister
+	// (unless it stays logged in).
+	if t.Mode != DVModeBM {
+		res.STFUStopFailed = o.dvSTFUStopIdle(ctx)
 	}
 	settle := o.DVTLVSettle
 	if settle == 0 {

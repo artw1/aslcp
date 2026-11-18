@@ -21,6 +21,7 @@ test('badge labels', () => {
   assert.equal(badge(st('connecting')).text, 'Connecting…');
   assert.equal(badge(st('unknown')).text, 'Running');
   assert.equal(badge(st('not_running')).text, 'Not running');
+  assert.deepEqual(badge(st('idle', { via: 'stfu' })), { text: 'Stopped (not in use)', tone: 'muted' });
   assert.equal(badge(st('disabled')).text, 'DMR disabled');
 });
 
@@ -35,6 +36,9 @@ test('outcome texts', () => {
   assert.equal(outcomeFor(st('connecting'), false), null);
   assert.equal(outcomeFor(st('connecting'), true)?.message, MSG_PENDING);
   assert.equal(outcomeFor(st('not_running'), false)?.needStart, true);
+  // stopped on purpose: neutral, nothing to start
+  assert.equal(outcomeFor(st('idle', { via: 'stfu' }), false)?.kind, 'info');
+  assert.ok(!outcomeFor(st('idle', { via: 'stfu' }), false)?.needStart);
 });
 
 test('success ends the wait at once', async () => {

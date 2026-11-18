@@ -105,6 +105,12 @@ type Ops struct {
 	// (default DefaultDVSTFUDropin).
 	DVSTFUDropin string
 	bmMu         sync.Mutex
+	// DVSTFULoginWait (default 10 s) and DVSTFULoginPoll (default 250 ms)
+	// bound the wait for STFU's login when ASLCP starts it on demand;
+	// DVSleep replaces the real sleep (tests).
+	DVSTFULoginWait time.Duration
+	DVSTFULoginPoll time.Duration
+	DVSleep         func(ctx context.Context, d time.Duration)
 	// DVBridgeLogDir holds Analog_Bridge.log (default /var/log/dvswitch).
 	DVBridgeLogDir string
 	// dvIDs caches DMR ID to callsign lookups (dvswitch_idlookup.go).

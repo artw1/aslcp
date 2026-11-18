@@ -106,7 +106,7 @@
   // Saved credentials only take effect after mmdvm_bridge restarts: restart that unit alone, then wait for a verdict.
   // DMR - Other logs in through mmdvm_bridge; BrandMeister (stfu) has its own section.
   const dmrUnit = 'mmdvm_bridge';
-  const bmOn = $derived(!!v?.brandmeister?.enabled);
+  const bmOn = $derived(!!v?.brandmeister?.configured);
   let confirmDmrClear = $state(false);
   async function verifyLogin() {
     const my = ++gen;
@@ -362,7 +362,7 @@
       </ul>
       <div class="flex flex-wrap items-center gap-2">
         <label class="sr-only" for="dv-scope">Scope</label>
-        <select id="dv-scope" class="input w-auto" bind:value={scope}><option value="dmr">DMR only ({bmOn ? 'MMDVM_Bridge and STFU' : 'MMDVM_Bridge'})</option><option value="bridge">Bridge (Analog_Bridge, MMDVM_Bridge)</option><option value="gateways">Gateways (YSF, P25, NXDN)</option><option value="all">All</option></select>
+        <select id="dv-scope" class="input w-auto" bind:value={scope}><option value="dmr">DMR only ({bmOn ? 'MMDVM_Bridge, and STFU while it runs' : 'MMDVM_Bridge'})</option><option value="bridge">Bridge (Analog_Bridge, MMDVM_Bridge)</option><option value="gateways">Gateways (YSF, P25, NXDN)</option><option value="all">All</option></select>
         <button class="btn" disabled={busy} onclick={() => run('start')} title="Start the units that are stopped">Start</button>
         <button class="btn btn-primary" disabled={busy} onclick={() => (confirmRestart = true)}>Restart</button>
       </div>
@@ -386,6 +386,6 @@
   </div>
 {/if}
 
-<Confirm bind:open={confirmRestart} title="Restart services?" confirmLabel="Restart" message={`This restarts the ${({ all: 'bridge and the gateways', bridge: 'bridge', dmr: bmOn ? 'DMR connections (MMDVM_Bridge and STFU)' : 'DMR master connection (MMDVM_Bridge)', gateways: 'gateways' } as const)[scope]}. ${WARNING}`} onconfirm={() => run('restart')} />
+<Confirm bind:open={confirmRestart} title="Restart services?" confirmLabel="Restart" message={`This restarts the ${({ all: 'bridge and the gateways', bridge: 'bridge', dmr: bmOn ? 'DMR connections (MMDVM_Bridge, and STFU while it runs)' : 'DMR master connection (MMDVM_Bridge)', gateways: 'gateways' } as const)[scope]}. ${WARNING}`} onconfirm={() => run('restart')} />
 <Confirm bind:open={confirmDmrClear} title="Clear the DMR - Other connection?" confirmLabel="Clear" message="This turns DMR - Other off ([DMR] and [DMR Network] Enable=0) and takes it off the panel. The address and the password stay; BrandMeister is not touched." onconfirm={clearDmr} />
 <Confirm bind:open={rbOpen} title="Restore the previous version?" confirmLabel="Restore" message={`${FILE_LABEL[rollbackFile] ?? rollbackFile} goes back to its previous version. Services pick it up on a restart.`} onconfirm={() => rollback(rollbackFile)} />

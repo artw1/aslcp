@@ -49,6 +49,7 @@ func cfgOps(t *testing.T) (*Ops, *fakeRunner) {
 	t.Helper()
 	f := &fakeRunner{rules: dvUnitRules(dvUnits...)}
 	o := dvOps(t, f)
+	o.DVSleep = func(context.Context, time.Duration) {} // never wait for a login for real
 	root := t.TempDir()
 	o.DVOptDir = filepath.Join(root, "opt")
 	o.DVHistoryDir = filepath.Join(root, "hist")

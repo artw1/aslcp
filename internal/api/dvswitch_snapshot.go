@@ -181,11 +181,14 @@ func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, i
 	}
 	sn.Installed = true
 	var enabled helper.DVModesView
-	bm := false
+	bm, stay := false, false
 	if v, ok := d.getSetup(ctx); ok {
 		enabled = v.Modes
-		bm = v.BrandMeister.Configured
+		bm, stay = v.BrandMeister.Configured, v.BrandMeister.StayLoggedIn
 	}
+	// On demand stfu runs only in BM mode: stopped otherwise, which is not a
+	// fault (stfuWanted).
+	stfuWanted := stay || infoErr == nil && info.Found && helper.DVPanelMode(info) == helper.DVModeBM
 	for _, m := range helper.DVTuneModes {
 		on := false
 		switch m {
@@ -207,7 +210,7 @@ func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, i
 		switch u.Name {
 		case "analog_bridge", "mmdvm_bridge":
 		case "stfu":
-			if !bm {
+			if !bm || !stfuWanted && u.Active != "active" {
 				continue
 			}
 		case "ysfgateway", "p25gateway", "nxdngateway":

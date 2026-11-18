@@ -219,13 +219,13 @@ export interface DVApplyResult { applied: boolean; kind: DVPlanKind; node: strin
 export interface DVRollbackResult { rolledBack: boolean; problems: string[]; steps: DVStep[] }
 /** Which service holds a DMR login (docs/DVSWITCH.md "BrandMeister and DMR - Other"): MMDVM_Bridge for DMR - Other, STFU for BrandMeister. */
 export type DVDMRVia = 'mmdvm_bridge' | 'stfu';
-/** The BrandMeister part of the setup view. `installed`: the stfu unit is there; `present`: DVSwitch.ini has [STFU]; `configured`: enabled, password saved and a 7-digit DMR ID, so the panel offers BM. The password only as `passwordSet`. */
+/** The BrandMeister part of the setup view. `installed`: the stfu unit is there; `present`: DVSwitch.ini has [STFU]; `enabled`: the unit starts at boot (only with `stayLoggedIn`); `stayLoggedIn`: STFU stays logged in outside BM mode (off: it runs only while BM is the active mode); `configured`: password saved and a 7-digit DMR ID, so the panel offers BM whether stfu runs or not. The password only as `passwordSet`. */
 export interface DVBMView {
-  installed: boolean; present: boolean; enabled: boolean; configured: boolean;
+  installed: boolean; present: boolean; enabled: boolean; stayLoggedIn: boolean; configured: boolean;
   server: string; port: number; talkerAlias: string; startTg: string; txPort: number; rxPort: number; passwordSet: boolean;
 }
 /** PUT /api/dvswitch/brandmeister. `password` is write-only; absent fields keep the saved values. */
-export interface DVBMReq { server?: string; password?: string; talkerAlias?: string; startTg?: string; base?: Record<string, string> }
+export interface DVBMReq { server?: string; password?: string; talkerAlias?: string; startTg?: string; stayLoggedIn?: boolean; base?: Record<string, string> }
 /** The [Info] section of MMDVM_Bridge.ini. `frequencyHz` is 0 when RX and TX differ; `stock` is true while the stock sample values are in place. */
 export interface DVInfoView { location: string; description: string; url: string; frequencyHz: number; rxHz: number; txHz: number; latitude: string; longitude: string; stock: boolean }
 /** What PUT /api/dvswitch/identity takes for [Info]: one frequency, written to both RX and TX. */
@@ -244,9 +244,11 @@ export interface DVSwitchSetup {
   bridgeNode: DVBridgeSetup;
   brandmeister: DVBMView;
   changed?: string[]; skipped?: string[]; restartHint?: string[];
+  /** After a BrandMeister save: STFU's login, checked by the helper before it stops STFU again. `stfuStopFailed`: it should be stopped and was not. */
+  bmLogin?: 'logged_in' | 'pending'; stfuStopFailed?: boolean;
 }
 /** GET /api/dvswitch/dmr-status (operator and admin; docs/API.md "DVSwitch DMR login status"). Never holds the password. */
-export type DVDMRState = 'not_installed' | 'disabled' | 'not_running' | 'connecting' | 'logged_in' | 'unknown' | 'login_failed' | 'timed_out' | 'socket_failed' | 'master_closing';
+export type DVDMRState = 'not_installed' | 'disabled' | 'idle' | 'not_running' | 'connecting' | 'logged_in' | 'unknown' | 'login_failed' | 'timed_out' | 'socket_failed' | 'master_closing';
 /** A transmission received from the network (STFU only). */
 export interface DVDMRRx { active: boolean; src?: string; dst?: string; group: boolean; time?: string; frames?: number }
 export interface DVDMRStatus { state: DVDMRState; via?: DVDMRVia; master?: string; at?: string; since?: string; lastLine?: string; rx?: DVDMRRx;
@@ -290,5 +292,6 @@ export type DVLinkMode = 'ondemand' | 'permanent';
 export interface DVLink { mode: DVLinkMode; localNode: string; linked: boolean; paused: boolean; exclusive: boolean }
 /** The reply of POST /api/dvswitch/mode, /unlink and /tune. */
 /** `left`: the mode a switch unlinked before leaving it (it reconnects when switched back). */
-export interface DVCmdReply { mode: string; switched: boolean; confirmed: boolean; left?: string; snapshot: DVSnapshot }
+/** `bmLoginPending`: BM was entered but STFU's login was not seen in time (the switch went ahead). `stfuStopFailed`: leaving BM, stfu could not be stopped. */
+export interface DVCmdReply { mode: string; switched: boolean; confirmed: boolean; left?: string; bmLoginPending?: boolean; stfuStopFailed?: boolean; snapshot: DVSnapshot }
 export interface DVFavorite { id: number; mode: DVTuneMode; value: string; name: string; sort: number }

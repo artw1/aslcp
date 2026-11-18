@@ -185,6 +185,9 @@ func (d *DemoDVSwitch) DVSwitchTune(_ context.Context, r DVSwitchRequest) (DVTun
 		d.resetLive(c)
 	}
 	res := DVTuneResult{Mode: t.Mode, Confirmed: true}
+	if t.Mode == DVModeBM && !d.stfu().stay && !d.stfuRunning() {
+		d.stfu().at = d.now() // started on demand; the login is simulated as seen
+	}
 	if c.live.panel != t.Mode {
 		res.Switched = true
 		// like the helper: the mode left is unlinked first when it was linked
@@ -420,7 +423,7 @@ func (d *DemoDVSwitch) DVSwitchRestart(_ context.Context, r DVSwitchRequest) (DV
 	if err := d.ready(); err != nil {
 		return DVRestartResult{}, err
 	}
-	if (r.Scope == "dmr" || r.Scope == "all") && d.stfu().enabled {
+	if (r.Scope == "dmr" || r.Scope == "all") && d.stfuRunning() {
 		units = append(append([]string{}, units...), dvSTFUUnit)
 	}
 	for _, u := range units {
@@ -461,7 +464,11 @@ func (d *DemoDVSwitch) DVSwitchDMRStatus(context.Context) (DVDMRStatus, error) {
 	res := d.demoMMDVMStatus()
 	if s := d.stfu(); s.installed {
 		bm := DVDMRStatus{State: DMRDisabled, Via: DVViaSTFU}
-		if s.enabled {
+		switch {
+		case !s.pwSet:
+		case !d.stfuRunning():
+			bm.State = DMRIdle // on demand: stopped while the panel is not in BM mode
+		default:
 			bm = d.demoSTFUStatus()
 		}
 		res.BM = &bm

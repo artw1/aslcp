@@ -5,7 +5,7 @@ import { bmBlocker, bmOptions, bmRequest, DEFAULT_STFU_SERVER, formError, formOf
 import { bridgeInUse, outcomeFor } from './dmrlogin.ts';
 import type { DVBMView, DVListItem, DVSTFUStatus } from './types';
 
-const view: DVBMView = { installed: true, present: true, enabled: true, configured: true, server: DEFAULT_STFU_SERVER, port: 54006, talkerAlias: 'N0CALL', startTg: '4000', txPort: 36100, rxPort: 36103, passwordSet: true };
+const view: DVBMView = { installed: true, present: true, enabled: false, stayLoggedIn: false, configured: true, server: DEFAULT_STFU_SERVER, port: 54006, talkerAlias: 'N0CALL', startTg: '4000', txPort: 36100, rxPort: 36103, passwordSet: true };
 const fresh: DVBMView = { ...view, enabled: false, configured: false, server: '', talkerAlias: '', startTg: '', passwordSet: false };
 
 const list: DVListItem[] = [
@@ -47,8 +47,8 @@ test('pickers: BrandMeister gets the BM masters on port 54006, DMR - Other the r
 });
 
 test('formOf and formError', () => {
-  assert.deepEqual(formOf(undefined), { server: DEFAULT_STFU_SERVER, password: '', talkerAlias: '', startTg: '4000' });
-  assert.deepEqual(formOf(view), { server: DEFAULT_STFU_SERVER, password: '', talkerAlias: 'N0CALL', startTg: '4000' });
+  assert.deepEqual(formOf(undefined), { server: DEFAULT_STFU_SERVER, password: '', talkerAlias: '', startTg: '4000', stayLoggedIn: false });
+  assert.deepEqual(formOf(view), { server: DEFAULT_STFU_SERVER, password: '', talkerAlias: 'N0CALL', startTg: '4000', stayLoggedIn: false });
   assert.equal(formError(formOf(view), true), '');
   assert.match(formError(formOf(fresh), false), /password/);
   assert.equal(formError({ ...formOf(fresh), password: 'example-pass' }, false), '');
@@ -60,10 +60,12 @@ test('formOf and formError', () => {
 
 test('bmRequest: what to save; the password only when typed', () => {
   assert.equal(bmRequest(view, formOf(view)), null);
-  // not enabled yet: saving the defaults turns it on
-  assert.deepEqual(bmRequest({ ...view, enabled: false }, formOf(view)), { server: DEFAULT_STFU_SERVER, startTg: '4000', talkerAlias: 'N0CALL' });
-  assert.deepEqual(bmRequest(view, { ...formOf(view), server: ' 3103.repeater.net ' }), { server: '3103.repeater.net', startTg: '4000', talkerAlias: 'N0CALL' });
-  assert.deepEqual(bmRequest(fresh, { ...formOf(fresh), password: 'example-pass' }), { server: DEFAULT_STFU_SERVER, startTg: '4000', password: 'example-pass' });
+  // no password saved yet: saving the defaults sets it up
+  assert.deepEqual(bmRequest({ ...view, passwordSet: false }, formOf(view)), { server: DEFAULT_STFU_SERVER, startTg: '4000', stayLoggedIn: false, talkerAlias: 'N0CALL' });
+  assert.deepEqual(bmRequest(view, { ...formOf(view), server: ' 3103.repeater.net ' }), { server: '3103.repeater.net', startTg: '4000', stayLoggedIn: false, talkerAlias: 'N0CALL' });
+  assert.deepEqual(bmRequest(fresh, { ...formOf(fresh), password: 'example-pass' }), { server: DEFAULT_STFU_SERVER, startTg: '4000', stayLoggedIn: false, password: 'example-pass' });
+  // the stay-logged-in checkbox alone is a change
+  assert.deepEqual(bmRequest(view, { ...formOf(view), stayLoggedIn: true }), { server: DEFAULT_STFU_SERVER, startTg: '4000', stayLoggedIn: true, talkerAlias: 'N0CALL' });
   assert.ok(!('password' in (bmRequest(view, { ...formOf(view), startTg: '91' }) ?? {})));
 });
 

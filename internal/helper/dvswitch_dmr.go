@@ -36,6 +36,7 @@ const (
 	DMRNotInstalled  = "not_installed"
 	DMRDisabled      = "disabled"
 	DMRNotRunning    = "not_running"
+	DMRIdle          = "idle" // BrandMeister only: stfu is stopped on purpose (the panel is not in BM mode)
 	DMRConnecting    = "connecting"
 	DMRLoggedIn      = "logged_in"
 	DMRUnknown       = "unknown" // running, but the log shows neither a login nor traffic
@@ -201,9 +202,9 @@ func (o *Ops) dvUnitStart(ctx context.Context, unit string) (loaded bool, active
 // top level and BrandMeister (STFU, from STFU.log) in BM.
 func (o *Ops) DVSwitchDMRStatus(ctx context.Context) (DVDMRStatus, error) {
 	res, err := o.dvMMDVMStatus(ctx)
-	if loaded, enabled := o.dvBMUnit(ctx); loaded {
+	if loaded, configured := o.dvBMConfigured(ctx); loaded {
 		bm := DVDMRStatus{State: DMRDisabled, Via: DVViaSTFU}
-		if enabled {
+		if configured {
 			bm = o.dvSTFUStatus(ctx)
 		}
 		res.BM = &bm

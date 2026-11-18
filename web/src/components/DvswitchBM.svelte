@@ -4,6 +4,7 @@
   import { onMount } from 'svelte';
   import { api, ApiError } from '../lib/api';
   import { toast } from '../lib/toast.svelte';
+  import { app } from '../lib/store.svelte';
   import { dvErrorMessage } from '../lib/dvmsg';
   import { badge, waitForLogin, type Outcome } from '../lib/dmrlogin';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
@@ -60,7 +61,8 @@
   const TONE = { ok: 'border-ok text-ok', warn: 'border-warn text-warn', danger: 'border-danger text-danger', muted: '' } as const;
   const KIND = { ok: 'border-ok text-ok', error: 'border-danger text-danger', warn: 'border-warn text-warn', info: 'border-line text-muted' } as const;
 
-  // After a save the helper has enabled and (re)started stfu: wait for its login verdict.
+  // After a save the helper restarted stfu and checked its login (bmLogin) before stopping it again, if it is not
+  // wanted. Watching the status therefore only makes sense while stfu keeps running.
   async function watch() {
     const my = ++gen;
     verify = { working: 'Waiting for BrandMeister…', outcome: null };
@@ -80,10 +82,16 @@
     busy = true;
     try {
       const s = await api.dvswitchBrandMeister({ ...r, base: base() });
-      toast('BrandMeister saved. STFU is enabled and started.', 'info');
+      const running = f.stayLoggedIn || app.dvswitch?.bridge.mode === 'BM';
+      toast(running ? 'BrandMeister saved. STFU is restarted.' : 'BrandMeister saved. STFU logs in when you switch to BM.', 'info');
       onsaved(s);
       busy = false;
-      await watch();
+      if (s.bmLogin === 'logged_in') verify = { working: '', outcome: { kind: 'ok', message: 'The login to BrandMeister works.' } };
+      else if (s.bmLogin === 'pending') {
+        if (running) await watch();
+        else verify = { working: '', outcome: { kind: 'warn', message: 'No BrandMeister login was seen in time: check the hotspot security password and the DMR ID.' } };
+      } else await watch();
+      if (s.stfuStopFailed) toast('STFU could not be stopped after the login check.', 'error');
     } catch (e) { failed(e); } finally { f.password = ''; busy = false; }
   }
   async function clear() {
@@ -99,7 +107,7 @@
     <h2 class="text-base font-semibold">BrandMeister</h2>
     <span class="badge {TONE[bd.tone]}" role="status" title={status?.lastLine ?? ''} data-testid="dv-bm-state">{bd.text}</span>
   </div>
-  <p class="text-xs text-muted">Through STFU, BrandMeister's Open DMR Terminal protocol. It runs next to DMR - Other; the panel switches between them. In BrandMeister SelfCare the connection is listed under DMR Terminals as "Open DMR Terminal".</p>
+  <p class="text-xs text-muted">Through STFU, BrandMeister's Open DMR Terminal protocol. It runs next to DMR - Other; the panel switches between them. STFU logs in only while BrandMeister is the active mode, so it does not take the connection from your phone app (BrandMeister keeps one login per DMR ID); choose "Stay logged in" to keep it logged in always. In BrandMeister SelfCare the connection is listed under DMR Terminals as "Open DMR Terminal".</p>
   {#if blocker}
     <p class="text-xs text-muted" role="status" data-testid="dv-stfu-blocker">{blocker}
       {#if stfu && !stfu.installed && stfu.job.job !== 'running'}<button type="button" class="btn btn-sm ml-2" disabled={busy || disabled || !stfu.canInstall} onclick={install}>Install STFU</button>{/if}
@@ -121,11 +129,15 @@
       <div class="sm:col-span-2"><label class="label" for="dv-bm-alias">Talker alias</label><input id="dv-bm-alias" class="input font-mono" bind:value={f.talkerAlias} maxlength={TALKER_ALIAS_MAX} placeholder={v.identity.callsign} /></div>
       <div><label class="label" for="dv-bm-tg">Start talkgroup</label><input id="dv-bm-tg" class="input font-mono" bind:value={f.startTg} inputmode="numeric" maxlength="8" /></div>
       <p class="text-xs text-muted sm:col-span-3">Logs in with your 7-digit DMR ID ({v.identity.dmrId || 'not set'}); the ESSID is not used.</p>
+      <div class="sm:col-span-3">
+        <label class="flex items-center gap-2 text-sm"><input id="dv-bm-stay" type="checkbox" bind:checked={f.stayLoggedIn} />Stay logged in when not in BM mode</label>
+        <p class="mt-1 text-xs text-muted">Off: STFU logs in only while BM is the active mode and is stopped otherwise, so another BrandMeister client with the same DMR ID (a phone app) keeps its connection. On: STFU is enabled at boot and always running.</p>
+      </div>
       {#if problem && (f.password || bm.passwordSet)}<p class="text-xs text-danger sm:col-span-3" role="alert">{problem}</p>{/if}
       <div class="flex flex-wrap items-center gap-2 sm:col-span-3">
         <button class="btn btn-primary" disabled={!!problem || !!verify.working}>Save BrandMeister</button>
-        {#if bm.enabled || bm.passwordSet}<button type="button" class="btn" disabled={!!verify.working} onclick={() => (confirmClear = true)}>Clear BrandMeister connection</button>{/if}
-        <span class="text-xs text-muted">Saving enables and restarts stfu only.</span>
+        {#if bm.configured || bm.passwordSet}<button type="button" class="btn" disabled={!!verify.working} onclick={() => (confirmClear = true)}>Clear BrandMeister connection</button>{/if}
+        <span class="text-xs text-muted">Saving restarts stfu only, to check the login.</span>
       </div>
     </fieldset>
   </form>

@@ -49,10 +49,10 @@ export function bmOptions(items: DVListItem[]): DVListItem[] {
 /** The DMR - Other master picker: every entry but the BrandMeister ones. */
 export const otherOptions = (items: DVListItem[]): DVListItem[] => items.filter((it) => !isBMItem(it));
 
-export interface BMForm { server: string; password: string; talkerAlias: string; startTg: string }
+export interface BMForm { server: string; password: string; talkerAlias: string; startTg: string; stayLoggedIn: boolean }
 
 export function formOf(b: DVBMView | undefined): BMForm {
-  return { server: b?.server || DEFAULT_STFU_SERVER, password: '', talkerAlias: b?.talkerAlias ?? '', startTg: b?.startTg || DEFAULT_START_TG };
+  return { server: b?.server || DEFAULT_STFU_SERVER, password: '', talkerAlias: b?.talkerAlias ?? '', startTg: b?.startTg || DEFAULT_START_TG, stayLoggedIn: !!b?.stayLoggedIn };
 }
 
 /** The first problem with the form, or ''. passwordSet: a password is saved already, so the field may stay empty. */
@@ -64,13 +64,13 @@ export function formError(f: BMForm, passwordSet: boolean): string {
   return '';
 }
 
-/** The PUT /api/dvswitch/brandmeister body; null when BrandMeister is enabled and nothing differs. The password only when typed. */
+/** The PUT /api/dvswitch/brandmeister body; null when BrandMeister is set up and nothing differs. The password only when typed. */
 export function bmRequest(saved: DVBMView | undefined, f: BMForm): Omit<DVBMReq, 'base'> | null {
   const was = formOf(saved);
   const server = f.server.trim(), startTg = f.startTg.trim(), alias = f.talkerAlias;
-  const same = was.server === server && (alias === '' || was.talkerAlias === alias) && was.startTg === startTg && !f.password;
-  if (same && saved?.enabled) return null;
-  return { server, startTg, ...(alias ? { talkerAlias: alias } : {}), ...(f.password ? { password: f.password } : {}) };
+  const same = was.server === server && (alias === '' || was.talkerAlias === alias) && was.startTg === startTg && was.stayLoggedIn === f.stayLoggedIn && !f.password;
+  if (same && saved?.passwordSet) return null;
+  return { server, startTg, stayLoggedIn: f.stayLoggedIn, ...(alias ? { talkerAlias: alias } : {}), ...(f.password ? { password: f.password } : {}) };
 }
 
 /** Why BrandMeister cannot be saved yet, or ''. */

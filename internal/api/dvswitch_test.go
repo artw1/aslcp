@@ -655,6 +655,13 @@ func TestDVSwitchBrandMeister(t *testing.T) {
 	if c := e.do("admin", "PUT", "/api/dvswitch/brandmeister", map[string]any{"startTg": "91"}, nil); c != 200 || f.last.BM.Password != nil {
 		t.Fatalf("%d %+v", c, f.last.BM)
 	}
+	// the stay-logged-in setting: passed on and audited
+	if c := e.do("admin", "PUT", "/api/dvswitch/brandmeister", map[string]any{"stayLoggedIn": true}, nil); c != 200 || f.last.BM.StayLoggedIn == nil || !*f.last.BM.StayLoggedIn {
+		t.Fatalf("stay: %d %+v", c, f.last.BM)
+	}
+	if aud, _ := e.st.ListAudit(50); !strings.Contains(fmt.Sprint(aud), "dvswitch.brandmeister.stay") {
+		t.Error("audit lacks dvswitch.brandmeister.stay")
+	}
 	if c := e.do("admin", "DELETE", "/api/dvswitch/brandmeister", nil, nil); c != 200 || f.last.BM == nil || f.last.BM.Action != helper.DVBMClear {
 		t.Fatalf("clear: %d %+v", c, f.last)
 	}

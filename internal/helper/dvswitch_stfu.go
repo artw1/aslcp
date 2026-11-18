@@ -111,6 +111,10 @@ type DVBM struct {
 	Password    *string `json:"password,omitempty"`
 	TalkerAlias *string `json:"talkerAlias,omitempty"`
 	StartTG     *string `json:"startTg,omitempty"`
+	// StayLoggedIn (nil keeps the saved value, default off) keeps STFU
+	// enabled and running in every panel mode; off, STFU runs only while the
+	// panel is in BM mode (dvswitch_stfu_demand.go).
+	StayLoggedIn *bool `json:"stayLoggedIn,omitempty"`
 }
 
 func (o *Ops) dvSTFULogPath() string    { return orDefault(o.DVSTFULog, DefaultDVSTFULog) }
@@ -210,34 +214,58 @@ func dvPasswordSet(pw string) bool { return pw != "" && pw != dvStockPassword &&
 
 // DVBMView is the BrandMeister part of the setup view. Installed: the stfu
 // unit is there; Present: DVSwitch.ini has [STFU]; Enabled: the unit is
-// enabled. Configured: all of these, a saved password and a 7-digit UserID:
-// the panel offers BrandMeister. The password only as PasswordSet.
+// enabled at boot (only with StayLoggedIn: on demand it stays disabled).
+// Configured: installed, present, a saved password and a 7-digit UserID: the
+// panel offers BrandMeister, whether stfu runs or not. StayLoggedIn: STFU
+// stays logged in outside BM mode. The password only as PasswordSet.
 type DVBMView struct {
-	Installed   bool   `json:"installed"`
-	Present     bool   `json:"present"`
-	Enabled     bool   `json:"enabled"`
-	Configured  bool   `json:"configured"`
-	Server      string `json:"server"`
-	Port        int    `json:"port"`
-	TalkerAlias string `json:"talkerAlias"`
-	StartTG     string `json:"startTg"`
-	TxPort      int    `json:"txPort"`
-	RxPort      int    `json:"rxPort"`
-	PasswordSet bool   `json:"passwordSet"`
+	Installed    bool   `json:"installed"`
+	Present      bool   `json:"present"`
+	Enabled      bool   `json:"enabled"`
+	StayLoggedIn bool   `json:"stayLoggedIn"`
+	Configured   bool   `json:"configured"`
+	Server       string `json:"server"`
+	Port         int    `json:"port"`
+	TalkerAlias  string `json:"talkerAlias"`
+	StartTG      string `json:"startTg"`
+	TxPort       int    `json:"txPort"`
+	RxPort       int    `json:"rxPort"`
+	PasswordSet  bool   `json:"passwordSet"`
 }
 
 // dvBMUnit reports whether the stfu unit is loaded and enabled.
 func (o *Ops) dvBMUnit(ctx context.Context) (loaded, enabled bool) {
-	for _, u := range o.dvUnitStates(ctx) {
-		if u.Name == dvSTFUUnit {
-			return u.Loaded, u.Loaded && u.Enabled == "enabled"
-		}
-	}
-	return false, false
+	loaded, enabled, _ = o.dvBMUnitState(ctx)
+	return loaded, enabled
 }
 
-func dvBMView(dv *ini.File, loaded, enabled bool) DVBMView {
-	v := DVBMView{Installed: loaded, Enabled: enabled}
+// dvBMUnitState is dvBMUnit plus whether the unit is active.
+func (o *Ops) dvBMUnitState(ctx context.Context) (loaded, enabled, active bool) {
+	for _, u := range o.dvUnitStates(ctx) {
+		if u.Name == dvSTFUUnit {
+			return u.Loaded, u.Loaded && u.Enabled == "enabled", u.Loaded && dvUnitRunning(u.Active)
+		}
+	}
+	return false, false, false
+}
+
+// dvBMConfigured reports whether the stfu unit is loaded and BrandMeister is
+// configured (see DVBMView), whatever the unit's state.
+func (o *Ops) dvBMConfigured(ctx context.Context) (loaded, configured bool) {
+	loaded, enabled := o.dvBMUnit(ctx)
+	if !loaded {
+		return false, false
+	}
+	def, _ := dvFileByID(DVFileDVSwitch)
+	st, err := o.dvRead(def)
+	if err != nil || !st.regular {
+		return true, false
+	}
+	return true, dvBMView(ini.Parse(st.data), loaded, enabled, o.dvSTFUStay()).Configured
+}
+
+func dvBMView(dv *ini.File, loaded, enabled, stay bool) DVBMView {
+	v := DVBMView{Installed: loaded, Enabled: enabled, StayLoggedIn: stay}
 	if dv == nil || !dv.HasSection(dvSTFUSection) {
 		return v
 	}
@@ -247,7 +275,7 @@ func dvBMView(dv *ini.File, loaded, enabled bool) DVBMView {
 	v.Server, v.Port, v.TalkerAlias, v.StartTG = get("BMAddress"), atoi(get("BMPort")), get("TalkerAlias"), get("StartTG")
 	v.TxPort, v.RxPort = atoi(get("txPort")), atoi(get("rxPort"))
 	v.PasswordSet = dvPasswordSet(get("BMPassword"))
-	v.Configured = loaded && enabled && v.PasswordSet && reDVDigits7.MatchString(get("UserID"))
+	v.Configured = loaded && v.PasswordSet && reDVDigits7.MatchString(get("UserID"))
 	return v
 }
 
@@ -398,6 +426,11 @@ func (o *Ops) dvBMSave(ctx context.Context, b *DVBM, base map[string]string) (DV
 	if b.StartTG != nil {
 		startTG = *b.StartTG
 	}
+	prevStay := o.dvSTFUStay()
+	stay := prevStay
+	if b.StayLoggedIn != nil {
+		stay = *b.StayLoggedIn
+	}
 	oldPorts := dvSectionPorts(f.dv, dvSTFUSection)
 	set := func(k, v string) dvChange { return dvChange{DVFileDVSwitch, dvSTFUSection, k, v} }
 	ch := []dvChange{
@@ -414,20 +447,28 @@ func (o *Ops) dvBMSave(ctx context.Context, b *DVBM, base map[string]string) (DV
 		ch = append(ch, set("BMPassword", *b.Password))
 	}
 
-	_, wasEnabled := o.dvBMUnit(ctx)
+	_, wasEnabled, wasActive := o.dvBMUnitState(ctx)
 	res, err := o.dvApply(ctx, ch, base)
 	if err != nil {
 		return res, err
 	}
 	_, dropErr := os.Lstat(o.dvSTFUDropinPath())
 	hadDropin := dropErr == nil
+	// On demand (the default) the unit stays disabled and ASLCP starts it
+	// when the panel enters BM; with "stay logged in" it is enabled.
+	boot := "disable"
+	if stay {
+		boot = "enable"
+	}
 	step := ""
 	switch {
 	case o.dvSTFULogPrep() != nil:
 		step = "log"
 	case !o.dvSTFUDropinWrite(ctx):
 		step = "umask"
-	case !o.dvSystemctl(ctx, "enable", dvSTFUUnit+".service") || !o.dvSystemctl(ctx, "restart", dvSTFUUnit+".service"):
+	case o.dvSTFUStaySet(stay) != nil:
+		step = "state"
+	case !o.dvSystemctl(ctx, boot, dvSTFUUnit+".service") || !o.dvSystemctl(ctx, "restart", dvSTFUUnit+".service"):
 		step = dvSTFUUnit
 	}
 	if step != "" {
@@ -435,9 +476,15 @@ func (o *Ops) dvBMSave(ctx context.Context, b *DVBM, base map[string]string) (DV
 		if !hadDropin {
 			o.dvSTFUDropinRemove(ctx)
 		}
-		if wasEnabled {
+		_ = o.dvSTFUStaySet(prevStay)
+		switch {
+		case wasEnabled:
+			o.dvSystemctl(ctx, "enable", dvSTFUUnit+".service")
 			o.dvSystemctl(ctx, "restart", dvSTFUUnit+".service")
-		} else {
+		case wasActive:
+			o.dvSystemctl(ctx, "disable", dvSTFUUnit+".service")
+			o.dvSystemctl(ctx, "restart", dvSTFUUnit+".service")
+		default:
 			o.dvSystemctl(ctx, "disable", "--now", dvSTFUUnit+".service")
 		}
 		return DVApplyResult{}, fmt.Errorf("%w (%s)", ErrDVSwitchFailed, step)
@@ -446,6 +493,7 @@ func (o *Ops) dvBMSave(ctx context.Context, b *DVBM, base map[string]string) (DV
 		o.dvRepointDMR(ctx, oldPorts, dvSTFUTx, dvSTFURx)
 	}
 	res.RestartHint = []string{}
+	res.BMLogin, res.STFUStopFailed = o.dvBMVerify(ctx, stay)
 	return res, nil
 }
 
@@ -498,6 +546,7 @@ func (o *Ops) dvBMClear(ctx context.Context, base map[string]string) (DVApplyRes
 		return DVApplyResult{}, fmt.Errorf("%w (%s)", ErrDVSwitchFailed, dvSTFUUnit)
 	}
 	o.dvSTFUDropinRemove(ctx)
+	_ = o.dvSTFUStaySet(false)
 	if stfu[0] != 0 && dmr[0] != 0 && dmr[1] != 0 {
 		o.dvRepointDMR(ctx, stfu, dmr[0], dmr[1])
 	}
@@ -785,7 +834,7 @@ type DVDMRRx struct {
 }
 
 var (
-	reSTFULine    = regexp.MustCompile(`^[A-Z][:0-9] ([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})\.[0-9]{3} ([\x20-\x7e]{1,300})$`)
+	reSTFULine    = regexp.MustCompile(`^[A-Z][:0-9] ([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})\.[0-9]{3} ([\x20-\x7e]+)$`)
 	reSTFUConnect = regexp.MustCompile(`Connecting to STFU server at address: ?([A-Za-z0-9.-]{1,253}:[0-9]{1,5})`)
 	reSTFURxBegin = regexp.MustCompile(`ODMR Begin Tx: src = ([0-9]{1,8}), dst = ([0-9]{1,8}) \(([A-Z]{1,10})\)`)
 	reSTFUFrames  = regexp.MustCompile(`frame count was ([0-9]{1,7}) frames`)
@@ -795,6 +844,24 @@ var (
 // the BM password among them, at startup): nothing after this sees one.
 func dvSTFUSafe(line string) bool {
 	return !strings.Contains(strings.ToLower(line), "password")
+}
+
+// dvSTFUMsgMax bounds the message of a log line, after dvSTFUClean.
+const dvSTFUMsgMax = 300
+
+// dvSTFUClean keeps the printable ASCII bytes (0x20-0x7e) of a log line and
+// drops the rest, invalid UTF-8 included. STFU prints the server's IP address
+// after "Successful connection to BM server at ip address:" as raw bytes, so
+// the line carries binary junk (even a newline) that no terminal shows; the
+// line must still count.
+func dvSTFUClean(line string) string {
+	b := make([]byte, 0, len(line))
+	for i := 0; i < len(line); i++ {
+		if c := line[i]; c >= 0x20 && c <= 0x7e {
+			b = append(b, c)
+		}
+	}
+	return string(b)
 }
 
 // parseSTFULog scans STFU.log text in order. Logged in: the latest
@@ -816,8 +883,10 @@ func parseSTFULog(data []byte, cur *DVDMRStatus) (sawConnect bool) {
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(make([]byte, 0, 64<<10), dvLogMaxLine)
 	for sc.Scan() {
-		line := strings.TrimRight(sc.Text(), "\r")
-		if !dvSTFUSafe(line) {
+		raw := sc.Text()
+		line := dvSTFUClean(raw)
+		// checked on both: control bytes inside a word must not hide it
+		if !dvSTFUSafe(raw) || !dvSTFUSafe(line) {
 			continue
 		}
 		m := reSTFULine.FindStringSubmatch(line)
@@ -825,7 +894,15 @@ func parseSTFULog(data []byte, cur *DVDMRStatus) (sawConnect bool) {
 			continue
 		}
 		msg := m[2]
+		if len(msg) > dvSTFUMsgMax {
+			msg = msg[:dvSTFUMsgMax]
+		}
 		switch {
+		case strings.Contains(msg, "Setting [STFU]"):
+			// STFU logs its settings first thing after a start: what came
+			// before belongs to an earlier run (it is restarted on demand).
+			sawConnect, traffic = true, false
+			cur.State, cur.LastLine, cur.Master, cur.RX = DMRConnecting, "Starting", "", nil
 		case strings.Contains(msg, "Connecting to STFU server"):
 			sawConnect, traffic = true, false
 			cur.State, cur.LastLine, cur.Master = DMRConnecting, dvRedact(msg), ""
@@ -836,6 +913,10 @@ func parseSTFULog(data []byte, cur *DVDMRStatus) (sawConnect bool) {
 				cur.RX.Active = false
 			}
 		case strings.Contains(msg, "Successful connection to BM server"):
+			// nothing after "ip address:" is text
+			if i := strings.Index(msg, "ip address:"); i >= 0 {
+				msg = msg[:i+len("ip address:")]
+			}
 			cur.State, cur.LastLine = DMRLoggedIn, dvRedact(msg)
 		case strings.Contains(msg, "ODMR Begin Tx:"):
 			traffic = true
@@ -865,7 +946,10 @@ func (o *Ops) dvSTFUStatus(ctx context.Context) DVDMRStatus {
 	if !since.IsZero() {
 		res.Since = since.Format(time.RFC3339)
 	}
-	if active != "active" && active != "activating" && active != "reloading" {
+	if !dvUnitRunning(active) {
+		if !o.dvSTFUWanted(ctx) {
+			res.State = DMRIdle // on demand: stopped because the panel is not in BM mode
+		}
 		return res
 	}
 	res.State = DMRConnecting

@@ -431,6 +431,12 @@ type DVApplyResult struct {
 	RestartHint []string `json:"restartHint"`
 	// Hashes of the changed files after the write.
 	Hashes map[string]string `json:"hashes"`
+	// BMLogin (BrandMeister save only): "logged_in" when STFU's login was
+	// seen after the restart (the check ran before STFU was stopped again,
+	// if it was), "pending" when it was not seen in time.
+	BMLogin string `json:"bmLogin,omitempty"`
+	// STFUStopFailed: STFU should be stopped again and could not be.
+	STFUStopFailed bool `json:"stfuStopFailed,omitempty"`
 }
 
 type dvChange struct{ file, section, key, value string }
@@ -1150,7 +1156,7 @@ func (o *Ops) DVSwitchSetup(ctx context.Context) (DVSwitchSetup, error) {
 	v.DMR.Enabled = v.Modes.DMR
 	v.DMR.PointsAtBM = vHostname(v.DMR.Address) && o.dvIsBMHost(v.DMR.Address)
 	loaded, enabled := o.dvBMUnit(ctx)
-	v.BrandMeister = dvBMView(parsed[DVFileDVSwitch], loaded, enabled)
+	v.BrandMeister = dvBMView(parsed[DVFileDVSwitch], loaded, enabled, o.dvSTFUStay())
 
 	v.Startup = DVStartupView{AmbeMode: get(DVFileAnalogBridge, "AMBE_AUDIO", "ambeMode"), TxTg: get(DVFileAnalogBridge, "AMBE_AUDIO", "txTg"),
 		TxTs: atoi(get(DVFileAnalogBridge, "AMBE_AUDIO", "txTs")), ColorCode: atoi(get(DVFileAnalogBridge, "AMBE_AUDIO", "colorCode"))}

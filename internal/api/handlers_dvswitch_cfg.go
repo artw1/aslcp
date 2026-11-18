@@ -25,6 +25,11 @@ type dvSetupReply struct {
 	RestartHint []string            `json:"restartHint,omitempty"`
 	// BridgeNode is what the "Bridge node" section needs (M2).
 	BridgeNode DVBridgeSetup `json:"bridgeNode"`
+	// BMLogin (BrandMeister save): "logged_in" or "pending", STFU's login
+	// after the restart. STFUStopFailed: STFU should be stopped again and
+	// was not.
+	BMLogin        string `json:"bmLogin,omitempty"`
+	STFUStopFailed bool   `json:"stfuStopFailed,omitempty"`
 }
 
 func (s *Server) dvSetupView(w http.ResponseWriter, r *http.Request, res *helper.DVApplyResult) {
@@ -42,6 +47,7 @@ func (s *Server) dvSetupView(w http.ResponseWriter, r *http.Request, res *helper
 	}
 	if res != nil {
 		reply.Changed, reply.Skipped, reply.RestartHint = res.Files, res.Skipped, res.RestartHint
+		reply.BMLogin, reply.STFUStopFailed = res.BMLogin, res.STFUStopFailed
 	}
 	writeJSON(w, 200, reply)
 }
@@ -172,9 +178,11 @@ func (s *Server) handleDVSwitchModes(w http.ResponseWriter, r *http.Request, u s
 }
 
 // handleDVSwitchBMSave: PUT /api/dvswitch/brandmeister {server, password,
-// talkerAlias, startTg, base}. Writes [STFU], enables and starts stfu. The
-// password (write-only, omitted keeps the saved one) never reaches the audit
-// or the log: they name the keys only.
+// talkerAlias, startTg, stayLoggedIn, base}. Writes [STFU], restarts stfu to
+// check the login and leaves it running only while the panel is in BM mode
+// or stayLoggedIn is set (then it is also enabled). The password (write-only,
+// omitted keeps the saved one) never reaches the audit or the log: they name
+// the keys only.
 func (s *Server) handleDVSwitchBMSave(w http.ResponseWriter, r *http.Request, u store.User) {
 	if s.d.DVSwitch == nil {
 		s.dvswitchError(w, errDVUnavailable)
@@ -185,6 +193,7 @@ func (s *Server) handleDVSwitchBMSave(w http.ResponseWriter, r *http.Request, u 
 		Password    *string           `json:"password"`
 		TalkerAlias *string           `json:"talkerAlias"`
 		StartTG     *string           `json:"startTg"`
+		Stay        *bool             `json:"stayLoggedIn"`
 		Base        map[string]string `json:"base"`
 	}
 	if !decode(w, r, &b, false) {
@@ -194,14 +203,23 @@ func (s *Server) handleDVSwitchBMSave(w http.ResponseWriter, r *http.Request, u 
 	for _, k := range []struct {
 		n  string
 		on bool
-	}{{"server", b.Server != ""}, {"password", b.Password != nil}, {"talkerAlias", b.TalkerAlias != nil}, {"startTg", b.StartTG != nil}} {
+	}{{"server", b.Server != ""}, {"password", b.Password != nil}, {"talkerAlias", b.TalkerAlias != nil}, {"startTg", b.StartTG != nil}, {"stayLoggedIn", b.Stay != nil}} {
 		if k.on {
 			keys = append(keys, k.n)
 		}
 	}
 	s.dvWrite(w, r, u, "dvswitch.brandmeister", keys, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
-		return s.d.DVSwitch.DVSwitchBM(r.Context(), helper.DVSwitchRequest{Base: b.Base, Author: u.Username,
-			BM: &helper.DVBM{Action: helper.DVBMSave, Server: b.Server, Password: b.Password, TalkerAlias: b.TalkerAlias, StartTG: b.StartTG}})
+		res, err := s.d.DVSwitch.DVSwitchBM(r.Context(), helper.DVSwitchRequest{Base: b.Base, Author: u.Username,
+			BM: &helper.DVBM{Action: helper.DVBMSave, Server: b.Server, Password: b.Password, TalkerAlias: b.TalkerAlias, StartTG: b.StartTG, StayLoggedIn: b.Stay}})
+		if err == nil {
+			if b.Stay != nil {
+				s.audit(u, "dvswitch.brandmeister.stay", map[string]any{"stayLoggedIn": *b.Stay})
+			}
+			if res.STFUStopFailed {
+				s.d.Logger.Printf("dvswitch.brandmeister: stfu could not be stopped after the login check")
+			}
+		}
+		return res, err
 	})
 }
 
