@@ -8,14 +8,17 @@
   import { badge, bridgeInUse, IDLE_POLL_MS, outcomeFor, waitForLogin, type Outcome } from '../lib/dmrlogin';
   import { credentialsPatch, dvErrorMessage, formChanged } from '../lib/dvmsg';
   import { findByValue, indexList, optionLabel, searchList } from '../lib/dvlist';
+  import { freqToHz, hzToMHz, validCoord, validInfoText, validInfoUrl } from '../lib/dvpanel';
   import { ambeModeFor, cardPatch, lastUsed, MODE_LABEL, nextTab, resumeHint, startupModeOf, STARTUP_MODES, type StartupMode } from '../lib/dvstartup';
   import Confirm from './Confirm.svelte';
   import NodePicker from './NodePicker.svelte';
   import DvswitchBridge from './DvswitchBridge.svelte';
+  import DvswitchBM from './DvswitchBM.svelte';
+  import { isBMHost, otherOptions } from '../lib/dvbm';
 
   let { units, onunits }: { units: DVSwitchStatus['units']; onunits: (u: DVSwitchStatus['units']) => void } = $props();
 
-  const FILE_LABEL: Record<string, string> = { analog_bridge: 'Analog_Bridge.ini', mmdvm_bridge: 'MMDVM_Bridge.ini', ysfgateway: 'YSFGateway.ini', p25gateway: 'P25Gateway.ini', nxdngateway: 'NXDNGateway.ini' };
+  const FILE_LABEL: Record<string, string> = { analog_bridge: 'Analog_Bridge.ini', mmdvm_bridge: 'MMDVM_Bridge.ini', ysfgateway: 'YSFGateway.ini', p25gateway: 'P25Gateway.ini', nxdngateway: 'NXDNGateway.ini', dvswitch: 'DVSwitch.ini' };
   const WARNING = 'A restart resets the running mode and talkgroup to the startup values.';
 
   let v = $state<DVSwitchSetup | null>(null), err = $state(''), busy = $state(false);
@@ -24,7 +27,8 @@
   // its field is then plain text, which is always allowed.
   const MODES: DVListMode[] = ['dmr', 'ysf', 'p25', 'nxdn'];
   let lists = $state<Record<DVListMode, DVListItem[]>>({ dmr: [], ysf: [], p25: [], nxdn: [] });
-  const index = $derived({ dmr: indexList(lists.dmr), ysf: indexList(lists.ysf), p25: indexList(lists.p25), nxdn: indexList(lists.nxdn) });
+  // DMR - Other never offers a BrandMeister master: those belong to the BrandMeister section.
+  const index = $derived({ dmr: indexList(otherOptions(lists.dmr)), ysf: indexList(lists.ysf), p25: indexList(lists.p25), nxdn: indexList(lists.nxdn) });
   const find = (m: DVListMode) => (t: string) => searchList(index[m], t);
   const label = (m: DVListMode) => (o: DVListItem) => optionLabel(m, o);
   async function loadLists() {
@@ -32,6 +36,8 @@
   }
   const hit = (m: Exclude<DVListMode, 'dmr'>, value: string) => findByValue(lists[m], value);
   let id = $state({ callsign: '', dmrId: '', essid: '', nxdnId: '' });
+  // [Info] of MMDVM_Bridge.ini. The frequency is typed in MHz (or Hz) and written to both RXFrequency and TXFrequency.
+  let info = $state({ location: '', description: '', url: '', freq: '', lat: '', lon: '' });
   let net = $state({ address: '', port: '', password: '' });
   let clearPw = $state(false);
   let modes = $state({ dmr: false, ysf: false, p25: false, nxdn: false });
@@ -57,17 +63,19 @@
   let confirmRestart = $state(false), rbOpen = $state(false), rollbackFile = $state('');
 
   // The form as loaded: a save with nothing different sends nothing.
-  let snap = $state.raw({ id: { callsign: '', dmrId: '', essid: '', nxdnId: '' }, net: { address: '', port: '', password: '' }, modes: { dmr: false, ysf: false, p25: false, nxdn: false }, st: { ambeMode: 'DMR', txTg: '', txTs: '2', colorCode: '1', ysf: '', p25: '', nxdn: '' } });
+  let snap = $state.raw({ id: { callsign: '', dmrId: '', essid: '', nxdnId: '' }, info: { location: '', description: '', url: '', freq: '', lat: '', lon: '' }, net: { address: '', port: '', password: '' }, modes: { dmr: false, ysf: false, p25: false, nxdn: false }, st: { ambeMode: 'DMR', txTg: '', txTs: '2', colorCode: '1', ysf: '', p25: '', nxdn: '' } });
   function fill(s: DVSwitchSetup) {
     v = s;
     id = { callsign: s.identity.callsign, dmrId: s.identity.dmrId, essid: s.identity.essid, nxdnId: s.identity.nxdnId ?? '' };
+    const i = s.identity.info;
+    info = i ? { location: i.location, description: i.description, url: i.url, freq: hzToMHz(i.frequencyHz), lat: i.latitude, lon: i.longitude } : { location: '', description: '', url: '', freq: '', lat: '', lon: '' };
     net = { address: s.dmr.address, port: s.dmr.port ? String(s.dmr.port) : '', password: '' };
     clearPw = false;
     modes = { ...s.modes };
     st = { ambeMode: s.startup.ambeMode || 'DMR', txTg: s.startup.txTg, txTs: String(s.startup.txTs || 2), colorCode: String(s.startup.colorCode), ysf: s.gateways.ysf.startup, p25: s.gateways.p25.startup, nxdn: s.gateways.nxdn.startup };
     choice = startupModeOf(st.ambeMode);
     if (!tabSet) { tabSet = true; tab = choice; }
-    snap = { id: { ...id }, net: { ...net }, modes: { ...modes }, st: { ...st } };
+    snap = { id: { ...id }, info: { ...info }, net: { ...net }, modes: { ...modes }, st: { ...st } };
   }
   async function load() { try { fill(await api.dvswitchSetup()); err = ''; } catch (e) { err = e instanceof Error ? e.message : String(e); } }
 
@@ -96,28 +104,34 @@
     verify = { working: '', outcome: r.outcome };
   }
   // Saved credentials only take effect after mmdvm_bridge restarts: restart that unit alone, then wait for a verdict.
+  // DMR - Other logs in through mmdvm_bridge; BrandMeister (stfu) has its own section.
+  const dmrUnit = 'mmdvm_bridge';
+  const bmOn = $derived(!!v?.brandmeister?.configured);
+  let confirmDmrClear = $state(false);
   async function verifyLogin() {
     const my = ++gen;
     const done = (outcome: Outcome) => { verify = { working: '', outcome }; };
     if (!v?.modes.dmr) { done(outcomeFor({ state: 'disabled' }, true)!); return; }
-    const { inUse, running } = bridgeInUse(units);
-    if (!inUse) { done({ kind: 'info', message: 'Saved. mmdvm_bridge is neither enabled nor running, so the login was not tried.' }); return; }
-    if (!running) { done({ kind: 'warn', message: 'Saved. mmdvm_bridge is not running, so the login has not been tried.', needStart: true }); return; }
-    verify = { working: 'Restarting mmdvm_bridge…', outcome: null };
+    const unit = dmrUnit;
+    const { inUse, running } = bridgeInUse(units, unit);
+    if (!inUse) { done({ kind: 'info', message: `Saved. ${unit} is neither enabled nor running, so the login was not tried.` }); return; }
+    if (!running) { done({ kind: 'warn', message: `Saved. ${unit} is not running, so the login has not been tried.`, needStart: true }); return; }
+    verify = { working: `Restarting ${unit}…`, outcome: null };
     try {
       const r = await api.dvswitchDmrRestart('restart');
       onunits(r.states);
-      hint = hint.filter((h) => h !== 'mmdvm_bridge');
+      hint = hint.filter((h) => h !== 'mmdvm_bridge' && h !== unit);
     } catch (e) { verify = { working: '', outcome: null }; toastError(e); return; }
     await watch(my);
   }
   async function startBridge() {
     const my = ++gen;
-    verify = { working: 'Starting mmdvm_bridge…', outcome: null };
+    const unit = dmrUnit;
+    verify = { working: `Starting ${unit}…`, outcome: null };
     try {
       const r = await api.dvswitchDmrRestart('start');
       onunits(r.states);
-      hint = hint.filter((h) => h !== 'mmdvm_bridge');
+      hint = hint.filter((h) => h !== 'mmdvm_bridge' && h !== unit);
     } catch (e) { verify = { working: '', outcome: null }; toastError(e); return; }
     await watch(my);
   }
@@ -141,13 +155,51 @@
       else toast(dvErrorMessage(e), 'error');
     } finally { busy = false; }
   }
-  const saveIdentity = () => formChanged(snap.id, id) ? save('Identity', () => api.dvswitchIdentity({ ...id, nxdnId: id.nxdnId.trim() || undefined, base: base() }), true) : noChanges('Identity');
+  // The first invalid [Info] field, or '' when all are fine (the server checks the same rules again).
+  const infoProblem = $derived.by(() => {
+    if (!validInfoText(info.location.trim(), 20)) return 'Location: 1 to 20 characters, letters or digits first, none of ; # = "';
+    if (!validInfoText(info.description.trim(), 19)) return 'Description: 1 to 19 characters, letters or digits first, none of ; # = "';
+    if (!validInfoUrl(info.url.trim())) return 'URL: empty, or http:// or https:// without spaces';
+    if (freqToHz(info.freq) === null) return 'Frequency: 30 to 3000 MHz';
+    const a = info.lat.trim(), o = info.lon.trim();
+    if ((a || o) && !(validCoord(a, 90) && validCoord(o, 180))) return 'Latitude -90 to 90 and longitude -180 to 180, both or neither';
+    return '';
+  });
+  const infoChanged = $derived(formChanged(snap.info, info));
+  const infoBody = () => {
+    const a = info.lat.trim(), o = info.lon.trim();
+    return { location: info.location.trim(), description: info.description.trim(), url: info.url.trim() || undefined, frequencyHz: freqToHz(info.freq) ?? 0, latitude: a || undefined, longitude: o || undefined };
+  };
+  function saveIdentity() {
+    const idChanged = formChanged(snap.id, id);
+    if (!idChanged && !infoChanged) return noChanges('Identity');
+    if (infoChanged && infoProblem) { toast(infoProblem, 'error'); return; }
+    return save('Identity', () => api.dvswitchIdentity({ ...id, nxdnId: id.nxdnId.trim() || undefined, info: infoChanged ? infoBody() : undefined, base: base() }), true);
+  }
   function saveNet() {
     const p = credentialsPatch(snap.net, net, clearPw);
     if (!p) return noChanges('DMR master');
+    if (p.dmrAddress && isBMHost(p.dmrAddress, lists.dmr)) { toast('That is a BrandMeister master: set it up under BrandMeister instead.', 'error'); return; }
     return save('DMR master', async () => { try { return await api.dvswitchCredentials({ ...p, base: base() }); } finally { net.password = ''; clearPw = false; } }, true);
   }
-  const saveModes = () => formChanged(snap.modes, modes) ? save('Modes', () => api.dvswitchModes({ ...modes, base: base() })) : noChanges('Modes');
+  function saveModes() {
+    if (!formChanged(snap.modes, modes)) return noChanges('Modes');
+    return save('Modes', () => api.dvswitchModes({ ...modes, base: base() }));
+  }
+  // DMR - Other off: both Enable flags to 0. The address and the password stay.
+  async function clearDmr() {
+    confirmDmrClear = false; gen++; verify = { working: '', outcome: null };
+    await save('DMR - Other', () => api.dvswitchDmrClear());
+    pollOnce();
+  }
+  // The BrandMeister section saved (s) or asks for a reload (null).
+  async function connSaved(s: DVSwitchSetup | null) {
+    if (!s) { await load(); return; }
+    fill(s);
+    hint = s.restartHint ?? [];
+    pollOnce();
+    try { onunits((await api.dvswitch()).units); } catch { /* the next poll updates them */ }
+  }
   const saveMode = () => choice === startupModeOf(snap.st.ambeMode) ? noChanges('Startup mode') : save('Startup mode', () => api.dvswitchStartup({ ambeMode: ambeModeFor(choice, snap.st.ambeMode), base: base() }));
   function saveCard(m: StartupMode) {
     const p = cardPatch(m, snap.st, st);
@@ -185,50 +237,38 @@
     <p class="rounded border border-warn/60 p-2 text-sm text-warn" role="status">Saved. These services pick the change up on a restart: <span class="font-mono">{hint.join(', ')}</span>. {WARNING}</p>
   {/if}
   <div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-    <section class="card space-y-3 p-4" aria-label="Identity and network">
-      <h2 class="text-base font-semibold">Identity and network</h2>
-      {#each v.warnings ?? [] as w}<p class="text-xs text-warn" role="status">{w}</p>{/each}
+    <section class="card space-y-3 p-4" aria-label="Identity">
+      <h2 class="text-base font-semibold">Identity</h2>
+      {#each (v.warnings ?? []).filter((w) => !(v?.dmr.pointsAtBm && w.startsWith('DMR - Other points at'))) as w}<p class="text-xs text-warn" role="status">{w}</p>{/each}
       {#if !v.identity.consistent}<p class="text-xs text-warn" role="status">The identity differs between the ini files (edited by hand?). Saving writes it to all of them.</p>{/if}
       <form class="grid grid-cols-1 gap-2 sm:grid-cols-3" onsubmit={(e) => { e.preventDefault(); saveIdentity(); }}>
         <div><label class="label" for="dv-call">Callsign</label><input id="dv-call" class="input font-mono" bind:value={id.callsign} maxlength="10" autocapitalize="characters" /></div>
         <div><label class="label" for="dv-id">DMR ID</label><input id="dv-id" class="input font-mono" bind:value={id.dmrId} inputmode="numeric" maxlength="7" placeholder="1234567" /></div>
-        <div><label class="label" for="dv-essid">ESSID</label><input id="dv-essid" class="input font-mono" bind:value={id.essid} inputmode="numeric" maxlength="2" placeholder="01" /></div>
+        <div><label class="label" for="dv-essid">ESSID</label><input id="dv-essid" class="input font-mono" bind:value={id.essid} inputmode="numeric" maxlength="2" placeholder="01" aria-describedby={bmOn ? 'dv-essid-hint' : undefined} />{#if bmOn}<p id="dv-essid-hint" class="mt-1 text-xs text-muted">Not used by BrandMeister: STFU logs in with the 7-digit DMR ID.</p>{/if}</div>
         <div class="sm:col-span-3"><label class="label" for="dv-nxdnid">NXDN ID</label><input id="dv-nxdnid" class="input font-mono sm:w-40" bind:value={id.nxdnId} inputmode="numeric" maxlength="5" placeholder="12345" aria-describedby="dv-nxdnid-hint" /><p id="dv-nxdnid-hint" class="mt-1 text-xs text-muted">from radioid.net, separate from the DMR ID</p></div>
+        <fieldset class="grid grid-cols-1 gap-2 sm:col-span-3 sm:grid-cols-3" data-testid="dv-info">
+          <legend class="label">Hotspot info <span class="font-normal text-muted">(the [Info] section; shown to DMR networks)</span></legend>
+          <div><label class="label" for="dv-loc">Location</label><input id="dv-loc" class="input" bind:value={info.location} maxlength="20" autocomplete="off" /></div>
+          <div><label class="label" for="dv-desc">Description</label><input id="dv-desc" class="input" bind:value={info.description} maxlength="19" autocomplete="off" /></div>
+          <div><label class="label" for="dv-url">URL</label><input id="dv-url" class="input font-mono" bind:value={info.url} maxlength="124" placeholder="https://example.org" autocomplete="off" /></div>
+          <div><label class="label" for="dv-freq">Frequency (MHz)</label><input id="dv-freq" class="input font-mono" bind:value={info.freq} inputmode="decimal" placeholder="434" aria-describedby="dv-freq-hint" /><p id="dv-freq-hint" class="mt-1 text-xs text-muted">One value, used for receive and transmit. Hz also works.</p></div>
+          <div><label class="label" for="dv-lat">Latitude <span class="font-normal">(optional)</span></label><input id="dv-lat" class="input font-mono" bind:value={info.lat} inputmode="decimal" placeholder="51.5" autocomplete="off" /></div>
+          <div><label class="label" for="dv-lon">Longitude <span class="font-normal">(optional)</span></label><input id="dv-lon" class="input font-mono" bind:value={info.lon} inputmode="decimal" placeholder="-0.12" autocomplete="off" /></div>
+          {#if v.identity.info?.stock}<p class="text-xs text-warn sm:col-span-3" role="status" data-testid="dv-info-stock">The [Info] values are still the stock ones. Set your own before the bridge talks to a network.</p>{/if}
+          {#if infoChanged && infoProblem}<p class="text-xs text-warn sm:col-span-3" role="status">{infoProblem}</p>{/if}
+        </fieldset>
         <div class="sm:col-span-3"><button class="btn btn-primary" disabled={busy}>Save identity</button><span class="ml-2 text-xs text-muted">Written to every place that holds it.</span></div>
-      </form>
-      <form class="grid grid-cols-1 gap-2 border-t border-line pt-3 sm:grid-cols-3" onsubmit={(e) => { e.preventDefault(); saveNet(); }}>
-        <div class="flex flex-wrap items-center gap-2 sm:col-span-3" aria-label="DMR login">
-          <h3 class="text-sm font-semibold">DMR login</h3>
-          <span class="badge {TONE[bd.tone]}" role="status" title={dmr?.lastLine ?? ''}>{bd.text}</span>
-        </div>
-        <div class="sm:col-span-2"><label class="label" for="dv-addr">DMR master address</label>
-          <NodePicker id="dv-addr" bind:value={net.address} options={lists.dmr} search={find('dmr')} label={label('dmr')} onpickoption={(o) => { net.port = String(o.port); }} placeholder="Search a master or type an address" inputmode="text" maxlength={253} describedby="dv-addr-hint" /></div>
-        <div><label class="label" for="dv-port">Port</label><input id="dv-port" class="input font-mono" bind:value={net.port} inputmode="numeric" maxlength="5" /></div>
-        <p id="dv-addr-hint" class="text-xs text-muted sm:col-span-3">{lists.dmr.length ? 'Search by name, network ID or address. Picking a master fills the address and the port; you can also type your own.' : 'Type the master address and port.'} The list never holds your password: enter your own below.</p>
-        <div class="sm:col-span-3">
-          <label class="label" for="dv-pw">DMR password <span class="text-muted" data-testid="dv-pw-state">({v.dmr.passwordSet ? 'Password saved' : 'No password'})</span></label>
-          <input id="dv-pw" class="input font-mono" type="password" autocomplete="new-password" bind:value={net.password} disabled={clearPw} placeholder={clearPw ? 'The password will be cleared' : v.dmr.passwordSet ? 'Leave empty to keep the password' : 'Enter the password'} maxlength="64" />
-          {#if v.dmr.passwordSet}
-            <label class="mt-1 flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={clearPw} /> Clear password <span class="text-xs text-muted">(for masters that don't need a password)</span></label>
-          {/if}
-          <p class="mt-1 text-xs text-muted">Write-only: it is never shown again. Printable ASCII, up to 64 characters, without quotes, # or ;.</p>
-        </div>
-        <div class="sm:col-span-3"><button class="btn btn-primary" disabled={busy || !!verify.working}>Save DMR master</button><span class="ml-2 text-xs text-muted">Saving restarts mmdvm_bridge only, then checks the login.</span></div>
-        {#if verify.working}
-          <p class="rounded border border-line p-2 text-sm text-muted sm:col-span-3" role="status">{verify.working}</p>
-        {:else if verify.outcome}
-          <p class="rounded border p-2 text-sm sm:col-span-3 {KIND[verify.outcome.kind]}" role="status">{verify.outcome.message}{#if verify.outcome.needStart}<button type="button" class="btn btn-sm ml-2" onclick={startBridge}>Start mmdvm_bridge</button>{/if}</p>
-        {/if}
       </form>
     </section>
 
     <section class="card space-y-3 p-4" aria-label="Modes and startup">
       <h2 class="text-base font-semibold">Enabled modes</h2>
       <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-        {#each [['dmr', 'DMR'], ['ysf', 'System Fusion'], ['p25', 'P25'], ['nxdn', 'NXDN']] as [k, label]}
+        {#each [['dmr', 'DMR - Other'], ['ysf', 'System Fusion'], ['p25', 'P25'], ['nxdn', 'NXDN']] as [k, label]}
           <label class="inline-flex cursor-pointer items-center gap-1.5"><input type="checkbox" class="size-4 accent-[var(--accent)]" bind:checked={modes[k as 'dmr']} disabled={busy} />{label}</label>
         {/each}
       </div>
+      <p class="text-xs text-muted">BrandMeister is turned on and off in its own section.</p>
       <div><button class="btn btn-primary" disabled={busy} onclick={saveModes}>Save modes</button><span class="ml-2 text-xs text-muted">Sets the flag in the mode and its network section.</span></div>
 
       <h2 class="border-t border-line pt-3 text-base font-semibold">Startup</h2>
@@ -280,7 +320,38 @@
       {/if}{/each}
     </section>
 
-    <DvswitchBridge b={v.bridgeNode} base={base()} onsaved={load} />
+    <DvswitchBM {v} {base} status={dmr?.bm ?? null} hosts={lists.dmr} disabled={busy} onsaved={connSaved} />
+
+    <section class="card space-y-3 p-4" aria-label="DMR - Other">
+      <form class="grid grid-cols-1 gap-2 sm:grid-cols-3" onsubmit={(e) => { e.preventDefault(); saveNet(); }}>
+        <div class="flex flex-wrap items-center gap-2 sm:col-span-3">
+          <h2 class="text-base font-semibold">DMR - Other</h2>
+          <span class="badge {TONE[bd.tone]}" role="status" title={dmr?.lastLine ?? ''}>{bd.text}</span>
+          <span class="text-xs text-muted">Any DMR network but BrandMeister, through MMDVM_Bridge.</span>
+        </div>
+        {#if v.dmr.pointsAtBm}<p class="text-xs text-warn sm:col-span-3" role="status" data-testid="dv-dmr-points-at-bm">DMR - Other points at a BrandMeister master. Set BrandMeister up under BrandMeister, then point DMR - Other at another network or clear it.</p>{/if}
+        <div class="sm:col-span-2"><label class="label" for="dv-addr">DMR master address</label>
+          <NodePicker id="dv-addr" bind:value={net.address} options={otherOptions(lists.dmr)} search={find('dmr')} label={label('dmr')} onpickoption={(o) => { net.port = String(o.port); }} placeholder="Search a master or type an address" inputmode="text" maxlength={253} describedby="dv-addr-hint" /></div>
+        <div><label class="label" for="dv-port">Port</label><input id="dv-port" class="input font-mono" bind:value={net.port} inputmode="numeric" maxlength="5" /></div>
+        <p id="dv-addr-hint" class="text-xs text-muted sm:col-span-3">{lists.dmr.length ? 'Search by name, network ID or address. Picking a master fills the address and the port; you can also type your own.' : 'Type the master address and port.'} The list never holds your password: enter your own below.</p>
+        <div class="sm:col-span-3">
+          <label class="label" for="dv-pw">DMR password <span class="text-muted" data-testid="dv-pw-state">({v.dmr.passwordSet ? 'Password saved' : 'No password'})</span></label>
+          <input id="dv-pw" class="input font-mono" type="password" autocomplete="new-password" bind:value={net.password} disabled={clearPw} placeholder={clearPw ? 'The password will be cleared' : v.dmr.passwordSet ? 'Leave empty to keep the password' : 'Enter the password'} maxlength="64" />
+          {#if v.dmr.passwordSet}
+            <label class="mt-1 flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={clearPw} /> Clear password <span class="text-xs text-muted">(for masters that don't need a password)</span></label>
+          {/if}
+          <p class="mt-1 text-xs text-muted">Write-only: it is never shown again. Printable ASCII, up to 64 characters, without quotes, # or ;.</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 sm:col-span-3"><button class="btn btn-primary" disabled={busy || !!verify.working}>Save DMR master</button>{#if v.dmr.enabled}<button type="button" class="btn" disabled={busy || !!verify.working} onclick={() => (confirmDmrClear = true)}>Clear DMR connection</button>{/if}<span class="text-xs text-muted">Saving restarts {dmrUnit} only, then checks the login.</span></div>
+        {#if verify.working}
+          <p class="rounded border border-line p-2 text-sm text-muted sm:col-span-3" role="status">{verify.working}</p>
+        {:else if verify.outcome}
+          <p class="rounded border p-2 text-sm sm:col-span-3 {KIND[verify.outcome.kind]}" role="status">{verify.outcome.message}{#if verify.outcome.needStart}<button type="button" class="btn btn-sm ml-2" onclick={startBridge}>Start {dmrUnit}</button>{/if}</p>
+        {/if}
+      </form>
+    </section>
+
+    <div class="lg:col-span-2"><DvswitchBridge b={v.bridgeNode} base={base()} onsaved={load} /></div>
 
     <section class="card space-y-3 p-4" aria-label="Services">
       <h2 class="text-base font-semibold">Services</h2>
@@ -291,7 +362,7 @@
       </ul>
       <div class="flex flex-wrap items-center gap-2">
         <label class="sr-only" for="dv-scope">Scope</label>
-        <select id="dv-scope" class="input w-auto" bind:value={scope}><option value="dmr">DMR master only (MMDVM_Bridge)</option><option value="bridge">Bridge (Analog_Bridge, MMDVM_Bridge)</option><option value="gateways">Gateways (YSF, P25, NXDN)</option><option value="all">All</option></select>
+        <select id="dv-scope" class="input w-auto" bind:value={scope}><option value="dmr">DMR only ({bmOn ? 'MMDVM_Bridge, and STFU while it runs' : 'MMDVM_Bridge'})</option><option value="bridge">Bridge (Analog_Bridge, MMDVM_Bridge)</option><option value="gateways">Gateways (YSF, P25, NXDN)</option><option value="all">All</option></select>
         <button class="btn" disabled={busy} onclick={() => run('start')} title="Start the units that are stopped">Start</button>
         <button class="btn btn-primary" disabled={busy} onclick={() => (confirmRestart = true)}>Restart</button>
       </div>
@@ -315,5 +386,6 @@
   </div>
 {/if}
 
-<Confirm bind:open={confirmRestart} title="Restart services?" confirmLabel="Restart" message={`This restarts the ${({ all: 'bridge and the gateways', bridge: 'bridge', dmr: 'DMR master connection (MMDVM_Bridge)', gateways: 'gateways' } as const)[scope]}. ${WARNING}`} onconfirm={() => run('restart')} />
+<Confirm bind:open={confirmRestart} title="Restart services?" confirmLabel="Restart" message={`This restarts the ${({ all: 'bridge and the gateways', bridge: 'bridge', dmr: bmOn ? 'DMR connections (MMDVM_Bridge, and STFU while it runs)' : 'DMR master connection (MMDVM_Bridge)', gateways: 'gateways' } as const)[scope]}. ${WARNING}`} onconfirm={() => run('restart')} />
+<Confirm bind:open={confirmDmrClear} title="Clear the DMR - Other connection?" confirmLabel="Clear" message="This turns DMR - Other off ([DMR] and [DMR Network] Enable=0) and takes it off the panel. The address and the password stay; BrandMeister is not touched." onconfirm={clearDmr} />
 <Confirm bind:open={rbOpen} title="Restore the previous version?" confirmLabel="Restore" message={`${FILE_LABEL[rollbackFile] ?? rollbackFile} goes back to its previous version. Services pick it up on a restart.`} onconfirm={() => rollback(rollbackFile)} />

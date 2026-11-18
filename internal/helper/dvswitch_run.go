@@ -28,6 +28,8 @@ const (
 
 func (o *Ops) dvProcDir() string { return orDefault(o.DVProcDir, DefaultDVProcDir) }
 
+var reDVPrivTune = regexp.MustCompile(`^[0-9]{1,8}#$`)
+
 var reDVInfoName = regexp.MustCompile(`^ABInfo_[0-9]{1,5}\.json$`)
 
 // abInfoFile is the strict shape of Analog_Bridge's ABInfo_<port>.json: every
@@ -96,9 +98,20 @@ type DVSwitchInfo struct {
 	// when the unit does not run or systemd gave no usable time. It is set
 	// even when Found is false (the bridge runs but has no state file yet).
 	Started string `json:"started,omitempty"`
+	// Callers is who is talking and who was (the info op only; nil from the
+	// plain read). It holds callsigns: only logged-in roles may see it.
+	Callers *DVCallers `json:"callers,omitempty"`
+	// Private: last_tune is a DMR private call ("9990#"). TG is then the
+	// number that was called, not a talkgroup.
+	Private bool `json:"private,omitempty"`
+	// Panel is the panel's mode: BM or DMR (both Mode DMR, told apart by
+	// Analog_Bridge's TLV ports), YSF, P25 or NXDN (dvPanel).
+	Panel string `json:"panel,omitempty"`
 
 	// tlvRx is the TLV port Analog_Bridge listens on (not sent to clients).
 	tlvRx int
+	// tlvTx is the TLV port Analog_Bridge sends to (the partner's rxPort).
+	tlvTx int
 }
 
 func keepIf(ok func(string) bool, s string) string {
@@ -124,15 +137,22 @@ func parseABInfo(data []byte) (DVSwitchInfo, error) {
 		return DVSwitchInfo{}, errors.New("ABInfo is not in the expected format")
 	}
 	tune := f.LastTune
-	if !vOrEmpty(reDVTune)(tune) {
-		tune = ""
+	private := reDVPrivTune.MatchString(tune)
+	if private || !vOrEmpty(reDVTune)(tune) {
+		tune = "" // a private call is not a target: Private says so
 	}
 	tlvRx := 0
 	if vInt(1024, 65535)(f.TLV.RxPort) {
 		tlvRx, _ = strconv.Atoi(f.TLV.RxPort)
 	}
+	tlvTx := 0
+	if vInt(1024, 65535)(f.TLV.TxPort) {
+		tlvTx, _ = strconv.Atoi(f.TLV.TxPort)
+	}
 	return DVSwitchInfo{
 		tlvRx:      tlvRx,
+		tlvTx:      tlvTx,
+		Private:    private,
 		Found:      true,
 		Version:    keepIf(regexp.MustCompile(`^[0-9A-Za-z._-]{1,20}$`).MatchString, f.AB.Version),
 		Mode:       keepIf(func(s string) bool { return dvAmbeModes[s] }, f.TLV.AmbeMode),
@@ -185,6 +205,9 @@ func (o *Ops) DVSwitchInfo(ctx context.Context) (DVSwitchInfo, error) {
 		return DVSwitchInfo{}, nil
 	}
 	info, err := o.dvReadInfo(pid)
+	if info.Found {
+		o.dvPanel(&info)
+	}
 	if !started.IsZero() {
 		info.Started = started.Format(time.RFC3339)
 	}
@@ -281,6 +304,13 @@ func (o *Ops) DVSwitchRestart(ctx context.Context, req *DVSwitchRequest) (DVRest
 	units, ok := dvScopes[req.Scope]
 	if !ok {
 		return res, dvInvalid("scope")
+	}
+	if req.Scope == "dmr" || req.Scope == "all" {
+		// only when stfu is supposed to be running: on demand it is stopped
+		// outside BM mode, and a restart must not log it in
+		if _, configured := o.dvBMConfigured(ctx); configured && o.dvSTFUWanted(ctx) {
+			units = append(append([]string{}, units...), dvSTFUUnit)
+		}
 	}
 	o.applyMu.Lock()
 	defer o.applyMu.Unlock()

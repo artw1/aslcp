@@ -264,7 +264,7 @@ func (s *skipLeadingSpace) Read(p []byte) (int, error) {
 
 func knownOp(op string) bool {
 	switch op {
-	case OpUpdateStatus, OpUpdateCheck, OpUpdateApply, OpOSCheck, OpOSStatus, OpOSApply, OpReboot, OpAslcpRestart, OpDVSwitchStatus, OpDVSwitchJob, OpDVSwitchInstall, OpDVSwitchUninstall, OpDVSwitchSetup, OpDVSwitchInfo, OpDVSwitchDMRStatus, OpDVSwitchIdentity, OpDVSwitchCredentials, OpDVSwitchModes, OpDVSwitchStartup, OpDVSwitchRollback, OpDVSwitchRestart, OpDVSwitchLists, OpDVSwitchTune, OpDVSwitchUSRP, OpDVSwitchPrivate, OpFirewallStatus, OpFirewallOpen, OpChannelStable, OpChannelBeta, OpAsteriskRestart, OpConfigList, OpConfigRead, OpConfigApply, OpConfigLog, OpConfigShow, OpConfigRestore, OpConfigRecord, OpBackupInfo, OpBackupCreate, OpBackupRestore:
+	case OpUpdateStatus, OpUpdateCheck, OpUpdateApply, OpOSCheck, OpOSStatus, OpOSApply, OpReboot, OpAslcpRestart, OpDVSwitchStatus, OpDVSwitchJob, OpDVSwitchInstall, OpDVSwitchUninstall, OpDVSwitchSetup, OpDVSwitchInfo, OpDVSwitchDMRStatus, OpDVSwitchIdentity, OpDVSwitchCredentials, OpDVSwitchModes, OpDVSwitchStartup, OpDVSwitchRollback, OpDVSwitchRestart, OpDVSwitchLists, OpDVSwitchTune, OpDVSwitchUSRP, OpDVSwitchPrivate, OpDVSwitchBM, OpDVSwitchSTFUInstall, OpFirewallStatus, OpFirewallOpen, OpChannelStable, OpChannelBeta, OpAsteriskRestart, OpConfigList, OpConfigRead, OpConfigApply, OpConfigLog, OpConfigShow, OpConfigRestore, OpConfigRecord, OpBackupInfo, OpBackupCreate, OpBackupRestore:
 		return true
 	}
 	return false

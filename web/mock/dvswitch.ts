@@ -1,6 +1,6 @@
 // In-memory /api/dvswitch/* for `npm run dev:mock` (docs/API.md "DVSwitch"). Dev only.
-const PKGS = ['dvswitch-base', 'analog-bridge', 'mmdvm-bridge', 'md380-emu', 'ysfgateway', 'p25gateway', 'nxdngateway', 'wget'];
-const UNITS = ['analog_bridge', 'mmdvm_bridge', 'netcheck', 'ysfgateway', 'p25gateway', 'nxdngateway', 'md380-emu'];
+const PKGS = ['dvswitch-base', 'analog-bridge', 'mmdvm-bridge', 'md380-emu', 'ysfgateway', 'p25gateway', 'nxdngateway', 'stfu', 'wget'];
+const UNITS = ['analog_bridge', 'mmdvm_bridge', 'netcheck', 'ysfgateway', 'p25gateway', 'nxdngateway', 'md380-emu', 'stfu'];
 const PATHS = ['/var/lib/mmdvm', '/var/lib/dvswitch', '/var/log/dvswitch', '/var/log/mmdvm', '/opt/Analog_Bridge', '/opt/MMDVM_Bridge', '/etc/cron.d/dvswitch', '/etc/cron.daily/dvswitch-log-cleanup', '/tmp/ABInfo_*.json', '/etc/apt/sources.list.d/dvswitch.list', '/usr/share/keyrings/dvswitch-keyring.gpg'];
 const FP = '6DDFC33CD5FC678659642DF572147EC1E788D4C3';
 const DURATION = 6000;
@@ -35,22 +35,117 @@ const DMR_CYCLE = [
   { state: 'not_running', line: '' },
 ];
 let dmrRuns = 0, dmrAt = 0, dmrDown = false;
+
+// BrandMeister through STFU (PUT/DELETE /dvswitch/brandmeister) and the stfu package (POST /dvswitch/stfu/install).
+// STFU starts not installed; its install is a 3 s job. The password is never stored, only whether one is set.
+const STFU_DURATION = 3000;
+const STFU_LOG = ['Get:1 https://dvswitch.org/apt bookworm/main stfu', 'recorded 1 newly installed packages: stfu', 'Setting up stfu ...', 'stfu install finished'];
+// On demand (stay off) stfu runs only while BM is the active mode; with `stay` it is enabled and always running.
+const bmCfg = { stay: false, server: '', alias: '', startTg: '', passwordSet: false, at: 0 };
+let stfuInstalled = false, stfuJob: number | null = null;
+function stfuStatus() {
+  let job: { job: string; log: string; at?: number } = { job: 'idle', log: '' };
+  if (stfuJob !== null) {
+    const el = Date.now() - stfuJob, at = Math.floor(stfuJob / 1000);
+    if (el >= STFU_DURATION) { stfuInstalled = true; job = { job: 'succeeded', log: STFU_LOG.join('\n'), at }; }
+    else job = { job: 'running', log: STFU_LOG.slice(0, Math.floor((el / STFU_DURATION) * STFU_LOG.length)).join('\n'), at };
+  }
+  if (!installed) { stfuInstalled = false; Object.assign(bmCfg, { stay: false, passwordSet: false }); }
+  return { installed: stfuInstalled, ...(stfuInstalled ? { version: '1.0.0' } : {}), canInstall: installed && !stfuInstalled && job.job !== 'running', job };
+}
+const stfuRuns = () => bmCfg.passwordSet && (bmCfg.stay || bridge.mode === 'BM');
+function bmView() {
+  stfuStatus();
+  const on = stfuInstalled;
+  return {
+    installed: on, present: on, enabled: on && bmCfg.stay && bmCfg.passwordSet, stayLoggedIn: bmCfg.stay, configured: on && bmCfg.passwordSet && /^[0-9]{7}$/.test(cfg.identity.dmrId),
+    server: on ? bmCfg.server || '3102.repeater.net' : '', port: on ? 54006 : 0, talkerAlias: on ? bmCfg.alias || cfg.identity.callsign : '', startTg: on ? bmCfg.startTg || '4000' : '',
+    txPort: on ? 36100 : 0, rxPort: on ? 36103 : 0, passwordSet: bmCfg.passwordSet,
+  };
+}
+// A BrandMeister master: by name, or the address of a BM_ entry of the DMR list.
+const isBM = (host: string) => { const h = host.toLowerCase(); return /(^|\.)(brandmeister\.network|repeater\.net)$/.test(h) || LISTS.dmr.some((i) => i.name.startsWith('BM_') && i.address.toLowerCase() === h); };
+// BrandMeister: connecting for 4 s, then logged in, with a network transmission (placeholder IDs) every 30 s.
+function stfuDmrStatus() {
+  const since = bmCfg.at || Date.now() - 3.6e6, el = Date.now() - since, master = `${bmCfg.server || '3102.repeater.net'}:54006`;
+  if (el < 4000) return { state: 'connecting', via: 'stfu', since: new Date(since).toISOString(), master, lastLine: `Connecting to STFU server at address: ${master}` };
+  const start = since + 4000 + Math.floor((el - 4000) / 30000) * 30000, active = Date.now() - start < 6000;
+  return {
+    state: 'logged_in', via: 'stfu', since: new Date(since).toISOString(), master, lastLine: 'Successful connection to BM server',
+    ...(el > 14000 ? { rx: { active, src: '1234567', dst: '91', group: true, time: new Date(start).toISOString().slice(11, 19), ...(active ? {} : { frames: 100 }) } } : {}),
+  };
+}
+const validHost = (h: string) => h.length <= 253 && h.split('.').every((l) => /^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(l));
+function brandMeister(c: DVCtx, body: Body): boolean {
+  progress();
+  if (!installed) { c.err(409, 'not_installed: DVSwitch is not installed (its ini files are missing)', 'not_installed'); return true; }
+  const files = ['dvswitch', 'analog_bridge'];
+  if (c.m === 'DELETE') {
+    const changed = bmCfg.passwordSet ? ['dvswitch'] : [];
+    Object.assign(bmCfg, { stay: false, passwordSet: false });
+    if (bridge.mode === 'BM') { bridge.mode = 'DMR'; bridge.tune = remembered.DMR?.tune ?? UNLINK.DMR; }
+    touch(changed);
+    c.json(200, setup({ changed, skipped: [], restartHint: [] }));
+    c.push?.('dvswitch', snapshot());
+    return true;
+  }
+  const b = body as { server?: string; password?: string; talkerAlias?: string; startTg?: string; stayLoggedIn?: boolean; base?: Record<string, string> };
+  if (stale(files, b.base)) { c.err(409, 'a file changed on disk since it was read: reload and try again', 'conflict'); return true; }
+  if (b.server !== undefined && b.server !== '' && !validHost(b.server)) return bad(c, 'brandmeister/server'), true;
+  if (b.password !== undefined && !/^[\x21\x24-\x3a\x3c-\x7e]{1,64}$/.test(b.password)) return bad(c, 'brandmeister/password'), true;
+  if (b.talkerAlias !== undefined && !(b.talkerAlias.length >= 1 && b.talkerAlias.length <= 27 && b.talkerAlias === b.talkerAlias.trim() && /^[\x20-\x7e]+$/.test(b.talkerAlias) && !/["';#=]/.test(b.talkerAlias))) return bad(c, 'brandmeister/talkerAlias'), true;
+  if (b.startTg !== undefined && !/^[0-9]{1,8}$/.test(b.startTg)) return bad(c, 'brandmeister/startTg'), true;
+  stfuStatus();
+  if (!stfuInstalled) { c.err(409, 'stfu_not_installed: STFU is not installed; install it first', 'stfu_not_installed'); return true; }
+  if (b.password === undefined && !bmCfg.passwordSet) { c.err(409, 'no_password: enter the BrandMeister hotspot security password', 'no_password'); return true; }
+  if (b.server) bmCfg.server = b.server;
+  if (b.talkerAlias !== undefined) bmCfg.alias = b.talkerAlias;
+  if (b.startTg !== undefined) bmCfg.startTg = b.startTg;
+  if (b.password !== undefined) bmCfg.passwordSet = true;
+  if (typeof b.stayLoggedIn === 'boolean') bmCfg.stay = b.stayLoggedIn;
+  bmCfg.at = Date.now();
+  touch(['dvswitch']);
+  c.json(200, setup({ changed: ['dvswitch'], skipped: [], restartHint: [], bmLogin: 'logged_in' }));
+  c.push?.('dvswitch', snapshot());
+  return true;
+}
+// DELETE /dvswitch/dmr-connection: DMR - Other off ([DMR] and [DMR Network] Enable=0).
+function dmrClear(c: DVCtx): boolean {
+  progress();
+  if (!installed) { c.err(409, 'not_installed: DVSwitch is not installed (its ini files are missing)', 'not_installed'); return true; }
+  const changed = cfg.modes.dmr ? ['mmdvm_bridge'] : [];
+  cfg.modes.dmr = false;
+  touch(changed);
+  c.json(200, setup({ changed, skipped: [], restartHint: changed.length ? ['mmdvm_bridge'] : [] }));
+  return true;
+}
+
+// DMR - Other on the top level, BrandMeister under `bm` once stfu is installed.
 function dmrStatus() {
   if (!installed) return { state: 'not_installed' };
-  if (!cfg.modes.dmr) return { state: 'disabled' };
+  stfuStatus();
+  const bm = stfuInstalled ? (!bmCfg.passwordSet ? { state: 'disabled', via: 'stfu' } : stfuRuns() ? stfuDmrStatus() : { state: 'idle', via: 'stfu' }) : undefined;
+  return { ...otherStatus(), ...(bm ? { bm } : {}) };
+}
+function otherStatus() {
+  if (!cfg.modes.dmr) return { state: 'disabled', via: 'mmdvm_bridge' };
   const o = DMR_CYCLE[dmrRuns % DMR_CYCLE.length], since = dmrAt || Date.now() - 3.6e6;
-  if (Date.now() - since < 4000) return { state: 'connecting', since: new Date(since).toISOString() };
-  if (o.state === 'not_running') { dmrDown = true; return { state: 'not_running', since: new Date(since).toISOString() }; }
-  return { state: o.state, since: new Date(since).toISOString(), at: new Date(since + 4000).toISOString(), lastLine: o.line, ...(o.state === 'logged_in' ? { master: '192.0.2.10:62031' } : {}) };
+  if (Date.now() - since < 4000) return { state: 'connecting', via: 'mmdvm_bridge', since: new Date(since).toISOString() };
+  if (o.state === 'not_running') { dmrDown = true; return { state: 'not_running', via: 'mmdvm_bridge', since: new Date(since).toISOString() }; }
+  return { state: o.state, via: 'mmdvm_bridge', since: new Date(since).toISOString(), at: new Date(since + 4000).toISOString(), lastLine: o.line, ...(o.state === 'logged_in' ? { master: '192.0.2.10:62031' } : {}) };
 }
 
 function status() {
-  const j = progress(), running = j.install.job === 'running' || j.uninstall.job === 'running';
+  const j = progress(), running = j.install.job === 'running' || j.uninstall.job === 'running', stfu = stfuStatus();
   return {
+    stfu,
     installed, installedBy: installed ? 'aslcp' : '', version: installed ? '1.7.0' : '', arch: 'arm64', osCodename: 'bookworm', supported: true,
     repoPresent: installed, keyPresent: installed, keyOk: installed, ...(installed ? { keyFingerprint: FP } : {}),
     packages: PKGS.map((name) => ({ name, installed, ...(installed ? { version: '1.7.0' } : {}) })),
-    units: UNITS.map((name) => ({ name, loaded: installed, active: installed && !(name === 'mmdvm_bridge' && dmrDown) ? 'active' : 'inactive', enabled: installed ? 'enabled' : '' })),
+    units: UNITS.map((name) => {
+      const loaded = name === 'stfu' ? installed && stfu.installed : installed, up = name === 'stfu' ? stfuRuns() : true, on = name === 'stfu' ? bmCfg.stay && bmCfg.passwordSet : true;
+      return { name, loaded, active: loaded && up && !(name === 'mmdvm_bridge' && dmrDown) ? 'active' : 'inactive', enabled: loaded ? (on ? 'enabled' : 'disabled') : '' };
+    }),
     hostFiles: ['DMRIds.dat', 'YSFHosts.txt', 'P25Hosts.txt', 'NXDNHosts.txt'].map((name) => ({ name, present: installed, size: installed ? 4096 : 0 })), hostFilesOk: installed,
     marker: installed ? { version: 1, installedAt: new Date().toISOString(), wgetPreinstalled: false, packages: ['qemu-user-static', 'wget'] } : null,
     canInstall: !installed && !running, canUninstall: installed && !running,
@@ -59,10 +154,10 @@ function status() {
 }
 
 // M4 setup: in-memory ini values. The password is never stored, only whether one is set.
-const FILES = ['analog_bridge', 'mmdvm_bridge', 'ysfgateway', 'p25gateway', 'nxdngateway'];
-const UNIT_OF: Record<string, string> = { analog_bridge: 'analog_bridge', mmdvm_bridge: 'mmdvm_bridge', ysfgateway: 'ysfgateway', p25gateway: 'p25gateway', nxdngateway: 'nxdngateway' };
+const FILES = ['analog_bridge', 'mmdvm_bridge', 'ysfgateway', 'p25gateway', 'nxdngateway', 'dvswitch'];
+const UNIT_OF: Record<string, string> = { analog_bridge: 'analog_bridge', mmdvm_bridge: 'mmdvm_bridge', ysfgateway: 'ysfgateway', p25gateway: 'p25gateway', nxdngateway: 'nxdngateway', dvswitch: 'stfu' };
 const cfg = {
-  identity: { callsign: 'N0CALL', dmrId: '1234567', essid: '01', nxdnId: '12346', consistent: true },
+  identity: { callsign: 'N0CALL', dmrId: '1234567', essid: '01', nxdnId: '12346', consistent: true, info: { location: 'Iceberg, North Atlantic', description: 'Stock sample', url: '', frequencyHz: 222340000, rxHz: 222340000, txHz: 222340000, latitude: '', longitude: '', stock: true } },
   dmr: { address: '192.0.2.10', port: 62031, passwordSet: false },
   usrp: { address: '127.0.0.1', rxPort: 34001, txPort: 32001 },
   // DMR, YSF and P25 are enabled so the dashboard card's mode buttons can be tried; NXDN stays off (greyed out).
@@ -75,8 +170,10 @@ const hash = (id: string) => `mock${id.length}${(rev[id] ?? 0).toString(16).padS
 function setup(extra: Record<string, unknown> = {}) {
   return {
     ...JSON.parse(JSON.stringify(cfg)),
+    dmr: { ...cfg.dmr, enabled: cfg.modes.dmr, pointsAtBm: isBM(cfg.dmr.address) },
+    brandmeister: bmView(),
     bridgeNode: bridgeSetup(),
-    warnings: cfg.modes.nxdn && !cfg.identity.nxdnId ? ['NXDN needs your NXDN ID from radioid.net'] : [],
+    warnings: [...(isBM(cfg.dmr.address) ? ['DMR - Other points at a BrandMeister master. BrandMeister is set up under BrandMeister (STFU); point DMR - Other at another network or clear it'] : []), ...(cfg.modes.nxdn && !cfg.identity.nxdnId ? ['NXDN needs your NXDN ID from radioid.net'] : []), ...(cfg.identity.info.stock ? ['The [Info] section of MMDVM_Bridge.ini still holds the stock values: set your own location, description and frequency'] : [])],
     files: FILES.map((id) => ({ id, present: installed, writable: installed, sha256: installed ? hash(id) : '', history: hist[id] ?? 0 })),
     current: { found: installed, version: '1.6.4', mode: cfg.startup.ambeMode, tg: cfg.startup.txTg, slot: String(cfg.startup.txTs), colorCode: String(cfg.startup.colorCode), tune: '', mute: 'OFF', gatewayId: cfg.identity.dmrId, repeaterId: cfg.identity.dmrId + cfg.identity.essid, updated: new Date().toISOString() },
     ...extra,
@@ -95,12 +192,26 @@ function write(c: DVCtx, body: Body): boolean {
   if (stale(touched, base)) { c.err(409, 'a file changed on disk since it was read: reload and try again', 'conflict'); return true; }
   const done = (files: string[], hint: string[]) => { touch(files); c.json(200, setup({ changed: files, skipped: [], restartHint: hint })); };
   if (c.p === '/dvswitch/identity') {
-    const { callsign, dmrId, essid, nxdnId } = body as { callsign: string; dmrId: string; essid: string; nxdnId?: string };
+    const { callsign, dmrId, essid, nxdnId, info } = body as { callsign: string; dmrId: string; essid: string; nxdnId?: string; info?: { location: string; description: string; url?: string; frequencyHz: number; latitude?: string; longitude?: string } };
     if (!/^[A-Z0-9/]{3,10}$/.test(callsign ?? '')) return bad(c, 'identity/callsign'), true;
     if (!/^[0-9]{7}$/.test(dmrId ?? '')) return bad(c, 'identity/dmrId'), true;
     if (!/^[0-9]{2}$/.test(essid ?? '')) return bad(c, 'identity/essid'), true;
     if (nxdnId) { const n = Number(nxdnId); if (!/^[0-9]{1,5}$/.test(nxdnId) || nxdnId[0] === '0' || n > 65519) return bad(c, 'identity/nxdnId'), true; }
-    cfg.identity = { callsign, dmrId, essid, nxdnId: nxdnId || (cfg.identity.nxdnId === '12345' ? '' : cfg.identity.nxdnId), consistent: true };
+    let infoView = cfg.identity.info;
+    if (info) {
+      const text = (v: unknown, max: number) => typeof v === 'string' && v.length >= 1 && v.length <= max && /^[A-Za-z0-9][\x20-\x7e]*$/.test(v) && v === v.trimEnd() && !/[;#="]/.test(v);
+      const coord = (v: unknown, max: number) => typeof v === 'string' && /^-?[0-9]{1,3}(\.[0-9]{1,6})?$/.test(v) && Math.abs(Number(v)) <= max;
+      if (!text(info.location, 20)) return bad(c, 'identity/info/location'), true;
+      if (!text(info.description, 19)) return bad(c, 'identity/info/description'), true;
+      if (info.url && !(info.url.length <= 124 && /^https?:\/\/[A-Za-z0-9._~:/?&=%+-]{1,116}$/.test(info.url))) return bad(c, 'identity/info/url'), true;
+      if (!(Number.isInteger(info.frequencyHz) && info.frequencyHz >= 30_000_000 && info.frequencyHz <= 3_000_000_000)) return bad(c, 'identity/info/frequencyHz'), true;
+      if (info.latitude || info.longitude) {
+        if (!coord(info.latitude, 90)) return bad(c, 'identity/info/latitude'), true;
+        if (!coord(info.longitude, 180)) return bad(c, 'identity/info/longitude'), true;
+      }
+      infoView = { location: info.location, description: info.description, url: info.url ?? '', frequencyHz: info.frequencyHz, rxHz: info.frequencyHz, txHz: info.frequencyHz, latitude: info.latitude ?? '', longitude: info.longitude ?? '', stock: false };
+    }
+    cfg.identity = { callsign, dmrId, essid, nxdnId: nxdnId || (cfg.identity.nxdnId === '12345' ? '' : cfg.identity.nxdnId), consistent: true, info: infoView };
     done(FILES, FILES.map((f) => UNIT_OF[f]));
   } else if (c.p === '/dvswitch/credentials') {
     const { dmrAddress, dmrPort, dmrPassword, clearPassword } = body as { dmrAddress?: string; dmrPort?: number; dmrPassword?: string; clearPassword?: boolean };
@@ -109,6 +220,7 @@ function write(c: DVCtx, body: Body): boolean {
     if (dmrPort !== undefined && !(Number.isInteger(dmrPort) && dmrPort >= 1 && dmrPort <= 65535)) return bad(c, 'DMR Network/Port'), true;
     if (dmrPassword !== undefined && !/^[\x21\x24-\x3a\x3c-\x7e]{1,64}$/.test(dmrPassword)) return bad(c, 'DMR Network/Password'), true;
     if (clearPassword && dmrPassword !== undefined) return bad(c, 'DMR Network/Password'), true;
+    if (dmrAddress !== undefined && isBM(dmrAddress)) { c.err(400, 'bm_master: BrandMeister masters are set up under BrandMeister, not DMR - Other', 'bm_master'); return true; }
     if (dmrAddress !== undefined) cfg.dmr.address = dmrAddress;
     if (dmrPort !== undefined) cfg.dmr.port = dmrPort;
     if (dmrPassword !== undefined) cfg.dmr.passwordSet = true;
@@ -139,6 +251,7 @@ function write(c: DVCtx, body: Body): boolean {
     const scope = String(body.scope ?? ''), units = ({ dmr: ['mmdvm_bridge'], bridge: ['analog_bridge', 'mmdvm_bridge'], gateways: ['ysfgateway', 'p25gateway', 'nxdngateway'], all: ['analog_bridge', 'mmdvm_bridge', 'ysfgateway', 'p25gateway', 'nxdngateway'] } as Record<string, string[]>)[scope];
     if (!units) return bad(c, 'scope'), true;
     if (units.includes('mmdvm_bridge')) { dmrRuns++; dmrAt = Date.now(); dmrDown = false; }
+    if ((scope === 'dmr' || scope === 'all') && stfuRuns()) { units.push('stfu'); bmCfg.at = Date.now(); }
     c.json(200, { action: body.action === 'start' ? 'start' : 'restart', units, skipped: [], states: status().units, warning: 'A restart resets the running mode and talkgroup to the startup values in the ini files.' });
   }
   return true;
@@ -235,7 +348,8 @@ function removeNode(c: DVCtx, body: Body): boolean {
 // Remembered tunes (GET /dvswitch/resume): placeholders, the first two seeded so the cards show "Last used".
 let resume = false, lastMode = 'DMR';
 const remembered: Record<string, { tune: string; ts?: string; at: string }> = {
-  DMR: { tune: '91', ts: '2', at: new Date(Date.now() - 5 * 60e3).toISOString() },
+  BM: { tune: '91', ts: '2', at: new Date(Date.now() - 5 * 60e3).toISOString() },
+  DMR: { tune: '1', ts: '2', at: new Date(Date.now() - 60 * 60e3).toISOString() },
   P25: { tune: '10100', at: new Date(Date.now() - 3 * 3600e3).toISOString() },
 };
 const resumeView = () => ({ resume, lastMode, perMode: remembered });
@@ -274,27 +388,38 @@ const LISTS: Record<string, { value: string; name: string; detail?: string; addr
 
 // Dashboard panel (GET /dvswitch/snapshot, /mode, /unlink, favourites). The bridge answers like ABInfo:
 // a mode switch shows up after a delay (1.2 s; P25 takes 7 s so the card's "Not confirmed" notice and its
-// recovery can be seen), and last_tune of another mode is not shown.
-type PMode = 'DMR' | 'YSF' | 'P25' | 'NXDN';
-const UNLINK: Record<PMode, string> = { DMR: '4000', YSF: 'disconnect', P25: '9999', NXDN: '9999' };
-const bridge: { mode: PMode; tune: string; slot: number; muted: boolean } = { mode: 'DMR', tune: '91', slot: 2, muted: false };
+// recovery can be seen), and last_tune of another mode is not shown. BM (BrandMeister through STFU) is offered
+// once BrandMeister is set up; a switch unlinks the mode it leaves and tunes the remembered value of the new one.
+type PMode = 'BM' | 'DMR' | 'YSF' | 'P25' | 'NXDN';
+const UNLINK: Record<PMode, string> = { BM: '4000', DMR: '4000', YSF: 'disconnect', P25: '9999', NXDN: '9999' };
+const isDMRFamily = (m: PMode) => m === 'BM' || m === 'DMR';
+const bridge: { mode: PMode; tune: string; slot: number; muted: boolean; private?: boolean } = { mode: 'DMR', tune: '1', slot: 2, muted: false };
+// Placeholder talkers for the caller and the Last heard list (the real ones come from Analog_Bridge.log).
+const TALKERS = [{ call: 'N0CALL', dmrId: '1234567' }, { call: 'N0DEMO', dmrId: '1234568' }, { call: 'N0TEST', dmrId: '1234569' }];
+function callers() {
+  const n = Math.floor(Date.now() / 30_000);
+  const at = (k: number) => new Date(Date.now() - k * 30_000).toISOString().slice(0, 19).replace('T', ' ');
+  const heard = [0, 1, 2].map((k) => ({ ...TALKERS[(n - k + 3 * 100) % 3], dst: '91', slot: 2, at: at(k) }));
+  return { caller: heard[0], heard };
+}
 const favs: { id: number; mode: PMode; value: string; name: string; sort: number }[] = [
-  { id: 1, mode: 'DMR', value: '91', name: 'Worldwide', sort: 0 },
-  { id: 2, mode: 'DMR', value: '3100', name: 'USA', sort: 1 },
+  { id: 1, mode: 'BM', value: '91', name: 'Worldwide', sort: 0 },
+  { id: 2, mode: 'BM', value: '3100', name: 'USA', sort: 1 },
   { id: 3, mode: 'YSF', value: '00001', name: 'Example room', sort: 0 },
+  { id: 4, mode: 'DMR', value: '1', name: 'Example TG 1', sort: 0 },
 ];
-let favSeq = 3;
+let favSeq = 4;
 const lcMode = (m: PMode) => m.toLowerCase();
 function targetName(): string | undefined {
   const t = bridge.tune;
   if (!t) return undefined;
-  const items = bridge.mode === 'DMR' ? [] : LISTS[lcMode(bridge.mode)];
+  const items = isDMRFamily(bridge.mode) ? [] : LISTS[lcMode(bridge.mode)];
   const hit = items.find((i) => i.value === t || `${i.address}:${i.port}` === t);
   return hit?.name ?? favs.find((f) => f.mode === bridge.mode && f.value === t)?.name;
 }
 function snapshot() {
   progress();
-  const modeOn: Record<PMode, boolean> = { DMR: cfg.modes.dmr, YSF: cfg.modes.ysf, P25: cfg.modes.p25, NXDN: cfg.modes.nxdn };
+  const modeOn: Record<PMode, boolean> = { BM: bmView().configured, DMR: cfg.modes.dmr, YSF: cfg.modes.ysf, P25: cfg.modes.p25, NXDN: cfg.modes.nxdn };
   const unit = (n: string) => status().units.find((u) => u.name === n)?.active === 'active';
   const gw = (['YSF', 'P25', 'NXDN'] as PMode[]).filter((m) => modeOn[m]).map((m) => `${lcMode(m)}gateway`);
   const running = installed && unit('analog_bridge');
@@ -302,15 +427,16 @@ function snapshot() {
   return {
     installed, running, configured: installed && running,
     bridge: running
-      ? { mode: bridge.mode, tune: bridge.tune, ...(name ? { targetName: name } : {}), slot: bridge.slot, muted: bridge.muted, source: 'abinfo', updated: new Date().toISOString() }
+      ? { mode: bridge.mode, tune: bridge.tune, ...(name ? { targetName: name } : {}), slot: bridge.slot, muted: bridge.muted, ...(bridge.private && isDMRFamily(bridge.mode) ? { private: true } : {}), source: 'abinfo', updated: new Date().toISOString() }
       : { mode: '', tune: '', slot: 0, muted: false, source: 'none', updated: '' },
-    modes: (['DMR', 'YSF', 'P25', 'NXDN'] as PMode[]).map((id) => ({ id, enabled: modeOn[id], unlink: UNLINK[id] })),
-    services: installed ? ['analog_bridge', 'mmdvm_bridge', ...gw].map((u) => ({ unit: u, active: unit(u) })) : [],
+    modes: (['BM', 'DMR', 'YSF', 'P25', 'NXDN'] as PMode[]).map((id) => ({ id, enabled: modeOn[id], unlink: UNLINK[id] })),
+    services: installed ? ['analog_bridge', 'mmdvm_bridge', ...(stfuRuns() ? ['stfu'] : []), ...gw].map((u) => ({ unit: u, active: unit(u) })) : [],
     bridgeNode: pb.node ? { present: true, node: pb.node, name: pb.name || NODE_NAME } : { present: false },
     link: linkView(),
+    ...(running && isDMRFamily(bridge.mode) ? callers() : { heard: [] }),
   };
 }
-const tuneRe: Record<PMode, RegExp> = { DMR: /^[0-9]{1,8}$/, YSF: /^(disconnect|[A-Za-z0-9._-]{1,32}|[A-Za-z0-9.-]{1,253}:[0-9]{1,5})$/, P25: /^[0-9]{1,5}$/, NXDN: /^[0-9]{1,5}$/ };
+const tuneRe: Record<PMode, RegExp> = { BM: /^[0-9]{1,8}#?$/, DMR: /^[0-9]{1,8}#?$/, YSF: /^(disconnect|[A-Za-z0-9._-]{1,32}|[A-Za-z0-9.-]{1,253}:[0-9]{1,5})$/, P25: /^[0-9]{1,5}$/, NXDN: /^[0-9]{1,5}$/ };
 const favView = (f: (typeof favs)[number]) => ({ id: f.id, mode: f.mode, value: f.value, name: f.name, sort: f.sort });
 // What ABInfo's last_tune shows: a YSF id or name resolves to host:port like the helper does.
 function abTune(mode: PMode, v: string) {
@@ -319,12 +445,14 @@ function abTune(mode: PMode, v: string) {
   return hit ? `${hit.address}:${hit.port}` : v;
 }
 function applyMode(m: PMode, delay: number, push?: DVCtx['push']) {
-  setTimeout(() => { if (bridge.mode !== m) { bridge.mode = m; bridge.tune = ''; } push?.('dvswitch', snapshot()); }, delay);
+  setTimeout(() => { if (bridge.mode !== m) { if (m === 'BM' && !bmCfg.stay) bmCfg.at = Date.now(); bridge.mode = m; bridge.tune = abTune(m, remembered[m]?.tune ?? UNLINK[m]); bridge.private = false; } push?.('dvswitch', snapshot()); }, delay);
 }
+// The mode a switch leaves linked (it gets its unlink value first; its remembered tune stays), or undefined.
+const leaving = (to: PMode) => (bridge.mode !== to && bridge.tune && bridge.tune !== UNLINK[bridge.mode] ? bridge.mode : undefined);
 function panelHandler(c: DVCtx): boolean {
   const op = c.user!.role !== 'viewer';
   const forbid = () => (c.err(403, 'insufficient permissions', 'forbidden'), true);
-  const reply = (mode: PMode, switched: boolean, confirmed: boolean) => c.json(200, { mode, switched, confirmed, snapshot: snapshot() });
+  const reply = (mode: PMode, switched: boolean, confirmed: boolean, left?: PMode) => c.json(200, { mode, switched, confirmed, ...(left ? { left } : {}), snapshot: snapshot() });
   if (c.m === 'GET' && c.p === '/dvswitch/snapshot') { c.json(200, snapshot()); return true; }
   if (c.m === 'GET' && c.p === '/dvswitch/favorites') { c.json(200, favs.map(favView)); return true; }
   if (!op) return forbid();
@@ -332,13 +460,13 @@ function panelHandler(c: DVCtx): boolean {
   const running = () => snapshot().running;
   if (c.m === 'POST' && c.p === '/dvswitch/mode') {
     const m = String(body.mode ?? '').toUpperCase() as PMode;
-    if (!(m in UNLINK)) return c.err(400, 'mode must be DMR, YSF, P25 or NXDN', 'bad_request'), true;
+    if (!(m in UNLINK)) return c.err(400, 'mode must be BM, DMR, YSF, P25 or NXDN', 'bad_request'), true;
     if (!running()) return c.err(409, 'no_info: the bridge is not running', 'no_info'), true;
     if (!snapshot().modes.find((x) => x.id === m)?.enabled) return c.err(409, `mode_disabled: ${m} is not enabled in MMDVM_Bridge`, 'mode_disabled'), true;
     if (bridge.mode === m) return reply(m, false, true), true;
-    const delay = m === 'P25' ? 7000 : 1200;
+    const delay = m === 'P25' ? 7000 : 1200, left = leaving(m);
     applyMode(m, delay, c.push);
-    setTimeout(() => reply(m, true, delay <= 1800), Math.min(delay, 1800));
+    setTimeout(() => reply(m, true, delay <= 1800, left), Math.min(delay, 1800));
     return true;
   }
   if (c.m === 'POST' && c.p === '/dvswitch/unlink') {
@@ -352,11 +480,15 @@ function panelHandler(c: DVCtx): boolean {
     const mode = String(body.mode ?? '').toUpperCase() as PMode, tune = body.tune;
     if (!(mode in tuneRe) || typeof tune !== 'string' || !tuneRe[mode].test(tune)) return bad(c, 'tune'), true;
     if (!running()) return c.err(409, 'no_info: the bridge is not running', 'no_info'), true;
-    const switched = bridge.mode !== mode;
-    bridge.mode = mode; bridge.tune = abTune(mode, tune);
-    if (!UNLINK[mode] || tune !== UNLINK[mode]) remembered[mode] = { tune, ...(mode === 'DMR' ? { ts: '2' } : {}), at: new Date().toISOString() };
+    const switched = bridge.mode !== mode, left = leaving(mode);
+    if (mode === 'BM' && !bmView().configured) return c.err(409, 'mode_disabled: BrandMeister is not set up', 'mode_disabled'), true;
+    const priv = isDMRFamily(mode) && tune.endsWith('#');
+    if (mode === 'BM' && !bmCfg.stay && bridge.mode !== 'BM') bmCfg.at = Date.now(); // stfu starts on demand
+    bridge.mode = mode; bridge.private = priv; bridge.tune = priv ? tune.slice(0, -1) : abTune(mode, tune);
+    // a private call (the Parrot) is never remembered
+    if (!priv && (!UNLINK[mode] || tune !== UNLINK[mode])) remembered[mode] = { tune, ...(isDMRFamily(mode) ? { ts: '2' } : {}), at: new Date().toISOString() };
     lastMode = mode;
-    reply(mode, switched, true);
+    reply(mode, switched, true, left);
     c.push?.('dvswitch', snapshot());
     return true;
   }
@@ -456,6 +588,17 @@ export function handleDVSwitch(c: DVCtx): boolean {
   if (c.m === 'GET' && c.p === '/dvswitch') { c.json(200, status()); return true; }
   if (c.m === 'GET' && c.p === '/dvswitch/job') { c.json(200, progress()); return true; }
   if (c.m === 'GET' && c.p === '/dvswitch/setup') { progress(); c.json(200, setup()); return true; }
+  if ((c.m === 'PUT' || c.m === 'DELETE') && c.p === '/dvswitch/brandmeister') return brandMeister(c, c.body ?? {});
+  if (c.m === 'DELETE' && c.p === '/dvswitch/dmr-connection') return dmrClear(c);
+  if (c.m === 'POST' && c.p === '/dvswitch/stfu/install') {
+    progress();
+    const s = stfuStatus();
+    if (!installed) c.err(409, 'not_installed: DVSwitch is not installed (its ini files are missing)', 'not_installed');
+    else if (s.job.job === 'running') c.err(409, 'an install, uninstall or update is already running', 'job_running');
+    else if (s.installed) c.err(409, 'stfu_installed: STFU is already installed', 'stfu_installed');
+    else { stfuJob = Date.now(); c.json(202, status()); }
+    return true;
+  }
   if ((c.m === 'PUT' && ['/dvswitch/identity', '/dvswitch/credentials', '/dvswitch/modes', '/dvswitch/startup'].includes(c.p)) || (c.m === 'POST' && ['/dvswitch/restart', '/dvswitch/rollback'].includes(c.p))) return write(c, c.body ?? {});
   if (c.m === 'POST' && (c.p === '/dvswitch/install' || c.p === '/dvswitch/uninstall')) {
     const kind = c.p === '/dvswitch/install' ? 'install' : 'uninstall';

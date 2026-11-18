@@ -1,8 +1,12 @@
 // Pure logic of the dashboard DVSwitch card (docs/DVSWITCH.md "Dashboard card"): the state line,
 // favourite and tune validation (the same rules as the server), and the pending/confirm logic.
-import type { DVBridge, DVFavorite, DVSnapshot, DVTuneMode, NodeStatus } from './types';
+import type { DVBridge, DVCaller, DVFavorite, DVSnapshot, DVTuneMode, NodeStatus } from './types';
 
-export const PANEL_MODES: DVTuneMode[] = ['DMR', 'YSF', 'P25', 'NXDN'];
+export const PANEL_MODES: DVTuneMode[] = ['BM', 'DMR', 'YSF', 'P25', 'NXDN'];
+/** BM (BrandMeister through STFU) and DMR (DMR - Other through MMDVM_Bridge) are both DMR on the air: talkgroups, private calls. */
+export const isDMRFamily = (mode: string): boolean => mode === 'BM' || mode === 'DMR';
+/** The name of a panel mode: "BrandMeister" for BM, else the mode itself. */
+export const modeLabel = (mode: string): string => (mode === 'BM' ? 'BrandMeister' : mode);
 /** How long a mode switch may stay unconfirmed before the card says so. */
 export const CONFIRM_MS = 5000;
 export const FAV_NAME_MAX = 40;
@@ -11,8 +15,9 @@ export const FAV_PER_MODE = 50;
 /** "Mode YSF, tuned to Example room (192.0.2.10:42000)", "Mode DMR, tuned to 91", "Mode P25", or "Mode unknown". */
 export function stateLine(b: Pick<DVBridge, 'mode' | 'tune' | 'targetName' | 'source'> | null | undefined): string {
   if (!b || b.source === 'none' || !b.mode) return 'Mode unknown';
-  if (!b.tune) return `Mode ${b.mode}`;
-  return b.targetName ? `Mode ${b.mode}, tuned to ${b.targetName} (${b.tune})` : `Mode ${b.mode}, tuned to ${b.tune}`;
+  const m = modeLabel(b.mode);
+  if (!b.tune) return `Mode ${m}`;
+  return b.targetName ? `Mode ${m}, tuned to ${b.targetName} (${b.tune})` : `Mode ${m}, tuned to ${b.tune}`;
 }
 
 /** The unit dots: a unit that is down, or no snapshot of the bridge at all, is amber. */
@@ -49,12 +54,12 @@ export function validFavName(name: string): string | null {
   return n >= 1 && n <= FAV_NAME_MAX && printable(t) ? t : null;
 }
 
-/** Same rules as the server's tune validator: DMR TG 1-8 digits, P25 and NXDN 1-5 digits, YSF a 5-digit id, a name or host:port. */
+/** Same rules as the server's tune validator: BM and DMR TG 1-8 digits (a trailing # makes it a private call), P25 and NXDN 1-5 digits, YSF a 5-digit id, a name or host:port. */
 export function validTune(mode: string, value: string): boolean {
   const v = value.trim();
   if (!v || v.startsWith('-') || v.includes('=')) return false;
   switch (mode) {
-    case 'DMR': return /^[0-9]{1,8}$/.test(v);
+    case 'BM': case 'DMR': return /^[0-9]{1,8}#?$/.test(v);
     case 'P25': case 'NXDN': return /^[0-9]{1,5}$/.test(v);
     case 'YSF': {
       const hp = /^[A-Za-z0-9.-]{1,253}:([0-9]{1,5})$/.exec(v);
@@ -64,6 +69,19 @@ export function validTune(mode: string, value: string): boolean {
     }
     default: return false;
   }
+}
+
+/** BM Parrot: DMR 9990, called as a private call. */
+export const PARROT_ID = '9990';
+export const PRIVATE_MARK = '#';
+/** True for a BM or DMR private call value ("9990#"). */
+export const isPrivateTune = (mode: string, value: string): boolean => isDMRFamily(mode) && value.trim().endsWith(PRIVATE_MARK) && validTune(mode, value);
+/** The value to send: BM and DMR get the private mark when asked, other modes never. */
+export function withPrivate(mode: string, value: string, priv: boolean): string {
+  const v = value.trim();
+  if (!isDMRFamily(mode)) return v;
+  const bare = v.endsWith(PRIVATE_MARK) ? v.slice(0, -1) : v;
+  return priv ? bare + PRIVATE_MARK : bare;
 }
 
 /** The favourite of `mode` with this value, if any (decides whether the star is filled). */
@@ -124,13 +142,15 @@ export function validNodeName(name: string): string | null {
 /** Button class of the node link button: green to link, red to unlink (solid colours, readable in both themes). */
 export const nodeLinkClass = (action: 'connect' | 'disconnect'): string => (action === 'connect' ? 'btn-ok' : 'btn-bad');
 
-/** The mode and target the bridge is tuned to: "DMR TG 3100", "YSF Example room", "P25 TG 10100", "DMR" with no target; null without a bridge node or mode. Not what the talker sent. */
+/** The mode and target the bridge is tuned to: "BrandMeister TG 91", "DMR TG 1", "YSF Example room", "P25 TG 10100", "DMR" with no target; null without a bridge node or mode. Not what the talker sent. */
 export function bridgeRxTarget(s: Pick<DVSnapshot, 'bridgeNode' | 'bridge'> | null | undefined): string | null {
   const bn = s?.bridgeNode;
   if (!s || !bn?.present || !bn.node || s.bridge.source === 'none' || !s.bridge.mode) return null;
   const { mode, tune, targetName } = s.bridge;
-  if (!tune) return mode;
-  return mode === 'YSF' ? `YSF ${targetName || tune}` : `${mode} TG ${tune}`;
+  const m = modeLabel(mode);
+  if (isDMRFamily(mode) && s.bridge.private) return `${m} private call`;
+  if (!tune) return m;
+  return mode === 'YSF' ? `YSF ${targetName || tune}` : `${m} TG ${tune}`;
 }
 
 /** "RX: DMR TG 3100" while the bridge node is keyed (its link on a local node, or the node itself when monitored), else null. */
@@ -141,3 +161,40 @@ export function bridgeRx(nodes: Pick<NodeStatus, 'node' | 'rxKeyed' | 'links'>[]
   const keyed = nodes.some((n) => (n.node === bn.node && n.rxKeyed) || n.links.some((l) => l.node === bn.node && l.keyed));
   return keyed ? `RX: ${t}` : null;
 }
+
+/** The callsign of whoever is talking on the bridge, shown only while RX is keyed (the caller of the log's last call that has not ended). null without one. */
+export const rxCaller = (s: Pick<DVSnapshot, 'caller'> | null | undefined): string | null => (s?.caller ? callerLabel(s.caller) || null : null);
+
+/** Who a caller is: "Parrot (private call)" for a private call (the BM Parrot's reply), else the callsign, else the DMR ID (no callsign known), else "". */
+export function callerLabel(c: DVCaller): string {
+  if (c.private) return c.dmrId === PARROT_ID ? 'Parrot (private call)' : 'Private call';
+  return c.call?.trim() || c.dmrId || '';
+}
+
+/** "N0CALL" or "N0CALL (1234567)" for the Last heard list, with the target ("TG 91") and the log time. */
+export function heardLine(c: DVCaller): string {
+  return [callerLabel(c), c.dst ? `TG ${c.dst}` : '', c.at ? c.at.slice(11, 19) : ''].filter(Boolean).join(' · ');
+}
+
+/** The Frequency field in MHz as Hz (an integer), or null when it is not a number in the 30 to 3000 MHz range the server accepts. Hz input (30000000 to 3000000000) is taken as it is. */
+export function freqToHz(input: string): number | null {
+  const t = input.trim().replace(',', '.');
+  if (!/^[0-9]+(\.[0-9]{1,6})?$/.test(t)) return null;
+  const n = Number(t);
+  const hz = n >= 30_000_000 ? Math.round(n) : Math.round(n * 1e6);
+  return hz >= 30_000_000 && hz <= 3_000_000_000 ? hz : null;
+}
+/** Hz as the MHz text the form shows: 434000000 gives "434", 434012500 gives "434.0125". */
+export const hzToMHz = (hz: number): string => (hz > 0 ? String(hz / 1e6) : '');
+
+/** Latitude or longitude text: a decimal with up to six places, within +/- max degrees. */
+export function validCoord(v: string, max: number): boolean {
+  const t = v.trim();
+  if (!/^-?[0-9]{1,3}(\.[0-9]{1,6})?$/.test(t)) return false;
+  return Math.abs(Number(t)) <= max;
+}
+
+/** [Info] text: 1 to `max` printable ASCII characters, starting with a letter or digit, no trailing blank, none of ; # = " (the server's rule; Location 20, Description 19). */
+export const validInfoText = (v: string, max: number): boolean => v.length >= 1 && v.length <= max && /^[A-Za-z0-9][\x20-\x7e]*$/.test(v) && v === v.trimEnd() && !/[;#="]/.test(v);
+/** [Info] URL: empty, or http(s) with no space, quote, ; or #, at most 124 characters. */
+export const validInfoUrl = (v: string): boolean => v === '' || (v.length <= 124 && /^https?:\/\/[A-Za-z0-9._~:/?&=%+-]{1,116}$/.test(v));

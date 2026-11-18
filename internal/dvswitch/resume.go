@@ -189,7 +189,7 @@ func (t *Tracker) load() {
 	// A stored value is data: drop what the validators would refuse.
 	clean := map[string]Tune{}
 	for m, e := range t.st.PerMode {
-		if helper.DVNormMode(m) == m && helper.DVValidTune(m, e.Tune) {
+		if helper.DVNormMode(m) == m && helper.DVValidTune(m, e.Tune) && !helper.DVPrivateTune(m, e.Tune) {
 			clean[m] = e
 		}
 	}
@@ -431,7 +431,7 @@ func decideResume(now time.Time, window time.Duration, info helper.DVSwitchInfo,
 		return resumeWait, "state file is from an earlier start"
 	}
 	e := st.PerMode[st.LastMode]
-	if st.LastMode == "" || !helper.DVValidTune(st.LastMode, e.Tune) {
+	if st.LastMode == "" || !helper.DVValidTune(st.LastMode, e.Tune) || helper.DVPrivateTune(st.LastMode, e.Tune) {
 		return resumeSkip, "no remembered tune"
 	}
 	if info.Tune != "" {
@@ -445,18 +445,22 @@ var reYSFID = regexp.MustCompile(`^[0-9]{5}$`)
 
 // record remembers the current tune of the current mode.
 //
-//   - DMR: digital.tg (and ts). The startup talkgroup shown after a start is
+//   - BM and DMR (both ambe_mode DMR, told apart by the panel mode,
+//     helper.DVPanelMode): digital.tg (and ts). The startup talkgroup shown after a start is
 //     not a tune: it counts once it differs from the first state seen after
 //     the start, or once last_tune holds a value set in DMR.
 //   - YSF, P25, NXDN: last_tune, when it is not empty and valid for the mode.
 //     last_tune survives a mode change, so a value first seen in another mode
 //     is not taken for this one.
-//   - Right after a switch of mode to DMR the talkgroup is not trusted:
+//   - Right after a switch of mode to BM or DMR the talkgroup is not trusted:
 //     Analog_Bridge takes txTg= of a YSF tune ("192.0.2.10:42000") as a number
 //     and keeps its leading digits ("192") as digital.tg, so the first DMR
 //     sample after a switch shows a value that is nobody's tune. It counts
 //     only once last_tune changed after the switch and equals the
 //     talkgroup, i.e. a tune that was sent in DMR (by the panel or an app).
+//   - A DMR private call ("9990#", and the Parrot ID 9990 itself, which only
+//     answers private calls) is never remembered: the remembered tune stays
+//     the last real talkgroup, so a resume does not call a user again.
 //   - Every value must pass the mode's validator (DMR: digits only, no prefix
 //     parsing) before it is stored.
 //   - Unlink values (DMR 4000, YSF disconnect, P25 and NXDN 9999) are not
@@ -466,7 +470,7 @@ func (t *Tracker) record(info helper.DVSwitchInfo, now time.Time) {
 	if !info.Found {
 		return
 	}
-	mode := helper.DVNormMode(info.Mode)
+	mode := helper.DVPanelMode(info)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -478,7 +482,7 @@ func (t *Tracker) record(info helper.DVSwitchInfo, now time.Time) {
 	}
 	if mode != t.prevMode {
 		// a switch of mode (not the first sample of this start)
-		t.dmrHold = t.modeSeen && mode == "DMR"
+		t.dmrHold = t.modeSeen && helper.DVDMRFamily(mode)
 		t.prevMode = mode
 	}
 	t.modeSeen = true
@@ -491,18 +495,24 @@ func (t *Tracker) record(info helper.DVSwitchInfo, now time.Time) {
 
 	var tune, ts string
 	switch mode {
-	case "DMR":
-		if !helper.DVValidTune("DMR", info.TG) {
+	case helper.DVModeBM, helper.DVModeDMR:
+		if !helper.DVValidTune(mode, info.TG) {
+			return
+		}
+		// A private call (Parrot 9990#) is a one-off, not the mode's target:
+		// never remember it, whether ABInfo marks it (last_tune "9990#") or
+		// only shows the called ID as the talkgroup.
+		if info.Private || info.TG == helper.DVParrotID {
 			return
 		}
 		if t.dmrHold {
-			if info.Tune != info.TG || t.tuneMode != "DMR" {
+			if info.Tune != info.TG || t.tuneMode != mode {
 				return
 			}
 			t.dmrHold = false
 		}
 		moved := info.TG != t.baseTG || info.Slot != t.baseTS
-		if !moved && !(info.Tune != "" && t.tuneMode == "DMR") {
+		if !moved && !(info.Tune != "" && t.tuneMode == mode) {
 			return
 		}
 		tune, ts = info.TG, info.Slot

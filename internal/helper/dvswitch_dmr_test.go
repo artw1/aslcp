@@ -278,6 +278,7 @@ func TestDMRStatusOpAndArgs(t *testing.T) {
 
 func TestDMRRestartScope(t *testing.T) {
 	o, f := cfgOps(t)
+	stfuUnitDisabled(f) // with stfu enabled, see TestBMRestartScope
 	r, err := o.DVSwitchRestart(context.Background(), &DVSwitchRequest{Scope: "dmr"})
 	if err != nil || len(r.Units) != 1 || r.Units[0] != "mmdvm_bridge" {
 		t.Fatalf("%v %+v", err, r)

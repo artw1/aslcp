@@ -30,10 +30,16 @@ func (s *Server) dvswitchCtlRoutes() {
 // dvCmdReply is the reply of the three commands: what the helper reported and
 // the snapshot read after it.
 type dvCmdReply struct {
-	Mode      string     `json:"mode"`
-	Switched  bool       `json:"switched"`
-	Confirmed bool       `json:"confirmed"`
-	Snapshot  DVSnapshot `json:"snapshot"`
+	Mode      string `json:"mode"`
+	Switched  bool   `json:"switched"`
+	Confirmed bool   `json:"confirmed"`
+	// Left: the mode a switch left and unlinked first (helper.DVTuneResult).
+	Left string `json:"left,omitempty"`
+	// BMLoginPending: BM was entered but STFU's login was not seen in time.
+	// STFUStopFailed: leaving BM, stfu could not be stopped.
+	BMLoginPending bool       `json:"bmLoginPending,omitempty"`
+	STFUStopFailed bool       `json:"stfuStopFailed,omitempty"`
+	Snapshot       DVSnapshot `json:"snapshot"`
 }
 
 // dvDone builds the reply of a command, publishes the new snapshot and
@@ -42,7 +48,7 @@ func (s *Server) dvDone(ctx context.Context, res helper.DVTuneResult) dvCmdReply
 	sn := s.dvs.snapshot(ctx, true)
 	s.dvs.publish(sn)
 	s.dvs.afterCommand()
-	return dvCmdReply{Mode: res.Mode, Switched: res.Switched, Confirmed: res.Confirmed, Snapshot: sn}
+	return dvCmdReply{Mode: res.Mode, Switched: res.Switched, Confirmed: res.Confirmed, Left: res.Left, BMLoginPending: res.BMLoginPending, STFUStopFailed: res.STFUStopFailed, Snapshot: sn}
 }
 
 // handleDVSwitchSnapshot: GET /api/dvswitch/snapshot, every role. The admin
@@ -52,8 +58,13 @@ func (s *Server) handleDVSwitchSnapshot(w http.ResponseWriter, r *http.Request, 
 	writeJSON(w, 200, s.dvs.snapshot(r.Context(), false))
 }
 
-func dvModeEnabled(v helper.DVModesView, mode string) bool {
+// dvModeEnabled: BM when the BrandMeister connection is configured, the
+// others when MMDVM_Bridge enables them.
+func dvModeEnabled(setup helper.DVSwitchSetup, mode string) bool {
+	v := setup.Modes
 	switch mode {
+	case helper.DVModeBM:
+		return setup.BrandMeister.Configured
 	case "DMR":
 		return v.DMR
 	case "YSF":
@@ -82,7 +93,7 @@ func (s *Server) dvRememberedTune(mode string) string {
 		return ""
 	}
 	t := s.d.DVResume.Get().PerMode[mode].Tune
-	if !helper.DVValidTune(mode, t) || helper.DVUnlinkValue(mode, t) {
+	if !helper.DVValidTune(mode, t) || helper.DVUnlinkValue(mode, t) || helper.DVPrivateTune(mode, t) {
 		return ""
 	}
 	return t
@@ -95,8 +106,11 @@ func (s *Server) dvForget(mode string) {
 	}
 }
 
-// handleDVSwitchMode: POST /api/dvswitch/mode {mode}. Switches the mode and,
-// when the node remembers a tune for it, tunes there (dvRememberedTune). 409 mode_disabled when MMDVM_Bridge does not enable it.
+// handleDVSwitchMode: POST /api/dvswitch/mode {mode}. Switches the mode and
+// tunes it: to the tune the node remembers for it (dvRememberedTune), else to
+// its unlink value, so the new mode never inherits the txTg the previous one
+// left. The helper unlinks the mode being left first (DVSwitchTune). 409
+// mode_disabled when the mode is not set up.
 func (s *Server) handleDVSwitchMode(w http.ResponseWriter, r *http.Request, u store.User) {
 	if s.d.DVSwitch == nil {
 		s.dvswitchError(w, errDVUnavailable)
@@ -110,7 +124,7 @@ func (s *Server) handleDVSwitchMode(w http.ResponseWriter, r *http.Request, u st
 	}
 	mode := strings.ToUpper(strings.TrimSpace(b.Mode))
 	if !dvKnownMode(mode) {
-		writeErr(w, http.StatusBadRequest, "bad_request", "mode must be DMR, YSF, P25 or NXDN")
+		writeErr(w, http.StatusBadRequest, "bad_request", "mode must be BM, DMR, YSF, P25 or NXDN")
 		return
 	}
 	setup, err := s.d.DVSwitch.DVSwitchSetup(r.Context())
@@ -118,28 +132,38 @@ func (s *Server) handleDVSwitchMode(w http.ResponseWriter, r *http.Request, u st
 		s.dvswitchError(w, err)
 		return
 	}
-	if !dvModeEnabled(setup.Modes, mode) {
+	if !dvModeEnabled(setup, mode) {
 		s.audit(u, "dvswitch.mode.refused", map[string]any{"mode": mode, "reason": "disabled"})
-		writeErr(w, http.StatusConflict, "mode_disabled", mode+" is not enabled in MMDVM_Bridge")
+		writeErr(w, http.StatusConflict, "mode_disabled", mode+" is not set up")
 		return
 	}
-	// Back to a mode: tune it to its remembered target in the same sequence.
-	// Without it Analog_Bridge keeps whatever txTg the previous mode left
-	// (a YSF reflector's leading digits show up as a DMR talkgroup).
-	tn := &helper.DVTune{Mode: mode, ModeOnly: true}
 	cur, ierr := s.d.DVSwitch.DVSwitchInfo(r.Context())
+	curMode := ""
+	if ierr == nil && cur.Found {
+		curMode = helper.DVPanelMode(cur)
+	}
 	// A mode that is disconnected now stays so: the poll may not have seen
 	// the unlink yet, so drop its remembered tune here.
-	if ierr == nil && cur.Found && helper.DVNormMode(cur.Mode) != "" && helper.DVUnlinkValue(helper.DVNormMode(cur.Mode), cur.Tune) {
-		s.dvForget(helper.DVNormMode(cur.Mode))
+	if curMode != "" && cur.Tune != "" && helper.DVUnlinkValue(curMode, cur.Tune) {
+		s.dvForget(curMode)
 	}
-	if last := s.dvRememberedTune(mode); last != "" && ierr == nil && cur.Found && helper.DVNormMode(cur.Mode) != mode {
-		tn = &helper.DVTune{Mode: mode, Tune: last}
+	// Already in the mode: nothing to send.
+	tn := &helper.DVTune{Mode: mode, ModeOnly: true}
+	if curMode != mode {
+		// Tune the new mode in the same sequence: to its remembered target,
+		// else to its unlink value. A switch that sent no tune left the
+		// previous mode's txTg in place (a YSF reflector's number showed as
+		// DMR talkgroup 76).
+		tn = &helper.DVTune{Mode: mode, Tune: helper.DVUnlinkTune(mode)}
+		if last := s.dvRememberedTune(mode); last != "" {
+			tn.Tune = last
+		}
 	}
 	res, err := s.d.DVSwitch.DVSwitchTune(r.Context(), helper.DVSwitchRequest{Author: u.Username, Tune: tn})
-	if err != nil && !tn.ModeOnly {
-		// the remembered value was refused (a host list changed, say): switch only
-		tn = &helper.DVTune{Mode: mode, ModeOnly: true}
+	if err != nil && !tn.ModeOnly && tn.Tune != helper.DVUnlinkTune(mode) {
+		// the remembered value was refused (a host list changed, say):
+		// switch to the mode unlinked
+		tn = &helper.DVTune{Mode: mode, Tune: helper.DVUnlinkTune(mode)}
 		res, err = s.d.DVSwitch.DVSwitchTune(r.Context(), helper.DVSwitchRequest{Author: u.Username, Tune: tn})
 	}
 	if err != nil {
@@ -147,7 +171,20 @@ func (s *Server) handleDVSwitchMode(w http.ResponseWriter, r *http.Request, u st
 		s.dvswitchError(w, err)
 		return
 	}
-	s.audit(u, "dvswitch.mode", map[string]any{"mode": mode})
+	audit := map[string]any{"mode": mode}
+	if res.Left != "" {
+		audit["left"] = res.Left
+	}
+	if res.LeftFailed {
+		s.d.Logger.Printf("dvswitch.mode: the unlink of %s could not be sent before the switch", res.Left)
+	}
+	if res.STFUStopFailed {
+		s.d.Logger.Printf("dvswitch.mode: stfu could not be stopped after leaving BM")
+	}
+	if res.BMLoginPending {
+		audit["bmLoginPending"] = true
+	}
+	s.audit(u, "dvswitch.mode", audit)
 	s.d.Logger.Printf("dvswitch.mode %s by %s", mode, u.Username)
 	// ABInfo shows the new mode within about 2 s: wait for it.
 	for i := 0; !res.Confirmed && i < 6; i++ {
@@ -155,7 +192,7 @@ func (s *Server) handleDVSwitchMode(w http.ResponseWriter, r *http.Request, u st
 		case <-r.Context().Done():
 		case <-time.After(300 * time.Millisecond):
 		}
-		if info, err := s.d.DVSwitch.DVSwitchInfo(r.Context()); err == nil && info.Found && helper.DVNormMode(info.Mode) == mode {
+		if info, err := s.d.DVSwitch.DVSwitchInfo(r.Context()); err == nil && info.Found && helper.DVPanelMode(info) == mode {
 			res.Confirmed = true
 		}
 	}
@@ -182,7 +219,7 @@ func (s *Server) handleDVSwitchUnlink(w http.ResponseWriter, r *http.Request, u 
 		s.dvswitchError(w, helper.ErrDVNoInfo)
 		return
 	}
-	mode := helper.DVNormMode(info.Mode)
+	mode := helper.DVPanelMode(info)
 	if mode == "" {
 		writeErr(w, http.StatusConflict, "mode_unknown", "the bridge is in a mode that cannot be unlinked here")
 		return

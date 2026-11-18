@@ -25,6 +25,11 @@ type dvSetupReply struct {
 	RestartHint []string            `json:"restartHint,omitempty"`
 	// BridgeNode is what the "Bridge node" section needs (M2).
 	BridgeNode DVBridgeSetup `json:"bridgeNode"`
+	// BMLogin (BrandMeister save): "logged_in" or "pending", STFU's login
+	// after the restart. STFUStopFailed: STFU should be stopped again and
+	// was not.
+	BMLogin        string `json:"bmLogin,omitempty"`
+	STFUStopFailed bool   `json:"stfuStopFailed,omitempty"`
 }
 
 func (s *Server) dvSetupView(w http.ResponseWriter, r *http.Request, res *helper.DVApplyResult) {
@@ -42,6 +47,7 @@ func (s *Server) dvSetupView(w http.ResponseWriter, r *http.Request, res *helper
 	}
 	if res != nil {
 		reply.Changed, reply.Skipped, reply.RestartHint = res.Files, res.Skipped, res.RestartHint
+		reply.BMLogin, reply.STFUStopFailed = res.BMLogin, res.STFUStopFailed
 	}
 	writeJSON(w, 200, reply)
 }
@@ -87,14 +93,19 @@ func (s *Server) handleDVSwitchIdentity(w http.ResponseWriter, r *http.Request, 
 		DMRID    string            `json:"dmrId"`
 		ESSID    string            `json:"essid"`
 		NXDNID   string            `json:"nxdnId"`
+		Info     *helper.DVInfo    `json:"info"`
 		Base     map[string]string `json:"base"`
 	}
 	if !decode(w, r, &b, false) {
 		return
 	}
-	s.dvWrite(w, r, u, "dvswitch.identity", []string{"callsign", "dmrId", "essid", "nxdnId"}, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
+	keys := []string{"callsign", "dmrId", "essid", "nxdnId"}
+	if b.Info != nil {
+		keys = append(keys, "info") // the key name, never the location
+	}
+	s.dvWrite(w, r, u, "dvswitch.identity", keys, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
 		return s.d.DVSwitch.DVSwitchIdentity(r.Context(), helper.DVSwitchRequest{Base: b.Base, Author: u.Username,
-			Identity: &helper.DVIdentity{Callsign: b.Callsign, DMRID: b.DMRID, ESSID: b.ESSID, NXDNID: b.NXDNID}})
+			Identity: &helper.DVIdentity{Callsign: b.Callsign, DMRID: b.DMRID, ESSID: b.ESSID, NXDNID: b.NXDNID, Info: b.Info}})
 	})
 }
 
@@ -163,6 +174,81 @@ func (s *Server) handleDVSwitchModes(w http.ResponseWriter, r *http.Request, u s
 	s.dvWrite(w, r, u, "dvswitch.modes", keys, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
 		return s.d.DVSwitch.DVSwitchModes(r.Context(), helper.DVSwitchRequest{Base: b.Base, Author: u.Username,
 			Modes: &helper.DVModes{DMR: b.DMR, YSF: b.YSF, P25: b.P25, NXDN: b.NXDN}})
+	})
+}
+
+// handleDVSwitchBMSave: PUT /api/dvswitch/brandmeister {server, password,
+// talkerAlias, startTg, stayLoggedIn, base}. Writes [STFU], restarts stfu to
+// check the login and leaves it running only while the panel is in BM mode
+// or stayLoggedIn is set (then it is also enabled). The password (write-only,
+// omitted keeps the saved one) never reaches the audit or the log: they name
+// the keys only.
+func (s *Server) handleDVSwitchBMSave(w http.ResponseWriter, r *http.Request, u store.User) {
+	if s.d.DVSwitch == nil {
+		s.dvswitchError(w, errDVUnavailable)
+		return
+	}
+	var b struct {
+		Server      string            `json:"server"`
+		Password    *string           `json:"password"`
+		TalkerAlias *string           `json:"talkerAlias"`
+		StartTG     *string           `json:"startTg"`
+		Stay        *bool             `json:"stayLoggedIn"`
+		Base        map[string]string `json:"base"`
+	}
+	if !decode(w, r, &b, false) {
+		return
+	}
+	keys := []string{"brandmeister"}
+	for _, k := range []struct {
+		n  string
+		on bool
+	}{{"server", b.Server != ""}, {"password", b.Password != nil}, {"talkerAlias", b.TalkerAlias != nil}, {"startTg", b.StartTG != nil}, {"stayLoggedIn", b.Stay != nil}} {
+		if k.on {
+			keys = append(keys, k.n)
+		}
+	}
+	s.dvWrite(w, r, u, "dvswitch.brandmeister", keys, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
+		res, err := s.d.DVSwitch.DVSwitchBM(r.Context(), helper.DVSwitchRequest{Base: b.Base, Author: u.Username,
+			BM: &helper.DVBM{Action: helper.DVBMSave, Server: b.Server, Password: b.Password, TalkerAlias: b.TalkerAlias, StartTG: b.StartTG, StayLoggedIn: b.Stay}})
+		if err == nil {
+			if b.Stay != nil {
+				s.audit(u, "dvswitch.brandmeister.stay", map[string]any{"stayLoggedIn": *b.Stay})
+			}
+			if res.STFUStopFailed {
+				s.d.Logger.Printf("dvswitch.brandmeister: stfu could not be stopped after the login check")
+			}
+		}
+		return res, err
+	})
+}
+
+// handleDVSwitchBMClear: DELETE /api/dvswitch/brandmeister. Stops and
+// disables stfu and resets its password to the stock value; BM leaves the
+// panel.
+func (s *Server) handleDVSwitchBMClear(w http.ResponseWriter, r *http.Request, u store.User) {
+	if s.d.DVSwitch == nil {
+		s.dvswitchError(w, errDVUnavailable)
+		return
+	}
+	s.dvWrite(w, r, u, "dvswitch.brandmeister.clear", []string{"brandmeister"}, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
+		return s.d.DVSwitch.DVSwitchBM(r.Context(), helper.DVSwitchRequest{Author: u.Username,
+			BM: &helper.DVBM{Action: helper.DVBMClear}})
+	})
+}
+
+// handleDVSwitchDMRClear: DELETE /api/dvswitch/dmr-connection. Turns DMR -
+// Other off ([DMR] and [DMR Network] Enable=0 in MMDVM_Bridge.ini); the
+// master and password stay.
+func (s *Server) handleDVSwitchDMRClear(w http.ResponseWriter, r *http.Request, u store.User) {
+	if s.d.DVSwitch == nil {
+		s.dvswitchError(w, errDVUnavailable)
+		return
+	}
+	off := false
+	s.dvWrite(w, r, u, "dvswitch.dmr_connection.clear", []string{"dmr"}, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
+		return s.d.DVSwitch.DVSwitchModes(r.Context(), helper.DVSwitchRequest{Author: u.Username,
+			Modes: &helper.DVModes{DMR: &off}})
 	})
 }
 

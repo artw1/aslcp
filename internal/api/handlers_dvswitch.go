@@ -36,6 +36,9 @@ type DVSwitch interface {
 	DVSwitchPrivate(ctx context.Context, p helper.DVPrivate) (helper.DVPrivateReply, error)
 	// Mode switch and tune.
 	DVSwitchTune(ctx context.Context, req helper.DVSwitchRequest) (helper.DVTuneResult, error)
+	// The BrandMeister connection (STFU) and the STFU package.
+	DVSwitchBM(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
+	DVSwitchSTFUInstall(ctx context.Context) (helper.DVSwitchStatus, error)
 }
 
 // DVResume is the tracker of the last tune per mode and the "resume after
@@ -65,6 +68,10 @@ func (s *Server) dvswitchRoutes() {
 	m.HandleFunc("PUT /api/dvswitch/credentials", s.authed(store.RoleAdmin, s.handleDVSwitchCredentials))
 	m.HandleFunc("PUT /api/dvswitch/modes", s.authed(store.RoleAdmin, s.handleDVSwitchModes))
 	m.HandleFunc("PUT /api/dvswitch/startup", s.authed(store.RoleAdmin, s.handleDVSwitchStartup))
+	m.HandleFunc("PUT /api/dvswitch/brandmeister", s.authed(store.RoleAdmin, s.handleDVSwitchBMSave))
+	m.HandleFunc("DELETE /api/dvswitch/brandmeister", s.authed(store.RoleAdmin, s.handleDVSwitchBMClear))
+	m.HandleFunc("DELETE /api/dvswitch/dmr-connection", s.authed(store.RoleAdmin, s.handleDVSwitchDMRClear))
+	m.HandleFunc("POST /api/dvswitch/stfu/install", s.authed(store.RoleAdmin, s.handleDVSwitchSTFUInstall))
 	// Tune and resume (M1): operators tune, only admins change the setting.
 	m.HandleFunc("POST /api/dvswitch/tune", s.authed(store.RoleOperator, s.handleDVSwitchTune))
 	m.HandleFunc("GET /api/dvswitch/resume", s.authed(store.RoleOperator, s.handleDVSwitchResume))
@@ -116,6 +123,12 @@ func (s *Server) handleDVSwitchJob(w http.ResponseWriter, r *http.Request, _ sto
 func (s *Server) handleDVSwitchInstall(w http.ResponseWriter, r *http.Request, u store.User) {
 	s.dvswitchStart(w, r, u, "dvswitch.install", func(ctx context.Context) (helper.DVSwitchStatus, error) {
 		return s.d.DVSwitch.DVSwitchInstall(ctx)
+	})
+}
+
+func (s *Server) handleDVSwitchSTFUInstall(w http.ResponseWriter, r *http.Request, u store.User) {
+	s.dvswitchStart(w, r, u, "dvswitch.stfu.install", func(ctx context.Context) (helper.DVSwitchStatus, error) {
+		return s.d.DVSwitch.DVSwitchSTFUInstall(ctx)
 	})
 }
 
@@ -192,6 +205,19 @@ func (s *Server) dvswitchError(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusConflict, "no_ports", err.Error())
 	case errors.Is(err, helper.ErrDVNoInfo):
 		writeErr(w, http.StatusConflict, "no_info", err.Error())
+	case errors.Is(err, helper.ErrDVSTFUNotInstalled):
+		writeErr(w, http.StatusConflict, "stfu_not_installed", err.Error())
+	case errors.Is(err, helper.ErrDVSTFUInstalled):
+		writeErr(w, http.StatusConflict, "stfu_installed", err.Error())
+	case errors.Is(err, helper.ErrDVNoIdentity):
+		writeErr(w, http.StatusConflict, "no_identity", err.Error())
+	case errors.Is(err, helper.ErrDVNoPassword):
+		writeErr(w, http.StatusConflict, "no_password", err.Error())
+	case errors.Is(err, helper.ErrDVBMMaster):
+		writeErr(w, http.StatusBadRequest, "bm_master", err.Error())
+	case errors.Is(err, helper.ErrDVSwitchFailed):
+		s.d.Logger.Printf("dvswitch: %v", err)
+		writeErr(w, http.StatusBadGateway, "switch_failed", err.Error())
 	case errors.As(err, &ce):
 		writeErr(w, http.StatusConflict, "conflict", "a file changed on disk since it was read: reload and try again")
 	case errors.Is(err, helper.ErrDVKeyMismatch):

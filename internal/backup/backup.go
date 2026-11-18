@@ -83,6 +83,7 @@ var DVSwitchFiles = []string{
 	"Analog_Bridge/Analog_Bridge.ini",
 	"Analog_Bridge/dvsm.macro",
 	"MMDVM_Bridge/MMDVM_Bridge.ini",
+	"MMDVM_Bridge/DVSwitch.ini",
 	"YSFGateway/YSFGateway.ini",
 	"P25Gateway/P25Gateway.ini",
 	"NXDNGateway/NXDNGateway.ini",

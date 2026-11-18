@@ -13,8 +13,11 @@ import (
 )
 
 // The DVSwitch snapshot: what the dashboard card shows, safe for every
-// logged-in role (docs/DVSWITCH.md, "API"). It holds no secret, no DMR ID, no
-// callsign and no install log; it is built from explicit fields only.
+// logged-in role (docs/DVSWITCH.md, "API"). It holds no secret, no install log
+// and no identity of the node; it is built from explicit fields only. The one
+// personal part is the callers (callsigns and DMR IDs of whoever talks on the
+// bridge), as heard on air; every role of the dashboard login sees it, there
+// is no unauthenticated stream.
 
 // DVSnapshot is the reply of GET /api/dvswitch/snapshot and the payload of the
 // SSE event "dvswitch".
@@ -29,10 +32,15 @@ type DVSnapshot struct {
 	BridgeNode DVBridgeNode    `json:"bridgeNode"`
 	// Link is the link of the bridge node to a local node (M2).
 	Link DVLink `json:"link"`
+	// Caller is who is talking now (the last call that has not ended in the
+	// log; the panel shows it only while RX is keyed). Heard is the last few
+	// distinct callers, newest first. Logged-in roles only.
+	Caller *helper.DVCaller  `json:"caller,omitempty"`
+	Heard  []helper.DVCaller `json:"heard"`
 }
 
-// DVBridge: Mode is DMR, YSF, P25 or NXDN ("" when unknown); Tune is the TG
-// (DMR) or the last tune (host:port for YSF); Slot is the DMR slot (0 when
+// DVBridge: Mode is BM, DMR, YSF, P25 or NXDN ("" when unknown); Tune is the
+// TG (BM, DMR) or the last tune (host:port for YSF); Slot is the DMR slot (0 when
 // unknown); Source is "abinfo" or "none".
 type DVBridge struct {
 	Mode       string `json:"mode"`
@@ -40,8 +48,11 @@ type DVBridge struct {
 	TargetName string `json:"targetName,omitempty"`
 	Slot       int    `json:"slot"`
 	Muted      bool   `json:"muted"`
-	Source     string `json:"source"`
-	Updated    string `json:"updated"`
+	// Private: the last tune was a DMR private call (Tune is then the ID that
+	// was called, not a talkgroup the bridge is tuned to).
+	Private bool   `json:"private,omitempty"`
+	Source  string `json:"source"`
+	Updated string `json:"updated"`
 }
 
 // DVModeView: Enabled is what MMDVM_Bridge enables; Unlink is the tune value
@@ -160,7 +171,7 @@ func (d *dvSnapper) build(ctx context.Context, info helper.DVSwitchInfo, infoErr
 }
 
 func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, infoErr error) DVSnapshot {
-	sn := DVSnapshot{Bridge: DVBridge{Source: "none"}, Modes: []DVModeView{}, Services: []DVServiceView{}, Link: DVLink{Mode: dvswitch.LinkOnDemand}}
+	sn := DVSnapshot{Bridge: DVBridge{Source: "none"}, Modes: []DVModeView{}, Services: []DVServiceView{}, Heard: []helper.DVCaller{}, Link: DVLink{Mode: dvswitch.LinkOnDemand}}
 	if !d.wired() {
 		return sn
 	}
@@ -170,12 +181,19 @@ func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, i
 	}
 	sn.Installed = true
 	var enabled helper.DVModesView
+	bm, stay := false, false
 	if v, ok := d.getSetup(ctx); ok {
 		enabled = v.Modes
+		bm, stay = v.BrandMeister.Configured, v.BrandMeister.StayLoggedIn
 	}
+	// On demand stfu runs only in BM mode: stopped otherwise, which is not a
+	// fault (stfuWanted).
+	stfuWanted := stay || infoErr == nil && info.Found && helper.DVPanelMode(info) == helper.DVModeBM
 	for _, m := range helper.DVTuneModes {
 		on := false
 		switch m {
+		case helper.DVModeBM:
+			on = bm
 		case "DMR":
 			on = enabled.DMR
 		case "YSF":
@@ -191,6 +209,10 @@ func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, i
 	for _, u := range st.Units {
 		switch u.Name {
 		case "analog_bridge", "mmdvm_bridge":
+		case "stfu":
+			if !bm || !stfuWanted && u.Active != "active" {
+				continue
+			}
 		case "ysfgateway", "p25gateway", "nxdngateway":
 			if !gw[u.Name] {
 				continue
@@ -223,9 +245,17 @@ func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, i
 func (d *dvSnapper) fillBridge(ctx context.Context, sn *DVSnapshot, info helper.DVSwitchInfo) {
 	b := &sn.Bridge
 	b.Source, b.Updated = "abinfo", info.Updated
-	b.Mode = helper.DVNormMode(info.Mode)
+	b.Mode = helper.DVPanelMode(info)
 	b.Slot, _ = strconv.Atoi(info.Slot)
 	b.Muted = info.Mute == "ON"
+	// ABInfo and the log show the Parrot tune as 9990 without the #.
+	b.Private = (info.Private || info.TG == helper.DVParrotID) && helper.DVDMRFamily(b.Mode)
+	if c := info.Callers; c != nil {
+		sn.Caller = c.Current
+		if c.Recent != nil {
+			sn.Heard = c.Recent
+		}
+	}
 	// last_tune survives a mode change: a value first seen in another mode is
 	// not this mode's target (same rule as the tracker).
 	if !d.tuneSeen || d.tuneVal != info.Tune {
@@ -233,8 +263,13 @@ func (d *dvSnapper) fillBridge(ctx context.Context, sn *DVSnapshot, info helper.
 	}
 	switch b.Mode {
 	case "":
-	case "DMR":
-		b.Tune = info.TG
+	case helper.DVModeBM, helper.DVModeDMR:
+		// TG may still hold another mode's value (a YSF reflector's number
+		// after a switch that sent no tune): it is a talkgroup only when no
+		// last tune is set or the last tune was set in BM or DMR.
+		if info.Tune == "" || helper.DVDMRFamily(d.tuneMode) {
+			b.Tune = info.TG
+		}
 	default:
 		if d.tuneMode == b.Mode && helper.DVValidTune(b.Mode, info.Tune) {
 			b.Tune = info.Tune
@@ -318,7 +353,7 @@ func (d *dvSnapper) targetName(ctx context.Context, mode, tune string) string {
 }
 
 func (d *dvSnapper) listName(ctx context.Context, mode, tune string) string {
-	if mode == "DMR" { // the DMR list holds masters, not talkgroups
+	if helper.DVDMRFamily(mode) { // the DMR list holds masters, not talkgroups
 		return ""
 	}
 	now := d.now()

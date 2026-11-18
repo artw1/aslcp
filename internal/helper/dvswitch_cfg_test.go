@@ -26,7 +26,7 @@ func dvFixture(t *testing.T, name string) []byte {
 
 var dvFixtureNames = map[string]string{
 	DVFileAnalogBridge: "Analog_Bridge.ini", DVFileMMDVMBridge: "MMDVM_Bridge.ini", DVFileYSFGateway: "YSFGateway.ini",
-	DVFileP25Gateway: "P25Gateway.ini", DVFileNXDNGateway: "NXDNGateway.ini",
+	DVFileP25Gateway: "P25Gateway.ini", DVFileNXDNGateway: "NXDNGateway.ini", DVFileDVSwitch: "DVSwitch.ini",
 }
 
 func dvUnitRules(units ...string) map[string]resp {
@@ -49,6 +49,7 @@ func cfgOps(t *testing.T) (*Ops, *fakeRunner) {
 	t.Helper()
 	f := &fakeRunner{rules: dvUnitRules(dvUnits...)}
 	o := dvOps(t, f)
+	o.DVSleep = func(context.Context, time.Duration) {} // never wait for a login for real
 	root := t.TempDir()
 	o.DVOptDir = filepath.Join(root, "opt")
 	o.DVHistoryDir = filepath.Join(root, "hist")
@@ -81,6 +82,17 @@ func readDV(t *testing.T, o *Ops, id string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// noStock drops the stock [Info] warning: the fixtures hold the stock file.
+func noStock(w []string) []string {
+	out := []string{}
+	for _, x := range w {
+		if x != DVInfoStockWarning {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 func sp(s string) *string { return &s }
@@ -646,14 +658,14 @@ func TestDVNXDNID(t *testing.T) {
 	if v.Identity.NXDNID != "" {
 		t.Fatalf("stock 12345 must read as not set: %q", v.Identity.NXDNID)
 	}
-	if len(v.Warnings) != 0 {
-		t.Fatalf("NXDN disabled, no warning expected: %v", v.Warnings)
+	if w := noStock(v.Warnings); len(w) != 0 {
+		t.Fatalf("NXDN disabled, no warning expected: %v", w)
 	}
 	// NXDN on without an ID: warning, nothing blocked
 	if _, err := o.DVSwitchModes(ctx, &DVSwitchRequest{Modes: &DVModes{NXDN: bp(true)}}); err != nil {
 		t.Fatal(err)
 	}
-	if v, _ = o.DVSwitchSetup(ctx); !v.Modes.NXDN || len(v.Warnings) != 1 || v.Warnings[0] != DVNXDNWarning {
+	if v, _ = o.DVSwitchSetup(ctx); !v.Modes.NXDN || len(noStock(v.Warnings)) != 1 || noStock(v.Warnings)[0] != DVNXDNWarning {
 		t.Fatalf("%+v %v", v.Modes, v.Warnings)
 	}
 	before := readDV(t, o, DVFileMMDVMBridge)
@@ -677,7 +689,7 @@ func TestDVNXDNID(t *testing.T) {
 		t.Error("General Id lost")
 	}
 	v, _ = o.DVSwitchSetup(ctx)
-	if v.Identity.NXDNID != "65519" || len(v.Warnings) != 0 {
+	if v.Identity.NXDNID != "65519" || len(noStock(v.Warnings)) != 0 {
 		t.Fatalf("%+v %v", v.Identity, v.Warnings)
 	}
 	// invalid values: refused, nothing written, value not echoed

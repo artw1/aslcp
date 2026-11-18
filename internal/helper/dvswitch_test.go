@@ -100,13 +100,16 @@ func dvRules(installed ...string) map[string]resp {
 // ---- constants and scripts
 
 func TestDVPackageListConstant(t *testing.T) {
-	want := []string{"dvswitch-base", "analog-bridge", "mmdvm-bridge", "md380-emu", "ysfgateway", "p25gateway", "nxdngateway", "wget"}
+	want := []string{"dvswitch-base", "analog-bridge", "mmdvm-bridge", "md380-emu", "ysfgateway", "p25gateway", "nxdngateway", "stfu", "wget"}
 	if got := DVSwitchPackages(); strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("packages: %v", got)
 	}
 	o := dvOps(t, &fakeRunner{})
 	if !strings.Contains(o.dvInstallScript(), "install --no-install-recommends "+dvInstallPackages) {
 		t.Error("install script lacks the package constant")
+	}
+	if !strings.Contains(o.dvInstallScript(), "systemctl disable --now stfu.service || true") {
+		t.Error("install script leaves stfu running")
 	}
 	if strings.Contains(o.dvInstallScript(), "qemu") {
 		t.Error("qemu-user-static must come from the simulation, not the script")
@@ -505,7 +508,7 @@ func TestUninstallPlanPurgesSetAndDeps(t *testing.T) {
 		t.Fatal(err, w.String())
 	}
 	got := readPurge(t, o)
-	if len(got) != 9 || !containsStr(got, "qemu-user-static") || !containsStr(got, "wget") {
+	if len(got) != 10 || !containsStr(got, "stfu") || !containsStr(got, "qemu-user-static") || !containsStr(got, "wget") {
 		t.Errorf("%v", got)
 	}
 }
@@ -857,7 +860,7 @@ func TestDemoDVSwitchNXDNID(t *testing.T) {
 	d.DVSwitchInstall(ctx)
 	now = now.Add(time.Minute)
 	v, _ := d.DVSwitchSetup(ctx)
-	if v.Identity.NXDNID == "" || len(v.Warnings) != 0 {
+	if v.Identity.NXDNID == "" || len(noStock(v.Warnings)) != 0 {
 		t.Fatalf("%+v %v", v.Identity, v.Warnings)
 	}
 	id := DVIdentity{Callsign: "N0CALL", DMRID: "1234567", ESSID: "01", NXDNID: "70000"}
@@ -875,7 +878,7 @@ func TestDemoDVSwitchNXDNID(t *testing.T) {
 	}
 	on := true
 	d.DVSwitchModes(ctx, DVSwitchRequest{Modes: &DVModes{NXDN: &on}})
-	if v, _ = d.DVSwitchSetup(ctx); len(v.Warnings) != 0 {
+	if v, _ = d.DVSwitchSetup(ctx); len(noStock(v.Warnings)) != 0 {
 		t.Fatalf("%v", v.Warnings)
 	}
 	if _, err := d.DVSwitchStartup(ctx, DVSwitchRequest{Startup: &DVStartup{YSF: sp("Example Reflector 1")}}); err != nil {

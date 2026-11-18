@@ -6,7 +6,7 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-  import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, stateLine, stateTitle, stateTone, validFavName, validTune } from '../lib/dvpanel';
+  import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, isDMRFamily, modeLabel } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import { exclusiveHint, linkButton, linkExclusiveOnClick, linkLine, pausedHint } from '../lib/dvbridge';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
@@ -41,7 +41,11 @@
   $effect(() => { if (outcome === 'confirmed') { pending = null; clearTimeout(timer); } });
   $effect(() => () => clearTimeout(timer));
 
-  function apply(r: DVCmdReply) { app.dvswitch = r.snapshot; }
+  function apply(r: DVCmdReply) {
+    app.dvswitch = r.snapshot;
+    if (r.bmLoginPending) toast('Switched to BM, but the BrandMeister login was not seen yet. Check the BrandMeister card.', 'error');
+    if (r.stfuStopFailed) toast('Switched, but STFU could not be stopped.', 'error');
+  }
   async function setMode(m: DVTuneMode) {
     if (locked || shown === m) return;
     clearTimeout(timer);
@@ -54,21 +58,24 @@
     finally { busy = false; }
   }
 
-  // Tune: a list picker for YSF, P25 and NXDN, a plain number for DMR (its list holds masters, not talkgroups).
+  // Tune: a list picker for YSF, P25 and NXDN, a plain number for BM and DMR (the DMR list holds masters, not talkgroups).
   let lists = $state<Partial<Record<DVTuneMode, { items: DVListItem[]; index: DVIndexed[] }>>>({});
   const tried = new Set<string>();
   let tuneValue = $state('');
-  const pickable = $derived(mode && mode !== 'DMR' ? lists[mode] : undefined);
+  const pickable = $derived(mode && !isDMRFamily(mode) ? lists[mode] : undefined);
   $effect(() => {
     const m = mode;
     tuneValue = '';
-    if (!op || !live || !m || m === 'DMR' || tried.has(m)) return;
+    if (!op || !live || !m || isDMRFamily(m) || tried.has(m)) return;
     tried.add(m);
     api.dvswitchList(m.toLowerCase() as DVListMode)
       .then((l) => { lists[m] = { items: l.items, index: indexList(l.items) }; })
       .catch(() => { /* no list: free text */ });
   });
-  const tuneOk = $derived(!!mode && validTune(mode, tuneValue));
+  // DMR private call: the toggle, or a trailing # typed in the field. Never offered for the other modes.
+  let priv = $state(false);
+  const sendValue = $derived(isDMRFamily(mode) ? withPrivate(mode, tuneValue, priv || tuneValue.trim().endsWith(PRIVATE_MARK)) : tuneValue.trim());
+  const tuneOk = $derived(!!mode && validTune(mode, sendValue));
   async function tune(value: string) {
     if (locked || !mode) return;
     busy = true;
@@ -79,7 +86,9 @@
       return true;
     } catch (e) { toastError(e); } finally { busy = false; }
   }
-  async function go() { if (tuneOk && (await tune(tuneValue))) tuneValue = ''; }
+  async function go() { if (tuneOk && (await tune(sendValue))) tuneValue = ''; }
+  // BM Parrot (9990) only answers a private call.
+  const parrot = () => tune(PARROT_ID + PRIVATE_MARK);
 
   const unlinkValue = $derived(snap?.modes.find((x) => x.id === mode)?.unlink ?? '');
   async function unlink() {
@@ -119,8 +128,10 @@
   $effect(() => { if (snap?.installed && !favsLoaded) { favsLoaded = true; void loadFavs(); } });
   const chips = $derived(mode ? favoritesFor(favs, mode) : []);
   const target = $derived(b?.tune ?? '');
-  const starred = $derived(mode ? findFavorite(favs, mode, target) : undefined);
-  const block = $derived(!mode ? 'Mode unknown' : target && target === unlinkValue ? 'Nothing is linked' : favoriteBlock(favs, mode, target));
+  // A private call is saved with its #, so the chip calls it privately again.
+  const favValue = $derived(target && isDMRFamily(mode) && b?.private ? target + PRIVATE_MARK : target);
+  const starred = $derived(mode ? findFavorite(favs, mode, favValue) : undefined);
+  const block = $derived(!mode ? 'Mode unknown' : target && target === unlinkValue ? 'Nothing is linked' : favoriteBlock(favs, mode, favValue));
 
   let dlg = $state({ open: false, id: 0, name: '' });
   function addFav() { if (!block && b) dlg = { open: true, id: 0, name: defaultFavName(b) }; }
@@ -132,7 +143,7 @@
     busy = true;
     try {
       if (dlg.id) await api.dvswitchUpdateFavorite(dlg.id, { name });
-      else await api.dvswitchAddFavorite({ mode, value: target, name });
+      else await api.dvswitchAddFavorite({ mode, value: favValue, name });
       await loadFavs();
       toast(dlg.id ? 'Favourite renamed' : 'Favourite saved');
       dlg.open = false;
@@ -176,13 +187,13 @@
 
     {#if op && live}
       <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Mode">
-        {#each snap.modes as m (m.id)}
+        {#each snap.modes.filter((x) => x.id !== 'BM' || x.enabled) as m (m.id)}
           <button type="button" class="btn btn-sm {shown === m.id ? 'btn-primary' : ''}" aria-pressed={shown === m.id}
             disabled={!m.enabled || locked}
             title={m.enabled ? undefined : `${m.id} is not enabled in MMDVM_Bridge${admin ? ' (DVSwitch tab, Modes)' : ''}`}
-            onclick={() => setMode(m.id)}>{m.id}{#if pending?.mode === m.id && outcome === 'waiting'}…{/if}</button>
+            onclick={() => setMode(m.id)}>{modeLabel(m.id)}{#if pending?.mode === m.id && outcome === 'waiting'}…{/if}</button>
         {/each}
-        <button type="button" class="btn btn-sm ml-auto" disabled={locked || !mode || !unlinkValue} title={mode ? `Unlink the ${mode} talkgroup or reflector: send ${unlinkValue} to ${mode}. The bridge node link is not changed.` : 'Mode unknown'} onclick={unlink}><Unlink size={13} aria-hidden="true" />Unlink {mode ? mode + ' target' : ''}</button>
+        <button type="button" class="btn btn-sm ml-auto" disabled={locked || !mode || !unlinkValue} title={mode ? `Unlink the ${modeLabel(mode)} talkgroup or reflector: send ${unlinkValue} to ${modeLabel(mode)}. The bridge node link is not changed.` : 'Mode unknown'} onclick={unlink}><Unlink size={13} aria-hidden="true" />Unlink {mode ? modeLabel(mode) + ' target' : ''}</button>
       </div>
 
       {#if mode}
@@ -191,10 +202,17 @@
             {#if pickable}
               <NodePicker id="dvtune" bind:value={tuneValue} options={pickable.items} search={(t) => searchList(pickable.index, t)} label={(o) => optionLabel(mode.toLowerCase() as DVListMode, o)} placeholder="Search {mode} or type a value" inputmode="text" onenter={go} />
             {:else}
-              <input id="dvtune" class="input font-mono" bind:value={tuneValue} placeholder={mode === 'DMR' ? 'Talkgroup number' : 'Target'} inputmode={mode === 'DMR' ? 'numeric' : 'text'} autocomplete="off" aria-label="Tune target" />
+              <input id="dvtune" class="input font-mono" bind:value={tuneValue} placeholder={isDMRFamily(mode) ? 'Talkgroup number' : 'Target'} inputmode={isDMRFamily(mode) ? 'numeric' : 'text'} autocomplete="off" aria-label="Tune target" />
             {/if}
           </div>
+          {#if isDMRFamily(mode)}
+            <label class="inline-flex cursor-pointer items-center gap-1.5 text-xs" title="Call the number as a private call (a trailing # on the ID)" data-testid="dv-private">
+              <input type="checkbox" class="size-4 accent-[var(--accent)]" bind:checked={priv} disabled={locked} />Private call</label>
+          {/if}
           <button type="submit" class="btn btn-primary btn-sm" disabled={locked || !tuneOk}>Go</button>
+          {#if isDMRFamily(mode)}
+            <button type="button" class="btn btn-sm" disabled={locked} title="BM Parrot: call 9990 as a private call and hear yourself back" data-testid="dv-parrot" onclick={parrot}>Parrot</button>
+          {/if}
           <button type="button" class="btn btn-sm btn-icon" disabled={locked || !!block} aria-pressed={!!starred}
             aria-label={starred ? 'Already a favourite' : 'Save the current target as a favourite'} title={block ?? 'Save the current target as a favourite'} onclick={addFav}>
             <Star size={14} class={starred ? 'fill-current text-accent' : ''} aria-hidden="true" /></button>
@@ -202,10 +220,19 @@
       {/if}
     {/if}
 
+    {#if snap.heard?.length}
+      <details class="text-xs" data-testid="dv-heard">
+        <summary class="cursor-pointer text-muted">Last heard</summary>
+        <ul class="mt-1 space-y-0.5 font-mono">
+          {#each snap.heard as h, i (i)}<li title={h.dmrId ? `DMR ID ${h.dmrId}` : undefined}>{heardLine(h)}</li>{/each}
+        </ul>
+      </details>
+    {/if}
+
     {#if mode && chips.length}
       <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Favourites for {mode}">
         {#each chips as f (f.id)}
-          <span class="inline-flex items-center rounded border border-line {f.value === target ? 'bg-accent/10' : ''}">
+          <span class="inline-flex items-center rounded border border-line {f.value === favValue ? 'bg-accent/10' : ''}">
             {#if op && live}
               <button type="button" class="px-2 py-0.5 text-xs hover:bg-surface-2 disabled:opacity-45" disabled={locked} title="Tune to {f.value}" onclick={() => tune(f.value)}>{f.name}</button>
               <Menu label="Favourite {f.name}" btnClass="px-1 py-0.5 text-muted hover:bg-surface-2" items={menu}>
@@ -230,7 +257,7 @@
         <label class="label" for="dvfavname">Name <span class="font-normal">(1 to 40 characters)</span></label>
         <input id="dvfavname" class="input" bind:value={dlg.name} maxlength="40" autocomplete="off" />
       </div>
-      {#if !dlg.id}<p class="text-xs text-muted">{mode} · <span class="font-mono">{target}</span></p>{/if}
+      {#if !dlg.id}<p class="text-xs text-muted">{mode} · <span class="font-mono">{favValue}</span></p>{/if}
     </form>
     {#snippet footer()}
       <button class="btn" onclick={() => (dlg.open = false)}>Cancel</button>

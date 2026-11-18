@@ -134,6 +134,7 @@
     <p>This adds the DVSwitch apt repository (its key is checked against a pinned fingerprint) and installs these packages:</p>
     <ul class="list-disc pl-5 font-mono text-xs">{#each st?.packages ?? [] as p}<li>{p.name}</li>{/each}</ul>
     <p>Their dependencies come along, <span class="font-mono">qemu-user-static</span> among them on most hardware. ASLCP records what is newly installed so an uninstall can take exactly that back out.</p>
+    {#if st?.packages?.some((p) => p.name === 'stfu')}<p class="text-xs text-muted">stfu (BrandMeister) stays stopped and disabled until you set up BrandMeister under Setup. It then runs only while BrandMeister is the active mode, unless you choose to stay logged in.</p>{/if}
     <p class="text-xs text-muted">It does not touch Asterisk or app_rpt. It needs internet access and a few minutes.</p>
   </div>
   {#snippet footer()}

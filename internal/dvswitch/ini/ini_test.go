@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-var stock = []string{"Analog_Bridge.ini", "MMDVM_Bridge.ini", "YSFGateway.ini", "P25Gateway.ini", "NXDNGateway.ini"}
+var stock = []string{"Analog_Bridge.ini", "MMDVM_Bridge.ini", "YSFGateway.ini", "P25Gateway.ini", "NXDNGateway.ini", "DVSwitch.ini"}
 
 func read(t *testing.T, name string) []byte {
 	t.Helper()
@@ -246,5 +246,21 @@ func TestGetFold(t *testing.T) {
 	}
 	if _, ok := f.Get("DMR", "TXPort"); ok {
 		t.Fatal("Get must stay case-sensitive")
+	}
+}
+
+func TestKeyFold(t *testing.T) {
+	f := Parse([]byte("[STFU]   ; comment\ntxPort  = 36100 ; c\n"))
+	if k := f.KeyFold("STFU", "TXPORT"); k != "txPort" {
+		t.Fatalf("%q", k)
+	}
+	if k := f.KeyFold("STFU", "UserID"); k != "UserID" {
+		t.Fatalf("%q", k)
+	}
+	if _, err := f.Set("STFU", f.KeyFold("STFU", "TxPort"), "36200"); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(f.Bytes()); got != "[STFU]   ; comment\ntxPort  = 36200 ; c\n" {
+		t.Fatalf("%q", got)
 	}
 }

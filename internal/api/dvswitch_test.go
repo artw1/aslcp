@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +15,7 @@ import (
 
 type fakeDV struct {
 	installs, uninstalls int
+	stfuInstalls         int
 	err                  error
 	last                 helper.DVSwitchRequest
 	calls                int
@@ -179,12 +181,19 @@ func (f *fakeDV) DVSwitchInstall(context.Context) (helper.DVSwitchStatus, error)
 	f.installs++
 	return helper.DVSwitchStatus{Install: helper.DVSwitchJob{Job: "running"}}, f.err
 }
+func (f *fakeDV) DVSwitchBM(_ context.Context, r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
+	return f.rec(r)
+}
+func (f *fakeDV) DVSwitchSTFUInstall(context.Context) (helper.DVSwitchStatus, error) {
+	f.stfuInstalls++
+	return helper.DVSwitchStatus{STFU: helper.DVSTFUStatus{Job: helper.DVSwitchJob{Job: "running"}}}, f.err
+}
 func (f *fakeDV) DVSwitchUninstall(context.Context) (helper.DVSwitchStatus, error) {
 	f.uninstalls++
 	return helper.DVSwitchStatus{Uninstall: helper.DVSwitchJob{Job: "running"}}, f.err
 }
 
-var dvEndpoints = [][2]string{{"GET", "/api/dvswitch"}, {"GET", "/api/dvswitch/job"}, {"POST", "/api/dvswitch/install"}, {"POST", "/api/dvswitch/uninstall"}}
+var dvEndpoints = [][2]string{{"GET", "/api/dvswitch"}, {"GET", "/api/dvswitch/job"}, {"POST", "/api/dvswitch/install"}, {"POST", "/api/dvswitch/uninstall"}, {"POST", "/api/dvswitch/stfu/install"}}
 
 func TestDVSwitchRoles(t *testing.T) {
 	f := &fakeDV{}
@@ -194,7 +203,7 @@ func TestDVSwitchRoles(t *testing.T) {
 		expectErr(t, e, "viewer", ep[0], ep[1], nil, 403, "forbidden")
 		expectErr(t, e, "op", ep[0], ep[1], nil, 403, "forbidden")
 	}
-	if f.installs+f.uninstalls != 0 {
+	if f.installs+f.uninstalls+f.stfuInstalls != 0 {
 		t.Fatal("a non-admin reached the helper")
 	}
 	var st helper.DVSwitchStatus
@@ -210,6 +219,9 @@ func TestDVSwitchRoles(t *testing.T) {
 	}
 	if c := e.do("admin", "POST", "/api/dvswitch/uninstall", nil, &st); c != 202 || st.Uninstall.Job != "running" || f.uninstalls != 1 {
 		t.Fatalf("uninstall: %d %+v", c, st)
+	}
+	if c := e.do("admin", "POST", "/api/dvswitch/stfu/install", nil, &st); c != 202 || st.STFU.Job.Job != "running" || f.stfuInstalls != 1 {
+		t.Fatalf("stfu install: %d %+v", c, st)
 	}
 }
 
@@ -229,6 +241,7 @@ func TestDVSwitchErrors(t *testing.T) {
 		{helper.ErrBusy, 409, "job_running"},
 		{helper.ErrAptBusy, 409, "apt_busy"},
 		{helper.ErrDVAlreadyInstalled, 409, "already_installed"},
+		{helper.ErrDVSTFUInstalled, 409, "stfu_installed"},
 		{helper.ErrDVUnsupported, 409, "unsupported_platform"},
 		{helper.ErrDVClockUnset, 409, "clock_unset"},
 		{helper.ErrDVOutsideASLCP, 409, "not_aslcp_installed"},
@@ -240,6 +253,7 @@ func TestDVSwitchErrors(t *testing.T) {
 		e := newEnv(t, opts{dvswitch: &fakeDV{err: c.err}})
 		expectErr(t, e, "admin", "POST", "/api/dvswitch/install", nil, c.status, c.code)
 		expectErr(t, e, "admin", "POST", "/api/dvswitch/uninstall", nil, c.status, c.code)
+		expectErr(t, e, "admin", "POST", "/api/dvswitch/stfu/install", nil, c.status, c.code)
 	}
 }
 
@@ -249,6 +263,9 @@ var dvCfgEndpoints = [][3]string{
 	{"PUT", "/api/dvswitch/credentials", `{"dmrPassword":"example-pass"}`},
 	{"PUT", "/api/dvswitch/modes", `{"dmr":true}`},
 	{"PUT", "/api/dvswitch/startup", `{"txTg":"9"}`},
+	{"PUT", "/api/dvswitch/brandmeister", `{"server":"3102.repeater.net"}`},
+	{"DELETE", "/api/dvswitch/brandmeister", ""},
+	{"DELETE", "/api/dvswitch/dmr-connection", ""},
 	{"POST", "/api/dvswitch/restart", `{"scope":"all"}`},
 	{"POST", "/api/dvswitch/rollback", `{"file":"analog_bridge"}`},
 }
@@ -393,9 +410,15 @@ func TestDVSwitchCfgErrors(t *testing.T) {
 		{helper.ErrDVNoInfo, 409, "no_info"},
 		{&helper.ConflictError{Files: []string{"analog_bridge"}}, 409, "conflict"},
 		{helper.ErrBusy, 409, "job_running"},
+		{helper.ErrDVSTFUNotInstalled, 409, "stfu_not_installed"},
+		{helper.ErrDVNoIdentity, 409, "no_identity"},
+		{helper.ErrDVNoPassword, 409, "no_password"},
+		{helper.ErrDVBMMaster, 400, "bm_master"},
+		{fmt.Errorf("%w (enable stfu)", helper.ErrDVSwitchFailed), 502, "switch_failed"},
 	}
 	for _, c := range cases {
 		e := newEnv(t, opts{dvswitch: &fakeDV{cfgErr: c.err}})
+		expectErr(t, e, "admin", "PUT", "/api/dvswitch/brandmeister", map[string]any{"server": "3102.repeater.net"}, c.status, c.code)
 		expectErr(t, e, "admin", "PUT", "/api/dvswitch/modes", map[string]any{"dmr": true}, c.status, c.code)
 		expectErr(t, e, "admin", "POST", "/api/dvswitch/rollback", map[string]any{"file": "analog_bridge"}, c.status, c.code)
 	}
@@ -609,4 +632,63 @@ func TestDVSwitchStartupUseCurrentRemoved(t *testing.T) {
 	if f.calls != 0 {
 		t.Fatal("useCurrent reached the helper")
 	}
+}
+
+func TestDVSwitchBrandMeister(t *testing.T) {
+	f := &fakeDV{}
+	e := newEnv(t, opts{dvswitch: f})
+	body := map[string]any{"server": "3102.repeater.net", "password": "example-pass", "talkerAlias": "N0CALL", "startTg": "4000",
+		"base": map[string]string{"dvswitch": "ab01"}}
+	code, raw, _ := e.raw("PUT", "/api/dvswitch/brandmeister", body, e.ck["admin"], nil)
+	if code != 200 || strings.Contains(string(raw), "example-pass") {
+		t.Fatalf("%d %s", code, raw)
+	}
+	v := f.last.BM
+	if v == nil || v.Action != helper.DVBMSave || v.Server != "3102.repeater.net" || v.Password == nil || *v.Password != "example-pass" ||
+		v.TalkerAlias == nil || *v.TalkerAlias != "N0CALL" || v.StartTG == nil || *v.StartTG != "4000" {
+		t.Fatalf("request: %+v", v)
+	}
+	if f.last.Base["dvswitch"] != "ab01" || f.last.Author != "admin" {
+		t.Errorf("base/author: %+v", f.last)
+	}
+	// without a password the saved one stays
+	if c := e.do("admin", "PUT", "/api/dvswitch/brandmeister", map[string]any{"startTg": "91"}, nil); c != 200 || f.last.BM.Password != nil {
+		t.Fatalf("%d %+v", c, f.last.BM)
+	}
+	// the stay-logged-in setting: passed on and audited
+	if c := e.do("admin", "PUT", "/api/dvswitch/brandmeister", map[string]any{"stayLoggedIn": true}, nil); c != 200 || f.last.BM.StayLoggedIn == nil || !*f.last.BM.StayLoggedIn {
+		t.Fatalf("stay: %d %+v", c, f.last.BM)
+	}
+	if aud, _ := e.st.ListAudit(50); !strings.Contains(fmt.Sprint(aud), "dvswitch.brandmeister.stay") {
+		t.Error("audit lacks dvswitch.brandmeister.stay")
+	}
+	if c := e.do("admin", "DELETE", "/api/dvswitch/brandmeister", nil, nil); c != 200 || f.last.BM == nil || f.last.BM.Action != helper.DVBMClear {
+		t.Fatalf("clear: %d %+v", c, f.last)
+	}
+	if c := e.do("admin", "DELETE", "/api/dvswitch/dmr-connection", nil, nil); c != 200 || f.last.Modes == nil || f.last.Modes.DMR == nil || *f.last.Modes.DMR {
+		t.Fatalf("dmr clear: %d %+v", c, f.last)
+	}
+	// the old endpoint is gone
+	if c := e.do("admin", "PUT", "/api/dvswitch/dmr-connection", map[string]any{"via": "stfu"}, nil); c == 200 {
+		t.Fatal("PUT dmr-connection still served")
+	}
+	aud, _ := e.st.ListAudit(50)
+	var saw []string
+	for _, a := range aud {
+		if strings.Contains(a.Detail, "example-pass") {
+			t.Errorf("audit leaks a password: %+v", a)
+		}
+		saw = append(saw, a.Action)
+	}
+	for _, w := range []string{"dvswitch.brandmeister", "dvswitch.brandmeister.clear", "dvswitch.dmr_connection.clear"} {
+		if !strings.Contains(strings.Join(saw, ","), w) {
+			t.Errorf("audit lacks %s: %v", w, saw)
+		}
+	}
+	for _, a := range aud {
+		if a.Action == "dvswitch.brandmeister" && strings.Contains(a.Detail, "password") {
+			return
+		}
+	}
+	t.Error("audit lacks the password key (only the key, never the value)")
 }

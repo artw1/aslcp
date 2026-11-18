@@ -1,7 +1,7 @@
 // Run with `npm test`. svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { badge, bridgeInUse, MSG_NO_ANSWER, MSG_PENDING, MSG_REFUSED, outcomeFor, waitForLogin } from './dmrlogin.ts';
+import { badge, bridgeInUse, MSG_BM_REFUSED, MSG_NO_ANSWER, MSG_PENDING, MSG_REFUSED, outcomeFor, waitForLogin } from './dmrlogin.ts';
 import type { DVDMRStatus } from './types';
 
 const M = '3103.master.brandmeister.network:62031';
@@ -19,19 +19,26 @@ test('badge labels', () => {
   assert.equal(badge(st('login_failed')).text, 'Login failed');
   assert.equal(badge(st('timed_out')).text, 'Timed out');
   assert.equal(badge(st('connecting')).text, 'Connecting…');
+  assert.equal(badge(st('unknown')).text, 'Running');
   assert.equal(badge(st('not_running')).text, 'Not running');
+  assert.deepEqual(badge(st('idle', { via: 'stfu' })), { text: 'Stopped (not in use)', tone: 'muted' });
   assert.equal(badge(st('disabled')).text, 'DMR disabled');
 });
 
 test('outcome texts', () => {
   assert.equal(outcomeFor(st('logged_in', { master: M }), false)?.message, `Logged in to ${M}`);
   assert.equal(outcomeFor(st('login_failed'), false)?.message, MSG_REFUSED);
-  assert.match(MSG_REFUSED, /hotspot security password .*BrandMeister SelfCare.*ESSID/);
+  assert.match(MSG_REFUSED, /password and the ESSID/);
+  assert.equal(outcomeFor({ state: 'login_failed', via: 'stfu' }, false)?.message, MSG_BM_REFUSED);
+  assert.match(MSG_BM_REFUSED, /hotspot security password .*BrandMeister SelfCare.*DMR ID/);
   assert.equal(outcomeFor(st('timed_out'), false)?.message, MSG_NO_ANSWER);
   assert.equal(outcomeFor(st('socket_failed'), false)?.message, MSG_NO_ANSWER);
   assert.equal(outcomeFor(st('connecting'), false), null);
   assert.equal(outcomeFor(st('connecting'), true)?.message, MSG_PENDING);
   assert.equal(outcomeFor(st('not_running'), false)?.needStart, true);
+  // stopped on purpose: neutral, nothing to start
+  assert.equal(outcomeFor(st('idle', { via: 'stfu' }), false)?.kind, 'info');
+  assert.ok(!outcomeFor(st('idle', { via: 'stfu' }), false)?.needStart);
 });
 
 test('success ends the wait at once', async () => {

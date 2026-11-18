@@ -51,7 +51,7 @@ const (
 
 // dvInstallPackages is the constant install set (docs/DVSWITCH.md, decision
 // 7). It is never a parameter.
-const dvInstallPackages = "dvswitch-base analog-bridge mmdvm-bridge md380-emu ysfgateway p25gateway nxdngateway wget"
+const dvInstallPackages = "dvswitch-base analog-bridge mmdvm-bridge md380-emu ysfgateway p25gateway nxdngateway stfu wget"
 
 // DVSwitchPackages returns the install set.
 func DVSwitchPackages() []string { return strings.Fields(dvInstallPackages) }
@@ -61,7 +61,7 @@ func DVSwitchPackages() []string { return strings.Fields(dvInstallPackages) }
 const dvServerPkg = "dvswitch-server"
 
 // dvUnits are the units reported by the status and stopped by the uninstall.
-var dvUnits = []string{"analog_bridge", "mmdvm_bridge", "netcheck", "ysfgateway", "p25gateway", "nxdngateway", "md380-emu"}
+var dvUnits = []string{"analog_bridge", "mmdvm_bridge", "netcheck", "ysfgateway", "p25gateway", "nxdngateway", "md380-emu", "stfu"}
 
 // dvHostFiles are the host files in the host dir that must be non-empty
 // after an install (DVSM_Update.sh exits 0 even when its downloads fail).
@@ -71,7 +71,7 @@ var dvHostFiles = []string{"DMRIds.dat", "YSFHosts.txt", "P25Hosts.txt", "NXDNHo
 var (
 	dvUninstallDirs = []string{
 		"/var/lib/mmdvm", "/var/lib/dvswitch", "/var/log/dvswitch", "/var/log/mmdvm",
-		"/opt/Analog_Bridge", "/opt/MMDVM_Bridge",
+		"/opt/Analog_Bridge", "/opt/MMDVM_Bridge", "/opt/STFU",
 	}
 	dvUninstallFiles = []string{"/etc/cron.d/dvswitch", "/etc/cron.daily/dvswitch-log-cleanup"}
 )
@@ -85,7 +85,7 @@ const dvABInfoGlob = "/tmp/ABInfo_*.json"
 func (o *Ops) DVSwitchUninstallPaths() []string {
 	out := append([]string{}, dvUninstallDirs...)
 	out = append(out, dvUninstallFiles...)
-	return append(out, dvABInfoGlob, o.dvSourceList(), o.dvKeyring())
+	return append(out, dvABInfoGlob, o.dvSourceList(), o.dvKeyring(), o.dvSTFUDropinPath())
 }
 
 // Errors of the dvswitch ops. The client maps the texts back (client.go).
@@ -97,7 +97,8 @@ var (
 	ErrDVOutsideASLCP     = errors.New("not_aslcp_installed: DVSwitch was installed outside ASLCP; ASLCP only removes what it installed")
 )
 
-var dvErrors = []error{ErrDVAlreadyInstalled, ErrDVUnsupported, ErrDVClockUnset, ErrDVKeyMismatch, ErrDVOutsideASLCP, ErrDVInvalid, ErrDVNotInstalled, ErrDVNoHistory, ErrDVNoInfo, ErrDVNoList, ErrDVNoPorts}
+var dvErrors = []error{ErrDVAlreadyInstalled, ErrDVUnsupported, ErrDVClockUnset, ErrDVKeyMismatch, ErrDVOutsideASLCP, ErrDVInvalid, ErrDVNotInstalled, ErrDVNoHistory, ErrDVNoInfo, ErrDVNoList, ErrDVNoPorts,
+	ErrDVSTFUNotInstalled, ErrDVSTFUInstalled, ErrDVNoIdentity, ErrDVNoPassword, ErrDVBMMaster, ErrDVSwitchFailed}
 
 // DVSwitchPkg is one package of the install set.
 type DVSwitchPkg struct {
@@ -186,6 +187,9 @@ type DVSwitchStatus struct {
 
 	Install   DVSwitchJob `json:"install"`
 	Uninstall DVSwitchJob `json:"uninstall"`
+
+	// STFU is the optional BrandMeister client (the BM mode).
+	STFU DVSTFUStatus `json:"stfu"`
 }
 
 // ---- configuration defaults
@@ -237,6 +241,9 @@ func (o *Ops) dvInstallScript() string {
 		"apt-get -s -q install --no-install-recommends " + dvInstallPackages + " > " + sim + " || { cat " + sim + "; exit 1; }",
 		self + " dvswitch-step install-plan",
 		"apt-get install -y -q --no-install-recommends " + apt + " " + dvInstallPackages,
+		// the stfu package enables its unit: it stays off until the
+		// BrandMeister section is saved
+		"systemctl disable --now " + dvSTFUUnit + ".service || true",
 		self + " dvswitch-step install-check",
 		"echo 'dvswitch install finished'",
 	}, "\n")
@@ -258,6 +265,10 @@ func (o *Ops) dvUninstallScript() string {
 		"fi",
 		"rm -f -- "+shQuote(o.dvSourceList())+" "+shQuote(o.dvKeyring()),
 		"rm -f /var/lib/apt/lists/dvswitch.org*",
+		// ASLCP's STFU umask drop-in
+		"rm -f -- "+shQuote(o.dvSTFUDropinPath()),
+		"rmdir -- "+shQuote(filepath.Dir(o.dvSTFUDropinPath()))+" 2>/dev/null || true",
+		"systemctl daemon-reload || true",
 		"apt-get update -q --allow-releaseinfo-change || echo 'warning: apt-get update failed'",
 	)
 	for _, d := range dvUninstallDirs {
@@ -538,8 +549,8 @@ func (o *Ops) DVSwitchStatus(ctx context.Context) (DVSwitchStatus, error) {
 		if ok && n != dvWget {
 			anySet = true
 		}
-		if !ok {
-			complete = false
+		if !ok && n != dvSTFUPkg {
+			complete = false // an older install without stfu is complete: STFU installs on its own
 		}
 	}
 	_, server := inst[dvServerPkg]
@@ -600,7 +611,10 @@ func (o *Ops) DVSwitchStatus(ctx context.Context) (DVSwitchStatus, error) {
 		st.InstalledBy = "external"
 	}
 	st.Install, st.Uninstall = o.dvJobs(ctx)
-	running := st.Install.Job == JobRunning || st.Uninstall.Job == JobRunning || o.aptJobRunning(ctx)
+	st.STFU.Job = o.dvSTFUJob(ctx)
+	st.STFU.Version, st.STFU.Installed = inst[dvSTFUPkg], inst[dvSTFUPkg] != ""
+	running := st.Install.Job == JobRunning || st.Uninstall.Job == JobRunning || st.STFU.Job.Job == JobRunning || o.aptJobRunning(ctx)
+	st.STFU.CanInstall = st.Installed && st.Supported && !st.STFU.Installed && !running
 	st.CanInstall = st.Supported && !running && !server &&
 		(marker == nil && merr == nil && !anySet || marker != nil && !complete)
 	st.CanUninstall = marker != nil && !running

@@ -26,6 +26,9 @@ type DemoDVSwitch struct {
 	// real /var/log/mmdvm.
 	dmrAt   time.Time
 	dmrRuns int
+
+	// BrandMeister (STFU) (dvswitch_demo_stfu.go)
+	st *demoSTFU
 }
 
 // NewDemoDVSwitch returns a demo node without DVSwitch.
@@ -117,6 +120,7 @@ func (d *DemoDVSwitch) status() DVSwitchStatus {
 	if st.Uninstall.Job == "" {
 		st.Uninstall.Job = JobIdle
 	}
+	d.stfuStatus(&st)
 	return st
 }
 

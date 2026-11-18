@@ -8,7 +8,8 @@ export const IDLE_POLL_MS = 10000;
 export type Tone = 'ok' | 'warn' | 'danger' | 'muted';
 export interface Outcome { kind: 'ok' | 'error' | 'warn' | 'info'; message: string; needStart?: boolean }
 
-export const MSG_REFUSED = 'BrandMeister refused the login: check the hotspot security password (set in BrandMeister SelfCare, not your account password) and the ESSID';
+export const MSG_REFUSED = 'The master refused the login: check the password and the ESSID';
+export const MSG_BM_REFUSED = 'BrandMeister refused the login: check the hotspot security password (set in BrandMeister SelfCare, not your account password) and the DMR ID';
 export const MSG_NO_ANSWER = 'No answer from the master: check the address, port and internet access';
 export const MSG_PENDING = 'No answer yet';
 
@@ -22,8 +23,10 @@ export function badge(s: DVDMRStatus | null): { text: string; tone: Tone } {
     case 'socket_failed': return { text: 'Socket failed', tone: 'danger' };
     case 'master_closing': return { text: 'Master closing down', tone: 'warn' };
     case 'connecting': return { text: 'Connecting…', tone: 'muted' };
+    case 'unknown': return { text: 'Running', tone: 'muted' };
+    case 'idle': return { text: 'Stopped (not in use)', tone: 'muted' };
     case 'not_running': return { text: 'Not running', tone: 'warn' };
-    case 'disabled': return { text: 'DMR disabled', tone: 'muted' };
+    case 'disabled': return { text: s.via === 'stfu' ? 'Not set up' : 'DMR disabled', tone: 'muted' };
     default: return { text: 'Not installed', tone: 'muted' };
   }
 }
@@ -34,11 +37,12 @@ const FAILED: DVDMRState[] = ['login_failed', 'timed_out', 'socket_failed'];
 export function outcomeFor(s: DVDMRStatus, last: boolean): Outcome | null {
   switch (s.state) {
     case 'logged_in': return { kind: 'ok', message: `Logged in to ${s.master || 'the master'}` };
-    case 'login_failed': return { kind: 'error', message: MSG_REFUSED };
+    case 'login_failed': return { kind: 'error', message: s.via === 'stfu' ? MSG_BM_REFUSED : MSG_REFUSED };
     case 'timed_out': case 'socket_failed': return { kind: 'error', message: MSG_NO_ANSWER };
-    case 'not_running': return { kind: 'warn', message: 'mmdvm_bridge is not running, so there is no login to check.', needStart: true };
-    case 'disabled': return { kind: 'info', message: 'DMR is disabled under Enabled modes, so the bridge does not log in.' };
-    case 'not_installed': return { kind: 'info', message: 'MMDVM_Bridge is not installed.' };
+    case 'idle': return { kind: 'info', message: 'STFU is stopped while BrandMeister is not the active mode. It logs in when you switch to BM.' };
+    case 'not_running': return { kind: 'warn', message: `${s.via === 'stfu' ? 'stfu' : 'mmdvm_bridge'} is not running, so there is no login to check.`, needStart: true };
+    case 'disabled': return { kind: 'info', message: s.via === 'stfu' ? 'BrandMeister is not enabled, so STFU does not log in.' : 'DMR - Other is disabled, so the bridge does not log in.' };
+    case 'not_installed': return { kind: 'info', message: s.via === 'stfu' ? 'STFU is not installed.' : 'MMDVM_Bridge is not installed.' };
     case 'master_closing': return last ? { kind: 'warn', message: 'The master is closing down. Try again in a moment.' } : null;
     default: return last ? { kind: 'warn', message: MSG_PENDING } : null;
   }
@@ -77,9 +81,9 @@ export async function waitForLogin(
   return { outcome: last ? outcomeFor(last, true)! : { kind: 'warn', message: 'Could not read the DMR login state.' }, status: last };
 }
 
-/** mmdvm_bridge counts as in use when it is enabled or running. */
-export function bridgeInUse(units: { name: string; loaded: boolean; active: string; enabled: string }[]): { inUse: boolean; running: boolean } {
-  const u = units.find((x) => x.name === 'mmdvm_bridge');
+/** The unit holding the DMR login (mmdvm_bridge, or stfu with BrandMeister through STFU) counts as in use when it is enabled or running. */
+export function bridgeInUse(units: { name: string; loaded: boolean; active: string; enabled: string }[], unit = 'mmdvm_bridge'): { inUse: boolean; running: boolean } {
+  const u = units.find((x) => x.name === unit);
   if (!u || !u.loaded) return { inUse: false, running: false };
   const running = u.active === 'active' || u.active === 'activating';
   return { inUse: running || u.enabled === 'enabled', running };

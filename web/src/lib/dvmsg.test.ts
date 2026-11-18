@@ -8,6 +8,8 @@ const inv = (m: string) => new ApiError(400, 'invalid_field', m);
 test('invalid_field names the field', () => {
   assert.equal(fieldLabel('invalid_field: a value is not allowed (identity/dmrId)'), 'DMR ID');
   assert.equal(fieldLabel('invalid_field: a value is not allowed (mmdvm_bridge/DMR Network/Password)'), 'DMR master password');
+  assert.equal(fieldLabel('invalid_field: a value is not allowed (brandmeister/talkerAlias)'), 'Talker alias');
+  assert.equal(fieldLabel('invalid_field: a value is not allowed (brandmeister/ports)'), 'STFU ports 36100/36103 (in use)');
   assert.match(dvErrorMessage(inv('invalid_field: a value is not allowed (mmdvm_bridge/DMR Network/Port)')), /DMR master port is not valid/);
   assert.doesNotMatch(dvErrorMessage(inv('invalid_field: a value is not allowed (credentials)')), /invalid_field/);
 });

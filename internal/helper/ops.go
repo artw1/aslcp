@@ -98,6 +98,23 @@ type Ops struct {
 	tuneSem  chan struct{}
 	// DVLogDir holds MMDVM_Bridge-YYYY-MM-DD.log (default /var/log/mmdvm).
 	DVLogDir string
+	// DVSTFULog is STFU's log (default DefaultDVSTFULog); bmMu serialises
+	// the BrandMeister save and clear (dvswitch_stfu.go).
+	DVSTFULog string
+	// DVSTFUDropin is the systemd drop-in that gives STFU umask 0077
+	// (default DefaultDVSTFUDropin).
+	DVSTFUDropin string
+	bmMu         sync.Mutex
+	// DVSTFULoginWait (default 10 s) and DVSTFULoginPoll (default 250 ms)
+	// bound the wait for STFU's login when ASLCP starts it on demand;
+	// DVSleep replaces the real sleep (tests).
+	DVSTFULoginWait time.Duration
+	DVSTFULoginPoll time.Duration
+	DVSleep         func(ctx context.Context, d time.Duration)
+	// DVBridgeLogDir holds Analog_Bridge.log (default /var/log/dvswitch).
+	DVBridgeLogDir string
+	// dvIDs caches DMR ID to callsign lookups (dvswitch_idlookup.go).
+	dvIDs dvIDCache
 	// SelfPath is the helper binary the install and uninstall units call for
 	// their steps (default: this executable).
 	SelfPath string
@@ -141,7 +158,7 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 	case OpDVSwitchSetup:
 		return o.DVSwitchSetup(ctx)
 	case OpDVSwitchInfo:
-		return o.DVSwitchInfo(ctx)
+		return o.dvInfoOp(ctx)
 	case OpDVSwitchDMRStatus:
 		return o.DVSwitchDMRStatus(ctx)
 	case OpDVSwitchIdentity:
@@ -164,6 +181,10 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return o.DVSwitchUSRP(ctx, req.DVSwitch)
 	case OpDVSwitchPrivate:
 		return o.DVSwitchPrivate(ctx, req.DVSwitch)
+	case OpDVSwitchBM:
+		return o.DVSwitchBM(ctx, req.DVSwitch)
+	case OpDVSwitchSTFUInstall:
+		return o.DVSwitchSTFUInstall(ctx)
 	case OpBackupInfo:
 		return o.BackupInfo(ctx)
 	case OpAsteriskRestart:
