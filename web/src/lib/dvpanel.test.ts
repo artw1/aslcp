@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIRM_MS, allOk, controlsLocked, defaultFavName, favoriteBlock, favoritesFor, pendingOutcome, serviceDots, shownMode, stateLine, validFavName, validTune } from './dvpanel.ts';
+import { CONFIRM_MS, allOk, bridgeLinked, controlsLocked, defaultFavName, favoriteBlock, favoritesFor, pendingOutcome, serviceDots, shownMode, stateLine, validFavName, validTune } from './dvpanel.ts';
 import type { DVFavorite, DVSnapshot } from './types';
 
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
@@ -95,4 +95,17 @@ test('controls are locked while a command is pending, free on reply, confirmatio
   assert.equal(controlsLocked(false, pendingOutcome(p, 'P25', 1500)), false); // confirmed
   assert.equal(controlsLocked(false, pendingOutcome(p, 'DMR', 1000 + CONFIRM_MS)), false); // "Not confirmed"
   assert.equal(controlsLocked(true, 'confirmed'), true); // a later tune still in flight
+});
+
+test('the card is tinted only when the bridge node is linked to the local node', () => {
+  const link = (linked: boolean) => ({ mode: 'ondemand' as const, localNode: '1998', linked, paused: false });
+  assert.equal(bridgeLinked(snap({ link: link(true) })), true);
+  assert.equal(bridgeLinked(snap({ link: link(false) })), false);
+  // a talkgroup or reflector on its own does not count, nor does a missing tune
+  assert.equal(bridgeLinked(snap({ link: link(false), bridge: { ...bridge, tune: '3100', mode: 'DMR' } })), false);
+  assert.equal(bridgeLinked(snap({ link: link(true), bridge: { ...bridge, tune: '', mode: 'DMR' } })), true);
+  assert.equal(bridgeLinked(snap({ link: link(true), bridgeNode: { present: false, node: '' } })), false);
+  assert.equal(bridgeLinked(snap({ link: link(true), bridgeNode: { present: true, node: '' } })), false);
+  assert.equal(bridgeLinked(null), false);
+  assert.equal(bridgeLinked(undefined), false);
 });

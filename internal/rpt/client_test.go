@@ -261,9 +261,8 @@ func TestRestartAsteriskErrorBeforeWriteIsError(t *testing.T) {
 	if err == nil || errors.Is(err, ami.ErrLostAfterSend) {
 		t.Fatalf("want a plain closed error, got %v", err)
 	}
-	if !errors.Is(err, ami.ErrClosed) {
-		t.Fatalf("got %v", err)
-	}
+	// Which close error wins (ErrClosed or the read loop's EOF) is a race;
+	// either is fine as long as it is not "lost after send".
 	if n := f.Count("Command"); n != 0 {
 		t.Fatalf("command was sent: %d", n)
 	}

@@ -6,7 +6,7 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-  import { CONFIRM_MS, allOk, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, serviceDots, shownMode, stateLine, validFavName, validTune } from '../lib/dvpanel';
+  import { CONFIRM_MS, allOk, bridgeLinked, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, serviceDots, shownMode, stateLine, validFavName, validTune } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import { linkButton, linkLine, pausedHint } from '../lib/dvbridge';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
@@ -26,6 +26,7 @@
   const live = $derived(!!snap?.configured);
   const dots = $derived(serviceDots(snap));
   const ok = $derived(allOk(snap));
+  const linked = $derived(bridgeLinked(snap));
   let busy = $state(false);
 
   // Mode switch: highlighted at once, confirmed by the next snapshot, "Not confirmed" after 5 s.
@@ -134,7 +135,7 @@
 </script>
 
 {#if snap?.installed}
-  <section class="space-y-2 rounded-md border border-line bg-surface px-2 py-1.5 text-sm" aria-label="DVSwitch">
+  <section class="space-y-2 rounded-md border px-2 py-1.5 text-sm {linked ? 'border-ok/50 bg-ok/10' : 'border-line bg-surface'}" aria-label="DVSwitch" data-linked={linked}>
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
       <span class="inline-flex items-center gap-1.5 font-medium"><RadioTower size={15} class="text-accent" aria-hidden="true" />DVSwitch</span>
       <span class="inline-flex items-center gap-1" role="img" aria-label={ok ? 'All services running' : 'A service is down or the state is unknown'}>
@@ -142,6 +143,7 @@
         {#if !dots.length}<span class="inline-block size-2 rounded-full bg-warn" title="No service state"></span>{/if}
       </span>
       <span class={mode ? '' : 'text-warn'}>{stateLine(b)}</span>
+      {#if linked}<span class="sr-only">Bridge node linked</span>{/if}
       {#if admin}<a href="#/dvswitch" class="ml-auto text-xs text-accent underline hover:no-underline">Setup</a>{/if}
     </div>
 
@@ -154,7 +156,7 @@
     {/if}
     {#if bn?.present && bn.node && link}
       <p class="flex flex-wrap items-center gap-2" data-testid="dv-node-link">
-        <span class={link.mode === 'permanent' && !link.linked ? 'text-warn' : ''}>{linkLine(bn.node, link)}</span>
+        <span class={link.mode === 'permanent' && !link.linked ? 'text-warn' : ''} title={linked ? 'Bridge node linked' : undefined}>{linkLine(bn.node, link)}</span>
         {#if op && nodeBtn}<button type="button" class="btn btn-sm" disabled={busy} title={nodeBtn.title} onclick={toggleLink}>{nodeBtn.label}</button>{/if}
       </p>
       {#if pausedHint(link)}<p class="text-xs text-muted">{pausedHint(link)}</p>{/if}

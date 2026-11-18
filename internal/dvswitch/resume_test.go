@@ -497,3 +497,45 @@ func TestOnPollReports(t *testing.T) {
 		t.Fatalf("%v %+v", got, infos)
 	}
 }
+
+// Analog_Bridge reads txTg= of a YSF tune as a number: the reflector's
+// leading digits become digital.tg. After a switch back to DMR that value
+// must not be taken for a DMR tune.
+func TestRecordIgnoresDMRTGLeftByYSFTune(t *testing.T) {
+	tr, src, _, _ := newTracker(t)
+	boot := t0.Add(-time.Hour)
+	ctx := context.Background()
+	poll := func(i helper.DVSwitchInfo) { src.info = started(i, boot); tr.Poll(ctx) }
+	poll(dmr(t, "9", "2", ""))
+	poll(dmr(t, "3100", "2", "3100"))
+	ysf := other(t, "YSFN", "192.0.2.10:42000")
+	ysf = withTG(ysf, "192")
+	poll(ysf)
+	// back in DMR: last_tune still holds the YSF value, tg is the leftover
+	poll(withTG(dmr(t, "192", "2", "192.0.2.10:42000"), "192"))
+	poll(withTG(dmr(t, "192", "2", "192.0.2.10:42000"), "192"))
+	v := tr.Get()
+	if v.PerMode["DMR"].Tune != "3100" || v.PerMode["YSF"].Tune != "192.0.2.10:42000" || v.LastMode != "YSF" {
+		t.Fatalf("%+v", v)
+	}
+	// the tune sent after the switch is recorded
+	poll(dmr(t, "3100", "2", "3100"))
+	if v := tr.Get(); v.PerMode["DMR"].Tune != "3100" || v.LastMode != "DMR" {
+		t.Fatalf("%+v", v)
+	}
+	poll(dmr(t, "262", "2", "262"))
+	if v := tr.Get(); v.PerMode["DMR"].Tune != "262" {
+		t.Fatalf("%+v", v)
+	}
+}
+
+func withTG(i helper.DVSwitchInfo, tg string) helper.DVSwitchInfo { i.TG = tg; return i }
+
+func TestLoadDropsInvalidStoredTunes(t *testing.T) {
+	st := &fakeStore{m: map[string]string{SettingKey: `{"lastMode":"DMR","perMode":{"DMR":{"tune":"76.196.0.1:42000","at":"x"},"YSF":{"tune":"192.0.2.10:42000","at":"x"},"P25":{"tune":"9 9","at":"x"}},"resume":true}`}}
+	tr := &Tracker{Src: &fakeSrc{}, Store: st}
+	v := tr.Get()
+	if len(v.PerMode) != 1 || v.PerMode["YSF"].Tune == "" || v.LastMode != "" {
+		t.Fatalf("%+v", v)
+	}
+}

@@ -75,8 +75,21 @@ func dvKnownMode(m string) bool {
 	return false
 }
 
-// handleDVSwitchMode: POST /api/dvswitch/mode {mode}. Switches the mode and
-// sends no tune. 409 mode_disabled when MMDVM_Bridge does not enable it.
+// dvRememberedTune is the tracker's last tune of the mode when it is valid for
+// it and not an unlink value; "" when there is none.
+func (s *Server) dvRememberedTune(mode string) string {
+	if s.d.DVResume == nil {
+		return ""
+	}
+	t := s.d.DVResume.Get().PerMode[mode].Tune
+	if !helper.DVValidTune(mode, t) || helper.DVUnlinkValue(mode, t) {
+		return ""
+	}
+	return t
+}
+
+// handleDVSwitchMode: POST /api/dvswitch/mode {mode}. Switches the mode and,
+// when the node remembers a tune for it, tunes there (dvRememberedTune). 409 mode_disabled when MMDVM_Bridge does not enable it.
 func (s *Server) handleDVSwitchMode(w http.ResponseWriter, r *http.Request, u store.User) {
 	if s.d.DVSwitch == nil {
 		s.dvswitchError(w, errDVUnavailable)
@@ -103,7 +116,20 @@ func (s *Server) handleDVSwitchMode(w http.ResponseWriter, r *http.Request, u st
 		writeErr(w, http.StatusConflict, "mode_disabled", mode+" is not enabled in MMDVM_Bridge")
 		return
 	}
-	res, err := s.d.DVSwitch.DVSwitchTune(r.Context(), helper.DVSwitchRequest{Author: u.Username, Tune: &helper.DVTune{Mode: mode, ModeOnly: true}})
+	// Back to a mode: tune it to its remembered target in the same sequence.
+	// Without it Analog_Bridge keeps whatever txTg the previous mode left
+	// (a YSF reflector's leading digits show up as a DMR talkgroup).
+	tn := &helper.DVTune{Mode: mode, ModeOnly: true}
+	cur, ierr := s.d.DVSwitch.DVSwitchInfo(r.Context())
+	if last := s.dvRememberedTune(mode); last != "" && ierr == nil && cur.Found && helper.DVNormMode(cur.Mode) != mode {
+		tn = &helper.DVTune{Mode: mode, Tune: last}
+	}
+	res, err := s.d.DVSwitch.DVSwitchTune(r.Context(), helper.DVSwitchRequest{Author: u.Username, Tune: tn})
+	if err != nil && !tn.ModeOnly {
+		// the remembered value was refused (a host list changed, say): switch only
+		tn = &helper.DVTune{Mode: mode, ModeOnly: true}
+		res, err = s.d.DVSwitch.DVSwitchTune(r.Context(), helper.DVSwitchRequest{Author: u.Username, Tune: tn})
+	}
 	if err != nil {
 		s.audit(u, "dvswitch.mode.refused", map[string]any{"mode": mode})
 		s.dvswitchError(w, err)
