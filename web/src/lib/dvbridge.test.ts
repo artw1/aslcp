@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formError, linkButton, linkLine, nodeError, nodeWarning, pausedHint, planConfirm, prefill, suggestNode, uninstallNote, validPort } from './dvbridge.ts';
+import { DUPLEX_TEXT, NODE_HINT, canChange, doneText, formError, planApplyLabel, planOrder, planTitle, linkButton, linkLine, nodeError, nodeWarning, pausedHint, planConfirm, prefill, suggestNode, uninstallNote, validPort } from './dvbridge.ts';
 import type { DVLink } from './types';
 
 const L = (o: Partial<DVLink> = {}): DVLink => ({ mode: 'ondemand', localNode: '1997', linked: false, paused: false, ...o });
@@ -19,7 +19,9 @@ test('node validation', () => {
   assert.match(nodeError('abc', [])!, /digits/);
   assert.match(nodeError('1997', ['1997'])!, /in use/);
   assert.equal(nodeError('1997', ['1997'], '1997'), null);
-  assert.match(nodeError('1996', ['1997'], '1997')!, /already has/);
+  assert.match(nodeError('1996', ['1997'], '1997')!, /already has.*Change number/);
+  assert.equal(nodeError('1996', ['1997'], '1997', true), null);
+  assert.match(nodeError('1997', ['1997'], '1996', true)!, /in use/);
   for (const n of ['1998', '1999']) {
     const w = nodeWarning(n)!;
     assert.match(w, /^1998 and 1999 are the private node numbers most DVSwitch guides use/);
@@ -80,4 +82,38 @@ test('confirmation texts', () => {
   assert.match(t[1], /permanent link/);
   assert.match(uninstallNote(s, false)[0], /not added by ASLCP/);
   assert.deepEqual(uninstallNote({ bridgeNode: { present: false }, link: L() }, false), []);
+});
+
+test('change number and remove are for an ASLCP-owned node only', () => {
+  assert.ok(canChange({ node: '1999', owned: true }));
+  assert.ok(!canChange({ node: '1999', owned: false }));
+  assert.ok(!canChange({ node: '', owned: false }));
+  assert.equal(formError({ node: '1996', rxPort: '34001', txPort: '32001', linkMode: 'ondemand', localNode: '1997' }, { node: '1999', used: ['1997', '1999'] }, true), null);
+  assert.match(formError({ node: '1996', rxPort: '34001', txPort: '32001', linkMode: 'ondemand', localNode: '1997' }, { node: '1999', used: ['1997', '1999'] })!, /Change number/);
+});
+
+test('fixed texts', () => {
+  assert.equal(DUPLEX_TEXT, 'Duplex 0: fixed for a bridge node (a higher value repeats DMR audio back to DMR and adds hang time and courtesy tones).');
+  assert.equal(NODE_HINT, 'To use a different number, use Change number. Remove bridge node takes it out completely.');
+});
+
+test('review dialog texts per kind', () => {
+  const p = { node: '1999', restartAsterisk: true, restarts: ['asterisk', 'analog_bridge'] };
+  assert.equal(planTitle('remove'), 'Remove the bridge node?');
+  assert.equal(planTitle('renumber'), 'Change the bridge node number?');
+  assert.equal(planTitle('set'), 'Apply the bridge node?');
+  assert.equal(planTitle(undefined), 'Apply the bridge node?');
+  assert.match(planConfirm({ ...p, kind: 'remove' }), /removed completely/);
+  assert.match(planConfirm({ ...p, kind: 'renumber', oldNode: '1998' }), /1998 becomes 1999/);
+  assert.equal(planApplyLabel({ kind: 'remove', restartAsterisk: true }, false), 'Remove and restart Asterisk');
+  assert.equal(planApplyLabel({ kind: 'renumber', restartAsterisk: true }, false), 'Change number and restart Asterisk');
+  assert.equal(planApplyLabel({ kind: 'set', restartAsterisk: false }, false), 'Apply');
+  assert.equal(planApplyLabel({ kind: 'remove', restartAsterisk: true }, true), 'Removing…');
+  assert.match(planOrder({ kind: 'remove', unlinks: ['2006'] }), /^Disconnect 2006 from the bridge node, then revert/);
+  assert.match(planOrder({ kind: 'remove', unlinks: [] }), /^Revert the Asterisk config/);
+  assert.match(planOrder({ kind: 'set', unlinks: [] }), /^Asterisk config, the Analog_Bridge ini/);
+  assert.equal(doneText({ kind: 'remove', node: '1999' }), 'Bridge node 1999 removed.');
+  assert.match(doneText({ kind: 'remove', node: '1999', keepRecord: true }), /record/);
+  assert.equal(doneText({ kind: 'renumber', node: '1996' }), 'Bridge node renumbered to 1996.');
+  assert.equal(doneText({ kind: 'set', node: '1996' }), 'Bridge node saved.');
 });

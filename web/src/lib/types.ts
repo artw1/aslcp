@@ -198,8 +198,11 @@ export interface DVBridgeSetup {
   rxPort: number; txPort: number; link: { mode: DVLinkMode; localNode: string; bridge: string }; paused: boolean;
 }
 /** PUT /api/dvswitch/private-node (docs/API.md "DVSwitch private node"). */
-export interface DVPrivateReq { node: string; rxPort: number; txPort: number; linkMode: DVLinkMode; localNode: string; dryRun?: boolean; restart?: boolean; base?: Record<string, string> }
+export interface DVPrivateReq { node: string; rxPort: number; txPort: number; linkMode: DVLinkMode; localNode: string; dryRun?: boolean; restart?: boolean; base?: Record<string, string>; renumber?: boolean }
+export type DVPlanKind = 'set' | 'renumber' | 'remove';
+/** `kind` says what the plan does: save the node, renumber it (`oldNode` goes away) or remove it. `unlinks` are the local nodes disconnected first; `keepRecord` says the removal leaves ASLCP's record because something could not be reverted. */
 export interface DVPlan {
+  kind: DVPlanKind; oldNode: string; unlinks: string[]; keepRecord: boolean;
   node: string; rxPort: number; txPort: number; layout: string;
   files: { path: string; diff: string; changed: boolean }[];
   restartAsterisk: boolean; restarts: string[]; warnings: string[]; base: Record<string, string>;
@@ -207,7 +210,7 @@ export interface DVPlan {
 }
 export interface DVStep { name: string; ok: boolean; detail?: string }
 export interface DVRollbackInfo { available: boolean; before?: boolean; ini?: boolean }
-export interface DVApplyResult { applied: boolean; node: string; steps: DVStep[]; health?: unknown; rollback: DVRollbackInfo }
+export interface DVApplyResult { applied: boolean; kind: DVPlanKind; node: string; steps: DVStep[]; warnings?: string[]; keepRecord?: boolean; health?: unknown; rollback: DVRollbackInfo }
 export interface DVRollbackResult { rolledBack: boolean; problems: string[]; steps: DVStep[] }
 export interface DVSwitchSetup {
   identity: { callsign: string; dmrId: string; essid: string; nxdnId: string; consistent: boolean };

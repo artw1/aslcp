@@ -1,6 +1,11 @@
 // Pure logic of the bridge node (docs/DVSWITCH.md "Private bridge node"): node validation and suggestion
 // (the same rules as the server), the port prefill, the card's link text and buttons, and the confirmation texts.
-import type { DVBridgeSetup, DVLink, DVPlan, DVSnapshot } from './types';
+import type { DVBridgeSetup, DVLink, DVPlan, DVPlanKind, DVSnapshot } from './types';
+
+/** The text that replaces the disabled Duplex input: duplex stays 0 for a bridge node. */
+export const DUPLEX_TEXT = 'Duplex 0: fixed for a bridge node (a higher value repeats DMR audio back to DMR and adds hang time and courtesy tones).';
+/** The hint under the node field of an existing bridge node. */
+export const NODE_HINT = 'To use a different number, use Change number. Remove bridge node takes it out completely.';
 
 export const BRIDGE_MIN = 1900;
 export const BRIDGE_MAX = 1997;
@@ -22,11 +27,12 @@ export function nodeWarning(node: string): string | null {
 }
 
 /** Why `node` cannot be the bridge node (null: fine). `own` is the bridge node that already exists, if any. */
-export function nodeError(node: string, used: string[], own = ''): string | null {
+/** `renumbering` is the Change number mode: a different number than `own` is then what the form is for. */
+export function nodeError(node: string, used: string[], own = '', renumbering = false): string | null {
   const n = node.trim();
   if (!/^[0-9]{1,7}$/.test(n) || Number(n) < 1) return 'Enter a node number (digits only).';
   if (Number(n) >= 2000) return 'A private node must be below 2000: 2000 and up are public AllStar nodes.';
-  if (own && n !== own) return `This node already has the bridge node ${own}. Change its ports or link, or uninstall DVSwitch first.`;
+  if (own && n !== own && !renumbering) return `This node already has the bridge node ${own}. Change its ports or link, use Change number for another number, or remove it.`;
   if (n !== own && used.includes(n)) return `Node ${n} is already in use on this node.`;
   return null;
 }
@@ -45,8 +51,8 @@ export function prefill(b: Pick<DVBridgeSetup, 'node' | 'suggested' | 'rxPort' |
 }
 
 /** Why the form cannot be planned yet (null: it can). */
-export function formError(f: { node: string; rxPort: string; txPort: string; linkMode: string; localNode: string }, b: Pick<DVBridgeSetup, 'node' | 'used'>): string | null {
-  const e = nodeError(f.node, b.used, b.node);
+export function formError(f: { node: string; rxPort: string; txPort: string; linkMode: string; localNode: string }, b: Pick<DVBridgeSetup, 'node' | 'used'>, renumbering = false): string | null {
+  const e = nodeError(f.node, b.used, b.node, renumbering);
   if (e) return e;
   if (!validPort(f.rxPort) || !validPort(f.txPort)) return 'Ports are numbers from 1024 to 65535.';
   if (f.rxPort.trim() === f.txPort.trim()) return 'The receive and transmit ports must differ.';
@@ -78,14 +84,47 @@ export function linkButton(l: DVLink, node: string): { label: string; action: 'c
 /** A permanent link that was disconnected by hand: say how to get it back. */
 export const pausedHint = (l: DVLink): string => (l.mode === 'permanent' && l.paused && !l.linked ? 'The permanent link is paused until you save the bridge node setup or restart Asterisk.' : '');
 
+/** Change number and Remove bridge node exist only for a bridge node that ASLCP added (the server refuses the rest). */
+export const canChange = (b: Pick<DVBridgeSetup, 'node' | 'owned'>): boolean => !!b.node && b.owned;
+
+type PlanLike = Pick<DVPlan, 'node' | 'restartAsterisk' | 'restarts'> & Partial<Pick<DVPlan, 'kind' | 'oldNode' | 'unlinks' | 'keepRecord'>>;
+
+/** The review dialog's title. */
+export function planTitle(kind: DVPlanKind | undefined): string {
+  return kind === 'remove' ? 'Remove the bridge node?' : kind === 'renumber' ? 'Change the bridge node number?' : 'Apply the bridge node?';
+}
+
+/** The confirm button of the review dialog. */
+export function planApplyLabel(p: Pick<PlanLike, 'kind' | 'restartAsterisk'>, busy: boolean): string {
+  const verb = p.kind === 'remove' ? 'Remove' : p.kind === 'renumber' ? 'Change number' : 'Apply';
+  if (busy) return p.kind === 'remove' ? 'Removing…' : 'Applying…';
+  return p.restartAsterisk ? `${verb} and restart Asterisk` : verb;
+}
+
+/** The order the server works in, for the dialog's footer line. */
+export function planOrder(p: Pick<PlanLike, 'kind' | 'unlinks'>): string {
+  const first = p.unlinks?.length ? `Disconnect ${p.unlinks.join(', ')} from the bridge node, then ` : '';
+  const rest = p.kind === 'remove'
+    ? 'revert the Asterisk config, restore the Analog_Bridge ini ports, restart Asterisk once and the bridge, then clear the setup. If it fails after the restart you can roll back.'
+    : 'Asterisk config, the Analog_Bridge ini, then the restarts and a health check. If the check fails you can roll back both files.';
+  return first ? first + rest : rest.charAt(0).toUpperCase() + rest.slice(1);
+}
+
+/** The toast after a successful apply. */
+export function doneText(r: { kind?: DVPlanKind; node: string; keepRecord?: boolean; warnings?: string[] }): string {
+  if (r.kind === 'remove') return r.keepRecord ? `Bridge node ${r.node} removed with problems: see the warnings. ASLCP keeps its record of what it could not revert.` : `Bridge node ${r.node} removed.`;
+  return r.kind === 'renumber' ? `Bridge node renumbered to ${r.node}.` : 'Bridge node saved.';
+}
+
 /** What the confirmation says before an apply. */
-export function planConfirm(p: Pick<DVPlan, 'node' | 'restartAsterisk' | 'restarts'>): string {
+export function planConfirm(p: PlanLike): string {
   const parts: string[] = [];
   if (p.restartAsterisk) parts.push('This restarts Asterisk, which drops every connection and call on this node for a moment');
   const r = p.restarts.filter((x) => x !== 'asterisk');
   if (r.length) parts.push(`${p.restartAsterisk ? 'then restarts' : 'This restarts'} ${r.join(', ')}`);
+  const what = p.kind === 'remove' ? `Bridge node ${p.node} is removed completely.` : p.kind === 'renumber' ? `Bridge node ${p.oldNode ?? ''} becomes ${p.node}.` : `Bridge node ${p.node} is added or updated.`;
   if (!parts.length) return `Save the bridge node ${p.node}. Nothing needs a restart.`;
-  return `${parts.join(', ')}. Bridge node ${p.node} is added or updated.`;
+  return `${parts.join(', ')}. ${what}`;
 }
 
 /** The uninstall confirmation's extra lines for the bridge node (Asterisk restarts, a permanent link is removed). */

@@ -172,3 +172,29 @@ func grepLine(s, sub string) string {
 	}
 	return ""
 }
+
+func TestRevertBridgeNodeGoneVersusEdited(t *testing.T) {
+	base := "[nodes]\n\n[1999]\nrxchannel = SimpleUSB/1999\n"
+	r, _ := AddBridgeNode([]byte(base), BridgeSpec{Node: "1997", RxPort: 34001, TxPort: 32001, Local: "1999"})
+	// untouched: exact revert, no problems
+	out, rs, rl, ps := RevertBridgeNode(r.Out, "1997", r.StanzaText, r.NodesLine, r.BlankAdded)
+	if !rs || !rl || len(ps) != 0 || string(out) != base {
+		t.Fatalf("%v %v %v\n%s", rs, rl, ps, out)
+	}
+	// already gone: reported as Gone, not as a blocker
+	_, rs, rl, ps = RevertBridgeNode([]byte(base), "1997", r.StanzaText, r.NodesLine, r.BlankAdded)
+	if rs || rl || len(ps) != 2 {
+		t.Fatalf("%v %v %v", rs, rl, ps)
+	}
+	for _, p := range ps {
+		if !p.Gone {
+			t.Fatalf("not marked gone: %+v", p)
+		}
+	}
+	// hand-edited: a blocker, text untouched
+	edited := strings.Replace(string(r.Out), "duplex = 0", "duplex = 0\nhangtime = 99", 1)
+	out, rs, _, ps = RevertBridgeNode([]byte(edited), "1997", r.StanzaText, r.NodesLine, r.BlankAdded)
+	if rs || len(ps) != 1 || ps[0].Gone || !strings.Contains(ps[0].Msg, "changed by hand") || !strings.Contains(string(out), "hangtime = 99") {
+		t.Fatalf("%v %+v", rs, ps)
+	}
+}

@@ -349,7 +349,7 @@ Admin chooses `node`, `rxPort`/`txPort` and the link mode in the "Bridge node" s
 - Node: digits, **below 2000** (`400 invalid_node` otherwise). The form suggests the first free number in **1900-1997**; 1998 and 1999 are allowed but warned about (they are the private numbers most DVSwitch guides use, so a node you link to may already have the same number in its network and refuse the link as a loop; the stock ASL3 config also ships a `[1999]` stanza). A node that exists in `rpt.conf`, in `[nodes]` or as a local node is `409 node_in_use`.
 - Ports: 1024-65535, different from each other. They are prefilled with the stock values **rx 34001, tx 32001** (the `Analog_Bridge.ini` stock `[USRP]` ports are the mirror image: the node's `rxchannel` is `USRP/127.0.0.1:<rxPort>:<txPort>` and the ini's `rxPort`/`txPort` are swapped, which the helper does). A port used by another USRP stanza, by `DVSwitch.ini` or by the other bridge ports is `409 port_conflict`.
 - Duplex is fixed at `0` (half duplex), and the new stanza also neutralises ID, telemetry, courtesy tones and hang time (stanza example below; unverified on a real node).
-- Only one bridge node per node. When one exists (recorded by ASLCP, or detected in `rpt.conf` with a USRP `rxchannel`), choosing a different number is `409 node_in_use`: change its ports or link, or uninstall first.
+- Only one bridge node per node. When one exists (recorded by ASLCP, or detected in `rpt.conf` with a USRP `rxchannel`), choosing a different number is `409 node_in_use` unless the request has `renumber: true` and ASLCP owns the node (see "Change number and Remove" below).
 
 `PUT /api/dvswitch/private-node` is a dry run (`dryRun: true`: a plan with a per-file diff, `restartAsterisk`, `restarts`, warnings and the `base` hashes) or an apply. See docs/API.md for the bodies and errors.
 
@@ -385,6 +385,26 @@ These keys make the bridge node neutral, so that the local node's ID, telemetry,
 Any change of `rpt.conf` or `modules.conf` needs an Asterisk restart (neither is reloadable here). The apply answers `409 restart_required` unless the body has `restart: true`, and the dialog says that links and calls drop. A re-save that changes no Asterisk file needs no restart.
 
 Failure handling: a failed Asterisk config write (conflict, syntax) changes nothing. A failure at the ini or record step restores the Asterisk files automatically. A failure at the Asterisk restart, the bridge restart or the health check answers `502 apply_failed` with `step`, the steps done and `rollback: {available}`; the UI offers "Roll back Asterisk and the ini file", which calls `POST /api/dvswitch/private-node/rollback` (restore `rpt.conf` and `modules.conf` from the pre-apply snapshot, restore the ini, restart again). The rollback state is kept **in server memory** (`Server.dvUndo`), so it is lost when ASLCP restarts; the files' own history and the Config page's restore still work.
+
+### Change number and Remove bridge node
+
+Both use the same plan, review and apply flow as the setup above: a dry run returns per-file diffs and base hashes, the apply needs `restart: true`, there is exactly one Asterisk restart, and a failure after the restart answers `502 apply_failed` with `rollback: {available}`. They exist only for a node ASLCP added (`bridgeNode.owned`); a node that was found in `rpt.conf` is left alone (`409 node_in_use` for a renumber, `409 not_owned` for a remove).
+
+**Change number** is `PUT /api/dvswitch/private-node` with `renumber: true` and the new `node`. The design choice: an explicit field, not "a different node is accepted when ASLCP owns the current one". A stale form, a script or a typo that sends another number must not silently move a node and restart Asterisk, so without `renumber` a different number is still `409 node_in_use`. The form makes it deliberate too: the node field is read only until "Change number" is pressed.
+- The old stanza and `[nodes]` line are reverted exactly as recorded (the same `astconf.RevertBridgeNode` as the uninstall). If the old stanza or line was edited by hand the renumber is refused (`409 old_node_edited`) and nothing is written: put it back or remove it by hand. A node whose stanza existed before ASLCP is `409 old_node_not_removable`.
+- The new node is added by `AddBridgeNode` as for a new install. The ports, link mode and local node carry over unless the request sets them. The ports of the old node do not count in the port check, so the same ports can be reused.
+- The record moves to the new node and keeps the `chan_usrp.so` state and the pre-ASLCP `[USRP]` ports it had. `dvswitch.node` and the link settings move to the new node. A link to the old node (permanent or on demand) is disconnected first, because Asterisk remembers a permanent link across the restart; a permanent link to the new node comes back through the reconciler.
+- Rollback restores `rpt.conf` and `modules.conf`, the ini, the record and the link settings, and restarts Asterisk again.
+
+**Remove bridge node** is `DELETE /api/dvswitch/private-node` (optional body or query: `dryRun`, `restart`, `base`).
+1. Any link to the bridge node (permanent or on demand) is disconnected, and the link settings are cleared so the reconciler does not link it again.
+2. `rpt.conf` and `modules.conf` are reverted from the record by the same pure function as the uninstall (`helper.PlanPrivateRevert`): the stanza and `[nodes]` line only if they still read as ASLCP wrote them, the `chan_usrp.so` line only if ASLCP changed it and it is unchanged. Something already gone is a note. Something edited by hand is a warning, is left as it is, and **keeps the record** (struck down to what is still there, so a second removal only deals with the rest).
+3. The `[USRP]` ports of `Analog_Bridge.ini` go back to what they were before ASLCP set them. The decision: new installs now record them (`usrpWas`); a record written before that has none, so the stock DVSwitch values (127.0.0.1, 31001 and 31001) are restored and the plan says so in a warning. The address is not restored (the helper only writes 127.0.0.1). The ini is left alone, with a warning, if its ports are no longer the ones ASLCP set, and a record flagged `usrpUntouched` is not restored. The stock ports are equal, which the normal op refuses, so the op has a `restore` flag that allows equal ports (still range checked); `restore` is not accepted in a record.
+4. Asterisk restarts once, only if a file changed; ASLCP waits for it, then restarts `analog_bridge`.
+5. The record and link settings are cleared (unless the record is kept).
+The result is `{applied, kind:"remove", node, steps, warnings, keepRecord, rollback}`. A rollback after a failed removal puts the files, ini, record and link settings back and re-links a permanent link. `409 no_bridge_node` when there is nothing ASLCP owns.
+
+An empty `[nodes]` section that ASLCP created is left behind (harmless) when no `[nodes]` section existed before.
 
 ### What ASLCP records and how the uninstall reverts it
 
@@ -424,6 +444,8 @@ Placeholders: bridge node `1999`, local node `2006`. Do this on a spare or quiet
 8. Re-save with nothing changed: no restart is asked.
 9. Uninstall: the dialog mentions the Asterisk restart (and a permanent link). Afterwards the 1999 stanza, its `[nodes]` line and the `load` line are gone (`noload` is back if ASLCP had changed it), nodes you added by hand are untouched, and the record `privatenode.json` in the helper's DVSwitch state directory is gone. Edit the stanza by hand first and check the uninstall leaves it and says so in the log.
 10. A node that already had a USRP stanza before ASLCP: the setup shows it as found, not owned, and the uninstall leaves it.
+11. Remove bridge node (permanent link up): the plan lists the disconnect, the diffs and the restore of the ini ports. After applying: the link is gone from `rpt show` / the dashboard, the stanza, `[nodes]` line and `load` line are reverted, `Analog_Bridge.ini` `[USRP]` has its old ports (check `rxPort`/`txPort`), `analog_bridge` runs, Asterisk restarted once, and the card says "No bridge node yet". Repeat after editing the stanza by hand: a warning, the stanza stays, the record stays, and a second removal after fixing the stanza finishes the job.
+12. Change number: the old node disconnects before the restart, the old stanza and line are gone, the new ones are there, the ports are unchanged, the link (permanent or on demand) is back on the new number, and "Undo this change" restores the old number with its link. Edit the old stanza by hand first: the renumber is refused and nothing changes. A node ASLCP did not add shows no Change number or Remove button.
 
 ### Divergences of M2 from the first design
 
@@ -432,7 +454,7 @@ Placeholders: bridge node `1999`, local node `2006`. Do this on a spare or quiet
 - The record is `privatenode.json`; the uninstall reverts it in the helper step `private-revert`, not in shell.
 - Link settings are store settings; the API (not the reconciler) computes the snapshot `link`. The reconciler is level-triggered with a 60 s tick instead of purely event-driven.
 - `modules.conf` keeps the value column (`noload = x` becomes `load   = x`).
-- A bridge node cannot be renamed in place (409 `node_in_use`); rollback state lives in server memory.
+- A bridge node is renumbered only with `renumber: true` (without it a different number is still 409 `node_in_use`) and can be removed on its own with `DELETE`; rollback state lives in server memory.
 - `DemoHelper.ConfigApply` (configsvc demo) now returns `Before`, like the real helper, so a rollback works in the demo.
 
 ## Credentials and ini files (M4; M2 uses the ports subset)
@@ -626,6 +648,7 @@ Base `/api/dvswitch`. Errors `{error, code}` as everywhere; all non-GET need `X-
 | POST | `/api/dvswitch/install` | admin | none | M3, implemented: `202` status (job running); `409 job_running`, `409 apt_busy`, `409 already_installed`, `409 unsupported_platform`, `409 clock_unset`, `502 key_mismatch`, `503 dvswitch_unavailable` |
 | POST | `/api/dvswitch/uninstall` | admin | none | M3, implemented: `202` status; `409 not_aslcp_installed`, `409 job_running`, `409 apt_busy`, `503` |
 | GET | `/api/dvswitch/job` | admin | | M3, implemented: `{install:{job,log}, uninstall:{job,log}}` |
+| DELETE | `/api/dvswitch/private-node` | admin | optional `{"dryRun": bool, "restart": bool, "base": {}}` (or `?dryRun=true&restart=true`) | `dryRun`: `200` plan (`kind:"remove"`); apply `200` `{applied, kind, node, steps, warnings, keepRecord, rollback}`; `409 no_bridge_node`, `409 not_owned`, `409 restart_required`, `409 conflict`, `502 apply_failed` |
 | PUT | `/api/dvswitch/private-node` | admin | `{"node": "1999", "rxPort": 34001, "txPort": 32001, "duplex": 0, "link": {"mode": "permanent\|ondemand", "node": "2006"}, "dryRun": bool, "restart": bool}` | `dryRun`: `200` plan `{files:[{path, diff}], restartAsterisk, restarts[]}`; apply (needs `restart: true` when the plan restarts Asterisk, else `409 restart_required`): `200` `{applied, health}`; `400 invalid_node` (>= 2000 or not a number), `409 node_in_use`, `409 port_conflict`, `409 conflict` (file changed on disk), `422 syntax_error` |
 | PUT | `/api/dvswitch/identity` | admin | `{"callsign": "N0CALL", "dmrId": "1234567", "essid": "01", "nxdnId": "12346"}` (`nxdnId` optional) | M4, implemented: `200` Setup view; `400 invalid_field` (field in message, never the value); `409 not_installed`, `409 conflict`, `409 job_running` |
 | PUT | `/api/dvswitch/credentials` | admin | `{"dmrAddress"?, "dmrPort"?, "dmrPassword"?: "...", "clearPassword"?: true}` | M4, implemented: `200` Setup view (password only as `passwordSet`); an empty body (no key) is a no-op: `200`, nothing written, no `changed` or `restartHint`; an empty or invalid password `400 invalid_field`; write-only. The body keys are `dmrAddress`, `dmrPort`, `dmrPassword`, `clearPassword` (`dmrPassword` together with `clearPassword: true` is `400 invalid_field`; `clearPassword: false` is the same as absent) |

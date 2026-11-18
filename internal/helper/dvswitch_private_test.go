@@ -180,3 +180,74 @@ func (v DVSwitchSetup) History0() int {
 	}
 	return -1
 }
+
+// A removal puts the stock ports back, which are equal; only Restore allows that.
+func TestDVUSRPOpRestoreAllowsEqualPorts(t *testing.T) {
+	o, _ := cfgOps(t)
+	ctx := context.Background()
+	if _, err := o.DVSwitchUSRP(ctx, &DVSwitchRequest{USRP: &DVUSRP{RxPort: 34001, TxPort: 32001}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.DVSwitchUSRP(ctx, &DVSwitchRequest{USRP: &DVUSRP{RxPort: 31001, TxPort: 31001}}); err == nil {
+		t.Fatal("equal ports accepted without Restore")
+	}
+	s := DVStockUSRP
+	s.Address, s.Restore = "", true
+	if _, err := o.DVSwitchUSRP(ctx, &DVSwitchRequest{USRP: &s}); err != nil {
+		t.Fatal(err)
+	}
+	if v := v2(o); v.USRP.RxPort != 31001 || v.USRP.TxPort != 31001 {
+		t.Fatalf("%+v", v.USRP)
+	}
+	// still range-checked
+	if _, err := o.DVSwitchUSRP(ctx, &DVSwitchRequest{USRP: &DVUSRP{RxPort: 80, TxPort: 80, Restore: true}}); err == nil {
+		t.Fatal("port 80 accepted")
+	}
+}
+
+func TestDVPrivateRecordUsrpWas(t *testing.T) {
+	o := &Ops{DVStateDir: filepath.Join(t.TempDir(), "state")}
+	ctx := context.Background()
+	set := func(r DVPrivateRecord) error {
+		_, err := o.DVSwitchPrivate(ctx, &DVSwitchRequest{Private: &DVPrivate{Action: "set", Record: &r}})
+		return err
+	}
+	if err := set(DVPrivateRecord{Version: 1, Node: "1997", ChanUsrpWas: "load", UsrpWas: &DVUSRP{RxPort: 31001, TxPort: 31001}}); err != nil {
+		t.Fatal(err)
+	}
+	rec, _ := ReadDVPrivate(o.dvPrivatePath())
+	if rec.UsrpWas == nil || rec.UsrpWas.RxPort != 31001 {
+		t.Fatalf("%+v", rec)
+	}
+	for _, w := range []*DVUSRP{{RxPort: 80, TxPort: 31001}, {RxPort: 31001, TxPort: 31001, Address: "192.0.2.5"}, {RxPort: 31001, TxPort: 31001, Restore: true}, {}} {
+		if err := set(DVPrivateRecord{Version: 1, Node: "1997", ChanUsrpWas: "load", UsrpWas: w}); err == nil {
+			t.Fatalf("accepted %+v", w)
+		}
+	}
+}
+
+func TestPlanPrivateRevert(t *testing.T) {
+	r, _ := astconf.AddBridgeNode([]byte("[1999]\nrxchannel = SimpleUSB/1999\n"), astconf.BridgeSpec{Node: "1997", RxPort: 34001, TxPort: 32001, Local: "1999"})
+	rec := &DVPrivateRecord{Version: 1, Node: "1997", StanzaAdded: true, StanzaText: r.StanzaText, BlankAdded: r.BlankAdded, NodesLineAdded: true, NodesLine: r.NodesLine, ChanUsrpWas: "noload"}
+	rpt := string(r.Out)
+	mods := "[modules]\nload = chan_usrp.so\n"
+	rv := PlanPrivateRevert(rec, &rpt, &mods)
+	if !rv.RemovedStanza || !rv.RemovedLine || !rv.RevertedModule || len(rv.Problems) != 0 || len(rv.Gone) != 0 {
+		t.Fatalf("%+v", rv)
+	}
+	if strings.Contains(*rv.Rpt, "1997") || !strings.Contains(*rv.Modules, "noload = chan_usrp.so") {
+		t.Fatalf("%q %q", *rv.Rpt, *rv.Modules)
+	}
+	// hand-edited stanza: a problem; the line goes; a missing module line is "gone"
+	edited := strings.Replace(rpt, "duplex = 0", "duplex = 0\nhangtime = 5", 1)
+	bare := "[modules]\n"
+	rv = PlanPrivateRevert(rec, &edited, &bare)
+	if rv.RemovedStanza || !rv.RemovedLine || len(rv.Problems) != 1 || !strings.Contains(rv.Problems[0], "changed by hand") || len(rv.Gone) != 1 || rv.Modules != nil {
+		t.Fatalf("%+v", rv)
+	}
+	// unreadable files are problems
+	rv = PlanPrivateRevert(rec, nil, nil)
+	if len(rv.Problems) != 2 || rv.Rpt != nil {
+		t.Fatalf("%+v", rv)
+	}
+}

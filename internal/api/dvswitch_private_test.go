@@ -86,8 +86,15 @@ type privEnv struct {
 
 func newPrivEnv(t *testing.T, rptConf string, dvlink bool) *privEnv {
 	t.Helper()
+	return newPrivEnvNode(t, rptConf, dvlink, nil)
+}
+
+// newPrivEnvNode is newPrivEnv with a detector for the bridge node that is in
+// rpt.conf (the snapshot's view of a USRP node, owned by ASLCP or not).
+func newPrivEnvNode(t *testing.T, rptConf string, dvlink bool, dvNode func(context.Context) (string, bool)) *privEnv {
+	t.Helper()
 	pe := &privEnv{dv: &fakeDV{}, fail: new(atomic.Bool)}
-	pe.env = newEnv(t, opts{dvswitch: pe.dv, dvInstalled: installed, dvlink: dvlink, configFn: func(c rpt.API) *configsvc.Service {
+	pe.env = newEnv(t, opts{dvswitch: pe.dv, dvInstalled: installed, dvlink: dvlink, dvNode: dvNode, configFn: func(c rpt.API) *configsvc.Service {
 		pe.dh = configsvc.NewDemoHelper()
 		pe.dh.SetFile("rpt.conf", rptConf)
 		pe.dh.SetFile("modules.conf", modConf)
@@ -680,5 +687,329 @@ func TestDVPrivateApplyAsteriskNeverComesBack(t *testing.T) {
 		if o == "restart" {
 			t.Fatal("the bridge was restarted although Asterisk was down")
 		}
+	}
+}
+
+// ---- remove and renumber ----
+
+// nodesRpt has the [nodes] section, so that a revert is byte for byte.
+const nodesRpt = tmplRpt + "\n[nodes]\n"
+
+func node1998(context.Context) (string, bool) { return "1998", true }
+
+type dvApplyOut struct {
+	Applied bool
+	Kind    string
+	Node    string
+	Steps   []struct {
+		Name string
+		OK   bool
+	}
+	Warnings   []string
+	KeepRecord bool
+	Code, Step string
+	Rollback   struct{ Available bool }
+}
+
+func (pe *privEnv) set(node string, extra map[string]any) {
+	pe.t.Helper()
+	body := map[string]any{"node": node, "localNode": "1997", "restart": true}
+	for k, v := range extra {
+		body[k] = v
+	}
+	if c := pe.do("admin", "PUT", "/api/dvswitch/private-node", body, nil); c != 200 {
+		pe.t.Fatalf("set %s: %d", node, c)
+	}
+}
+
+func (pe *privEnv) remove(body map[string]any) (int, dvApplyOut) {
+	pe.t.Helper()
+	var out dvApplyOut
+	c := pe.do("admin", "DELETE", "/api/dvswitch/private-node", body, &out)
+	return c, out
+}
+
+func TestDVPrivateRemoveHappyPath(t *testing.T) {
+	pe := newPrivEnv(t, nodesRpt, false)
+	pe.set("1998", map[string]any{"linkMode": "permanent"})
+	if dvswitch.ReadLinkSettings(pe.st).Bridge != "1998" || pe.dv.priv == nil {
+		t.Fatal("setup failed")
+	}
+	// the plan names every change and writes nothing
+	var p api.DVPlan
+	if c := pe.do("admin", "DELETE", "/api/dvswitch/private-node", map[string]any{"dryRun": true}, &p); c != 200 || p.Kind != "remove" || p.Node != "1998" || !p.RestartAsterisk || p.KeepRecord {
+		t.Fatalf("plan %d %+v", c, p)
+	}
+	for _, f := range []string{"rpt.conf", "modules.conf"} {
+		if pf, ok := planFile(p, "/etc/asterisk/"+f); !ok && !strings.Contains(fmt.Sprint(p.Files), f) {
+			t.Fatalf("no diff for %s: %+v (%+v)", f, p.Files, pf)
+		}
+	}
+	// without the confirmation nothing is touched
+	if c, out := pe.remove(map[string]any{}); c != 409 {
+		t.Fatalf("%d %+v", c, out)
+	}
+	if !strings.Contains(pe.file("rpt.conf"), "[1998]") {
+		t.Fatal("removed without confirmation")
+	}
+	restarts := countCmd(pe.env, "core restart gracefully")
+	pe.dv.mu.Lock()
+	pe.dv.order, pe.dv.usrpCalls = nil, nil
+	pe.dv.mu.Unlock()
+	pe.dv.usrp = helper.DVUSRPView{Address: "127.0.0.1", RxPort: 34001, TxPort: 32001}
+
+	c, out := pe.remove(map[string]any{"restart": true})
+	if c != 200 || !out.Applied || out.Kind != "remove" || out.KeepRecord || len(out.Warnings) != 0 {
+		t.Fatalf("%d %+v", c, out)
+	}
+	if pe.file("rpt.conf") != nodesRpt || pe.file("modules.conf") != modConf {
+		t.Fatalf("not reverted:\n%s\n%s", pe.file("rpt.conf"), pe.file("modules.conf"))
+	}
+	if countCmd(pe.env, "core restart gracefully")-restarts != 1 {
+		t.Fatal("expected exactly one Asterisk restart")
+	}
+	if len(pe.dv.usrpCalls) != 1 || pe.dv.usrpCalls[0].RxPort != 31001 || pe.dv.usrpCalls[0].TxPort != 31001 || !pe.dv.usrpCalls[0].Restore {
+		t.Fatalf("ports not restored: %+v", pe.dv.usrpCalls)
+	}
+	if pe.dv.priv != nil {
+		t.Fatalf("record kept: %+v", pe.dv.priv)
+	}
+	if l := dvswitch.ReadLinkSettings(pe.st); l.Bridge != "" || l.Mode == "permanent" {
+		t.Fatalf("settings not cleared: %+v", l)
+	}
+	got := strings.Join(pe.dv.orderOf(), ",")
+	if !strings.HasSuffix(got, "restart") || strings.Index(got, "usrp") > strings.Index(got, "private:clear") {
+		t.Fatalf("order %s", got)
+	}
+	if !auditHas(pe.env, "dvswitch.private.remove") {
+		t.Error("no audit entry")
+	}
+	// nothing left to remove
+	expectErr(t, pe.env, "admin", "DELETE", "/api/dvswitch/private-node", map[string]any{"restart": true}, 409, "no_bridge_node")
+}
+
+func TestDVPrivateRemoveRecordWithoutPortsUsesStock(t *testing.T) {
+	pe := newPrivEnv(t, nodesRpt, false)
+	pe.set("1998", nil)
+	rec := *pe.dv.priv
+	rec.UsrpWas, rec.UsrpUntouched = nil, false // an older record
+	pe.dv.priv = &rec
+	pe.dv.usrp = helper.DVUSRPView{Address: "127.0.0.1", RxPort: 34001, TxPort: 32001}
+	var p api.DVPlan
+	if c := pe.do("admin", "DELETE", "/api/dvswitch/private-node", map[string]any{"dryRun": true}, &p); c != 200 {
+		t.Fatal(c)
+	}
+	if !strings.Contains(strings.Join(p.Warnings, "|"), "stock values 31001 and 31001") {
+		t.Fatalf("no stock-values notice: %v", p.Warnings)
+	}
+}
+
+func TestDVPrivateRemoveHandEditedStanzaKeepsRecord(t *testing.T) {
+	pe := newPrivEnv(t, nodesRpt, false)
+	pe.set("1998", nil)
+	pe.dh.SetFile("rpt.conf", strings.Replace(pe.file("rpt.conf"), "duplex = 0", "duplex = 0\nhangtime = 99", 1))
+	pe.dv.usrp = helper.DVUSRPView{Address: "127.0.0.1", RxPort: 34001, TxPort: 32001}
+	c, out := pe.remove(map[string]any{"restart": true})
+	if c != 200 || !out.Applied || !out.KeepRecord || len(out.Warnings) == 0 || !strings.Contains(strings.Join(out.Warnings, "|"), "changed by hand") {
+		t.Fatalf("%d %+v", c, out)
+	}
+	rptNow := pe.file("rpt.conf")
+	if !strings.Contains(rptNow, "hangtime = 99") || !strings.Contains(rptNow, "[1998]") {
+		t.Fatal("the edited stanza was removed")
+	}
+	if strings.Contains(rptNow, "1998 = radio@") {
+		t.Fatal("the unchanged [nodes] line should be reverted")
+	}
+	if pe.dv.priv == nil || !pe.dv.priv.StanzaAdded || pe.dv.priv.NodesLineAdded {
+		t.Fatalf("record should keep only the stanza: %+v", pe.dv.priv)
+	}
+	if !reLoad.MatchString(pe.file("modules.conf")) && strings.Contains(pe.file("modules.conf"), "noload") == false {
+		t.Fatal("modules.conf in an unexpected state")
+	}
+}
+
+func TestDVPrivateRemoveNotOwned(t *testing.T) {
+	// a bridge node somebody else added is left alone
+	pe := newPrivEnvNode(t, nodesRpt+"\n[1998]\nrxchannel = USRP/127.0.0.1:34001:32001\nduplex = 0\n", false, node1998)
+	expectErr(t, pe.env, "admin", "DELETE", "/api/dvswitch/private-node", map[string]any{"restart": true}, 409, "not_owned")
+	if !strings.Contains(pe.file("rpt.conf"), "[1998]") || len(pe.dv.orderOf()) != 0 {
+		t.Fatal("touched a node ASLCP does not own")
+	}
+	// and with nothing at all
+	pe = newPrivEnv(t, nodesRpt, false)
+	expectErr(t, pe.env, "admin", "DELETE", "/api/dvswitch/private-node", map[string]any{"restart": true}, 409, "no_bridge_node")
+}
+
+func TestDVPrivateRemoveRoles(t *testing.T) {
+	pe := newPrivEnv(t, nodesRpt, false)
+	pe.set("1998", nil)
+	for _, role := range []string{"", "viewer", "op"} {
+		want, code := 403, "forbidden"
+		if role == "" {
+			want, code = 401, "unauthorized"
+		}
+		expectErr(t, pe.env, role, "DELETE", "/api/dvswitch/private-node", map[string]any{"restart": true}, want, code)
+	}
+	if pe.dv.priv == nil {
+		t.Fatal("removed by an unauthorised user")
+	}
+}
+
+func TestDVPrivateRenumberHappyPath(t *testing.T) {
+	pe := newPrivEnv(t, nodesRpt, false)
+	pe.set("1998", map[string]any{"linkMode": "permanent"})
+	pe.dv.usrp = helper.DVUSRPView{Address: "127.0.0.1", RxPort: 34001, TxPort: 32001}
+	was := pe.dv.priv.UsrpWas
+	restarts := countCmd(pe.env, "core restart gracefully")
+	pe.dv.mu.Lock()
+	pe.dv.usrpCalls = nil
+	pe.dv.mu.Unlock()
+
+	// without renumber the same request is node_in_use, as before
+	if c, code := pe.code(map[string]any{"node": "1999", "localNode": "1997", "restart": true}); c != 409 || code != "node_in_use" {
+		t.Fatalf("%d %s", c, code)
+	}
+	var p api.DVPlan
+	if c := pe.do("admin", "PUT", "/api/dvswitch/private-node", map[string]any{"node": "1999", "renumber": true, "dryRun": true}, &p); c != 200 || p.Kind != "renumber" || p.OldNode != "1998" || p.Node != "1999" || !p.RestartAsterisk {
+		t.Fatalf("plan %d %+v", c, p)
+	}
+	var out dvApplyOut
+	body := map[string]any{"node": "1999", "renumber": true, "restart": true}
+	if c := pe.do("admin", "PUT", "/api/dvswitch/private-node", body, &out); c != 200 || !out.Applied || out.Kind != "renumber" || !out.Rollback.Available {
+		t.Fatalf("%d %+v", c, out)
+	}
+	if countCmd(pe.env, "core restart gracefully")-restarts != 1 {
+		t.Fatal("expected one Asterisk restart")
+	}
+	rptNow := pe.file("rpt.conf")
+	if strings.Contains(rptNow, "1998") || !strings.Contains(rptNow, "[1999](node-main)") || !strings.Contains(rptNow, "1999 = radio@127.0.0.1/1999,NONE") {
+		t.Fatalf("rpt.conf:\n%s", rptNow)
+	}
+	if !reLoad.MatchString(pe.file("modules.conf")) {
+		t.Fatal("chan_usrp must stay loaded")
+	}
+	if len(pe.dv.usrpCalls) != 0 {
+		t.Fatalf("ports unchanged but the ini was written: %+v", pe.dv.usrpCalls)
+	}
+	rec := pe.dv.priv
+	if rec == nil || rec.Node != "1999" || !rec.StanzaAdded || !strings.HasPrefix(rec.StanzaText, "[1999]") || rec.ChanUsrpWas != "noload" {
+		t.Fatalf("record %+v", rec)
+	}
+	if rec.UsrpWas == nil || was == nil || *rec.UsrpWas != *was {
+		t.Fatalf("the pre-ASLCP ports were lost: %+v vs %+v", rec.UsrpWas, was)
+	}
+	l := dvswitch.ReadLinkSettings(pe.st)
+	if l.Bridge != "1999" || l.Mode != "permanent" || l.LocalNode != "1997" {
+		t.Fatalf("settings %+v", l)
+	}
+	if !auditHas(pe.env, "dvswitch.private") {
+		t.Error("no audit entry")
+	}
+}
+
+func TestDVPrivateRenumberRefusals(t *testing.T) {
+	pe := newPrivEnv(t, nodesRpt, false)
+	// nothing to renumber
+	if c, code := pe.code(map[string]any{"node": "1999", "renumber": true, "restart": true}); c != 409 || code != "no_bridge_node" {
+		t.Fatalf("%d %s", c, code)
+	}
+	pe.set("1998", nil)
+	// the old stanza was edited by hand: refused, nothing written
+	edited := strings.Replace(pe.file("rpt.conf"), "duplex = 0", "duplex = 0\nhangtime = 99", 1)
+	pe.dh.SetFile("rpt.conf", edited)
+	n := len(pe.dv.orderOf())
+	restarts := countCmd(pe.env, "core restart gracefully")
+	if c, code := pe.code(map[string]any{"node": "1999", "renumber": true, "restart": true}); c != 409 || code != "old_node_edited" {
+		t.Fatalf("%d %s", c, code)
+	}
+	if pe.file("rpt.conf") != edited || len(pe.dv.orderOf()) != n || countCmd(pe.env, "core restart gracefully") != restarts {
+		t.Fatal("something was changed by a refused renumber")
+	}
+	if pe.dv.priv == nil || pe.dv.priv.Node != "1998" {
+		t.Fatalf("record changed: %+v", pe.dv.priv)
+	}
+}
+
+func TestDVPrivateRenumberNotOwned(t *testing.T) {
+	// 1999 is somebody else's bridge node: ASLCP owns nothing, the request
+	// is node_in_use with or without renumber
+	pe := newPrivEnvNode(t, nodesRpt+"\n[1999]\nrxchannel = USRP/127.0.0.1:34005:32005\nduplex = 0\n", false, func(context.Context) (string, bool) { return "1999", true })
+	for _, renumber := range []bool{false, true} {
+		c, code := pe.code(map[string]any{"node": "1998", "renumber": renumber, "restart": true})
+		if c != 409 || (code != "node_in_use" && code != "no_bridge_node") {
+			t.Fatalf("renumber=%v: %d %s", renumber, c, code)
+		}
+	}
+	// ASLCP owns 1998; the target 1999 exists: node_in_use
+	pe = newPrivEnv(t, nodesRpt, false)
+	pe.set("1998", nil)
+	pe.dh.SetFile("rpt.conf", pe.file("rpt.conf")+"\n[1999]\nrxchannel = SimpleUSB/usb2\n")
+	if c, code := pe.code(map[string]any{"node": "1999", "renumber": true, "restart": true}); c != 409 || code != "node_in_use" {
+		t.Fatalf("%d %s", c, code)
+	}
+}
+
+func TestDVPrivateRenumberRollbackRestores(t *testing.T) {
+	pe := newPrivEnv(t, nodesRpt, false)
+	pe.set("1998", map[string]any{"linkMode": "permanent"})
+	pe.dv.usrp = helper.DVUSRPView{Address: "127.0.0.1", RxPort: 34001, TxPort: 32001}
+	rptBefore, modBefore := pe.file("rpt.conf"), pe.file("modules.conf")
+	recBefore := *pe.dv.priv
+	settingsBefore := dvswitch.ReadLinkSettings(pe.st)
+
+	pe.fail.Store(true) // the health check fails after the restart
+	var out dvApplyOut
+	body := map[string]any{"node": "1999", "renumber": true, "restart": true}
+	if c := pe.do("admin", "PUT", "/api/dvswitch/private-node", body, &out); c != 502 || out.Code != "apply_failed" || out.Step != "health" || !out.Applied || !out.Rollback.Available {
+		t.Fatalf("%d %+v", c, out)
+	}
+	if !strings.Contains(pe.file("rpt.conf"), "[1999]") || dvswitch.ReadLinkSettings(pe.st).Bridge != "1999" {
+		t.Fatal("the change should stay until the operator decides")
+	}
+	pe.fail.Store(false)
+	var rb struct {
+		RolledBack bool
+		Problems   []string
+	}
+	if c := pe.do("admin", "POST", "/api/dvswitch/private-node/rollback", map[string]any{}, &rb); c != 200 || !rb.RolledBack || len(rb.Problems) != 0 {
+		t.Fatalf("rollback: %d %+v", c, rb)
+	}
+	if pe.file("rpt.conf") != rptBefore || pe.file("modules.conf") != modBefore {
+		t.Fatal("the Asterisk files were not restored")
+	}
+	if pe.dv.priv == nil || *pe.dv.priv != recBefore {
+		t.Fatalf("record not restored: %+v want %+v", pe.dv.priv, recBefore)
+	}
+	if l := dvswitch.ReadLinkSettings(pe.st); l != settingsBefore {
+		t.Fatalf("settings not restored: %+v want %+v", l, settingsBefore)
+	}
+	if countCmd(pe.env, "core restart gracefully") != 3 { // set, renumber, rollback
+		t.Fatalf("restarts: %d", countCmd(pe.env, "core restart gracefully"))
+	}
+}
+
+func TestDVPrivateRemoveRollbackRestores(t *testing.T) {
+	pe := newPrivEnv(t, nodesRpt, false)
+	pe.set("1998", map[string]any{"linkMode": "permanent"})
+	pe.dv.usrp = helper.DVUSRPView{Address: "127.0.0.1", RxPort: 34001, TxPort: 32001}
+	rptBefore := pe.file("rpt.conf")
+	recBefore := *pe.dv.priv
+	settingsBefore := dvswitch.ReadLinkSettings(pe.st)
+	pe.fail.Store(true)
+	var out dvApplyOut
+	// the bridge restart succeeds; the post-restart check of Asterisk fails
+	c := pe.do("admin", "DELETE", "/api/dvswitch/private-node", map[string]any{"restart": true}, &out)
+	if c == 200 {
+		t.Fatal("expected apply_failed")
+	}
+	if c != 502 || !out.Rollback.Available {
+		t.Fatalf("%d %+v", c, out)
+	}
+	pe.fail.Store(false)
+	if c := pe.do("admin", "POST", "/api/dvswitch/private-node/rollback", map[string]any{}, nil); c != 200 {
+		t.Fatalf("rollback %d", c)
+	}
+	if pe.file("rpt.conf") != rptBefore || pe.dv.priv == nil || *pe.dv.priv != recBefore || dvswitch.ReadLinkSettings(pe.st) != settingsBefore {
+		t.Fatal("not restored")
 	}
 }

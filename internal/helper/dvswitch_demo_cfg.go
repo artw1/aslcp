@@ -42,7 +42,7 @@ func newDemoDVCfg() *demoDVCfg {
 		startup:  DVStartupView{AmbeMode: "DMR", TxTg: "9", TxTs: 2, ColorCode: 1},
 		gw:       DVGateways{YSF: DVGatewayView{Present: true, Startup: "US-Example"}, P25: DVGatewayView{Present: true}, NXDN: DVGatewayView{Present: true}},
 		hist:     map[string]int{},
-		usrp:     DVUSRPView{Address: "127.0.0.1", RxPort: 34001, TxPort: 32001},
+		usrp:     DVUSRPView{Address: "127.0.0.1", RxPort: 31001, TxPort: 31001},
 	}
 }
 
@@ -422,7 +422,7 @@ func dvReservedPortsDemo() []int { return append([]int(nil), dvTLVPorts...) }
 // [USRP] values in memory (the real ini is never touched).
 func (d *DemoDVSwitch) DVSwitchUSRP(_ context.Context, r DVSwitchRequest) (DVApplyResult, error) {
 	u := r.USRP
-	if u == nil || (u.RxPort != 0 && u.RxPort == u.TxPort) {
+	if u == nil || (u.RxPort != 0 && u.RxPort == u.TxPort && !u.Restore) {
 		return DVApplyResult{}, dvInvalid("usrp/ports")
 	}
 	if u.Address != "" && u.Address != "127.0.0.1" {

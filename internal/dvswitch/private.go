@@ -125,12 +125,15 @@ func UsedNodes(t *astconf.Tree) map[string]bool {
 	return used
 }
 
-// USRPPorts returns the ports of the USRP channels of every node except
-// except, and whether node (a section of rpt.conf) has a USRP rxchannel.
-func USRPPorts(t *astconf.Tree, except string) (ports []int) {
+// USRPPorts returns the ports of the USRP channels of every node except the
+// ones named in except.
+func USRPPorts(t *astconf.Tree, except ...string) (ports []int) {
 	seen := map[string]bool{}
+	for _, e := range except {
+		seen[e] = true
+	}
 	for _, s := range t.Sections {
-		if s.Template || !isNodeName(s.Name) || s.Name == except || seen[s.Name] {
+		if s.Template || !isNodeName(s.Name) || seen[s.Name] {
 			continue
 		}
 		seen[s.Name] = true

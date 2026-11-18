@@ -188,22 +188,40 @@ func addNodesLine(ns *Section, node string) (string, bool) {
 	return strings.TrimRight(e.Raw, "\r\n"), true
 }
 
+// BridgeProblem is one item RevertBridgeNode could not revert. Gone means the
+// item is no longer in the file (nothing left to remove); otherwise it was
+// changed by hand and is left as it is.
+type BridgeProblem struct {
+	Msg  string
+	Gone bool
+}
+
 // RemoveBridgeNode reverts AddBridgeNode: the stanza is removed only if the
 // section still reads exactly as recorded, the [nodes] line only if it still
 // reads exactly as recorded. Each refused step is described in problems; the
 // other step is still done.
 func RemoveBridgeNode(rpt []byte, node, stanza, nodesLine string, blankAdded bool) (out []byte, removedStanza, removedLine bool, problems []string) {
+	out, removedStanza, removedLine, ps := RevertBridgeNode(rpt, node, stanza, nodesLine, blankAdded)
+	for _, p := range ps {
+		problems = append(problems, p.Msg)
+	}
+	return out, removedStanza, removedLine, problems
+}
+
+// RevertBridgeNode is RemoveBridgeNode with the problems told apart: edited by
+// hand (kept) or already gone.
+func RevertBridgeNode(rpt []byte, node, stanza, nodesLine string, blankAdded bool) (out []byte, removedStanza, removedLine bool, problems []BridgeProblem) {
 	f, err := Parse("rpt.conf", rpt)
 	if err != nil {
-		return rpt, false, false, []string{err.Error()}
+		return rpt, false, false, []BridgeProblem{{Msg: err.Error()}}
 	}
 	if stanza != "" {
 		ss := f.Section(node)
 		switch {
 		case len(ss) == 0:
-			problems = append(problems, fmt.Sprintf("the stanza [%s] is already gone from rpt.conf", node))
+			problems = append(problems, BridgeProblem{fmt.Sprintf("the stanza [%s] is already gone from rpt.conf", node), true})
 		case len(ss) > 1 || sectionText(ss[0]) != stanza:
-			problems = append(problems, fmt.Sprintf("the stanza [%s] in rpt.conf was changed by hand and is left as it is", node))
+			problems = append(problems, BridgeProblem{Msg: fmt.Sprintf("the stanza [%s] in rpt.conf was changed by hand and is left as it is", node)})
 		default:
 			removedStanza = f.RemoveSection(ss[0], blankAdded)
 		}
@@ -220,11 +238,11 @@ func RemoveBridgeNode(rpt []byte, node, stanza, nodesLine string, blankAdded boo
 			}
 			if !found && len(ns.Get(node)) > 0 {
 				found = true
-				problems = append(problems, fmt.Sprintf("the [nodes] line of %s was changed by hand and is left as it is", node))
+				problems = append(problems, BridgeProblem{Msg: fmt.Sprintf("the [nodes] line of %s was changed by hand and is left as it is", node)})
 			}
 		}
 		if !found {
-			problems = append(problems, fmt.Sprintf("the [nodes] line of %s is already gone", node))
+			problems = append(problems, BridgeProblem{fmt.Sprintf("the [nodes] line of %s is already gone", node), true})
 		}
 	}
 	return f.Bytes(), removedStanza, removedLine, problems
