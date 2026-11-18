@@ -233,7 +233,7 @@
       <h2 class="border-t border-line pt-3 text-base font-semibold">Startup</h2>
       <div class="flex flex-wrap items-end gap-x-4 gap-y-2">
         <form class="flex items-end gap-2" onsubmit={(e) => { e.preventDefault(); saveMode(); }} aria-label="Startup mode">
-          <div><label class="label" for="dv-mode">Startup mode</label><select id="dv-mode" class="input" bind:value={choice}>{#each STARTUP_MODES as m}<option value={m}>{MODE_LABEL[m]}</option>{/each}</select></div>
+          <div><label class="label" for="dv-mode">Startup mode</label><select id="dv-mode" class="input" bind:value={choice} onchange={() => (tab = choice)}>{#each STARTUP_MODES as m}<option value={m}>{MODE_LABEL[m]}</option>{/each}</select></div>
           <button class="btn btn-primary" disabled={busy}>Save startup mode</button>
         </form>
         {#if resume}
