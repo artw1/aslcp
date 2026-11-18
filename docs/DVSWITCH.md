@@ -634,7 +634,7 @@ Docs touched at implementation time: `docs/API.md`, `docs/BACKUP.md`, `docs/CONF
 
 ### Dashboard card
 
-`DvswitchCard.svelte` after `SchedulesCard`, rendered when the snapshot says `installed` (implemented). The snapshot is fetched after login (`GET /api/dvswitch/snapshot`) and kept current by the `dvswitch` SSE event. The pure logic is in `web/src/lib/dvpanel.ts` (tests: `dvpanel.test.ts`).
+`DvswitchCard.svelte` right after the Connect bar (before `SchedulesCard`), rendered when the snapshot says `installed` (implemented). The snapshot is fetched after login (`GET /api/dvswitch/snapshot`) and kept current by the `dvswitch` SSE event. The pure logic is in `web/src/lib/dvpanel.ts` (tests: `dvpanel.test.ts`).
 
 - Header "DVSwitch" with service dots (analog_bridge, mmdvm_bridge, active gateways); amber when a unit is down or the state is unknown (`bridge.source` is `none`).
 - Line: "Mode YSF, tuned to Example room (192.0.2.10:42000)", the name resolved by the server from the lists or a favourite; "Mode unknown" when `source` is `none`. A line "Analog_Bridge is not running" shows when it is down, and "No bridge node yet: audio through AllStar needs the bridge node setup" when `bridgeNode.present` is false.

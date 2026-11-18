@@ -25,8 +25,8 @@
       {/each}
     </section>
     <ConnectBar />
-    <SchedulesCard />
     <DvswitchCard />
+    <SchedulesCard />
     <Favorites />
     {#if node}<NetworkList {node} showNode={app.nodes.length > 1} />{/if}
   {/if}
