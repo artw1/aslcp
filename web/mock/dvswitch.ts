@@ -1,6 +1,6 @@
 // In-memory /api/dvswitch/* for `npm run dev:mock` (docs/API.md "DVSwitch"). Dev only.
 const PKGS = ['dvswitch-base', 'analog-bridge', 'mmdvm-bridge', 'md380-emu', 'ysfgateway', 'p25gateway', 'nxdngateway', 'wget'];
-const UNITS = ['analog_bridge', 'mmdvm_bridge', 'netcheck', 'ysfgateway', 'p25gateway', 'nxdngateway', 'md380-emu'];
+const UNITS = ['analog_bridge', 'mmdvm_bridge', 'netcheck', 'ysfgateway', 'p25gateway', 'nxdngateway', 'md380-emu', 'stfu'];
 const PATHS = ['/var/lib/mmdvm', '/var/lib/dvswitch', '/var/log/dvswitch', '/var/log/mmdvm', '/opt/Analog_Bridge', '/opt/MMDVM_Bridge', '/etc/cron.d/dvswitch', '/etc/cron.daily/dvswitch-log-cleanup', '/tmp/ABInfo_*.json', '/etc/apt/sources.list.d/dvswitch.list', '/usr/share/keyrings/dvswitch-keyring.gpg'];
 const FP = '6DDFC33CD5FC678659642DF572147EC1E788D4C3';
 const DURATION = 6000;
@@ -35,22 +35,93 @@ const DMR_CYCLE = [
   { state: 'not_running', line: '' },
 ];
 let dmrRuns = 0, dmrAt = 0, dmrDown = false;
+
+// DMR connection method (PUT /dvswitch/dmr-connection) and the stfu package (POST /dvswitch/stfu/install).
+// STFU starts not installed; its install is a 3 s job. Placeholder values only.
+const STFU_DURATION = 3000;
+const STFU_LOG = ['Get:1 https://dvswitch.org/apt bookworm/main stfu', 'recorded 1 newly installed packages: stfu', 'Setting up stfu ...', 'stfu install finished'];
+const conn = { via: 'mmdvm_bridge' as 'mmdvm_bridge' | 'stfu', server: '3102.repeater.net', alias: '', startTg: '4000', at: 0 };
+let stfuInstalled = false, stfuJob: number | null = null;
+function stfuStatus() {
+  let job: { job: string; log: string; at?: number } = { job: 'idle', log: '' };
+  if (stfuJob !== null) {
+    const el = Date.now() - stfuJob, at = Math.floor(stfuJob / 1000);
+    if (el >= STFU_DURATION) { stfuInstalled = true; job = { job: 'succeeded', log: STFU_LOG.join('\n'), at }; }
+    else job = { job: 'running', log: STFU_LOG.slice(0, Math.floor((el / STFU_DURATION) * STFU_LOG.length)).join('\n'), at };
+  }
+  if (!installed) { stfuInstalled = false; conn.via = 'mmdvm_bridge'; }
+  return { installed: stfuInstalled, ...(stfuInstalled ? { version: '1.0.0' } : {}), canInstall: installed && !stfuInstalled && job.job !== 'running', job };
+}
+function dmrConn() {
+  stfuStatus();
+  return {
+    via: conn.via, network: conn.via === 'stfu' ? 'brandmeister' : '',
+    stfu: { present: stfuInstalled, server: stfuInstalled ? conn.server : '', port: stfuInstalled ? 54006 : 0, talkerAlias: stfuInstalled ? conn.alias || cfg.identity.callsign : '', startTg: stfuInstalled ? conn.startTg : '', txPort: stfuInstalled ? 36100 : 0, rxPort: stfuInstalled ? 36103 : 0, passwordSet: conn.via === 'stfu' && cfg.dmr.passwordSet },
+  };
+}
+// With STFU: connecting for 4 s, then logged in, with a network transmission (placeholder IDs) every 30 s.
+function stfuDmrStatus() {
+  const since = conn.at || Date.now() - 3.6e6, el = Date.now() - since, master = `${conn.server}:54006`;
+  if (el < 4000) return { state: 'connecting', via: 'stfu', since: new Date(since).toISOString(), master, lastLine: `Connecting to STFU server at address: ${master}` };
+  const start = since + 4000 + Math.floor((el - 4000) / 30000) * 30000, active = Date.now() - start < 6000;
+  return {
+    state: 'logged_in', via: 'stfu', since: new Date(since).toISOString(), master, lastLine: 'Successful connection to BM server',
+    ...(el > 14000 ? { rx: { active, src: '1234567', dst: '91', group: true, time: new Date(start).toISOString().slice(11, 19), ...(active ? {} : { frames: 100 }) } } : {}),
+  };
+}
+function dmrConnection(c: DVCtx, body: Body): boolean {
+  progress();
+  if (!installed) { c.err(409, 'not_installed: DVSwitch is not installed (its ini files are missing)', 'not_installed'); return true; }
+  const b = body as { via?: string; network?: string; server?: string; talkerAlias?: string; startTg?: string; base?: Record<string, string> };
+  const files = ['dvswitch', 'mmdvm_bridge', 'analog_bridge'];
+  if (stale(files, b.base)) { c.err(409, 'a file changed on disk since it was read: reload and try again', 'conflict'); return true; }
+  if (b.via === 'mmdvm_bridge') {
+    if (b.network || b.server || b.talkerAlias !== undefined || b.startTg !== undefined) return bad(c, 'dmrVia'), true;
+    if (conn.via === 'mmdvm_bridge') { c.json(200, setup({ changed: [], skipped: [], restartHint: [] })); return true; }
+    conn.via = 'mmdvm_bridge'; dmrRuns = 0; dmrAt = Date.now();
+    touch(files.slice(1));
+    c.json(200, setup({ changed: files.slice(1), skipped: [], restartHint: [] }));
+    return true;
+  }
+  if (b.via !== 'stfu') return bad(c, 'dmrVia/via'), true;
+  if (b.network !== 'brandmeister') return bad(c, 'dmrVia/network'), true;
+  if (b.server !== undefined && !(b.server.length <= 253 && b.server.split('.').every((l) => /^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(l)))) return bad(c, 'dmrVia/server'), true;
+  if (b.talkerAlias !== undefined && !(b.talkerAlias.length >= 1 && b.talkerAlias.length <= 27 && b.talkerAlias === b.talkerAlias.trim() && /^[\x20-\x7e]+$/.test(b.talkerAlias) && !/["';#=]/.test(b.talkerAlias))) return bad(c, 'dmrVia/talkerAlias'), true;
+  if (b.startTg !== undefined && !/^[0-9]{1,8}$/.test(b.startTg)) return bad(c, 'dmrVia/startTg'), true;
+  stfuStatus();
+  if (!stfuInstalled) { c.err(409, 'stfu_not_installed: STFU is not installed; install it first', 'stfu_not_installed'); return true; }
+  if (!cfg.dmr.passwordSet) { c.err(409, 'no_password: save the BrandMeister hotspot password first', 'no_password'); return true; }
+  if (b.server) conn.server = b.server;
+  if (b.talkerAlias !== undefined) conn.alias = b.talkerAlias;
+  if (b.startTg !== undefined) conn.startTg = b.startTg;
+  conn.via = 'stfu'; conn.at = Date.now();
+  touch(files);
+  c.json(200, setup({ changed: files, skipped: [], restartHint: [] }));
+  return true;
+}
+
 function dmrStatus() {
   if (!installed) return { state: 'not_installed' };
-  if (!cfg.modes.dmr) return { state: 'disabled' };
+  stfuStatus();
+  if (conn.via === 'stfu') return stfuDmrStatus();
+  if (!cfg.modes.dmr) return { state: 'disabled', via: 'mmdvm_bridge' };
   const o = DMR_CYCLE[dmrRuns % DMR_CYCLE.length], since = dmrAt || Date.now() - 3.6e6;
-  if (Date.now() - since < 4000) return { state: 'connecting', since: new Date(since).toISOString() };
-  if (o.state === 'not_running') { dmrDown = true; return { state: 'not_running', since: new Date(since).toISOString() }; }
-  return { state: o.state, since: new Date(since).toISOString(), at: new Date(since + 4000).toISOString(), lastLine: o.line, ...(o.state === 'logged_in' ? { master: '192.0.2.10:62031' } : {}) };
+  if (Date.now() - since < 4000) return { state: 'connecting', via: 'mmdvm_bridge', since: new Date(since).toISOString() };
+  if (o.state === 'not_running') { dmrDown = true; return { state: 'not_running', via: 'mmdvm_bridge', since: new Date(since).toISOString() }; }
+  return { state: o.state, via: 'mmdvm_bridge', since: new Date(since).toISOString(), at: new Date(since + 4000).toISOString(), lastLine: o.line, ...(o.state === 'logged_in' ? { master: '192.0.2.10:62031' } : {}) };
 }
 
 function status() {
-  const j = progress(), running = j.install.job === 'running' || j.uninstall.job === 'running';
+  const j = progress(), running = j.install.job === 'running' || j.uninstall.job === 'running', stfu = stfuStatus();
   return {
+    stfu,
     installed, installedBy: installed ? 'aslcp' : '', version: installed ? '1.7.0' : '', arch: 'arm64', osCodename: 'bookworm', supported: true,
     repoPresent: installed, keyPresent: installed, keyOk: installed, ...(installed ? { keyFingerprint: FP } : {}),
     packages: PKGS.map((name) => ({ name, installed, ...(installed ? { version: '1.7.0' } : {}) })),
-    units: UNITS.map((name) => ({ name, loaded: installed, active: installed && !(name === 'mmdvm_bridge' && dmrDown) ? 'active' : 'inactive', enabled: installed ? 'enabled' : '' })),
+    units: UNITS.map((name) => {
+      const loaded = name === 'stfu' ? installed && stfu.installed : installed, on = name === 'stfu' ? conn.via === 'stfu' : true;
+      return { name, loaded, active: loaded && on && !(name === 'mmdvm_bridge' && dmrDown) ? 'active' : 'inactive', enabled: loaded ? (on ? 'enabled' : 'disabled') : '' };
+    }),
     hostFiles: ['DMRIds.dat', 'YSFHosts.txt', 'P25Hosts.txt', 'NXDNHosts.txt'].map((name) => ({ name, present: installed, size: installed ? 4096 : 0 })), hostFilesOk: installed,
     marker: installed ? { version: 1, installedAt: new Date().toISOString(), wgetPreinstalled: false, packages: ['qemu-user-static', 'wget'] } : null,
     canInstall: !installed && !running, canUninstall: installed && !running,
@@ -59,10 +130,10 @@ function status() {
 }
 
 // M4 setup: in-memory ini values. The password is never stored, only whether one is set.
-const FILES = ['analog_bridge', 'mmdvm_bridge', 'ysfgateway', 'p25gateway', 'nxdngateway'];
-const UNIT_OF: Record<string, string> = { analog_bridge: 'analog_bridge', mmdvm_bridge: 'mmdvm_bridge', ysfgateway: 'ysfgateway', p25gateway: 'p25gateway', nxdngateway: 'nxdngateway' };
+const FILES = ['analog_bridge', 'mmdvm_bridge', 'ysfgateway', 'p25gateway', 'nxdngateway', 'dvswitch'];
+const UNIT_OF: Record<string, string> = { analog_bridge: 'analog_bridge', mmdvm_bridge: 'mmdvm_bridge', ysfgateway: 'ysfgateway', p25gateway: 'p25gateway', nxdngateway: 'nxdngateway', dvswitch: 'stfu' };
 const cfg = {
-  identity: { callsign: 'N0CALL', dmrId: '1234567', essid: '01', nxdnId: '12346', consistent: true },
+  identity: { callsign: 'N0CALL', dmrId: '1234567', essid: '01', nxdnId: '12346', consistent: true, info: { location: 'Iceberg, North Atlantic', description: 'Stock sample', url: '', frequencyHz: 222340000, rxHz: 222340000, txHz: 222340000, latitude: '', longitude: '', stock: true } },
   dmr: { address: '192.0.2.10', port: 62031, passwordSet: false },
   usrp: { address: '127.0.0.1', rxPort: 34001, txPort: 32001 },
   // DMR, YSF and P25 are enabled so the dashboard card's mode buttons can be tried; NXDN stays off (greyed out).
@@ -75,8 +146,10 @@ const hash = (id: string) => `mock${id.length}${(rev[id] ?? 0).toString(16).padS
 function setup(extra: Record<string, unknown> = {}) {
   return {
     ...JSON.parse(JSON.stringify(cfg)),
+    ...(conn.via === 'stfu' ? { modes: { ...cfg.modes, dmr: true } } : {}),
+    dmrConn: dmrConn(),
     bridgeNode: bridgeSetup(),
-    warnings: cfg.modes.nxdn && !cfg.identity.nxdnId ? ['NXDN needs your NXDN ID from radioid.net'] : [],
+    warnings: [...(cfg.modes.nxdn && !cfg.identity.nxdnId ? ['NXDN needs your NXDN ID from radioid.net'] : []), ...(cfg.identity.info.stock ? ['The [Info] section of MMDVM_Bridge.ini still holds the stock values: set your own location, description and frequency'] : [])],
     files: FILES.map((id) => ({ id, present: installed, writable: installed, sha256: installed ? hash(id) : '', history: hist[id] ?? 0 })),
     current: { found: installed, version: '1.6.4', mode: cfg.startup.ambeMode, tg: cfg.startup.txTg, slot: String(cfg.startup.txTs), colorCode: String(cfg.startup.colorCode), tune: '', mute: 'OFF', gatewayId: cfg.identity.dmrId, repeaterId: cfg.identity.dmrId + cfg.identity.essid, updated: new Date().toISOString() },
     ...extra,
@@ -95,12 +168,26 @@ function write(c: DVCtx, body: Body): boolean {
   if (stale(touched, base)) { c.err(409, 'a file changed on disk since it was read: reload and try again', 'conflict'); return true; }
   const done = (files: string[], hint: string[]) => { touch(files); c.json(200, setup({ changed: files, skipped: [], restartHint: hint })); };
   if (c.p === '/dvswitch/identity') {
-    const { callsign, dmrId, essid, nxdnId } = body as { callsign: string; dmrId: string; essid: string; nxdnId?: string };
+    const { callsign, dmrId, essid, nxdnId, info } = body as { callsign: string; dmrId: string; essid: string; nxdnId?: string; info?: { location: string; description: string; url?: string; frequencyHz: number; latitude?: string; longitude?: string } };
     if (!/^[A-Z0-9/]{3,10}$/.test(callsign ?? '')) return bad(c, 'identity/callsign'), true;
     if (!/^[0-9]{7}$/.test(dmrId ?? '')) return bad(c, 'identity/dmrId'), true;
     if (!/^[0-9]{2}$/.test(essid ?? '')) return bad(c, 'identity/essid'), true;
     if (nxdnId) { const n = Number(nxdnId); if (!/^[0-9]{1,5}$/.test(nxdnId) || nxdnId[0] === '0' || n > 65519) return bad(c, 'identity/nxdnId'), true; }
-    cfg.identity = { callsign, dmrId, essid, nxdnId: nxdnId || (cfg.identity.nxdnId === '12345' ? '' : cfg.identity.nxdnId), consistent: true };
+    let infoView = cfg.identity.info;
+    if (info) {
+      const text = (v: unknown, max: number) => typeof v === 'string' && v.length >= 1 && v.length <= max && /^[A-Za-z0-9][\x20-\x7e]*$/.test(v) && v === v.trimEnd() && !/[;#="]/.test(v);
+      const coord = (v: unknown, max: number) => typeof v === 'string' && /^-?[0-9]{1,3}(\.[0-9]{1,6})?$/.test(v) && Math.abs(Number(v)) <= max;
+      if (!text(info.location, 20)) return bad(c, 'identity/info/location'), true;
+      if (!text(info.description, 19)) return bad(c, 'identity/info/description'), true;
+      if (info.url && !(info.url.length <= 124 && /^https?:\/\/[A-Za-z0-9._~:/?&=%+-]{1,116}$/.test(info.url))) return bad(c, 'identity/info/url'), true;
+      if (!(Number.isInteger(info.frequencyHz) && info.frequencyHz >= 30_000_000 && info.frequencyHz <= 3_000_000_000)) return bad(c, 'identity/info/frequencyHz'), true;
+      if (info.latitude || info.longitude) {
+        if (!coord(info.latitude, 90)) return bad(c, 'identity/info/latitude'), true;
+        if (!coord(info.longitude, 180)) return bad(c, 'identity/info/longitude'), true;
+      }
+      infoView = { location: info.location, description: info.description, url: info.url ?? '', frequencyHz: info.frequencyHz, rxHz: info.frequencyHz, txHz: info.frequencyHz, latitude: info.latitude ?? '', longitude: info.longitude ?? '', stock: false };
+    }
+    cfg.identity = { callsign, dmrId, essid, nxdnId: nxdnId || (cfg.identity.nxdnId === '12345' ? '' : cfg.identity.nxdnId), consistent: true, info: infoView };
     done(FILES, FILES.map((f) => UNIT_OF[f]));
   } else if (c.p === '/dvswitch/credentials') {
     const { dmrAddress, dmrPort, dmrPassword, clearPassword } = body as { dmrAddress?: string; dmrPort?: number; dmrPassword?: string; clearPassword?: boolean };
@@ -108,7 +195,7 @@ function write(c: DVCtx, body: Body): boolean {
     if (dmrAddress !== undefined && !/^[A-Za-z0-9.-]{1,253}$/.test(dmrAddress)) return bad(c, 'DMR Network/Address'), true;
     if (dmrPort !== undefined && !(Number.isInteger(dmrPort) && dmrPort >= 1 && dmrPort <= 65535)) return bad(c, 'DMR Network/Port'), true;
     if (dmrPassword !== undefined && !/^[\x21\x24-\x3a\x3c-\x7e]{1,64}$/.test(dmrPassword)) return bad(c, 'DMR Network/Password'), true;
-    if (clearPassword && dmrPassword !== undefined) return bad(c, 'DMR Network/Password'), true;
+    if (clearPassword && (dmrPassword !== undefined || conn.via === 'stfu')) return bad(c, 'DMR Network/Password'), true;
     if (dmrAddress !== undefined) cfg.dmr.address = dmrAddress;
     if (dmrPort !== undefined) cfg.dmr.port = dmrPort;
     if (dmrPassword !== undefined) cfg.dmr.passwordSet = true;
@@ -116,6 +203,7 @@ function write(c: DVCtx, body: Body): boolean {
     done(['mmdvm_bridge'], ['mmdvm_bridge']);
   } else if (c.p === '/dvswitch/modes') {
     const m = body as Record<string, unknown>; let any = false;
+    if (m.dmr === false && conn.via === 'stfu') return bad(c, 'modes/dmr'), true;
     for (const k of ['dmr', 'ysf', 'p25', 'nxdn'] as const) if (typeof m[k] === 'boolean') { cfg.modes[k] = m[k] as boolean; any = true; }
     if (!any) return bad(c, 'modes'), true;
     done(['mmdvm_bridge'], ['analog_bridge', 'mmdvm_bridge']);
@@ -139,6 +227,7 @@ function write(c: DVCtx, body: Body): boolean {
     const scope = String(body.scope ?? ''), units = ({ dmr: ['mmdvm_bridge'], bridge: ['analog_bridge', 'mmdvm_bridge'], gateways: ['ysfgateway', 'p25gateway', 'nxdngateway'], all: ['analog_bridge', 'mmdvm_bridge', 'ysfgateway', 'p25gateway', 'nxdngateway'] } as Record<string, string[]>)[scope];
     if (!units) return bad(c, 'scope'), true;
     if (units.includes('mmdvm_bridge')) { dmrRuns++; dmrAt = Date.now(); dmrDown = false; }
+    if ((scope === 'dmr' || scope === 'all') && conn.via === 'stfu') { units.push('stfu'); conn.at = Date.now(); }
     c.json(200, { action: body.action === 'start' ? 'start' : 'restart', units, skipped: [], states: status().units, warning: 'A restart resets the running mode and talkgroup to the startup values in the ini files.' });
   }
   return true;
@@ -277,7 +366,15 @@ const LISTS: Record<string, { value: string; name: string; detail?: string; addr
 // recovery can be seen), and last_tune of another mode is not shown.
 type PMode = 'DMR' | 'YSF' | 'P25' | 'NXDN';
 const UNLINK: Record<PMode, string> = { DMR: '4000', YSF: 'disconnect', P25: '9999', NXDN: '9999' };
-const bridge: { mode: PMode; tune: string; slot: number; muted: boolean } = { mode: 'DMR', tune: '91', slot: 2, muted: false };
+const bridge: { mode: PMode; tune: string; slot: number; muted: boolean; private?: boolean } = { mode: 'DMR', tune: '91', slot: 2, muted: false };
+// Placeholder talkers for the caller and the Last heard list (the real ones come from Analog_Bridge.log).
+const TALKERS = [{ call: 'N0CALL', dmrId: '1234567' }, { call: 'N0DEMO', dmrId: '1234568' }, { call: 'N0TEST', dmrId: '1234569' }];
+function callers() {
+  const n = Math.floor(Date.now() / 30_000);
+  const at = (k: number) => new Date(Date.now() - k * 30_000).toISOString().slice(0, 19).replace('T', ' ');
+  const heard = [0, 1, 2].map((k) => ({ ...TALKERS[(n - k + 3 * 100) % 3], dst: '91', slot: 2, at: at(k) }));
+  return { caller: heard[0], heard };
+}
 const favs: { id: number; mode: PMode; value: string; name: string; sort: number }[] = [
   { id: 1, mode: 'DMR', value: '91', name: 'Worldwide', sort: 0 },
   { id: 2, mode: 'DMR', value: '3100', name: 'USA', sort: 1 },
@@ -302,15 +399,16 @@ function snapshot() {
   return {
     installed, running, configured: installed && running,
     bridge: running
-      ? { mode: bridge.mode, tune: bridge.tune, ...(name ? { targetName: name } : {}), slot: bridge.slot, muted: bridge.muted, source: 'abinfo', updated: new Date().toISOString() }
+      ? { mode: bridge.mode, tune: bridge.tune, ...(name ? { targetName: name } : {}), slot: bridge.slot, muted: bridge.muted, ...(bridge.private && bridge.mode === 'DMR' ? { private: true } : {}), source: 'abinfo', updated: new Date().toISOString() }
       : { mode: '', tune: '', slot: 0, muted: false, source: 'none', updated: '' },
     modes: (['DMR', 'YSF', 'P25', 'NXDN'] as PMode[]).map((id) => ({ id, enabled: modeOn[id], unlink: UNLINK[id] })),
     services: installed ? ['analog_bridge', 'mmdvm_bridge', ...gw].map((u) => ({ unit: u, active: unit(u) })) : [],
     bridgeNode: pb.node ? { present: true, node: pb.node, name: pb.name || NODE_NAME } : { present: false },
     link: linkView(),
+    ...(running && bridge.mode === 'DMR' ? callers() : { heard: [] }),
   };
 }
-const tuneRe: Record<PMode, RegExp> = { DMR: /^[0-9]{1,8}$/, YSF: /^(disconnect|[A-Za-z0-9._-]{1,32}|[A-Za-z0-9.-]{1,253}:[0-9]{1,5})$/, P25: /^[0-9]{1,5}$/, NXDN: /^[0-9]{1,5}$/ };
+const tuneRe: Record<PMode, RegExp> = { DMR: /^[0-9]{1,8}#?$/, YSF: /^(disconnect|[A-Za-z0-9._-]{1,32}|[A-Za-z0-9.-]{1,253}:[0-9]{1,5})$/, P25: /^[0-9]{1,5}$/, NXDN: /^[0-9]{1,5}$/ };
 const favView = (f: (typeof favs)[number]) => ({ id: f.id, mode: f.mode, value: f.value, name: f.name, sort: f.sort });
 // What ABInfo's last_tune shows: a YSF id or name resolves to host:port like the helper does.
 function abTune(mode: PMode, v: string) {
@@ -319,7 +417,7 @@ function abTune(mode: PMode, v: string) {
   return hit ? `${hit.address}:${hit.port}` : v;
 }
 function applyMode(m: PMode, delay: number, push?: DVCtx['push']) {
-  setTimeout(() => { if (bridge.mode !== m) { bridge.mode = m; bridge.tune = ''; } push?.('dvswitch', snapshot()); }, delay);
+  setTimeout(() => { if (bridge.mode !== m) { bridge.mode = m; bridge.tune = ''; bridge.private = false; } push?.('dvswitch', snapshot()); }, delay);
 }
 function panelHandler(c: DVCtx): boolean {
   const op = c.user!.role !== 'viewer';
@@ -353,8 +451,10 @@ function panelHandler(c: DVCtx): boolean {
     if (!(mode in tuneRe) || typeof tune !== 'string' || !tuneRe[mode].test(tune)) return bad(c, 'tune'), true;
     if (!running()) return c.err(409, 'no_info: the bridge is not running', 'no_info'), true;
     const switched = bridge.mode !== mode;
-    bridge.mode = mode; bridge.tune = abTune(mode, tune);
-    if (!UNLINK[mode] || tune !== UNLINK[mode]) remembered[mode] = { tune, ...(mode === 'DMR' ? { ts: '2' } : {}), at: new Date().toISOString() };
+    const priv = mode === 'DMR' && tune.endsWith('#');
+    bridge.mode = mode; bridge.private = priv; bridge.tune = priv ? tune.slice(0, -1) : abTune(mode, tune);
+    // a private call (the Parrot) is never remembered
+    if (!priv && (!UNLINK[mode] || tune !== UNLINK[mode])) remembered[mode] = { tune, ...(mode === 'DMR' ? { ts: '2' } : {}), at: new Date().toISOString() };
     lastMode = mode;
     reply(mode, switched, true);
     c.push?.('dvswitch', snapshot());
@@ -456,6 +556,16 @@ export function handleDVSwitch(c: DVCtx): boolean {
   if (c.m === 'GET' && c.p === '/dvswitch') { c.json(200, status()); return true; }
   if (c.m === 'GET' && c.p === '/dvswitch/job') { c.json(200, progress()); return true; }
   if (c.m === 'GET' && c.p === '/dvswitch/setup') { progress(); c.json(200, setup()); return true; }
+  if (c.m === 'PUT' && c.p === '/dvswitch/dmr-connection') return dmrConnection(c, c.body ?? {});
+  if (c.m === 'POST' && c.p === '/dvswitch/stfu/install') {
+    progress();
+    const s = stfuStatus();
+    if (!installed) c.err(409, 'not_installed: DVSwitch is not installed (its ini files are missing)', 'not_installed');
+    else if (s.job.job === 'running') c.err(409, 'an install, uninstall or update is already running', 'job_running');
+    else if (s.installed) c.err(409, 'stfu_installed: STFU is already installed', 'stfu_installed');
+    else { stfuJob = Date.now(); c.json(202, status()); }
+    return true;
+  }
   if ((c.m === 'PUT' && ['/dvswitch/identity', '/dvswitch/credentials', '/dvswitch/modes', '/dvswitch/startup'].includes(c.p)) || (c.m === 'POST' && ['/dvswitch/restart', '/dvswitch/rollback'].includes(c.p))) return write(c, c.body ?? {});
   if (c.m === 'POST' && (c.p === '/dvswitch/install' || c.p === '/dvswitch/uninstall')) {
     const kind = c.p === '/dvswitch/install' ? 'install' : 'uninstall';

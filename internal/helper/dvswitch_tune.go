@@ -88,10 +88,25 @@ func DVUnlinkValue(mode, tune string) bool {
 	return false
 }
 
+// DVPrivateMark is the suffix DVSwitch takes on a DMR ID for a private call
+// ("9990#"; docs/DVSWITCH.md, "Private call"). Only a DMR tune may carry it.
+const DVPrivateMark = "#"
+
+// DVParrotID is the BrandMeister Parrot, which answers private calls only.
+const DVParrotID = "9990"
+
+// DVPrivateTune reports whether tune is a DMR private call ("9990#"): a valid
+// DMR tune with the private mark. It is a one-off call, never a place to
+// resume to.
+func DVPrivateTune(mode, tune string) bool {
+	return mode == "DMR" && strings.HasSuffix(tune, DVPrivateMark) && DVValidTune(mode, tune)
+}
+
 var reDVHostPort = regexp.MustCompile(`^[A-Za-z0-9.-]{1,253}:[0-9]{1,5}$`)
 
 // DVValidTune reports whether tune is allowed for the mode. These are the
-// startup-value validators (a TG number for DMR, P25 and NXDN; for YSF a
+// startup-value validators (a TG number for DMR, with a trailing "#" for a
+// private call, P25 and NXDN; for YSF a
 // reflector id, a name as in YSFHosts.txt, or host:port) and the unlink word
 // "disconnect". Nothing starts with "-" or holds "=", so a value can neither
 // look like an option nor smuggle a second TLV key.
@@ -101,7 +116,7 @@ func DVValidTune(mode, tune string) bool {
 	}
 	switch mode {
 	case "DMR":
-		return reDVTG.MatchString(tune)
+		return reDVTG.MatchString(strings.TrimSuffix(tune, DVPrivateMark))
 	case "P25", "NXDN":
 		return reDVRefl.MatchString(tune)
 	case "YSF":
@@ -297,6 +312,36 @@ func (o *Ops) dvModePorts(mode string) (tx, rx int, err error) {
 	return tx, rx, nil
 }
 
+// dvSwitchCmds is the mode switch sequence to the partner whose DVSwitch.ini
+// ports are tx and rx: Analog_Bridge parks its listener, changes the AMBE
+// mode, sends to the partner's rxPort and listens on its txPort.
+func (o *Ops) dvSwitchCmds(mode string, tx, rx int) []string {
+	park := o.DVParkPort
+	if park == 0 {
+		park = dvTLVSwitchPort
+	}
+	return []string{"rxport=" + strconv.Itoa(park), "ambeMode=" + mode, "txport=" + strconv.Itoa(rx), "rxport=" + strconv.Itoa(tx), "info"}
+}
+
+// dvOnOtherDMR reports whether Analog_Bridge's live TLV ports are those of a
+// DMR section other than section ([DMR] or a method's section such as
+// [STFU]).
+func (o *Ops) dvOnOtherDMR(section string, info DVSwitchInfo) bool {
+	others := []string{"DMR"}
+	for _, m := range dvDMRMethods {
+		others = append(others, m.Section)
+	}
+	for _, s := range others {
+		if s == section {
+			continue
+		}
+		if tx, rx, err := o.dvModePorts(s); err == nil && info.tlvTx == rx && info.tlvRx == tx {
+			return true
+		}
+	}
+	return false
+}
+
 // DVSwitchTune switches Analog_Bridge to the mode (only if it is not in it
 // already) and tunes. The commands mirror dvswitch.sh: a mode switch is
 // rxport=30000, ambeMode=<mode>, txport=<DVSwitch.ini RXPort>,
@@ -350,17 +395,29 @@ func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneRes
 	}
 	res := DVTuneResult{Mode: t.Mode}
 	var cmds []string
+	// DMR goes to MMDVM_Bridge's [DMR] ports or, with another DMR
+	// connection method (STFU), to that method's section.
+	section := t.Mode
+	if t.Mode == "DMR" {
+		section = o.dvDMRSection()
+	}
 	if DVNormMode(info.Mode) != t.Mode {
-		tx, rx, err := o.dvModePorts(t.Mode)
+		tx, rx, err := o.dvModePorts(section)
 		if err != nil {
 			return res, err
 		}
-		park := o.DVParkPort
-		if park == 0 {
-			park = dvTLVSwitchPort
-		}
-		cmds = append(cmds, "rxport="+strconv.Itoa(park), "ambeMode="+t.Mode, "txport="+strconv.Itoa(rx), "rxport="+strconv.Itoa(tx), "info")
+		cmds = append(cmds, o.dvSwitchCmds(t.Mode, tx, rx)...)
 		res.Switched = true
+	} else if t.Mode == "DMR" && info.tlvTx != 0 {
+		// already in DMR, but still pointed at the other DMR connection
+		// method (the live re-point after a method switch did not happen):
+		// switch over. Any other port pair is left alone.
+		if o.dvOnOtherDMR(section, info) {
+			if tx, rx, err := o.dvModePorts(section); err == nil {
+				cmds = append(cmds, o.dvSwitchCmds(t.Mode, tx, rx)...)
+				res.Switched = true
+			}
+		}
 	}
 	if !t.ModeOnly {
 		cmds = append(cmds, "txTg="+value, "info")
@@ -383,6 +440,9 @@ func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneRes
 	}
 	if now, err := o.DVSwitchInfo(ctx); err == nil && now.Found && DVNormMode(now.Mode) == t.Mode {
 		res.Confirmed = t.ModeOnly || now.Tune == value || t.Mode == "DMR" && now.TG == value
+		if DVPrivateTune(t.Mode, value) {
+			res.Confirmed = now.Private || now.TG == strings.TrimSuffix(value, DVPrivateMark)
+		}
 	}
 	return res, nil
 }

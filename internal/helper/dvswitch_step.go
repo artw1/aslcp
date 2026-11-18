@@ -36,6 +36,8 @@ func (o *Ops) RunDVSwitchStep(ctx context.Context, phase string, w io.Writer) er
 		return o.dvUninstallPlan(ctx, w)
 	case StepPrivateRev:
 		return o.dvPrivateRevert(ctx, w)
+	case StepSTFUPlan:
+		return o.dvSTFUPlan(w)
 	}
 	return fmt.Errorf("unknown step %q", phase)
 }
@@ -167,6 +169,7 @@ func (o *Ops) dvUninstallPlan(ctx context.Context, w io.Writer) error {
 	for _, p := range DVSwitchPackages() {
 		inSet[p] = true
 	}
+	inSet[dvSTFUPkg] = true // installed later through the STFU install, recorded in the marker
 	var core, deps []string
 	for _, p := range cands {
 		if _, ok := have[p]; !ok {

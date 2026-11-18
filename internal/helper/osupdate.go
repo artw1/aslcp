@@ -52,7 +52,7 @@ func osUpgradeArgv() []string {
 // aptJobRunning reports whether an upgrade, OS upgrade or DVSwitch install or
 // uninstall unit is running.
 func (o *Ops) aptJobRunning(ctx context.Context) bool {
-	for _, u := range []string{upgradeUnit, osUpgradeUnit, dvInstallUnit, dvUninstallUnit} {
+	for _, u := range []string{upgradeUnit, osUpgradeUnit, dvInstallUnit, dvUninstallUnit, dvSTFUJobUnit} {
 		if state, _ := o.jobUnit(ctx, u); state == JobRunning {
 			return true
 		}

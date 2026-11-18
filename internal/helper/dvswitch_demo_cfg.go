@@ -4,8 +4,28 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 )
+
+// demoCallers is a fixed set of placeholder talkers; the newest changes every
+// 30 s so the panel has something to show.
+func demoCallers(now time.Time) *DVCallers {
+	all := []DVCaller{
+		{Call: "N0CALL", DMRID: "1234567", Dst: "91", Slot: 2},
+		{Call: "N0DEMO", DMRID: "1234568", Dst: "91", Slot: 2},
+		{Call: "N0TEST", DMRID: "1234569", Dst: "91", Slot: 2},
+	}
+	n := int(now.Unix()/30) % len(all)
+	rec := []DVCaller{}
+	for i := 0; i < len(all); i++ {
+		c := all[(n-i+len(all))%len(all)]
+		c.At = now.UTC().Add(-time.Duration(i) * 30 * time.Second).Format("2006-01-02 15:04:05")
+		rec = append(rec, c)
+	}
+	cur := rec[0]
+	return &DVCallers{Current: &cur, Recent: rec}
+}
 
 // Demo side of the M4 ops: values live in memory, nothing is written. The
 // demo password is never stored, only whether one was set.
@@ -31,18 +51,22 @@ type demoDVCfg struct {
 	started time.Time
 }
 
-type demoDVLive struct{ mode, tg, slot, tune string }
+type demoDVLive struct {
+	mode, tg, slot, tune string
+	private              bool
+}
 
 func newDemoDVCfg() *demoDVCfg {
 	return &demoDVCfg{
-		set:      true,
-		identity: DVIdentityView{Callsign: "N0CALL", DMRID: "1234567", ESSID: "01", NXDNID: "12346", Consistent: true},
-		dmr:      DVDMRView{Address: "192.0.2.10", Port: 62031},
-		modes:    DVModesView{DMR: true, YSF: true},
-		startup:  DVStartupView{AmbeMode: "DMR", TxTg: "9", TxTs: 2, ColorCode: 1},
-		gw:       DVGateways{YSF: DVGatewayView{Present: true, Startup: "US-Example"}, P25: DVGatewayView{Present: true}, NXDN: DVGatewayView{Present: true}},
-		hist:     map[string]int{},
-		usrp:     DVUSRPView{Address: "127.0.0.1", RxPort: 31001, TxPort: 31001},
+		set: true,
+		identity: DVIdentityView{Callsign: "N0CALL", DMRID: "1234567", ESSID: "01", NXDNID: "12346", Consistent: true,
+			Info: DVInfoView{Location: dvStockInfoLoc, Description: "MMDVM_Bridge", URL: "https://example.org/dvswitch", FrequencyHz: 0, RXHz: dvStockInfoRX, TXHz: 224940000, Latitude: "41.7333", Longitude: "-50.3999", Stock: true}},
+		dmr:     DVDMRView{Address: "192.0.2.10", Port: 62031},
+		modes:   DVModesView{DMR: true, YSF: true},
+		startup: DVStartupView{AmbeMode: "DMR", TxTg: "9", TxTs: 2, ColorCode: 1},
+		gw:      DVGateways{YSF: DVGatewayView{Present: true, Startup: "US-Example"}, P25: DVGatewayView{Present: true}, NXDN: DVGatewayView{Present: true}},
+		hist:    map[string]int{},
+		usrp:    DVUSRPView{Address: "127.0.0.1", RxPort: 31001, TxPort: 31001},
 	}
 }
 
@@ -73,6 +97,10 @@ func (d *DemoDVSwitch) setup() DVSwitchSetup {
 	v := DVSwitchSetup{Identity: c.identity, DMR: c.dmr, Modes: c.modes, Startup: c.startup, Gateways: c.gw,
 		USRP: c.usrp, Private: c.priv, ReservedPorts: dvReservedPortsDemo(), Files: []DVFileView{}}
 	v.DMR.PasswordSet = c.set
+	v.DMRConn = d.dmrConnView()
+	if v.DMRConn.Via == DVViaSTFU {
+		v.Modes.DMR = true
+	}
 	v.Warnings = dvWarnings(v.Modes, v.Identity)
 	for i, id := range DVFileIDs() {
 		v.Files = append(v.Files, DVFileView{ID: id, Present: d.installed, Writable: d.installed,
@@ -95,7 +123,8 @@ func (d *DemoDVSwitch) DVSwitchInfo(context.Context) (DVSwitchInfo, error) {
 	now := d.now().UTC()
 	return DVSwitchInfo{Found: true, Version: "1.6.4", Mode: c.live.mode, TG: c.live.tg, Slot: c.live.slot, Tune: c.live.tune,
 		ColorCode: strconv.Itoa(c.startup.ColorCode), Mute: "OFF", GatewayID: c.identity.DMRID, RepeaterID: c.identity.DMRID + c.identity.ESSID,
-		Updated: now.Format(time.RFC3339), Started: c.started.UTC().Format(time.RFC3339)}, nil
+		Private: c.live.private, Updated: now.Format(time.RFC3339), Started: c.started.UTC().Format(time.RFC3339),
+		Callers: demoCallers(now)}, nil
 }
 
 // resetLive is what Analog_Bridge does on a start: the startup values, an
@@ -166,6 +195,13 @@ func (d *DemoDVSwitch) DVSwitchTune(_ context.Context, r DVSwitchRequest) (DVTun
 	if t.ModeOnly {
 		return res, nil
 	}
+	c.live.private = DVPrivateTune(t.Mode, value)
+	if c.live.private {
+		// a private call is a one-off, not a target: last_tune is not a tune
+		c.live.tune = ""
+		c.live.tg = strings.TrimSuffix(value, DVPrivateMark)
+		return res, nil
+	}
 	c.live.tune = value
 	if t.Mode == "DMR" {
 		c.live.tg = value
@@ -207,12 +243,25 @@ func (d *DemoDVSwitch) DVSwitchIdentity(_ context.Context, r DVSwitchRequest) (D
 	if id.NXDNID != "" && !vNXDNID(id.NXDNID) {
 		return DVApplyResult{}, dvInvalid("identity/nxdnId")
 	}
+	if id.Info != nil {
+		if _, err := dvInfoChanges(id.Info); err != nil {
+			return DVApplyResult{}, err
+		}
+	}
 	return d.demoWrite(DVFileIDs(), []string{"analog_bridge", "mmdvm_bridge", "ysfgateway", "p25gateway", "nxdngateway"}, func(c *demoDVCfg) error {
 		nx := c.identity.NXDNID
 		if id.NXDNID != "" {
 			nx = id.NXDNID
 		}
-		c.identity = DVIdentityView{Callsign: id.Callsign, DMRID: id.DMRID, ESSID: id.ESSID, NXDNID: nx, Consistent: true}
+		info := c.identity.Info
+		if in := id.Info; in != nil {
+			info = DVInfoView{Location: in.Location, Description: in.Description, URL: in.URL, FrequencyHz: in.FrequencyHz,
+				RXHz: in.FrequencyHz, TXHz: in.FrequencyHz, Latitude: in.Latitude, Longitude: in.Longitude}
+			if in.Latitude == "" && in.Longitude == "" {
+				info.Latitude, info.Longitude = c.identity.Info.Latitude, c.identity.Info.Longitude
+			}
+		}
+		c.identity = DVIdentityView{Callsign: id.Callsign, DMRID: id.DMRID, ESSID: id.ESSID, NXDNID: nx, Consistent: true, Info: info}
 		return nil
 	})
 }
@@ -236,6 +285,9 @@ func (d *DemoDVSwitch) DVSwitchCredentials(_ context.Context, r DVSwitchRequest)
 		return DVApplyResult{}, dvInvalid("DMR Network/Password")
 	}
 	return d.demoWrite([]string{DVFileMMDVMBridge}, []string{"mmdvm_bridge"}, func(c *demoDVCfg) error {
+		if cr.ClearPassword && d.stfu().via == DVViaSTFU {
+			return dvInvalid("DMR Network/Password")
+		}
 		if cr.Address != nil {
 			c.dmr.Address = *cr.Address
 		}
@@ -259,6 +311,9 @@ func (d *DemoDVSwitch) DVSwitchModes(_ context.Context, r DVSwitchRequest) (DVAp
 		return dvNoChange(), nil
 	}
 	return d.demoWrite([]string{DVFileMMDVMBridge}, []string{"analog_bridge", "mmdvm_bridge"}, func(c *demoDVCfg) error {
+		if m.DMR != nil && !*m.DMR && d.stfu().via == DVViaSTFU {
+			return dvInvalid("modes/dmr")
+		}
 		for _, e := range []struct {
 			in  *bool
 			out *bool
@@ -361,7 +416,13 @@ func (d *DemoDVSwitch) DVSwitchRestart(_ context.Context, r DVSwitchRequest) (DV
 	if err := d.ready(); err != nil {
 		return DVRestartResult{}, err
 	}
+	if (r.Scope == "dmr" || r.Scope == "all") && d.stfu().via == DVViaSTFU {
+		units = append(append([]string{}, units...), dvSTFUUnit)
+	}
 	for _, u := range units {
+		if u == dvSTFUUnit {
+			d.stfu().at = d.now()
+		}
 		if u == "mmdvm_bridge" {
 			d.dmrAt, d.dmrRuns = d.now(), d.dmrRuns+1
 		}
@@ -393,16 +454,19 @@ func (d *DemoDVSwitch) DVSwitchDMRStatus(context.Context) (DVDMRStatus, error) {
 	if !d.installed {
 		return DVDMRStatus{State: DMRNotInstalled}, nil
 	}
+	if d.stfu().via == DVViaSTFU {
+		return d.demoSTFUStatus(), nil
+	}
 	c := d.cfg()
 	if !c.modes.DMR {
-		return DVDMRStatus{State: DMRDisabled}, nil
+		return DVDMRStatus{State: DMRDisabled, Via: DVViaMMDVM}, nil
 	}
 	now := d.now()
 	since := d.dmrAt
 	if since.IsZero() {
 		since = now.Add(-time.Hour)
 	}
-	res := DVDMRStatus{State: DMRConnecting, Since: since.UTC().Format(time.RFC3339)}
+	res := DVDMRStatus{State: DMRConnecting, Via: DVViaMMDVM, Since: since.UTC().Format(time.RFC3339)}
 	if now.Sub(since) < demoDMRConnect {
 		return res, nil
 	}
@@ -416,7 +480,9 @@ func (d *DemoDVSwitch) DVSwitchDMRStatus(context.Context) (DVDMRStatus, error) {
 }
 
 // dvReservedPortsDemo: the TLV and AMBE ports of the stock files.
-func dvReservedPortsDemo() []int { return append([]int(nil), dvTLVPorts...) }
+func dvReservedPortsDemo() []int {
+	return append(append([]int(nil), dvTLVPorts...), dvSTFUTx, dvSTFURx)
+}
 
 // DVSwitchUSRP implements the API's DVSwitch interface: the demo keeps the
 // [USRP] values in memory (the real ini is never touched).

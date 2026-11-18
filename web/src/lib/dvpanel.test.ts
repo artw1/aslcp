@@ -1,13 +1,13 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, nodeLabel, nodeLinkClass, pendingOutcome, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validNodeName, validTune } from './dvpanel.ts';
+import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, isPrivateTune, nodeLabel, nodeLinkClass, pendingOutcome, rxCaller, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate } from './dvpanel.ts';
 import type { DVFavorite, DVSnapshot } from './types';
 
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
 const snap = (over: Partial<DVSnapshot> = {}): DVSnapshot => ({
   installed: true, running: true, configured: true, bridge, modes: [],
-  services: [{ unit: 'analog_bridge', active: true }, { unit: 'mmdvm_bridge', active: true }], bridgeNode: { present: true, node: '1999' }, link: { mode: 'ondemand', localNode: '', linked: false, paused: false, exclusive: true }, ...over,
+  services: [{ unit: 'analog_bridge', active: true }, { unit: 'mmdvm_bridge', active: true }], bridgeNode: { present: true, node: '1999' }, link: { mode: 'ondemand', localNode: '', linked: false, paused: false, exclusive: true }, heard: [], ...over,
 });
 
 test('state line', () => {
@@ -166,4 +166,90 @@ test('bridge RX target', () => {
   assert.equal(bridgeRxTarget(snap({ bridgeNode: { present: false } })), null);
   assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, source: 'none', mode: '' } })), null);
   assert.equal(bridgeRxTarget(null), null);
+});
+
+test('DMR private call: a trailing # is accepted for DMR only', () => {
+  assert.ok(validTune('DMR', '9990#'));
+  assert.ok(validTune('DMR', '91'));
+  assert.ok(!validTune('DMR', '#'));
+  assert.ok(!validTune('DMR', '9990##'));
+  assert.ok(!validTune('DMR', '#9990'));
+  assert.ok(!validTune('P25', '9990#'));
+  assert.ok(!validTune('YSF', '9990#'));
+  assert.ok(isPrivateTune('DMR', '9990#'));
+  assert.ok(!isPrivateTune('DMR', '9990'));
+  assert.ok(!isPrivateTune('P25', '9990#'));
+  assert.equal(withPrivate('DMR', ' 9990 ', true), '9990#');
+  assert.equal(withPrivate('DMR', '9990#', true), '9990#');
+  assert.equal(withPrivate('DMR', '9990#', false), '9990');
+  assert.equal(withPrivate('P25', '10100', true), '10100');
+});
+
+test('a private call is a favourite with its #, apart from the plain talkgroup', () => {
+  const favs: DVFavorite[] = [{ id: 1, mode: 'DMR', value: '9990', name: 'x', sort: 0 }];
+  assert.equal(favoriteBlock(favs, 'DMR', '9990#'), null);
+  assert.equal(favoriteBlock(favs, 'DMR', '9990'), 'Already a favourite');
+});
+
+test('bridge RX target of a private call, and the caller', () => {
+  const priv = snap({ bridge: { ...bridge, mode: 'DMR', tune: '9990', targetName: undefined, private: true } });
+  assert.equal(bridgeRxTarget(priv), 'DMR private call');
+  assert.equal(rxCaller(snap()), null);
+  assert.equal(rxCaller(snap({ caller: { call: 'N0CALL', dmrId: '1234567', dst: '91', slot: 2 } })), 'N0CALL');
+  assert.equal(rxCaller(snap({ caller: { call: '  ' } })), null);
+  assert.equal(rxCaller(null), null);
+  // no callsign known: the DMR ID; the Parrot's reply is a private call
+  assert.equal(rxCaller(snap({ caller: { dmrId: '1234567' } })), '1234567');
+  assert.equal(rxCaller(snap({ caller: { dmrId: '9990', private: true } })), 'Parrot (private call)');
+  assert.equal(rxCaller(snap({ caller: { dmrId: '1234567', private: true } })), 'Private call');
+});
+
+test('last heard line', () => {
+  assert.equal(heardLine({ call: 'N0CALL', dst: '91', at: '2026-11-18 10:00:01' }), 'N0CALL · TG 91 · 10:00:01');
+  assert.equal(heardLine({ call: 'N0CALL' }), 'N0CALL');
+  assert.equal(heardLine({ dmrId: '1234567', dst: '3100' }), '1234567 · TG 3100');
+  assert.equal(heardLine({ dmrId: '9990', private: true, dst: '1234567' }), 'Parrot (private call) · TG 1234567');
+});
+
+test('[Info] frequency: MHz or Hz to Hz', () => {
+  assert.equal(freqToHz('434'), 434000000);
+  assert.equal(freqToHz('434.0125'), 434012500);
+  assert.equal(freqToHz('434,0125'), 434012500);
+  assert.equal(freqToHz('434000000'), 434000000);
+  assert.equal(freqToHz(' 222.34 '), 222340000);
+  assert.equal(freqToHz('29.9'), null);
+  assert.equal(freqToHz('3001'), null);
+  assert.equal(freqToHz('4000'), null);
+  assert.equal(freqToHz('abc'), null);
+  assert.equal(freqToHz(''), null);
+  assert.equal(freqToHz('1e3'), null);
+  assert.equal(freqToHz('-434'), null);
+  assert.equal(hzToMHz(434000000), '434');
+  assert.equal(hzToMHz(434012500), '434.0125');
+  assert.equal(hzToMHz(0), '');
+});
+
+test('[Info] text, URL and coordinates', () => {
+  assert.ok(validInfoText('Example Town', 20));
+  assert.ok(!validInfoText('', 20));
+  assert.ok(!validInfoText('x'.repeat(20), 19));
+  assert.ok(!validInfoText(' lead', 20));
+  assert.ok(!validInfoText('trail ', 20));
+  assert.ok(!validInfoText('a;b', 20));
+  assert.ok(!validInfoText('a#b', 20));
+  assert.ok(!validInfoText('a=b', 20));
+  assert.ok(!validInfoText('a"b', 20));
+  assert.ok(!validInfoText('caf\u00e9', 20));
+  assert.ok(validInfoUrl(''));
+  assert.ok(validInfoUrl('https://example.org/a?b=c'));
+  assert.ok(!validInfoUrl('ftp://example.org'));
+  assert.ok(!validInfoUrl('javascript:alert(1)'));
+  assert.ok(!validInfoUrl('https://example.org/a b'));
+  assert.ok(!validInfoUrl('https://example.org/#x'));
+  assert.ok(validCoord('51.5', 90));
+  assert.ok(validCoord('-0.12', 180));
+  assert.ok(!validCoord('91', 90));
+  assert.ok(!validCoord('1.1234567', 90));
+  assert.ok(!validCoord('', 90));
+  assert.ok(!validCoord('1e2', 90));
 });

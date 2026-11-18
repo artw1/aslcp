@@ -82,7 +82,7 @@ func (s *Server) dvRememberedTune(mode string) string {
 		return ""
 	}
 	t := s.d.DVResume.Get().PerMode[mode].Tune
-	if !helper.DVValidTune(mode, t) || helper.DVUnlinkValue(mode, t) {
+	if !helper.DVValidTune(mode, t) || helper.DVUnlinkValue(mode, t) || helper.DVPrivateTune(mode, t) {
 		return ""
 	}
 	return t

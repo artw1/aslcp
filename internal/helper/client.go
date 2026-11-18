@@ -414,6 +414,18 @@ func (c *Client) DVSwitchStartup(ctx context.Context, req DVSwitchRequest) (DVAp
 	return r, c.dvCall(ctx, OpDVSwitchStartup, req, &r)
 }
 
+// DVSwitchDMRVia calls dvswitch-dmr-via.
+func (c *Client) DVSwitchDMRVia(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
+	var r DVApplyResult
+	return r, c.dvCall(ctx, OpDVSwitchDMRVia, req, &r)
+}
+
+// DVSwitchSTFUInstall calls dvswitch-stfu-install.
+func (c *Client) DVSwitchSTFUInstall(ctx context.Context) (DVSwitchStatus, error) {
+	var s DVSwitchStatus
+	return s, c.Do(ctx, OpDVSwitchSTFUInstall, &s)
+}
+
 // DVSwitchRollback calls dvswitch-rollback.
 func (c *Client) DVSwitchRollback(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
 	var r DVApplyResult

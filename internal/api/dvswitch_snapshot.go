@@ -13,8 +13,11 @@ import (
 )
 
 // The DVSwitch snapshot: what the dashboard card shows, safe for every
-// logged-in role (docs/DVSWITCH.md, "API"). It holds no secret, no DMR ID, no
-// callsign and no install log; it is built from explicit fields only.
+// logged-in role (docs/DVSWITCH.md, "API"). It holds no secret, no install log
+// and no identity of the node; it is built from explicit fields only. The one
+// personal part is the callers (callsigns and DMR IDs of whoever talks on the
+// bridge), as heard on air; every role of the dashboard login sees it, there
+// is no unauthenticated stream.
 
 // DVSnapshot is the reply of GET /api/dvswitch/snapshot and the payload of the
 // SSE event "dvswitch".
@@ -29,6 +32,11 @@ type DVSnapshot struct {
 	BridgeNode DVBridgeNode    `json:"bridgeNode"`
 	// Link is the link of the bridge node to a local node (M2).
 	Link DVLink `json:"link"`
+	// Caller is who is talking now (the last call that has not ended in the
+	// log; the panel shows it only while RX is keyed). Heard is the last few
+	// distinct callers, newest first. Logged-in roles only.
+	Caller *helper.DVCaller  `json:"caller,omitempty"`
+	Heard  []helper.DVCaller `json:"heard"`
 }
 
 // DVBridge: Mode is DMR, YSF, P25 or NXDN ("" when unknown); Tune is the TG
@@ -40,8 +48,11 @@ type DVBridge struct {
 	TargetName string `json:"targetName,omitempty"`
 	Slot       int    `json:"slot"`
 	Muted      bool   `json:"muted"`
-	Source     string `json:"source"`
-	Updated    string `json:"updated"`
+	// Private: the last tune was a DMR private call (Tune is then the ID that
+	// was called, not a talkgroup the bridge is tuned to).
+	Private bool   `json:"private,omitempty"`
+	Source  string `json:"source"`
+	Updated string `json:"updated"`
 }
 
 // DVModeView: Enabled is what MMDVM_Bridge enables; Unlink is the tune value
@@ -160,7 +171,7 @@ func (d *dvSnapper) build(ctx context.Context, info helper.DVSwitchInfo, infoErr
 }
 
 func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, infoErr error) DVSnapshot {
-	sn := DVSnapshot{Bridge: DVBridge{Source: "none"}, Modes: []DVModeView{}, Services: []DVServiceView{}, Link: DVLink{Mode: dvswitch.LinkOnDemand}}
+	sn := DVSnapshot{Bridge: DVBridge{Source: "none"}, Modes: []DVModeView{}, Services: []DVServiceView{}, Heard: []helper.DVCaller{}, Link: DVLink{Mode: dvswitch.LinkOnDemand}}
 	if !d.wired() {
 		return sn
 	}
@@ -170,8 +181,10 @@ func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, i
 	}
 	sn.Installed = true
 	var enabled helper.DVModesView
+	stfu := false
 	if v, ok := d.getSetup(ctx); ok {
 		enabled = v.Modes
+		stfu = v.DMRConn.Via == helper.DVViaSTFU
 	}
 	for _, m := range helper.DVTuneModes {
 		on := false
@@ -191,6 +204,10 @@ func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, i
 	for _, u := range st.Units {
 		switch u.Name {
 		case "analog_bridge", "mmdvm_bridge":
+		case "stfu":
+			if !stfu {
+				continue
+			}
 		case "ysfgateway", "p25gateway", "nxdngateway":
 			if !gw[u.Name] {
 				continue
@@ -226,6 +243,14 @@ func (d *dvSnapper) fillBridge(ctx context.Context, sn *DVSnapshot, info helper.
 	b.Mode = helper.DVNormMode(info.Mode)
 	b.Slot, _ = strconv.Atoi(info.Slot)
 	b.Muted = info.Mute == "ON"
+	// ABInfo and the log show the Parrot tune as 9990 without the #.
+	b.Private = (info.Private || info.TG == helper.DVParrotID) && b.Mode == "DMR"
+	if c := info.Callers; c != nil {
+		sn.Caller = c.Current
+		if c.Recent != nil {
+			sn.Heard = c.Recent
+		}
+	}
 	// last_tune survives a mode change: a value first seen in another mode is
 	// not this mode's target (same rule as the tracker).
 	if !d.tuneSeen || d.tuneVal != info.Tune {

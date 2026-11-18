@@ -61,7 +61,7 @@ func DVSwitchPackages() []string { return strings.Fields(dvInstallPackages) }
 const dvServerPkg = "dvswitch-server"
 
 // dvUnits are the units reported by the status and stopped by the uninstall.
-var dvUnits = []string{"analog_bridge", "mmdvm_bridge", "netcheck", "ysfgateway", "p25gateway", "nxdngateway", "md380-emu"}
+var dvUnits = []string{"analog_bridge", "mmdvm_bridge", "netcheck", "ysfgateway", "p25gateway", "nxdngateway", "md380-emu", "stfu"}
 
 // dvHostFiles are the host files in the host dir that must be non-empty
 // after an install (DVSM_Update.sh exits 0 even when its downloads fail).
@@ -71,7 +71,7 @@ var dvHostFiles = []string{"DMRIds.dat", "YSFHosts.txt", "P25Hosts.txt", "NXDNHo
 var (
 	dvUninstallDirs = []string{
 		"/var/lib/mmdvm", "/var/lib/dvswitch", "/var/log/dvswitch", "/var/log/mmdvm",
-		"/opt/Analog_Bridge", "/opt/MMDVM_Bridge",
+		"/opt/Analog_Bridge", "/opt/MMDVM_Bridge", "/opt/STFU",
 	}
 	dvUninstallFiles = []string{"/etc/cron.d/dvswitch", "/etc/cron.daily/dvswitch-log-cleanup"}
 )
@@ -85,7 +85,7 @@ const dvABInfoGlob = "/tmp/ABInfo_*.json"
 func (o *Ops) DVSwitchUninstallPaths() []string {
 	out := append([]string{}, dvUninstallDirs...)
 	out = append(out, dvUninstallFiles...)
-	return append(out, dvABInfoGlob, o.dvSourceList(), o.dvKeyring())
+	return append(out, dvABInfoGlob, o.dvSourceList(), o.dvKeyring(), o.dvSTFUDropinPath())
 }
 
 // Errors of the dvswitch ops. The client maps the texts back (client.go).
@@ -97,7 +97,8 @@ var (
 	ErrDVOutsideASLCP     = errors.New("not_aslcp_installed: DVSwitch was installed outside ASLCP; ASLCP only removes what it installed")
 )
 
-var dvErrors = []error{ErrDVAlreadyInstalled, ErrDVUnsupported, ErrDVClockUnset, ErrDVKeyMismatch, ErrDVOutsideASLCP, ErrDVInvalid, ErrDVNotInstalled, ErrDVNoHistory, ErrDVNoInfo, ErrDVNoList, ErrDVNoPorts}
+var dvErrors = []error{ErrDVAlreadyInstalled, ErrDVUnsupported, ErrDVClockUnset, ErrDVKeyMismatch, ErrDVOutsideASLCP, ErrDVInvalid, ErrDVNotInstalled, ErrDVNoHistory, ErrDVNoInfo, ErrDVNoList, ErrDVNoPorts,
+	ErrDVSTFUNotInstalled, ErrDVSTFUInstalled, ErrDVNoIdentity, ErrDVNoPassword, ErrDVDMRRecord, ErrDVSwitchFailed}
 
 // DVSwitchPkg is one package of the install set.
 type DVSwitchPkg struct {
@@ -186,6 +187,9 @@ type DVSwitchStatus struct {
 
 	Install   DVSwitchJob `json:"install"`
 	Uninstall DVSwitchJob `json:"uninstall"`
+
+	// STFU is the optional BrandMeister client (DMR connection method).
+	STFU DVSTFUStatus `json:"stfu"`
 }
 
 // ---- configuration defaults
@@ -258,6 +262,10 @@ func (o *Ops) dvUninstallScript() string {
 		"fi",
 		"rm -f -- "+shQuote(o.dvSourceList())+" "+shQuote(o.dvKeyring()),
 		"rm -f /var/lib/apt/lists/dvswitch.org*",
+		// ASLCP's STFU umask drop-in
+		"rm -f -- "+shQuote(o.dvSTFUDropinPath()),
+		"rmdir -- "+shQuote(filepath.Dir(o.dvSTFUDropinPath()))+" 2>/dev/null || true",
+		"systemctl daemon-reload || true",
 		"apt-get update -q --allow-releaseinfo-change || echo 'warning: apt-get update failed'",
 	)
 	for _, d := range dvUninstallDirs {
@@ -277,6 +285,7 @@ func (o *Ops) dvUninstallScript() string {
 		// Asterisk restarts when something was reverted.
 		self+" dvswitch-step "+StepPrivateRev,
 		"rm -f -- "+purge,
+		"rm -f -- "+shQuote(o.dvDMRRecordPath()),
 		"rm -f -- "+shQuote(o.dvMarkerPath()),
 		"echo 'dvswitch uninstall finished'",
 	)
@@ -525,7 +534,7 @@ func DVPlatform(codename, arch string) (bool, string) {
 // no apt.
 func (o *Ops) DVSwitchStatus(ctx context.Context) (DVSwitchStatus, error) {
 	st := DVSwitchStatus{Packages: []DVSwitchPkg{}, Units: []DVSwitchUnit{}, HostFiles: []DVSwitchHostFile{}}
-	names := append(DVSwitchPackages(), dvServerPkg)
+	names := append(DVSwitchPackages(), dvServerPkg, dvSTFUPkg)
 	inst, err := o.dpkgInstalled(ctx, names)
 	if err != nil {
 		return st, err
@@ -600,7 +609,10 @@ func (o *Ops) DVSwitchStatus(ctx context.Context) (DVSwitchStatus, error) {
 		st.InstalledBy = "external"
 	}
 	st.Install, st.Uninstall = o.dvJobs(ctx)
-	running := st.Install.Job == JobRunning || st.Uninstall.Job == JobRunning || o.aptJobRunning(ctx)
+	st.STFU.Job = o.dvSTFUJob(ctx)
+	st.STFU.Version, st.STFU.Installed = inst[dvSTFUPkg], inst[dvSTFUPkg] != ""
+	running := st.Install.Job == JobRunning || st.Uninstall.Job == JobRunning || st.STFU.Job.Job == JobRunning || o.aptJobRunning(ctx)
+	st.STFU.CanInstall = st.Installed && st.Supported && !st.STFU.Installed && !running
 	st.CanInstall = st.Supported && !running && !server &&
 		(marker == nil && merr == nil && !anySet || marker != nil && !complete)
 	st.CanUninstall = marker != nil && !running

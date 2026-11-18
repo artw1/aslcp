@@ -1,4 +1,4 @@
-import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVSwitchRestartResult, DVDMRStatus, DVRestartScope, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult } from './types';
+import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVDMRConnReq, DVSwitchRestartResult, DVDMRStatus, DVRestartScope, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, DVInfoInput } from './types';
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public body?: Record<string, unknown>) { super(message); }
@@ -143,7 +143,9 @@ export const api = {
   dvswitchInstall: () => req<DVSwitchStatus>('POST', '/dvswitch/install'),
   dvswitchUninstall: () => req<DVSwitchStatus>('POST', '/dvswitch/uninstall'),
   dvswitchSetup: () => req<DVSwitchSetup>('GET', '/dvswitch/setup'),
-  dvswitchIdentity: (b: { callsign: string; dmrId: string; essid: string; nxdnId?: string; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/identity', b),
+  dvswitchDmrConnection: (b: DVDMRConnReq) => req<DVSwitchSetup>('PUT', '/dvswitch/dmr-connection', b),
+  dvswitchStfuInstall: () => req<DVSwitchStatus>('POST', '/dvswitch/stfu/install'),
+  dvswitchIdentity: (b: { callsign: string; dmrId: string; essid: string; nxdnId?: string; info?: DVInfoInput; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/identity', b),
   dvswitchCredentials: (b: { dmrAddress?: string; dmrPort?: number; dmrPassword?: string; clearPassword?: boolean; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/credentials', b),
   dvswitchModes: (b: { dmr?: boolean; ysf?: boolean; p25?: boolean; nxdn?: boolean; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/modes', b),
   dvswitchStartup: (b: { ambeMode?: string; txTg?: string; txTs?: number; colorCode?: number; ysf?: string; p25?: string; nxdn?: string; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/startup', b),

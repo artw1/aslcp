@@ -19,6 +19,7 @@ func TestDVValidTunePerMode(t *testing.T) {
 	}{
 		{"DMR", "91", true}, {"DMR", "12345678", true}, {"DMR", "123456789", false}, {"DMR", "", false}, {"DMR", "9a", false}, {"DMR", "-1", false},
 		{"DMR", "4000", true}, {"DMR", "91;rm", false}, {"DMR", "txTg=1", false},
+		{"DMR", "9990#", true}, {"DMR", "#", false}, {"DMR", "9990##", false}, {"DMR", "#9990", false}, {"P25", "9990#", false}, {"YSF", "9990#", false},
 		{"P25", "10100", true}, {"P25", "100000", false}, {"P25", "abc", false}, {"P25", "1=2", false},
 		{"NXDN", "10200", true}, {"NXDN", "192.0.2.1:41400", false}, {"NXDN", "", false},
 		{"YSF", "192.0.2.10:42000", true}, {"YSF", "ysf.example.org:42000", true}, {"YSF", "192.0.2.10:99999", false},

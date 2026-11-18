@@ -52,6 +52,10 @@ type DVDMRStatus struct {
 	At       string `json:"at,omitempty"`
 	Since    string `json:"since,omitempty"`
 	LastLine string `json:"lastLine,omitempty"`
+	// Via is the DMR connection method ("mmdvm_bridge" or "stfu").
+	Via string `json:"via,omitempty"`
+	// RX is the last transmission from the network (STFU only).
+	RX *DVDMRRx `json:"rx,omitempty"`
 }
 
 func (o *Ops) dvLogDir() string { return orDefault(o.DVLogDir, DefaultDVLogDir) }
@@ -173,8 +177,8 @@ func (o *Ops) dvLogFiles() []string {
 
 // dvUnitStart returns the unit's ActiveState and its start time in UTC (zero
 // when unknown).
-func (o *Ops) dvUnitStart(ctx context.Context) (loaded bool, active string, since time.Time) {
-	argv := []string{"systemctl", "show", "--timestamp=utc", "-p", "LoadState,ActiveState,ActiveEnterTimestamp", "mmdvm_bridge.service"}
+func (o *Ops) dvUnitStart(ctx context.Context, unit string) (loaded bool, active string, since time.Time) {
+	argv := []string{"systemctl", "show", "--timestamp=utc", "-p", "LoadState,ActiveState,ActiveEnterTimestamp", unit}
 	out, code, err := o.Run.Run(ctx, argv...)
 	if err != nil || code != 0 {
 		return false, "", time.Time{}
@@ -189,10 +193,13 @@ func (o *Ops) dvUnitStart(ctx context.Context) (loaded bool, active string, sinc
 // DVSwitchDMRStatus reports whether MMDVM_Bridge is logged in to its DMR
 // master, from the log lines written since the unit started.
 func (o *Ops) DVSwitchDMRStatus(ctx context.Context) (DVDMRStatus, error) {
-	loaded, active, since := o.dvUnitStart(ctx)
+	if via, _, err := o.dvVia(); err == nil && via == DVViaSTFU {
+		return o.dvSTFUStatus(ctx), nil
+	}
+	loaded, active, since := o.dvUnitStart(ctx, "mmdvm_bridge.service")
 	ini1, err := o.dvRead(dvFiles[1])
 	if err != nil || !loaded || !ini1.regular {
-		return DVDMRStatus{State: DMRNotInstalled}, nil
+		return DVDMRStatus{State: DMRNotInstalled, Via: DVViaMMDVM}, nil
 	}
 	f := ini.Parse(ini1.data)
 	en := func(sec string) bool {
@@ -201,9 +208,9 @@ func (o *Ops) DVSwitchDMRStatus(ctx context.Context) (DVDMRStatus, error) {
 		return a == "1" && b == "1"
 	}
 	if !en("DMR") {
-		return DVDMRStatus{State: DMRDisabled}, nil
+		return DVDMRStatus{State: DMRDisabled, Via: DVViaMMDVM}, nil
 	}
-	res := DVDMRStatus{State: DMRNotRunning}
+	res := DVDMRStatus{State: DMRNotRunning, Via: DVViaMMDVM}
 	if !since.IsZero() {
 		res.Since = since.Format(time.RFC3339)
 	}

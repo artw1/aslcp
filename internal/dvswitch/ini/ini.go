@@ -172,6 +172,32 @@ func (f *File) GetFold(section, key string) (string, bool) {
 	return "", false
 }
 
+// Sections returns the section names in file order (a repeated name once).
+func (f *File) Sections() []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, l := range f.lines {
+		if l.kind == kSection && !seen[l.section] {
+			seen[l.section] = true
+			out = append(out, l.section)
+		}
+	}
+	return out
+}
+
+// KeyFold returns the spelling of the first key in the section that matches
+// key case-insensitively, or key itself when there is none. A writer of a
+// case-insensitive file (DVSwitch.ini) passes it to Set so that it replaces
+// the existing line instead of adding a second spelling.
+func (f *File) KeyFold(section, key string) string {
+	for _, l := range f.lines {
+		if l.kind == kKV && l.section == section && strings.EqualFold(l.key, key) {
+			return l.key
+		}
+	}
+	return key
+}
+
 // Errors of Set.
 var (
 	ErrNoSection = errors.New("section not found")

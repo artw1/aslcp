@@ -98,6 +98,17 @@ type Ops struct {
 	tuneSem  chan struct{}
 	// DVLogDir holds MMDVM_Bridge-YYYY-MM-DD.log (default /var/log/mmdvm).
 	DVLogDir string
+	// DVSTFULog is STFU's log (default DefaultDVSTFULog); dmrViaMu
+	// serialises the DMR connection method switch (dvswitch_stfu.go).
+	DVSTFULog string
+	// DVSTFUDropin is the systemd drop-in that gives STFU umask 0077
+	// (default DefaultDVSTFUDropin).
+	DVSTFUDropin string
+	dmrViaMu     sync.Mutex
+	// DVBridgeLogDir holds Analog_Bridge.log (default /var/log/dvswitch).
+	DVBridgeLogDir string
+	// dvIDs caches DMR ID to callsign lookups (dvswitch_idlookup.go).
+	dvIDs dvIDCache
 	// SelfPath is the helper binary the install and uninstall units call for
 	// their steps (default: this executable).
 	SelfPath string
@@ -141,7 +152,7 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 	case OpDVSwitchSetup:
 		return o.DVSwitchSetup(ctx)
 	case OpDVSwitchInfo:
-		return o.DVSwitchInfo(ctx)
+		return o.dvInfoOp(ctx)
 	case OpDVSwitchDMRStatus:
 		return o.DVSwitchDMRStatus(ctx)
 	case OpDVSwitchIdentity:
@@ -164,6 +175,10 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return o.DVSwitchUSRP(ctx, req.DVSwitch)
 	case OpDVSwitchPrivate:
 		return o.DVSwitchPrivate(ctx, req.DVSwitch)
+	case OpDVSwitchDMRVia:
+		return o.DVSwitchDMRVia(ctx, req.DVSwitch)
+	case OpDVSwitchSTFUInstall:
+		return o.DVSwitchSTFUInstall(ctx)
 	case OpBackupInfo:
 		return o.BackupInfo(ctx)
 	case OpAsteriskRestart:

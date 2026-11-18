@@ -189,7 +189,7 @@ func (t *Tracker) load() {
 	// A stored value is data: drop what the validators would refuse.
 	clean := map[string]Tune{}
 	for m, e := range t.st.PerMode {
-		if helper.DVNormMode(m) == m && helper.DVValidTune(m, e.Tune) {
+		if helper.DVNormMode(m) == m && helper.DVValidTune(m, e.Tune) && !helper.DVPrivateTune(m, e.Tune) {
 			clean[m] = e
 		}
 	}
@@ -431,7 +431,7 @@ func decideResume(now time.Time, window time.Duration, info helper.DVSwitchInfo,
 		return resumeWait, "state file is from an earlier start"
 	}
 	e := st.PerMode[st.LastMode]
-	if st.LastMode == "" || !helper.DVValidTune(st.LastMode, e.Tune) {
+	if st.LastMode == "" || !helper.DVValidTune(st.LastMode, e.Tune) || helper.DVPrivateTune(st.LastMode, e.Tune) {
 		return resumeSkip, "no remembered tune"
 	}
 	if info.Tune != "" {
@@ -457,6 +457,9 @@ var reYSFID = regexp.MustCompile(`^[0-9]{5}$`)
 //     sample after a switch shows a value that is nobody's tune. It counts
 //     only once last_tune changed after the switch and equals the
 //     talkgroup, i.e. a tune that was sent in DMR (by the panel or an app).
+//   - A DMR private call ("9990#", and the Parrot ID 9990 itself, which only
+//     answers private calls) is never remembered: the remembered tune stays
+//     the last real talkgroup, so a resume does not call a user again.
 //   - Every value must pass the mode's validator (DMR: digits only, no prefix
 //     parsing) before it is stored.
 //   - Unlink values (DMR 4000, YSF disconnect, P25 and NXDN 9999) are not
@@ -493,6 +496,12 @@ func (t *Tracker) record(info helper.DVSwitchInfo, now time.Time) {
 	switch mode {
 	case "DMR":
 		if !helper.DVValidTune("DMR", info.TG) {
+			return
+		}
+		// A private call (Parrot 9990#) is a one-off, not the mode's target:
+		// never remember it, whether ABInfo marks it (last_tune "9990#") or
+		// only shows the called ID as the talkgroup.
+		if info.Private || info.TG == helper.DVParrotID {
 			return
 		}
 		if t.dmrHold {

@@ -3,6 +3,20 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [Unreleased]
+
+### Added
+- DVSwitch: DMR to BrandMeister through STFU. A new "DMR connection" card on the DVSwitch tab chooses between "STFU (recommended)" and "MMDVM_Bridge". STFU is installed with its own "Install STFU" button. You can set the BrandMeister server (default 3102.repeater.net), talker alias and start talkgroup. STFU reuses the saved hotspot password and logs in with the 7-digit DMR ID (no ESSID). BrandMeister SelfCare shows the connection as "Open DMR Terminal".
+- While STFU is in use, MMDVM_Bridge keeps running for YSF, P25 and NXDN with its own DMR login turned off, so only one client logs in to BrandMeister. Switching back to MMDVM_Bridge restores its previous DMR setting. If a step of the switch fails, the previous settings are restored.
+- With STFU, the DMR login check, the mode switch, tuning and "Restart DMR" follow STFU. The DMR card shows which method it uses and the last transmission heard from the network.
+- DVSwitch: BM Parrot (talkgroup 9990) is called as a private call, which is the only way it answers. The DVSwitch panel has a Parrot button and a "Private call" checkbox for DMR (a trailing `#` on the number does the same). A private call is never remembered or resumed after a restart. Verified through STFU; the MMDVM_Bridge path is not yet verified.
+- DVSwitch: the bridge node's "RX keyed" line shows who is talking (for example "RX keyed · DMR TG 91 · N0CALL"), and the DVSwitch panel has a Last heard list of the last five callers. The callsign is looked up by DMR ID in the MMDVM_Bridge list when the log has none (as with STFU); without a callsign the DMR ID is shown. The Parrot's reply shows as "Parrot (private call)". The caller is shown while the bridge node is keyed.
+- DVSwitch setup: Hotspot info fields (Location, Description, URL, Frequency, optional Latitude and Longitude), written to the `[Info]` section of `MMDVM_Bridge.ini` with the identity save (one frequency for receive and transmit, typed in MHz or Hz). The page warns while the stock sample values are still in place. MMDVM_Bridge is restarted after a change, like other identity edits.
+- API: `PUT /api/dvswitch/dmr-connection` and `POST /api/dvswitch/stfu/install` (admin). The DVSwitch status carries `stfu`, the setup carries `dmrConn`, `GET /api/dvswitch/dmr-status` carries `via` and `rx`, and the snapshot carries `caller`, `heard` and `bridge.private`. `PUT /api/dvswitch/identity` takes `info`; a DMR tune accepts a trailing `#`.
+
+### Security
+- STFU runs as root and writes the BrandMeister password to its log when it starts. ASLCP drops every log line that mentions a password before it reads the log, and keeps `/var/log/dvswitch/STFU.log` and its rotated copies readable by root only: the permissions now persist across log rotation (a systemd drop-in gives STFU `UMask=0077`; it is removed when you switch back to MMDVM_Bridge or uninstall DVSwitch).
+
 ## [1.2.1] - 2026-11-18
 
 ### Added

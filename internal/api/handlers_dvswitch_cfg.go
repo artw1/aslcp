@@ -87,14 +87,19 @@ func (s *Server) handleDVSwitchIdentity(w http.ResponseWriter, r *http.Request, 
 		DMRID    string            `json:"dmrId"`
 		ESSID    string            `json:"essid"`
 		NXDNID   string            `json:"nxdnId"`
+		Info     *helper.DVInfo    `json:"info"`
 		Base     map[string]string `json:"base"`
 	}
 	if !decode(w, r, &b, false) {
 		return
 	}
-	s.dvWrite(w, r, u, "dvswitch.identity", []string{"callsign", "dmrId", "essid", "nxdnId"}, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
+	keys := []string{"callsign", "dmrId", "essid", "nxdnId"}
+	if b.Info != nil {
+		keys = append(keys, "info") // the key name, never the location
+	}
+	s.dvWrite(w, r, u, "dvswitch.identity", keys, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
 		return s.d.DVSwitch.DVSwitchIdentity(r.Context(), helper.DVSwitchRequest{Base: b.Base, Author: u.Username,
-			Identity: &helper.DVIdentity{Callsign: b.Callsign, DMRID: b.DMRID, ESSID: b.ESSID, NXDNID: b.NXDNID}})
+			Identity: &helper.DVIdentity{Callsign: b.Callsign, DMRID: b.DMRID, ESSID: b.ESSID, NXDNID: b.NXDNID, Info: b.Info}})
 	})
 }
 
@@ -164,6 +169,59 @@ func (s *Server) handleDVSwitchModes(w http.ResponseWriter, r *http.Request, u s
 		return s.d.DVSwitch.DVSwitchModes(r.Context(), helper.DVSwitchRequest{Base: b.Base, Author: u.Username,
 			Modes: &helper.DVModes{DMR: b.DMR, YSF: b.YSF, P25: b.P25, NXDN: b.NXDN}})
 	})
+}
+
+// handleDVSwitchDMRConn: PUT /api/dvswitch/dmr-connection {via, network,
+// server, talkerAlias, startTg}. Switches how DMR reaches its network:
+// "mmdvm_bridge" (MMDVM_Bridge's own DMR network) or "stfu" with network
+// "brandmeister". The helper writes the inis, restarts what is needed and
+// rolls back on failure; the BrandMeister password is taken from the saved
+// credentials and never passes through here.
+func (s *Server) handleDVSwitchDMRConn(w http.ResponseWriter, r *http.Request, u store.User) {
+	if s.d.DVSwitch == nil {
+		s.dvswitchError(w, errDVUnavailable)
+		return
+	}
+	var b struct {
+		Via         string            `json:"via"`
+		Network     string            `json:"network"`
+		Server      string            `json:"server"`
+		TalkerAlias *string           `json:"talkerAlias"`
+		StartTG     *string           `json:"startTg"`
+		Base        map[string]string `json:"base"`
+	}
+	if !decode(w, r, &b, false) {
+		return
+	}
+	keys := []string{"via"}
+	for _, k := range []struct {
+		n  string
+		on bool
+	}{{"network", b.Network != ""}, {"server", b.Server != ""}, {"talkerAlias", b.TalkerAlias != nil}, {"startTg", b.StartTG != nil}} {
+		if k.on {
+			keys = append(keys, k.n)
+		}
+	}
+	res, err := s.d.DVSwitch.DVSwitchDMRVia(r.Context(), helper.DVSwitchRequest{Base: b.Base, Author: u.Username,
+		DMRVia: &helper.DVDMRVia{Via: b.Via, Network: b.Network, Server: b.Server, TalkerAlias: b.TalkerAlias, StartTG: b.StartTG}})
+	if err != nil {
+		s.audit(u, "dvswitch.dmr_connection.refused", map[string]any{"keys": keys, "via": safeVia(b.Via)})
+		s.dvswitchError(w, err)
+		return
+	}
+	s.audit(u, "dvswitch.dmr_connection", map[string]any{"keys": keys, "via": safeVia(b.Via), "files": res.Files})
+	s.d.Logger.Printf("dvswitch.dmr_connection %s by %s (%d files)", safeVia(b.Via), u.Username, len(res.Files))
+	s.dvs.invalidate()
+	s.dvs.refreshSoon()
+	s.dvSetupView(w, r, &res)
+}
+
+// safeVia keeps a client value out of the audit unless it is a known method.
+func safeVia(v string) string {
+	if v == helper.DVViaMMDVM || v == helper.DVViaSTFU {
+		return v
+	}
+	return "other"
 }
 
 func (s *Server) handleDVSwitchStartup(w http.ResponseWriter, r *http.Request, u store.User) {

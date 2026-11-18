@@ -857,7 +857,7 @@ func TestDemoDVSwitchNXDNID(t *testing.T) {
 	d.DVSwitchInstall(ctx)
 	now = now.Add(time.Minute)
 	v, _ := d.DVSwitchSetup(ctx)
-	if v.Identity.NXDNID == "" || len(v.Warnings) != 0 {
+	if v.Identity.NXDNID == "" || len(noStock(v.Warnings)) != 0 {
 		t.Fatalf("%+v %v", v.Identity, v.Warnings)
 	}
 	id := DVIdentity{Callsign: "N0CALL", DMRID: "1234567", ESSID: "01", NXDNID: "70000"}
@@ -875,7 +875,7 @@ func TestDemoDVSwitchNXDNID(t *testing.T) {
 	}
 	on := true
 	d.DVSwitchModes(ctx, DVSwitchRequest{Modes: &DVModes{NXDN: &on}})
-	if v, _ = d.DVSwitchSetup(ctx); len(v.Warnings) != 0 {
+	if v, _ = d.DVSwitchSetup(ctx); len(noStock(v.Warnings)) != 0 {
 		t.Fatalf("%v", v.Warnings)
 	}
 	if _, err := d.DVSwitchStartup(ctx, DVSwitchRequest{Startup: &DVStartup{YSF: sp("Example Reflector 1")}}); err != nil {

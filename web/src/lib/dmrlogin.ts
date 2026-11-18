@@ -36,9 +36,9 @@ export function outcomeFor(s: DVDMRStatus, last: boolean): Outcome | null {
     case 'logged_in': return { kind: 'ok', message: `Logged in to ${s.master || 'the master'}` };
     case 'login_failed': return { kind: 'error', message: MSG_REFUSED };
     case 'timed_out': case 'socket_failed': return { kind: 'error', message: MSG_NO_ANSWER };
-    case 'not_running': return { kind: 'warn', message: 'mmdvm_bridge is not running, so there is no login to check.', needStart: true };
+    case 'not_running': return { kind: 'warn', message: `${s.via === 'stfu' ? 'stfu' : 'mmdvm_bridge'} is not running, so there is no login to check.`, needStart: true };
     case 'disabled': return { kind: 'info', message: 'DMR is disabled under Enabled modes, so the bridge does not log in.' };
-    case 'not_installed': return { kind: 'info', message: 'MMDVM_Bridge is not installed.' };
+    case 'not_installed': return { kind: 'info', message: s.via === 'stfu' ? 'STFU is not installed.' : 'MMDVM_Bridge is not installed.' };
     case 'master_closing': return last ? { kind: 'warn', message: 'The master is closing down. Try again in a moment.' } : null;
     default: return last ? { kind: 'warn', message: MSG_PENDING } : null;
   }
@@ -77,9 +77,9 @@ export async function waitForLogin(
   return { outcome: last ? outcomeFor(last, true)! : { kind: 'warn', message: 'Could not read the DMR login state.' }, status: last };
 }
 
-/** mmdvm_bridge counts as in use when it is enabled or running. */
-export function bridgeInUse(units: { name: string; loaded: boolean; active: string; enabled: string }[]): { inUse: boolean; running: boolean } {
-  const u = units.find((x) => x.name === 'mmdvm_bridge');
+/** The unit holding the DMR login (mmdvm_bridge, or stfu with BrandMeister through STFU) counts as in use when it is enabled or running. */
+export function bridgeInUse(units: { name: string; loaded: boolean; active: string; enabled: string }[], unit = 'mmdvm_bridge'): { inUse: boolean; running: boolean } {
+  const u = units.find((x) => x.name === unit);
   if (!u || !u.loaded) return { inUse: false, running: false };
   const running = u.active === 'active' || u.active === 'activating';
   return { inUse: running || u.enabled === 'enabled', running };

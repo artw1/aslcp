@@ -41,7 +41,7 @@ const (
 
 func isDVConfigOp(op string) bool {
 	switch op {
-	case OpDVSwitchIdentity, OpDVSwitchCredentials, OpDVSwitchModes, OpDVSwitchStartup, OpDVSwitchRollback, OpDVSwitchRestart, OpDVSwitchLists, OpDVSwitchTune, OpDVSwitchUSRP, OpDVSwitchPrivate:
+	case OpDVSwitchIdentity, OpDVSwitchCredentials, OpDVSwitchModes, OpDVSwitchStartup, OpDVSwitchRollback, OpDVSwitchRestart, OpDVSwitchLists, OpDVSwitchTune, OpDVSwitchUSRP, OpDVSwitchPrivate, OpDVSwitchDMRVia:
 		return true
 	}
 	return false
@@ -81,6 +81,10 @@ const (
 	DVFileYSFGateway   = "ysfgateway"
 	DVFileP25Gateway   = "p25gateway"
 	DVFileNXDNGateway  = "nxdngateway"
+	// DVFileDVSwitch is MMDVM_Bridge/DVSwitch.ini: only its [STFU] section is
+	// written (the DMR connection method, dvswitch_stfu.go). Its keys are
+	// read case-insensitively by the DVSwitch tools.
+	DVFileDVSwitch = "dvswitch"
 )
 
 type dvFileDef struct {
@@ -95,6 +99,7 @@ var dvFiles = []dvFileDef{
 	{DVFileYSFGateway, "YSFGateway/YSFGateway.ini", "ysfgateway", false},
 	{DVFileP25Gateway, "P25Gateway/P25Gateway.ini", "p25gateway", false},
 	{DVFileNXDNGateway, "NXDNGateway/NXDNGateway.ini", "nxdngateway", false},
+	{DVFileDVSwitch, "MMDVM_Bridge/DVSwitch.ini", "stfu", false},
 }
 
 func dvFileByID(id string) (dvFileDef, bool) {
@@ -200,6 +205,11 @@ var dvAllow = func() map[dvKey]func(string) bool {
 		{DVFileAnalogBridge, "AMBE_AUDIO", "txTs"}:         vInt(1, 2),
 		{DVFileAnalogBridge, "AMBE_AUDIO", "colorCode"}:    vInt(0, 15),
 
+		// The TLV partner ports: retargeted between MMDVM_Bridge's [DMR] ports
+		// and STFU's when the DMR connection method changes.
+		{DVFileAnalogBridge, "AMBE_AUDIO", "txPort"}: vInt(1024, 65535),
+		{DVFileAnalogBridge, "AMBE_AUDIO", "rxPort"}: vInt(1024, 65535),
+
 		{DVFileAnalogBridge, "USRP", "address"}: func(s string) bool { return s == dvUSRPAddress },
 		{DVFileAnalogBridge, "USRP", "rxPort"}:  vInt(1024, 65535),
 		{DVFileAnalogBridge, "USRP", "txPort"}:  vInt(1024, 65535),
@@ -207,6 +217,13 @@ var dvAllow = func() map[dvKey]func(string) bool {
 		{DVFileMMDVMBridge, "General", "Callsign"}:     vMatch(reDVCall),
 		{DVFileMMDVMBridge, "General", "Id"}:           vMatch(reDVDigits9),
 		{DVFileMMDVMBridge, "NXDN", "Id"}:              vNXDNID,
+		{DVFileMMDVMBridge, "Info", "Location"}:        vInfoText(20),
+		{DVFileMMDVMBridge, "Info", "Description"}:     vInfoText(19),
+		{DVFileMMDVMBridge, "Info", "URL"}:             vInfoURL,
+		{DVFileMMDVMBridge, "Info", "RXFrequency"}:     vFreqHz,
+		{DVFileMMDVMBridge, "Info", "TXFrequency"}:     vFreqHz,
+		{DVFileMMDVMBridge, "Info", "Latitude"}:        vCoord(-90, 90),
+		{DVFileMMDVMBridge, "Info", "Longitude"}:       vCoord(-180, 180),
 		{DVFileMMDVMBridge, "DMR Network", "Address"}:  vMatch(reDVHost),
 		{DVFileMMDVMBridge, "DMR Network", "Port"}:     vInt(1, 65535),
 		{DVFileMMDVMBridge, "DMR Network", "Password"}: vPassword,
@@ -217,6 +234,16 @@ var dvAllow = func() map[dvKey]func(string) bool {
 		{DVFileP25Gateway, "Network", "Startup"}:       vOrEmpty(reDVRefl),
 		{DVFileNXDNGateway, "General", "Callsign"}:     vMatch(reDVCall),
 		{DVFileNXDNGateway, "Network", "Startup"}:      vOrEmpty(reDVRefl),
+
+		{DVFileDVSwitch, dvSTFUSection, "BMAddress"}:   vMatch(reDVHost),
+		{DVFileDVSwitch, dvSTFUSection, "BMPort"}:      vInt(1, 65535),
+		{DVFileDVSwitch, dvSTFUSection, "BMPassword"}:  vPassword,
+		{DVFileDVSwitch, dvSTFUSection, "Address"}:     func(s string) bool { return s == dvSTFULocal },
+		{DVFileDVSwitch, dvSTFUSection, "txPort"}:      vInt(1024, 65535),
+		{DVFileDVSwitch, dvSTFUSection, "rxPort"}:      vInt(1024, 65535),
+		{DVFileDVSwitch, dvSTFUSection, "UserID"}:      vMatch(reDVDigits7),
+		{DVFileDVSwitch, dvSTFUSection, "TalkerAlias"}: vTalkerAlias,
+		{DVFileDVSwitch, dvSTFUSection, "StartTG"}:     vMatch(reDVTG),
 	}
 	for _, ms := range dvModeSections {
 		m[dvKey{DVFileMMDVMBridge, ms.section, "Enable"}] = vInt(0, 1)
@@ -251,6 +278,8 @@ type DVSwitchRequest struct {
 	// USRP: dvswitch-usrp. Private: dvswitch-private.
 	USRP    *DVUSRP    `json:"usrp,omitempty"`
 	Private *DVPrivate `json:"private,omitempty"`
+	// DMRVia: dvswitch-dmr-via (dvswitch_stfu.go).
+	DMRVia *DVDMRVia `json:"dmrVia,omitempty"`
 }
 
 // DVIdentity: callsign, 7-digit DMR ID, 2-digit ESSID and the optional NXDN
@@ -260,6 +289,108 @@ type DVIdentity struct {
 	DMRID    string `json:"dmrId"`
 	ESSID    string `json:"essid"`
 	NXDNID   string `json:"nxdnId,omitempty"`
+	// Info is the [Info] section of MMDVM_Bridge.ini, what BrandMeister
+	// shows for the hotspot. Nil leaves it alone.
+	Info *DVInfo `json:"info,omitempty"`
+}
+
+// DVInfo: where the hotspot is and what it says about itself. Location and
+// Description are required, URL may be empty (an empty URL is written as
+// such), FrequencyHz is one frequency written to both RXFrequency and
+// TXFrequency (simplex, DMO), Latitude and Longitude are decimal degrees and
+// both set or both empty (empty leaves them alone). The text limits are the
+// widths of the DMR login packet (Location 20, Description 19, URL 124).
+type DVInfo struct {
+	Location    string `json:"location"`
+	Description string `json:"description"`
+	URL         string `json:"url,omitempty"`
+	FrequencyHz int    `json:"frequencyHz"`
+	Latitude    string `json:"latitude,omitempty"`
+	Longitude   string `json:"longitude,omitempty"`
+}
+
+// DVInfoView is the [Info] section as the setup view reports it.
+// FrequencyHz is 0 when RX and TX differ (duplex) or are not numbers; RX and
+// TX are then shown separately. Stock is true while the file still holds the
+// stock iceberg location or frequencies.
+type DVInfoView struct {
+	Location    string `json:"location"`
+	Description string `json:"description"`
+	URL         string `json:"url"`
+	FrequencyHz int    `json:"frequencyHz"`
+	RXHz        int    `json:"rxHz"`
+	TXHz        int    `json:"txHz"`
+	Latitude    string `json:"latitude"`
+	Longitude   string `json:"longitude"`
+	Stock       bool   `json:"stock"`
+}
+
+var (
+	reDVInfoText = regexp.MustCompile(`^[A-Za-z0-9][\x20-\x7e]*$`)
+	reDVInfoURL  = regexp.MustCompile(`^https?://[A-Za-z0-9._~:/?&=%+-]{1,116}$`)
+	reDVCoord    = regexp.MustCompile(`^-?[0-9]{1,3}(\.[0-9]{1,6})?$`)
+)
+
+// vInfoText: 1..max printable ASCII characters, starting with a letter or
+// digit, no trailing blank and none of ; # = " (ini comment, assignment and
+// quote characters).
+func vInfoText(max int) func(string) bool {
+	return func(s string) bool {
+		if len(s) < 1 || len(s) > max || !reDVInfoText.MatchString(s) || s != strings.TrimRight(s, " ") {
+			return false
+		}
+		return !strings.ContainsAny(s, ";#=\"")
+	}
+}
+
+// vInfoURL: http or https, at most 124 characters, no spaces, quotes, ; or #.
+func vInfoURL(s string) bool { return s == "" || len(s) <= 124 && reDVInfoURL.MatchString(s) }
+
+// vFreqHz: 30 MHz to 3 GHz, whole hertz.
+var vFreqHz = vInt(30_000_000, 3_000_000_000)
+
+func vCoord(lo, hi float64) func(string) bool {
+	return func(s string) bool {
+		if !reDVCoord.MatchString(s) {
+			return false
+		}
+		f, err := strconv.ParseFloat(s, 64)
+		return err == nil && f >= lo && f <= hi
+	}
+}
+
+// dvInfoChanges validates an Info block and returns the writes.
+func dvInfoChanges(in *DVInfo) ([]dvChange, error) {
+	if !vInfoText(20)(in.Location) {
+		return nil, dvInvalid("identity/info/location")
+	}
+	if !vInfoText(19)(in.Description) {
+		return nil, dvInvalid("identity/info/description")
+	}
+	if !vInfoURL(in.URL) {
+		return nil, dvInvalid("identity/info/url")
+	}
+	hz := strconv.Itoa(in.FrequencyHz)
+	if !vFreqHz(hz) {
+		return nil, dvInvalid("identity/info/frequencyHz")
+	}
+	ch := []dvChange{
+		{DVFileMMDVMBridge, "Info", "Location", in.Location},
+		{DVFileMMDVMBridge, "Info", "Description", in.Description},
+		{DVFileMMDVMBridge, "Info", "URL", in.URL},
+		{DVFileMMDVMBridge, "Info", "RXFrequency", hz},
+		{DVFileMMDVMBridge, "Info", "TXFrequency", hz},
+	}
+	if in.Latitude != "" || in.Longitude != "" {
+		if !vCoord(-90, 90)(in.Latitude) {
+			return nil, dvInvalid("identity/info/latitude")
+		}
+		if !vCoord(-180, 180)(in.Longitude) {
+			return nil, dvInvalid("identity/info/longitude")
+		}
+		ch = append(ch, dvChange{DVFileMMDVMBridge, "Info", "Latitude", in.Latitude}, dvChange{DVFileMMDVMBridge, "Info", "Longitude", in.Longitude})
+	}
+	return ch, nil
 }
 
 // DVCredentials: the DMR master. Nil fields are left alone. The password is
@@ -446,7 +577,11 @@ func (o *Ops) dvSaveHistory(id string, data []byte) (string, error) {
 
 func (o *Ops) dvBusy(ctx context.Context) bool {
 	in, un := o.dvJobs(ctx)
-	return in.Job == JobRunning || un.Job == JobRunning
+	if in.Job == JobRunning || un.Job == JobRunning {
+		return true
+	}
+	st, _ := o.jobUnit(ctx, dvSTFUJobUnit)
+	return st == JobRunning
 }
 
 // dvApply validates changes against the allowlist, checks the base hashes,
@@ -515,6 +650,10 @@ func (o *Ops) dvApply(ctx context.Context, changes []dvChange, base map[string]s
 		}
 		w := &work{st: st, f: ini.Parse(st.data)}
 		for _, c := range mine {
+			if def.id == DVFileDVSwitch {
+				// case-insensitive file: replace the line as it is spelled
+				c.key = w.f.KeyFold(c.section, c.key)
+			}
 			if _, exists := w.f.Get(c.section, c.key); !exists && c.value == "" {
 				continue // clearing a key that is not there
 			}
@@ -662,6 +801,14 @@ func (o *Ops) DVSwitchIdentity(ctx context.Context, req *DVSwitchRequest) (DVApp
 	if id.NXDNID != "" {
 		ch = append(ch, dvChange{DVFileMMDVMBridge, "NXDN", "Id", id.NXDNID})
 	}
+	ch = append(ch, o.dvSTFUIdentity(id.DMRID)...)
+	if id.Info != nil {
+		ic, err := dvInfoChanges(id.Info)
+		if err != nil {
+			return DVApplyResult{}, err
+		}
+		ch = append(ch, ic...)
+	}
 	return o.dvApply(ctx, ch, req.Base)
 }
 
@@ -692,6 +839,11 @@ func (o *Ops) DVSwitchCredentials(ctx context.Context, req *DVSwitchRequest) (DV
 	if c.ClearPassword {
 		add("Password", dvStockPassword)
 	}
+	stfu, err := o.dvSTFUCredentials(c)
+	if err != nil {
+		return DVApplyResult{}, err
+	}
+	ch = append(ch, stfu...)
 	if len(ch) == 0 {
 		// nothing to write: a harmless no-op, not an error
 		return dvNoChange(), nil
@@ -717,6 +869,15 @@ func (o *Ops) DVSwitchModes(ctx context.Context, req *DVSwitchRequest) (DVApplyR
 	}{{"dmr", m.DMR}, {"ysf", m.YSF}, {"p25", m.P25}, {"nxdn", m.NXDN}} {
 		if e.v == nil {
 			continue
+		}
+		if e.id == "dmr" {
+			skip, err := o.dvSTFUModes(*e.v)
+			if err != nil {
+				return DVApplyResult{}, err
+			}
+			if skip {
+				continue
+			}
 		}
 		val := "0"
 		if *e.v {
@@ -844,6 +1005,9 @@ type DVSwitchSetup struct {
 	Startup       DVStartupView    `json:"startup"`
 	Gateways      DVGateways       `json:"gateways"`
 	Files         []DVFileView     `json:"files"`
+	// DMRConn is the DMR connection method (MMDVM_Bridge or STFU) and the
+	// [STFU] values of DVSwitch.ini. No secret value.
+	DMRConn DVDMRConnView `json:"dmrConn"`
 	// Warnings: non-blocking hints, e.g. NXDN enabled without an NXDN ID.
 	Warnings []string `json:"warnings"`
 }
@@ -856,6 +1020,30 @@ type DVIdentityView struct {
 	ESSID      string `json:"essid"`
 	NXDNID     string `json:"nxdnId"` // empty: not set (also the stock 12345)
 	Consistent bool   `json:"consistent"`
+	// Info is the [Info] section of MMDVM_Bridge.ini.
+	Info DVInfoView `json:"info"`
+}
+
+// dvStockInfo: the [Info] values of the stock MMDVM_Bridge.ini that put the
+// hotspot on an iceberg in the North Atlantic.
+const (
+	dvStockInfoRX  = 222340000
+	dvStockInfoLoc = "Iceberg, North Atlantic"
+)
+
+// DVInfoStockWarning is the setup-view warning for the stock [Info] values.
+const DVInfoStockWarning = "MMDVM_Bridge still has the stock location and frequencies (an iceberg, 222.34 MHz); BrandMeister shows them. Set your own under Identity"
+
+func dvInfoView(get func(sec, key string) string) DVInfoView {
+	atoi := func(s string) int { n, _ := strconv.Atoi(s); return n }
+	v := DVInfoView{Location: get("Info", "Location"), Description: get("Info", "Description"), URL: get("Info", "URL"),
+		RXHz: atoi(get("Info", "RXFrequency")), TXHz: atoi(get("Info", "TXFrequency")),
+		Latitude: get("Info", "Latitude"), Longitude: get("Info", "Longitude")}
+	if v.RXHz == v.TXHz {
+		v.FrequencyHz = v.RXHz
+	}
+	v.Stock = v.RXHz == dvStockInfoRX || v.Location == dvStockInfoLoc
+	return v
 }
 
 type DVDMRView struct {
@@ -962,6 +1150,10 @@ func (o *Ops) DVSwitchSetup(ctx context.Context) (DVSwitchSetup, error) {
 		return get(DVFileMMDVMBridge, sec, "Enable") == "1" && get(DVFileMMDVMBridge, sec+" Network", "Enable") == "1"
 	}
 	v.Modes = DVModesView{DMR: en("DMR"), YSF: en("System Fusion"), P25: en("P25"), NXDN: en("NXDN")}
+	v.DMRConn = o.dvDMRConnView(parsed[DVFileDVSwitch], parsed[DVFileAnalogBridge])
+	if v.DMRConn.Via == DVViaSTFU {
+		v.Modes.DMR = true // DMR runs through STFU; MMDVM_Bridge's own DMR is off on purpose
+	}
 
 	v.Startup = DVStartupView{AmbeMode: get(DVFileAnalogBridge, "AMBE_AUDIO", "ambeMode"), TxTg: get(DVFileAnalogBridge, "AMBE_AUDIO", "txTg"),
 		TxTs: atoi(get(DVFileAnalogBridge, "AMBE_AUDIO", "txTs")), ColorCode: atoi(get(DVFileAnalogBridge, "AMBE_AUDIO", "colorCode"))}
@@ -970,7 +1162,11 @@ func (o *Ops) DVSwitchSetup(ctx context.Context) (DVSwitchSetup, error) {
 	}
 	v.Gateways = DVGateways{YSF: gw(DVFileYSFGateway), P25: gw(DVFileP25Gateway), NXDN: gw(DVFileNXDNGateway)}
 	v.Identity.NXDNID = dvNXDNIDView(get(DVFileMMDVMBridge, "NXDN", "Id"))
+	v.Identity.Info = dvInfoView(func(sec, key string) string { return get(DVFileMMDVMBridge, sec, key) })
 	v.Warnings = dvWarnings(v.Modes, v.Identity)
+	if v.DMRConn.Error {
+		v.Warnings = append(v.Warnings, DVDMRRecordWarning)
+	}
 	return v, nil
 }
 
@@ -990,6 +1186,9 @@ func dvWarnings(m DVModesView, id DVIdentityView) []string {
 	if m.NXDN && id.NXDNID == "" {
 		w = append(w, DVNXDNWarning)
 	}
+	if id.Info.Stock {
+		w = append(w, DVInfoStockWarning)
+	}
 	return w
 }
 
@@ -1000,7 +1199,8 @@ var _ = time.Second
 var dvTLVPorts = []int{31100, 31103, 35100, 35103, 34100, 34103, 33100, 33103}
 
 // dvReservedPorts returns the ports a USRP port must avoid: the stock TLV
-// ports and the ones Analog_Bridge itself uses ([AMBE_AUDIO]).
+// ports, STFU's stock TLV ports and the ones Analog_Bridge itself uses
+// ([AMBE_AUDIO]).
 func dvReservedPorts(get func(sec, key string) int) []int {
 	seen := map[int]bool{}
 	var out []int
@@ -1013,6 +1213,8 @@ func dvReservedPorts(get func(sec, key string) int) []int {
 	for _, p := range dvTLVPorts {
 		add(p)
 	}
+	add(dvSTFUTx)
+	add(dvSTFURx)
 	for _, k := range []string{"txPort", "rxPort", "ambePort"} {
 		add(get("AMBE_AUDIO", k))
 	}
