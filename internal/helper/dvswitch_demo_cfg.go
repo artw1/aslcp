@@ -53,6 +53,7 @@ type demoDVCfg struct {
 
 type demoDVLive struct {
 	mode, tg, slot, tune string
+	panel                string // BM or DMR in ambe_mode DMR
 	private              bool
 }
 
@@ -97,10 +98,9 @@ func (d *DemoDVSwitch) setup() DVSwitchSetup {
 	v := DVSwitchSetup{Identity: c.identity, DMR: c.dmr, Modes: c.modes, Startup: c.startup, Gateways: c.gw,
 		USRP: c.usrp, Private: c.priv, ReservedPorts: dvReservedPortsDemo(), Files: []DVFileView{}}
 	v.DMR.PasswordSet = c.set
-	v.DMRConn = d.dmrConnView()
-	if v.DMRConn.Via == DVViaSTFU {
-		v.Modes.DMR = true
-	}
+	v.DMR.Enabled = c.modes.DMR
+	v.DMR.PointsAtBM = DVBMHostName(c.dmr.Address)
+	v.BrandMeister = d.bmView()
 	v.Warnings = dvWarnings(v.Modes, v.Identity)
 	for i, id := range DVFileIDs() {
 		v.Files = append(v.Files, DVFileView{ID: id, Present: d.installed, Writable: d.installed,
@@ -123,14 +123,14 @@ func (d *DemoDVSwitch) DVSwitchInfo(context.Context) (DVSwitchInfo, error) {
 	now := d.now().UTC()
 	return DVSwitchInfo{Found: true, Version: "1.6.4", Mode: c.live.mode, TG: c.live.tg, Slot: c.live.slot, Tune: c.live.tune,
 		ColorCode: strconv.Itoa(c.startup.ColorCode), Mute: "OFF", GatewayID: c.identity.DMRID, RepeaterID: c.identity.DMRID + c.identity.ESSID,
-		Private: c.live.private, Updated: now.Format(time.RFC3339), Started: c.started.UTC().Format(time.RFC3339),
+		Private: c.live.private, Panel: c.live.panel, Updated: now.Format(time.RFC3339), Started: c.started.UTC().Format(time.RFC3339),
 		Callers: demoCallers(now)}, nil
 }
 
 // resetLive is what Analog_Bridge does on a start: the startup values, an
 // empty last tune and a new start time.
 func (d *DemoDVSwitch) resetLive(c *demoDVCfg) {
-	c.live = demoDVLive{mode: c.startup.AmbeMode, tg: c.startup.TxTg, slot: strconv.Itoa(c.startup.TxTs)}
+	c.live = demoDVLive{mode: c.startup.AmbeMode, panel: DVNormMode(c.startup.AmbeMode), tg: c.startup.TxTg, slot: strconv.Itoa(c.startup.TxTs)}
 	c.started = d.now()
 }
 
@@ -185,11 +185,18 @@ func (d *DemoDVSwitch) DVSwitchTune(_ context.Context, r DVSwitchRequest) (DVTun
 		d.resetLive(c)
 	}
 	res := DVTuneResult{Mode: t.Mode, Confirmed: true}
-	if DVNormMode(c.live.mode) != t.Mode {
+	if c.live.panel != t.Mode {
 		res.Switched = true
-		c.live.mode = t.Mode
-		if t.Mode == "YSF" {
+		// like the helper: the mode left is unlinked first when it was linked
+		if lt := dvLinkedTune(c.live.panel, DVSwitchInfo{Tune: c.live.tune, TG: c.live.tg}); c.live.panel != "" && lt != "" && !DVUnlinkValue(c.live.panel, lt) {
+			res.Left = c.live.panel
+		}
+		c.live.mode, c.live.panel = t.Mode, t.Mode
+		switch t.Mode {
+		case "YSF":
 			c.live.mode = "YSFN"
+		case DVModeBM:
+			c.live.mode = DVModeDMR
 		}
 	}
 	if t.ModeOnly {
@@ -203,7 +210,7 @@ func (d *DemoDVSwitch) DVSwitchTune(_ context.Context, r DVSwitchRequest) (DVTun
 		return res, nil
 	}
 	c.live.tune = value
-	if t.Mode == "DMR" {
+	if DVDMRFamily(t.Mode) {
 		c.live.tg = value
 	}
 	return res, nil
@@ -275,6 +282,9 @@ func (d *DemoDVSwitch) DVSwitchCredentials(_ context.Context, r DVSwitchRequest)
 	if cr.Address != nil && !reDVHost.MatchString(*cr.Address) {
 		return DVApplyResult{}, dvInvalid("DMR Network/Address")
 	}
+	if cr.Address != nil && DVBMHostName(*cr.Address) {
+		return DVApplyResult{}, ErrDVBMMaster
+	}
 	if cr.Port != nil && !vInt(1, 65535)(strconv.Itoa(*cr.Port)) {
 		return DVApplyResult{}, dvInvalid("DMR Network/Port")
 	}
@@ -285,9 +295,6 @@ func (d *DemoDVSwitch) DVSwitchCredentials(_ context.Context, r DVSwitchRequest)
 		return DVApplyResult{}, dvInvalid("DMR Network/Password")
 	}
 	return d.demoWrite([]string{DVFileMMDVMBridge}, []string{"mmdvm_bridge"}, func(c *demoDVCfg) error {
-		if cr.ClearPassword && d.stfu().via == DVViaSTFU {
-			return dvInvalid("DMR Network/Password")
-		}
 		if cr.Address != nil {
 			c.dmr.Address = *cr.Address
 		}
@@ -311,9 +318,6 @@ func (d *DemoDVSwitch) DVSwitchModes(_ context.Context, r DVSwitchRequest) (DVAp
 		return dvNoChange(), nil
 	}
 	return d.demoWrite([]string{DVFileMMDVMBridge}, []string{"analog_bridge", "mmdvm_bridge"}, func(c *demoDVCfg) error {
-		if m.DMR != nil && !*m.DMR && d.stfu().via == DVViaSTFU {
-			return dvInvalid("modes/dmr")
-		}
 		for _, e := range []struct {
 			in  *bool
 			out *bool
@@ -416,7 +420,7 @@ func (d *DemoDVSwitch) DVSwitchRestart(_ context.Context, r DVSwitchRequest) (DV
 	if err := d.ready(); err != nil {
 		return DVRestartResult{}, err
 	}
-	if (r.Scope == "dmr" || r.Scope == "all") && d.stfu().via == DVViaSTFU {
+	if (r.Scope == "dmr" || r.Scope == "all") && d.stfu().enabled {
 		units = append(append([]string{}, units...), dvSTFUUnit)
 	}
 	for _, u := range units {
@@ -454,12 +458,22 @@ func (d *DemoDVSwitch) DVSwitchDMRStatus(context.Context) (DVDMRStatus, error) {
 	if !d.installed {
 		return DVDMRStatus{State: DMRNotInstalled}, nil
 	}
-	if d.stfu().via == DVViaSTFU {
-		return d.demoSTFUStatus(), nil
+	res := d.demoMMDVMStatus()
+	if s := d.stfu(); s.installed {
+		bm := DVDMRStatus{State: DMRDisabled, Via: DVViaSTFU}
+		if s.enabled {
+			bm = d.demoSTFUStatus()
+		}
+		res.BM = &bm
 	}
+	return res, nil
+}
+
+// demoMMDVMStatus is DMR - Other's login (caller holds d.mu).
+func (d *DemoDVSwitch) demoMMDVMStatus() DVDMRStatus {
 	c := d.cfg()
 	if !c.modes.DMR {
-		return DVDMRStatus{State: DMRDisabled, Via: DVViaMMDVM}, nil
+		return DVDMRStatus{State: DMRDisabled, Via: DVViaMMDVM}
 	}
 	now := d.now()
 	since := d.dmrAt
@@ -468,7 +482,7 @@ func (d *DemoDVSwitch) DVSwitchDMRStatus(context.Context) (DVDMRStatus, error) {
 	}
 	res := DVDMRStatus{State: DMRConnecting, Via: DVViaMMDVM, Since: since.UTC().Format(time.RFC3339)}
 	if now.Sub(since) < demoDMRConnect {
-		return res, nil
+		return res
 	}
 	o := demoDMROutcomes[d.dmrRuns%len(demoDMROutcomes)]
 	res.State, res.LastLine = o.state, o.line
@@ -476,7 +490,7 @@ func (d *DemoDVSwitch) DVSwitchDMRStatus(context.Context) (DVDMRStatus, error) {
 	if o.state == DMRLoggedIn {
 		res.Master = "192.0.2.10:62031"
 	}
-	return res, nil
+	return res
 }
 
 // dvReservedPortsDemo: the TLV and AMBE ports of the stock files.

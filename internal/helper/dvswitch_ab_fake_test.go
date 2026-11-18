@@ -30,6 +30,9 @@ type fakeAB struct {
 	freeze   bool
 	mode     string
 	tune     string
+	tg       string   // digital.tg: follows txTg= in DMR
+	txPort   int      // tlv.tx_port: follows txport= (0: the fixture's)
+	tgTo     []string // each txTg= as "value>txport": where it went on
 	log      []string
 	tmpl     string
 }
@@ -53,7 +56,8 @@ func freePorts(t *testing.T, n int) []int {
 	return out
 }
 
-var dvTestModes = []string{"DMR", "YSF", "P25", "NXDN"}
+// dvTestModes are the DVSwitch.ini sections of the fake; STFU is BM's.
+var dvTestModes = []string{"DMR", "YSF", "P25", "NXDN", "STFU"}
 
 // newFakeAB starts a bridge in mode (an ABInfo mode such as YSFN) listening on
 // a free port, writes ABInfo and DVSwitch.ini for DMR, YSF, P25 and NXDN with
@@ -61,7 +65,10 @@ var dvTestModes = []string{"DMR", "YSF", "P25", "NXDN"}
 func newFakeAB(t *testing.T, o *Ops, mode, lastTune string) *fakeAB {
 	t.Helper()
 	ps := freePorts(t, 2+2*len(dvTestModes))
-	f := &fakeAB{t: t, o: o, delay: 15 * time.Millisecond, park: ps[0], port: ps[1], infoPort: ps[1], mode: mode, tune: lastTune, ports: map[string][2]int{}}
+	f := &fakeAB{t: t, o: o, delay: 15 * time.Millisecond, park: ps[0], port: ps[1], infoPort: ps[1], mode: mode, tune: lastTune, tg: "4000", ports: map[string][2]int{}}
+	if mode == "DMR" && lastTune != "" {
+		f.tg = lastTune
+	}
 	good, err := os.ReadFile("testdata/ABInfo_31001.json")
 	if err != nil {
 		t.Fatal(err)
@@ -157,8 +164,14 @@ func (f *fakeAB) handle(pc net.PacketConn, c string) {
 		if v == "YSF" {
 			f.mode = "YSFN"
 		}
+	case "txport":
+		f.txPort, _ = strconv.Atoi(v)
 	case "txTg":
+		f.tgTo = append(f.tgTo, v+">"+strconv.Itoa(f.txPort))
 		f.tune = v
+		if f.mode == "DMR" {
+			f.tg = v
+		}
 	case "info":
 		f.writeInfo()
 	}
@@ -173,6 +186,10 @@ func (f *fakeAB) writeInfo() {
 	s := strings.Replace(f.tmpl, `"rx_port":"31100"`, `"rx_port":"`+strconv.Itoa(f.infoPort)+`"`, 1)
 	s = strings.Replace(s, `"ambe_mode":"DMR"`, `"ambe_mode":"`+f.mode+`"`, 1)
 	s = strings.Replace(s, `"last_tune":""`, `"last_tune":"`+f.tune+`"`, 1)
+	s = strings.Replace(s, `"tg":"9"`, `"tg":"`+f.tg+`"`, 1)
+	if f.txPort != 0 {
+		s = strings.Replace(s, `"tx_port":"31103"`, `"tx_port":"`+strconv.Itoa(f.txPort)+`"`, 1)
+	}
 	dir := filepath.Join(f.o.DVProcDir, "4242", "root", "tmp")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		f.t.Error(err)
@@ -205,10 +222,25 @@ func (f *fakeAB) state() (mode, tune string, port int) {
 	return f.mode, f.tune, f.port
 }
 
-// switchCmds is the command sequence of a mode switch, joined with "|".
+// switchCmds is the command sequence of a mode switch, joined with "|". BM
+// is ambeMode=DMR on the [STFU] ports.
 func (f *fakeAB) switchCmds(mode string) string {
-	p := f.ports[mode]
-	return strings.Join([]string{"rxport=" + strconv.Itoa(f.park), "ambeMode=" + mode, "txport=" + strconv.Itoa(p[1]), "rxport=" + strconv.Itoa(p[0]), "info"}, "|")
+	sec, ambe := mode, mode
+	if mode == "BM" {
+		sec, ambe = "STFU", "DMR"
+	}
+	p := f.ports[sec]
+	return strings.Join([]string{"rxport=" + strconv.Itoa(f.park), "ambeMode=" + ambe, "txport=" + strconv.Itoa(p[1]), "rxport=" + strconv.Itoa(p[0]), "info"}, "|")
+}
+
+// sent returns and clears the txTg= values with the partner port each went
+// to ("value>port").
+func (f *fakeAB) sent() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := f.tgTo
+	f.tgTo = nil
+	return out
 }
 
 // freezeInfo makes ABInfo keep naming the current port from now on.

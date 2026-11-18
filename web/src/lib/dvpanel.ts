@@ -2,7 +2,11 @@
 // favourite and tune validation (the same rules as the server), and the pending/confirm logic.
 import type { DVBridge, DVCaller, DVFavorite, DVSnapshot, DVTuneMode, NodeStatus } from './types';
 
-export const PANEL_MODES: DVTuneMode[] = ['DMR', 'YSF', 'P25', 'NXDN'];
+export const PANEL_MODES: DVTuneMode[] = ['BM', 'DMR', 'YSF', 'P25', 'NXDN'];
+/** BM (BrandMeister through STFU) and DMR (DMR - Other through MMDVM_Bridge) are both DMR on the air: talkgroups, private calls. */
+export const isDMRFamily = (mode: string): boolean => mode === 'BM' || mode === 'DMR';
+/** The name of a panel mode: "BrandMeister" for BM, else the mode itself. */
+export const modeLabel = (mode: string): string => (mode === 'BM' ? 'BrandMeister' : mode);
 /** How long a mode switch may stay unconfirmed before the card says so. */
 export const CONFIRM_MS = 5000;
 export const FAV_NAME_MAX = 40;
@@ -11,8 +15,9 @@ export const FAV_PER_MODE = 50;
 /** "Mode YSF, tuned to Example room (192.0.2.10:42000)", "Mode DMR, tuned to 91", "Mode P25", or "Mode unknown". */
 export function stateLine(b: Pick<DVBridge, 'mode' | 'tune' | 'targetName' | 'source'> | null | undefined): string {
   if (!b || b.source === 'none' || !b.mode) return 'Mode unknown';
-  if (!b.tune) return `Mode ${b.mode}`;
-  return b.targetName ? `Mode ${b.mode}, tuned to ${b.targetName} (${b.tune})` : `Mode ${b.mode}, tuned to ${b.tune}`;
+  const m = modeLabel(b.mode);
+  if (!b.tune) return `Mode ${m}`;
+  return b.targetName ? `Mode ${m}, tuned to ${b.targetName} (${b.tune})` : `Mode ${m}, tuned to ${b.tune}`;
 }
 
 /** The unit dots: a unit that is down, or no snapshot of the bridge at all, is amber. */
@@ -49,12 +54,12 @@ export function validFavName(name: string): string | null {
   return n >= 1 && n <= FAV_NAME_MAX && printable(t) ? t : null;
 }
 
-/** Same rules as the server's tune validator: DMR TG 1-8 digits (a trailing # makes it a private call), P25 and NXDN 1-5 digits, YSF a 5-digit id, a name or host:port. */
+/** Same rules as the server's tune validator: BM and DMR TG 1-8 digits (a trailing # makes it a private call), P25 and NXDN 1-5 digits, YSF a 5-digit id, a name or host:port. */
 export function validTune(mode: string, value: string): boolean {
   const v = value.trim();
   if (!v || v.startsWith('-') || v.includes('=')) return false;
   switch (mode) {
-    case 'DMR': return /^[0-9]{1,8}#?$/.test(v);
+    case 'BM': case 'DMR': return /^[0-9]{1,8}#?$/.test(v);
     case 'P25': case 'NXDN': return /^[0-9]{1,5}$/.test(v);
     case 'YSF': {
       const hp = /^[A-Za-z0-9.-]{1,253}:([0-9]{1,5})$/.exec(v);
@@ -69,12 +74,12 @@ export function validTune(mode: string, value: string): boolean {
 /** BM Parrot: DMR 9990, called as a private call. */
 export const PARROT_ID = '9990';
 export const PRIVATE_MARK = '#';
-/** True for a DMR private call value ("9990#"). */
-export const isPrivateTune = (mode: string, value: string): boolean => mode === 'DMR' && value.trim().endsWith(PRIVATE_MARK) && validTune(mode, value);
-/** The value to send: DMR gets the private mark when asked, other modes never. */
+/** True for a BM or DMR private call value ("9990#"). */
+export const isPrivateTune = (mode: string, value: string): boolean => isDMRFamily(mode) && value.trim().endsWith(PRIVATE_MARK) && validTune(mode, value);
+/** The value to send: BM and DMR get the private mark when asked, other modes never. */
 export function withPrivate(mode: string, value: string, priv: boolean): string {
   const v = value.trim();
-  if (mode !== 'DMR') return v;
+  if (!isDMRFamily(mode)) return v;
   const bare = v.endsWith(PRIVATE_MARK) ? v.slice(0, -1) : v;
   return priv ? bare + PRIVATE_MARK : bare;
 }
@@ -137,14 +142,15 @@ export function validNodeName(name: string): string | null {
 /** Button class of the node link button: green to link, red to unlink (solid colours, readable in both themes). */
 export const nodeLinkClass = (action: 'connect' | 'disconnect'): string => (action === 'connect' ? 'btn-ok' : 'btn-bad');
 
-/** The mode and target the bridge is tuned to: "DMR TG 3100", "YSF Example room", "P25 TG 10100", "DMR" with no target; null without a bridge node or mode. Not what the talker sent. */
+/** The mode and target the bridge is tuned to: "BrandMeister TG 91", "DMR TG 1", "YSF Example room", "P25 TG 10100", "DMR" with no target; null without a bridge node or mode. Not what the talker sent. */
 export function bridgeRxTarget(s: Pick<DVSnapshot, 'bridgeNode' | 'bridge'> | null | undefined): string | null {
   const bn = s?.bridgeNode;
   if (!s || !bn?.present || !bn.node || s.bridge.source === 'none' || !s.bridge.mode) return null;
   const { mode, tune, targetName } = s.bridge;
-  if (mode === 'DMR' && s.bridge.private) return 'DMR private call';
-  if (!tune) return mode;
-  return mode === 'YSF' ? `YSF ${targetName || tune}` : `${mode} TG ${tune}`;
+  const m = modeLabel(mode);
+  if (isDMRFamily(mode) && s.bridge.private) return `${m} private call`;
+  if (!tune) return m;
+  return mode === 'YSF' ? `YSF ${targetName || tune}` : `${m} TG ${tune}`;
 }
 
 /** "RX: DMR TG 3100" while the bridge node is keyed (its link on a local node, or the node itself when monitored), else null. */

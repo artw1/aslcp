@@ -104,6 +104,9 @@ type DVSwitchInfo struct {
 	// Private: last_tune is a DMR private call ("9990#"). TG is then the
 	// number that was called, not a talkgroup.
 	Private bool `json:"private,omitempty"`
+	// Panel is the panel's mode: BM or DMR (both Mode DMR, told apart by
+	// Analog_Bridge's TLV ports), YSF, P25 or NXDN (dvPanel).
+	Panel string `json:"panel,omitempty"`
 
 	// tlvRx is the TLV port Analog_Bridge listens on (not sent to clients).
 	tlvRx int
@@ -202,6 +205,9 @@ func (o *Ops) DVSwitchInfo(ctx context.Context) (DVSwitchInfo, error) {
 		return DVSwitchInfo{}, nil
 	}
 	info, err := o.dvReadInfo(pid)
+	if info.Found {
+		o.dvPanel(&info)
+	}
 	if !started.IsZero() {
 		info.Started = started.Format(time.RFC3339)
 	}
@@ -300,7 +306,7 @@ func (o *Ops) DVSwitchRestart(ctx context.Context, req *DVSwitchRequest) (DVRest
 		return res, dvInvalid("scope")
 	}
 	if req.Scope == "dmr" || req.Scope == "all" {
-		if via, _, err := o.dvVia(); err == nil && via == DVViaSTFU {
+		if _, enabled := o.dvBMUnit(ctx); enabled {
 			units = append(append([]string{}, units...), dvSTFUUnit)
 		}
 	}

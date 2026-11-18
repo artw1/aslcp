@@ -4,8 +4,8 @@ const FIELD: Record<string, string> = {
   'DMR Network/Address': 'DMR master address', 'DMR Network/Port': 'DMR master port', 'DMR Network/Password': 'DMR master password',
   'AMBE_AUDIO/ambeMode': 'Start-up mode', 'AMBE_AUDIO/txTg': 'Start-up talkgroup', 'AMBE_AUDIO/txTs': 'Start-up slot', 'AMBE_AUDIO/colorCode': 'Color code',
   'General/Callsign': 'Callsign', 'General/Id': 'DMR ID', 'NXDN/Id': 'NXDN ID', 'Network/Startup': 'Gateway start-up reflector or talkgroup',
-  'dmrVia/server': 'BrandMeister server', 'dmrVia/talkerAlias': 'Talker alias', 'dmrVia/startTg': 'Start talkgroup', 'dmrVia/network': 'DMR network',
-  'dmrVia/via': 'DMR connection', dmrVia: 'DMR connection', 'dmrVia/ports': 'STFU ports (no free pair)', 'modes/dmr': 'Turning DMR off while STFU carries it',
+  'brandmeister/server': 'BrandMeister master', 'brandmeister/password': 'BrandMeister password', 'brandmeister/talkerAlias': 'Talker alias',
+  'brandmeister/startTg': 'Start talkgroup', 'brandmeister/ports': 'STFU ports 36100/36103 (in use)', 'brandmeister/action': 'BrandMeister action', brandmeister: 'BrandMeister request',
   modes: 'Modes', startup: 'Start-up values', credentials: 'DMR master', file: 'File', base: 'File version',
 };
 

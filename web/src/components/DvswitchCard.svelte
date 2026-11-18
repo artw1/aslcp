@@ -6,7 +6,7 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-  import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine } from '../lib/dvpanel';
+  import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, isDMRFamily, modeLabel } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import { exclusiveHint, linkButton, linkExclusiveOnClick, linkLine, pausedHint } from '../lib/dvbridge';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
@@ -54,15 +54,15 @@
     finally { busy = false; }
   }
 
-  // Tune: a list picker for YSF, P25 and NXDN, a plain number for DMR (its list holds masters, not talkgroups).
+  // Tune: a list picker for YSF, P25 and NXDN, a plain number for BM and DMR (the DMR list holds masters, not talkgroups).
   let lists = $state<Partial<Record<DVTuneMode, { items: DVListItem[]; index: DVIndexed[] }>>>({});
   const tried = new Set<string>();
   let tuneValue = $state('');
-  const pickable = $derived(mode && mode !== 'DMR' ? lists[mode] : undefined);
+  const pickable = $derived(mode && !isDMRFamily(mode) ? lists[mode] : undefined);
   $effect(() => {
     const m = mode;
     tuneValue = '';
-    if (!op || !live || !m || m === 'DMR' || tried.has(m)) return;
+    if (!op || !live || !m || isDMRFamily(m) || tried.has(m)) return;
     tried.add(m);
     api.dvswitchList(m.toLowerCase() as DVListMode)
       .then((l) => { lists[m] = { items: l.items, index: indexList(l.items) }; })
@@ -70,7 +70,7 @@
   });
   // DMR private call: the toggle, or a trailing # typed in the field. Never offered for the other modes.
   let priv = $state(false);
-  const sendValue = $derived(mode === 'DMR' ? withPrivate(mode, tuneValue, priv || tuneValue.trim().endsWith(PRIVATE_MARK)) : tuneValue.trim());
+  const sendValue = $derived(isDMRFamily(mode) ? withPrivate(mode, tuneValue, priv || tuneValue.trim().endsWith(PRIVATE_MARK)) : tuneValue.trim());
   const tuneOk = $derived(!!mode && validTune(mode, sendValue));
   async function tune(value: string) {
     if (locked || !mode) return;
@@ -125,7 +125,7 @@
   const chips = $derived(mode ? favoritesFor(favs, mode) : []);
   const target = $derived(b?.tune ?? '');
   // A private call is saved with its #, so the chip calls it privately again.
-  const favValue = $derived(target && mode === 'DMR' && b?.private ? target + PRIVATE_MARK : target);
+  const favValue = $derived(target && isDMRFamily(mode) && b?.private ? target + PRIVATE_MARK : target);
   const starred = $derived(mode ? findFavorite(favs, mode, favValue) : undefined);
   const block = $derived(!mode ? 'Mode unknown' : target && target === unlinkValue ? 'Nothing is linked' : favoriteBlock(favs, mode, favValue));
 
@@ -183,13 +183,13 @@
 
     {#if op && live}
       <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Mode">
-        {#each snap.modes as m (m.id)}
+        {#each snap.modes.filter((x) => x.id !== 'BM' || x.enabled) as m (m.id)}
           <button type="button" class="btn btn-sm {shown === m.id ? 'btn-primary' : ''}" aria-pressed={shown === m.id}
             disabled={!m.enabled || locked}
             title={m.enabled ? undefined : `${m.id} is not enabled in MMDVM_Bridge${admin ? ' (DVSwitch tab, Modes)' : ''}`}
-            onclick={() => setMode(m.id)}>{m.id}{#if pending?.mode === m.id && outcome === 'waiting'}…{/if}</button>
+            onclick={() => setMode(m.id)}>{modeLabel(m.id)}{#if pending?.mode === m.id && outcome === 'waiting'}…{/if}</button>
         {/each}
-        <button type="button" class="btn btn-sm ml-auto" disabled={locked || !mode || !unlinkValue} title={mode ? `Unlink the ${mode} talkgroup or reflector: send ${unlinkValue} to ${mode}. The bridge node link is not changed.` : 'Mode unknown'} onclick={unlink}><Unlink size={13} aria-hidden="true" />Unlink {mode ? mode + ' target' : ''}</button>
+        <button type="button" class="btn btn-sm ml-auto" disabled={locked || !mode || !unlinkValue} title={mode ? `Unlink the ${modeLabel(mode)} talkgroup or reflector: send ${unlinkValue} to ${modeLabel(mode)}. The bridge node link is not changed.` : 'Mode unknown'} onclick={unlink}><Unlink size={13} aria-hidden="true" />Unlink {mode ? modeLabel(mode) + ' target' : ''}</button>
       </div>
 
       {#if mode}
@@ -198,15 +198,15 @@
             {#if pickable}
               <NodePicker id="dvtune" bind:value={tuneValue} options={pickable.items} search={(t) => searchList(pickable.index, t)} label={(o) => optionLabel(mode.toLowerCase() as DVListMode, o)} placeholder="Search {mode} or type a value" inputmode="text" onenter={go} />
             {:else}
-              <input id="dvtune" class="input font-mono" bind:value={tuneValue} placeholder={mode === 'DMR' ? 'Talkgroup number' : 'Target'} inputmode={mode === 'DMR' ? 'numeric' : 'text'} autocomplete="off" aria-label="Tune target" />
+              <input id="dvtune" class="input font-mono" bind:value={tuneValue} placeholder={isDMRFamily(mode) ? 'Talkgroup number' : 'Target'} inputmode={isDMRFamily(mode) ? 'numeric' : 'text'} autocomplete="off" aria-label="Tune target" />
             {/if}
           </div>
-          {#if mode === 'DMR'}
+          {#if isDMRFamily(mode)}
             <label class="inline-flex cursor-pointer items-center gap-1.5 text-xs" title="Call the number as a private call (a trailing # on the ID)" data-testid="dv-private">
               <input type="checkbox" class="size-4 accent-[var(--accent)]" bind:checked={priv} disabled={locked} />Private call</label>
           {/if}
           <button type="submit" class="btn btn-primary btn-sm" disabled={locked || !tuneOk}>Go</button>
-          {#if mode === 'DMR'}
+          {#if isDMRFamily(mode)}
             <button type="button" class="btn btn-sm" disabled={locked} title="BM Parrot: call 9990 as a private call and hear yourself back" data-testid="dv-parrot" onclick={parrot}>Parrot</button>
           {/if}
           <button type="button" class="btn btn-sm btn-icon" disabled={locked || !!block} aria-pressed={!!starred}

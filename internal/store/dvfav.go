@@ -8,7 +8,7 @@ import (
 )
 
 // DVFavorite is a saved DVSwitch target (a reflector, a talkgroup), shared by
-// everybody on the node. Mode is DMR, YSF, P25 or NXDN; the API validates
+// everybody on the node. Mode is BM, DMR, YSF, P25 or NXDN; the API validates
 // Value per mode.
 type DVFavorite struct {
 	ID    int64  `json:"id"`

@@ -399,3 +399,70 @@ func TestDVStrictDMRTG(t *testing.T) {
 		t.Errorf("tg %q taken from an address", info.TG)
 	}
 }
+
+// A switch away from a linked mode first sends that mode's unlink value
+// while Analog_Bridge still points at its partner, then switches.
+func TestDVTuneSwitchUnlinksTheModeLeft(t *testing.T) {
+	ctx := context.Background()
+	o, ab := tuneEnv(t, "DMR", "")
+	stfu := strconv.Itoa(ab.ports["STFU"][1])
+
+	// DMR (unlinked: tg 4000) to BM 91: nothing to leave
+	res, err := o.DVSwitchTune(ctx, &DVSwitchRequest{Tune: &DVTune{Mode: "BM", Tune: "91"}})
+	if err != nil || !res.Switched || res.Mode != "BM" || res.Left != "" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if got, want := strings.Join(ab.recv(), "|"), ab.switchCmds("BM")+"|txTg=91|info"; got != want {
+		t.Fatalf("datagrams %q, want %q", got, want)
+	}
+	if got := strings.Join(ab.sent(), ","); got != "91>"+stfu {
+		t.Fatalf("sent %q", got)
+	}
+	info, _ := o.DVSwitchInfo(ctx)
+	if DVPanelMode(info) != DVModeBM {
+		t.Fatalf("panel %q", info.Panel)
+	}
+
+	// BM on 91 to DMR: 4000 goes to STFU first, then the switch
+	res, err = o.DVSwitchTune(ctx, &DVSwitchRequest{Tune: &DVTune{Mode: "DMR", Tune: "4000"}})
+	if err != nil || !res.Switched || res.Mode != "DMR" || res.Left != DVModeBM || res.LeftFailed {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if got, want := strings.Join(ab.recv(), "|"), "txTg=4000|"+ab.switchCmds("DMR")+"|txTg=4000|info"; got != want {
+		t.Fatalf("datagrams %q, want %q", got, want)
+	}
+	dmr := strconv.Itoa(ab.ports["DMR"][1])
+	if got := strings.Join(ab.sent(), ","); got != "4000>"+stfu+",4000>"+dmr {
+		t.Fatalf("sent %q", got)
+	}
+
+	// back to BM 91: DMR is unlinked, no extra datagram
+	res, err = o.DVSwitchTune(ctx, &DVSwitchRequest{Tune: &DVTune{Mode: "BM", Tune: "91"}})
+	if err != nil || res.Left != "" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if got, want := strings.Join(ab.recv(), "|"), ab.switchCmds("BM")+"|txTg=91|info"; got != want {
+		t.Fatalf("datagrams %q, want %q", got, want)
+	}
+}
+
+func TestDVTuneSwitchUnlinksYSF(t *testing.T) {
+	ctx := context.Background()
+	o, ab := tuneEnv(t, "YSFN", "192.0.2.10:42000")
+	res, err := o.DVSwitchTune(ctx, &DVSwitchRequest{Tune: &DVTune{Mode: "DMR", Tune: "4000"}})
+	if err != nil || !res.Switched || res.Left != "YSF" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if got, want := strings.Join(ab.recv(), "|"), "txTg=disconnect|"+ab.switchCmds("DMR")+"|txTg=4000|info"; got != want {
+		t.Fatalf("datagrams %q, want %q", got, want)
+	}
+	// an unlinked YSF is left without one
+	o, ab = tuneEnv(t, "YSFN", "disconnect")
+	res, err = o.DVSwitchTune(ctx, &DVSwitchRequest{Tune: &DVTune{Mode: "P25", ModeOnly: true}})
+	if err != nil || res.Left != "" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if got, want := strings.Join(ab.recv(), "|"), ab.switchCmds("P25"); got != want {
+		t.Fatalf("datagrams %q, want %q", got, want)
+	}
+}

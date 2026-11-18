@@ -39,8 +39,8 @@ type DVSnapshot struct {
 	Heard  []helper.DVCaller `json:"heard"`
 }
 
-// DVBridge: Mode is DMR, YSF, P25 or NXDN ("" when unknown); Tune is the TG
-// (DMR) or the last tune (host:port for YSF); Slot is the DMR slot (0 when
+// DVBridge: Mode is BM, DMR, YSF, P25 or NXDN ("" when unknown); Tune is the
+// TG (BM, DMR) or the last tune (host:port for YSF); Slot is the DMR slot (0 when
 // unknown); Source is "abinfo" or "none".
 type DVBridge struct {
 	Mode       string `json:"mode"`
@@ -181,14 +181,16 @@ func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, i
 	}
 	sn.Installed = true
 	var enabled helper.DVModesView
-	stfu := false
+	bm := false
 	if v, ok := d.getSetup(ctx); ok {
 		enabled = v.Modes
-		stfu = v.DMRConn.Via == helper.DVViaSTFU
+		bm = v.BrandMeister.Configured
 	}
 	for _, m := range helper.DVTuneModes {
 		on := false
 		switch m {
+		case helper.DVModeBM:
+			on = bm
 		case "DMR":
 			on = enabled.DMR
 		case "YSF":
@@ -205,7 +207,7 @@ func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, i
 		switch u.Name {
 		case "analog_bridge", "mmdvm_bridge":
 		case "stfu":
-			if !stfu {
+			if !bm {
 				continue
 			}
 		case "ysfgateway", "p25gateway", "nxdngateway":
@@ -240,11 +242,11 @@ func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, i
 func (d *dvSnapper) fillBridge(ctx context.Context, sn *DVSnapshot, info helper.DVSwitchInfo) {
 	b := &sn.Bridge
 	b.Source, b.Updated = "abinfo", info.Updated
-	b.Mode = helper.DVNormMode(info.Mode)
+	b.Mode = helper.DVPanelMode(info)
 	b.Slot, _ = strconv.Atoi(info.Slot)
 	b.Muted = info.Mute == "ON"
 	// ABInfo and the log show the Parrot tune as 9990 without the #.
-	b.Private = (info.Private || info.TG == helper.DVParrotID) && b.Mode == "DMR"
+	b.Private = (info.Private || info.TG == helper.DVParrotID) && helper.DVDMRFamily(b.Mode)
 	if c := info.Callers; c != nil {
 		sn.Caller = c.Current
 		if c.Recent != nil {
@@ -258,8 +260,13 @@ func (d *dvSnapper) fillBridge(ctx context.Context, sn *DVSnapshot, info helper.
 	}
 	switch b.Mode {
 	case "":
-	case "DMR":
-		b.Tune = info.TG
+	case helper.DVModeBM, helper.DVModeDMR:
+		// TG may still hold another mode's value (a YSF reflector's number
+		// after a switch that sent no tune): it is a talkgroup only when no
+		// last tune is set or the last tune was set in BM or DMR.
+		if info.Tune == "" || helper.DVDMRFamily(d.tuneMode) {
+			b.Tune = info.TG
+		}
 	default:
 		if d.tuneMode == b.Mode && helper.DVValidTune(b.Mode, info.Tune) {
 			b.Tune = info.Tune
@@ -343,7 +350,7 @@ func (d *dvSnapper) targetName(ctx context.Context, mode, tune string) string {
 }
 
 func (d *dvSnapper) listName(ctx context.Context, mode, tune string) string {
-	if mode == "DMR" { // the DMR list holds masters, not talkgroups
+	if helper.DVDMRFamily(mode) { // the DMR list holds masters, not talkgroups
 		return ""
 	}
 	now := d.now()

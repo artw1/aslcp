@@ -13,8 +13,8 @@
   import Confirm from './Confirm.svelte';
   import NodePicker from './NodePicker.svelte';
   import DvswitchBridge from './DvswitchBridge.svelte';
-  import DvswitchDmrConn from './DvswitchDmrConn.svelte';
-  import { unitFor, viaLabel } from '../lib/dvconn';
+  import DvswitchBM from './DvswitchBM.svelte';
+  import { isBMHost, otherOptions } from '../lib/dvbm';
 
   let { units, onunits }: { units: DVSwitchStatus['units']; onunits: (u: DVSwitchStatus['units']) => void } = $props();
 
@@ -27,7 +27,8 @@
   // its field is then plain text, which is always allowed.
   const MODES: DVListMode[] = ['dmr', 'ysf', 'p25', 'nxdn'];
   let lists = $state<Record<DVListMode, DVListItem[]>>({ dmr: [], ysf: [], p25: [], nxdn: [] });
-  const index = $derived({ dmr: indexList(lists.dmr), ysf: indexList(lists.ysf), p25: indexList(lists.p25), nxdn: indexList(lists.nxdn) });
+  // DMR - Other never offers a BrandMeister master: those belong to the BrandMeister section.
+  const index = $derived({ dmr: indexList(otherOptions(lists.dmr)), ysf: indexList(lists.ysf), p25: indexList(lists.p25), nxdn: indexList(lists.nxdn) });
   const find = (m: DVListMode) => (t: string) => searchList(index[m], t);
   const label = (m: DVListMode) => (o: DVListItem) => optionLabel(m, o);
   async function loadLists() {
@@ -103,9 +104,10 @@
     verify = { working: '', outcome: r.outcome };
   }
   // Saved credentials only take effect after mmdvm_bridge restarts: restart that unit alone, then wait for a verdict.
-  // The unit holding the DMR login: mmdvm_bridge, or stfu with BrandMeister through STFU.
-  const dmrUnit = $derived(unitFor(v?.dmrConn?.via));
-  const stfuOn = $derived(v?.dmrConn?.via === 'stfu');
+  // DMR - Other logs in through mmdvm_bridge; BrandMeister (stfu) has its own section.
+  const dmrUnit = 'mmdvm_bridge';
+  const bmOn = $derived(!!v?.brandmeister?.enabled);
+  let confirmDmrClear = $state(false);
   async function verifyLogin() {
     const my = ++gen;
     const done = (outcome: Outcome) => { verify = { working: '', outcome }; };
@@ -177,15 +179,20 @@
   function saveNet() {
     const p = credentialsPatch(snap.net, net, clearPw);
     if (!p) return noChanges('DMR master');
+    if (p.dmrAddress && isBMHost(p.dmrAddress, lists.dmr)) { toast('That is a BrandMeister master: set it up under BrandMeister instead.', 'error'); return; }
     return save('DMR master', async () => { try { return await api.dvswitchCredentials({ ...p, base: base() }); } finally { net.password = ''; clearPw = false; } }, true);
   }
-  // With STFU carrying DMR, MMDVM_Bridge's DMR flag belongs to the DMR connection card: it is not sent from here.
   function saveModes() {
     if (!formChanged(snap.modes, modes)) return noChanges('Modes');
-    const { dmr, ...rest } = modes;
-    return save('Modes', () => api.dvswitchModes({ ...rest, ...(stfuOn ? {} : { dmr }), base: base() }));
+    return save('Modes', () => api.dvswitchModes({ ...modes, base: base() }));
   }
-  // The DMR connection card saved (s) or asks for a reload (null).
+  // DMR - Other off: both Enable flags to 0. The address and the password stay.
+  async function clearDmr() {
+    confirmDmrClear = false; gen++; verify = { working: '', outcome: null };
+    await save('DMR - Other', () => api.dvswitchDmrClear());
+    pollOnce();
+  }
+  // The BrandMeister section saved (s) or asks for a reload (null).
   async function connSaved(s: DVSwitchSetup | null) {
     if (!s) { await load(); return; }
     fill(s);
@@ -232,12 +239,12 @@
   <div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
     <section class="card space-y-3 p-4" aria-label="Identity and network">
       <h2 class="text-base font-semibold">Identity and network</h2>
-      {#each v.warnings ?? [] as w}<p class="text-xs text-warn" role="status">{w}</p>{/each}
+      {#each (v.warnings ?? []).filter((w) => !(v?.dmr.pointsAtBm && w.startsWith('DMR - Other points at'))) as w}<p class="text-xs text-warn" role="status">{w}</p>{/each}
       {#if !v.identity.consistent}<p class="text-xs text-warn" role="status">The identity differs between the ini files (edited by hand?). Saving writes it to all of them.</p>{/if}
       <form class="grid grid-cols-1 gap-2 sm:grid-cols-3" onsubmit={(e) => { e.preventDefault(); saveIdentity(); }}>
         <div><label class="label" for="dv-call">Callsign</label><input id="dv-call" class="input font-mono" bind:value={id.callsign} maxlength="10" autocapitalize="characters" /></div>
         <div><label class="label" for="dv-id">DMR ID</label><input id="dv-id" class="input font-mono" bind:value={id.dmrId} inputmode="numeric" maxlength="7" placeholder="1234567" /></div>
-        <div><label class="label" for="dv-essid">ESSID</label><input id="dv-essid" class="input font-mono" bind:value={id.essid} inputmode="numeric" maxlength="2" placeholder="01" aria-describedby={stfuOn ? 'dv-essid-hint' : undefined} />{#if stfuOn}<p id="dv-essid-hint" class="mt-1 text-xs text-muted">Not used by STFU: it logs in with the 7-digit DMR ID.</p>{/if}</div>
+        <div><label class="label" for="dv-essid">ESSID</label><input id="dv-essid" class="input font-mono" bind:value={id.essid} inputmode="numeric" maxlength="2" placeholder="01" aria-describedby={bmOn ? 'dv-essid-hint' : undefined} />{#if bmOn}<p id="dv-essid-hint" class="mt-1 text-xs text-muted">Not used by BrandMeister: STFU logs in with the 7-digit DMR ID.</p>{/if}</div>
         <div class="sm:col-span-3"><label class="label" for="dv-nxdnid">NXDN ID</label><input id="dv-nxdnid" class="input font-mono sm:w-40" bind:value={id.nxdnId} inputmode="numeric" maxlength="5" placeholder="12345" aria-describedby="dv-nxdnid-hint" /><p id="dv-nxdnid-hint" class="mt-1 text-xs text-muted">from radioid.net, separate from the DMR ID</p></div>
         <fieldset class="grid grid-cols-1 gap-2 sm:col-span-3 sm:grid-cols-3" data-testid="dv-info">
           <legend class="label">Hotspot info <span class="font-normal text-muted">(the [Info] section; shown to DMR networks)</span></legend>
@@ -253,13 +260,14 @@
         <div class="sm:col-span-3"><button class="btn btn-primary" disabled={busy}>Save identity</button><span class="ml-2 text-xs text-muted">Written to every place that holds it.</span></div>
       </form>
       <form class="grid grid-cols-1 gap-2 border-t border-line pt-3 sm:grid-cols-3" onsubmit={(e) => { e.preventDefault(); saveNet(); }}>
-        <div class="flex flex-wrap items-center gap-2 sm:col-span-3" aria-label="DMR login">
-          <h3 class="text-sm font-semibold">DMR login</h3>
+        <div class="flex flex-wrap items-center gap-2 sm:col-span-3" aria-label="DMR - Other login">
+          <h3 class="text-sm font-semibold">DMR - Other</h3>
           <span class="badge {TONE[bd.tone]}" role="status" title={dmr?.lastLine ?? ''}>{bd.text}</span>
-          {#if viaLabel(dmr)}<span class="text-xs text-muted" data-testid="dv-dmr-via">via {viaLabel(dmr)}</span>{/if}
+          <span class="text-xs text-muted">Any DMR network but BrandMeister, through MMDVM_Bridge.</span>
         </div>
+        {#if v.dmr.pointsAtBm}<p class="text-xs text-warn sm:col-span-3" role="status" data-testid="dv-dmr-points-at-bm">DMR - Other points at a BrandMeister master. Set BrandMeister up under BrandMeister, then point DMR - Other at another network or clear it.</p>{/if}
         <div class="sm:col-span-2"><label class="label" for="dv-addr">DMR master address</label>
-          <NodePicker id="dv-addr" bind:value={net.address} options={lists.dmr} search={find('dmr')} label={label('dmr')} onpickoption={(o) => { net.port = String(o.port); }} placeholder="Search a master or type an address" inputmode="text" maxlength={253} describedby="dv-addr-hint" /></div>
+          <NodePicker id="dv-addr" bind:value={net.address} options={otherOptions(lists.dmr)} search={find('dmr')} label={label('dmr')} onpickoption={(o) => { net.port = String(o.port); }} placeholder="Search a master or type an address" inputmode="text" maxlength={253} describedby="dv-addr-hint" /></div>
         <div><label class="label" for="dv-port">Port</label><input id="dv-port" class="input font-mono" bind:value={net.port} inputmode="numeric" maxlength="5" /></div>
         <p id="dv-addr-hint" class="text-xs text-muted sm:col-span-3">{lists.dmr.length ? 'Search by name, network ID or address. Picking a master fills the address and the port; you can also type your own.' : 'Type the master address and port.'} The list never holds your password: enter your own below.</p>
         <div class="sm:col-span-3">
@@ -270,7 +278,7 @@
           {/if}
           <p class="mt-1 text-xs text-muted">Write-only: it is never shown again. Printable ASCII, up to 64 characters, without quotes, # or ;.</p>
         </div>
-        <div class="sm:col-span-3"><button class="btn btn-primary" disabled={busy || !!verify.working}>Save DMR master</button><span class="ml-2 text-xs text-muted">Saving restarts {dmrUnit} only, then checks the login.{#if stfuOn} STFU uses this password; the master address is only for MMDVM_Bridge.{/if}</span></div>
+        <div class="flex flex-wrap items-center gap-2 sm:col-span-3"><button class="btn btn-primary" disabled={busy || !!verify.working}>Save DMR master</button>{#if v.dmr.enabled}<button type="button" class="btn" disabled={busy || !!verify.working} onclick={() => (confirmDmrClear = true)}>Clear DMR connection</button>{/if}<span class="text-xs text-muted">Saving restarts {dmrUnit} only, then checks the login.</span></div>
         {#if verify.working}
           <p class="rounded border border-line p-2 text-sm text-muted sm:col-span-3" role="status">{verify.working}</p>
         {:else if verify.outcome}
@@ -279,16 +287,16 @@
       </form>
     </section>
 
-    <DvswitchDmrConn {v} {base} {dmr} disabled={busy || !!verify.working} onsaved={connSaved} />
+    <DvswitchBM {v} {base} status={dmr?.bm ?? null} hosts={lists.dmr} disabled={busy} onsaved={connSaved} />
 
     <section class="card space-y-3 p-4" aria-label="Modes and startup">
       <h2 class="text-base font-semibold">Enabled modes</h2>
       <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-        {#each [['dmr', 'DMR'], ['ysf', 'System Fusion'], ['p25', 'P25'], ['nxdn', 'NXDN']] as [k, label]}
-          <label class="inline-flex cursor-pointer items-center gap-1.5"><input type="checkbox" class="size-4 accent-[var(--accent)]" bind:checked={modes[k as 'dmr']} disabled={busy || (k === 'dmr' && stfuOn)} />{label}</label>
+        {#each [['dmr', 'DMR - Other'], ['ysf', 'System Fusion'], ['p25', 'P25'], ['nxdn', 'NXDN']] as [k, label]}
+          <label class="inline-flex cursor-pointer items-center gap-1.5"><input type="checkbox" class="size-4 accent-[var(--accent)]" bind:checked={modes[k as 'dmr']} disabled={busy} />{label}</label>
         {/each}
       </div>
-      {#if stfuOn}<p class="text-xs text-muted" data-testid="dv-dmr-stfu-mode">DMR runs through STFU. To turn it off, switch the DMR connection back to MMDVM_Bridge first.</p>{/if}
+      <p class="text-xs text-muted">BrandMeister is turned on and off in its own section.</p>
       <div><button class="btn btn-primary" disabled={busy} onclick={saveModes}>Save modes</button><span class="ml-2 text-xs text-muted">Sets the flag in the mode and its network section.</span></div>
 
       <h2 class="border-t border-line pt-3 text-base font-semibold">Startup</h2>
@@ -351,7 +359,7 @@
       </ul>
       <div class="flex flex-wrap items-center gap-2">
         <label class="sr-only" for="dv-scope">Scope</label>
-        <select id="dv-scope" class="input w-auto" bind:value={scope}><option value="dmr">DMR master only ({stfuOn ? 'MMDVM_Bridge and STFU' : 'MMDVM_Bridge'})</option><option value="bridge">Bridge (Analog_Bridge, MMDVM_Bridge)</option><option value="gateways">Gateways (YSF, P25, NXDN)</option><option value="all">All</option></select>
+        <select id="dv-scope" class="input w-auto" bind:value={scope}><option value="dmr">DMR only ({bmOn ? 'MMDVM_Bridge and STFU' : 'MMDVM_Bridge'})</option><option value="bridge">Bridge (Analog_Bridge, MMDVM_Bridge)</option><option value="gateways">Gateways (YSF, P25, NXDN)</option><option value="all">All</option></select>
         <button class="btn" disabled={busy} onclick={() => run('start')} title="Start the units that are stopped">Start</button>
         <button class="btn btn-primary" disabled={busy} onclick={() => (confirmRestart = true)}>Restart</button>
       </div>
@@ -375,5 +383,6 @@
   </div>
 {/if}
 
-<Confirm bind:open={confirmRestart} title="Restart services?" confirmLabel="Restart" message={`This restarts the ${({ all: 'bridge and the gateways', bridge: 'bridge', dmr: stfuOn ? 'DMR connection (MMDVM_Bridge and STFU)' : 'DMR master connection (MMDVM_Bridge)', gateways: 'gateways' } as const)[scope]}. ${WARNING}`} onconfirm={() => run('restart')} />
+<Confirm bind:open={confirmRestart} title="Restart services?" confirmLabel="Restart" message={`This restarts the ${({ all: 'bridge and the gateways', bridge: 'bridge', dmr: bmOn ? 'DMR connections (MMDVM_Bridge and STFU)' : 'DMR master connection (MMDVM_Bridge)', gateways: 'gateways' } as const)[scope]}. ${WARNING}`} onconfirm={() => run('restart')} />
+<Confirm bind:open={confirmDmrClear} title="Clear the DMR - Other connection?" confirmLabel="Clear" message="This turns DMR - Other off ([DMR] and [DMR Network] Enable=0) and takes it off the panel. The address and the password stay; BrandMeister is not touched." onconfirm={clearDmr} />
 <Confirm bind:open={rbOpen} title="Restore the previous version?" confirmLabel="Restore" message={`${FILE_LABEL[rollbackFile] ?? rollbackFile} goes back to its previous version. Services pick it up on a restart.`} onconfirm={() => rollback(rollbackFile)} />

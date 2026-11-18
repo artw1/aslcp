@@ -5,9 +5,10 @@ import (
 	"time"
 )
 
-// Demo side of the DMR connection method: STFU's install is a short
-// simulated job, the switch only changes memory, the status cycles through
-// connecting and logged in with placeholder values.
+// Demo side of the BrandMeister connection: STFU comes with the DVSwitch
+// install (its own install is a short simulated job), saving only changes
+// memory, the status cycles through connecting and logged in with
+// placeholder values.
 
 const demoSTFUDuration = 3 * time.Second
 
@@ -21,19 +22,22 @@ var demoSTFULog = []string{
 type demoSTFU struct {
 	installed bool
 	started   time.Time // install job start
-	via       string
+	enabled   bool      // BrandMeister saved: the unit is enabled
+	pwSet     bool
 	server    string
 	alias     string
 	startTG   string
-	at        time.Time // last switch to STFU (the simulated login)
+	at        time.Time // last (re)start of stfu (the simulated login)
 }
 
 func (d *DemoDVSwitch) stfu() *demoSTFU {
 	if d.st == nil {
-		d.st = &demoSTFU{via: DVViaMMDVM, server: DefaultDVSTFUServer, startTG: dvSTFUStartTG}
+		d.st = &demoSTFU{server: DefaultDVSTFUServer, startTG: dvSTFUStartTG}
 	}
 	if !d.installed {
-		d.st.installed, d.st.via, d.st.started = false, DVViaMMDVM, time.Time{}
+		*d.st = demoSTFU{server: DefaultDVSTFUServer, startTG: dvSTFUStartTG}
+	} else if !d.st.installed && d.st.started.IsZero() {
+		d.st.installed = true // installed together with DVSwitch
 	}
 	return d.st
 }
@@ -93,30 +97,50 @@ func (d *DemoDVSwitch) DVSwitchSTFUInstall(context.Context) (DVSwitchStatus, err
 	return d.status(), nil
 }
 
-// dmrConnView is the setup view part (caller holds d.mu).
-func (d *DemoDVSwitch) dmrConnView() DVDMRConnView {
+// bmView is the setup view part (caller holds d.mu).
+func (d *DemoDVSwitch) bmView() DVBMView {
 	s := d.stfu()
-	v := DVDMRConnView{Via: s.via}
-	if s.via == DVViaSTFU {
-		v.Network = DVNetBrandMeister
+	v := DVBMView{Installed: s.installed, Enabled: s.enabled}
+	if !s.installed {
+		return v
 	}
-	if s.installed {
-		alias := s.alias
-		if alias == "" {
-			alias = d.cfg().identity.Callsign
-		}
-		v.STFU = DVSTFUView{Present: true, Server: s.server, Port: dvSTFUDefaultPort, TalkerAlias: alias, StartTG: s.startTG,
-			TxPort: dvSTFUTx, RxPort: dvSTFURx, PasswordSet: s.via == DVViaSTFU && d.cfg().set}
+	alias := s.alias
+	if alias == "" {
+		alias = d.cfg().identity.Callsign
 	}
+	v.Present, v.Server, v.Port, v.TalkerAlias, v.StartTG = true, s.server, dvSTFUDefaultPort, alias, s.startTG
+	v.TxPort, v.RxPort, v.PasswordSet = dvSTFUTx, dvSTFURx, s.pwSet
+	v.Configured = s.enabled && s.pwSet && reDVDigits7.MatchString(d.cfg().identity.DMRID)
 	return v
 }
 
-// DVSwitchDMRVia implements the API's DVSwitch interface: it validates like
-// the helper and switches the method in memory.
-func (d *DemoDVSwitch) DVSwitchDMRVia(_ context.Context, r DVSwitchRequest) (DVApplyResult, error) {
-	v := r.DMRVia
-	if v == nil {
-		return DVApplyResult{}, dvInvalid("dmrVia")
+// DVSwitchBM implements the API's DVSwitch interface: it validates like the
+// helper and changes memory.
+func (d *DemoDVSwitch) DVSwitchBM(_ context.Context, r DVSwitchRequest) (DVApplyResult, error) {
+	b := r.BM
+	if b == nil {
+		return DVApplyResult{}, dvInvalid("brandmeister")
+	}
+	switch b.Action {
+	case DVBMSave:
+		if b.Server != "" && !vHostname(b.Server) {
+			return DVApplyResult{}, dvInvalid("brandmeister/server")
+		}
+		if b.Password != nil && !dvPasswordSet(*b.Password) {
+			return DVApplyResult{}, dvInvalid("brandmeister/password")
+		}
+		if b.TalkerAlias != nil && !vTalkerAlias(*b.TalkerAlias) {
+			return DVApplyResult{}, dvInvalid("brandmeister/talkerAlias")
+		}
+		if b.StartTG != nil && !reDVTG.MatchString(*b.StartTG) {
+			return DVApplyResult{}, dvInvalid("brandmeister/startTg")
+		}
+	case DVBMClear:
+		if b.Server != "" || b.Password != nil || b.TalkerAlias != nil || b.StartTG != nil {
+			return DVApplyResult{}, dvInvalid("brandmeister")
+		}
+	default:
+		return DVApplyResult{}, dvInvalid("brandmeister/action")
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -125,59 +149,43 @@ func (d *DemoDVSwitch) DVSwitchDMRVia(_ context.Context, r DVSwitchRequest) (DVA
 	}
 	s := d.stfu()
 	c := d.cfg()
-	files := []string{DVFileDVSwitch, DVFileMMDVMBridge, DVFileAnalogBridge}
-	switch v.Via {
-	case DVViaMMDVM:
-		if v.Network != "" || v.Server != "" || v.TalkerAlias != nil || v.StartTG != nil {
-			return DVApplyResult{}, dvInvalid("dmrVia")
-		}
-		if s.via == DVViaMMDVM {
+	if b.Action == DVBMClear {
+		if !s.enabled && !s.pwSet {
 			return dvNoChange(), nil
 		}
-		s.via = DVViaMMDVM
-		files = files[1:]
-	case DVViaSTFU:
-		if _, ok := dvDMRMethodFor(v.Network, v.Via); !ok {
-			return DVApplyResult{}, dvInvalid("dmrVia/network")
+		s.enabled, s.pwSet = false, false
+		if c.live.panel == DVModeBM {
+			c.live.panel = DVModeDMR
 		}
-		if v.Server != "" && !vHostname(v.Server) {
-			return DVApplyResult{}, dvInvalid("dmrVia/server")
-		}
-		if v.TalkerAlias != nil && !vTalkerAlias(*v.TalkerAlias) {
-			return DVApplyResult{}, dvInvalid("dmrVia/talkerAlias")
-		}
-		if v.StartTG != nil && !reDVTG.MatchString(*v.StartTG) {
-			return DVApplyResult{}, dvInvalid("dmrVia/startTg")
-		}
+	} else {
 		if !s.installed {
 			return DVApplyResult{}, ErrDVSTFUNotInstalled
 		}
-		if !c.set {
+		if !reDVCall.MatchString(c.identity.Callsign) || !reDVDigits7.MatchString(c.identity.DMRID) {
+			return DVApplyResult{}, ErrDVNoIdentity
+		}
+		if b.Password == nil && !s.pwSet {
 			return DVApplyResult{}, ErrDVNoPassword
 		}
-		if v.Server != "" {
-			s.server = v.Server
+		if b.Server != "" {
+			s.server = b.Server
 		}
-		if v.TalkerAlias != nil {
-			s.alias = *v.TalkerAlias
+		if b.TalkerAlias != nil {
+			s.alias = *b.TalkerAlias
 		}
-		if v.StartTG != nil {
-			s.startTG = *v.StartTG
+		if b.StartTG != nil {
+			s.startTG = *b.StartTG
 		}
-		s.via, s.at = DVViaSTFU, d.now()
-	default:
-		return DVApplyResult{}, dvInvalid("dmrVia/via")
+		s.enabled, s.pwSet, s.at = true, true, d.now()
 	}
 	c.times++
-	for _, id := range files {
-		if c.hist[id] < dvHistoryKeep {
-			c.hist[id]++
-		}
+	if c.hist[DVFileDVSwitch] < dvHistoryKeep {
+		c.hist[DVFileDVSwitch]++
 	}
-	return DVApplyResult{Files: files, Skipped: []string{}, RestartHint: []string{}, Hashes: map[string]string{}}, nil
+	return DVApplyResult{Files: []string{DVFileDVSwitch}, Skipped: []string{}, RestartHint: []string{}, Hashes: map[string]string{}}, nil
 }
 
-// demoSTFUStatus is the DMR status with STFU in use (caller holds d.mu).
+// demoSTFUStatus is the BrandMeister login (caller holds d.mu).
 func (d *DemoDVSwitch) demoSTFUStatus() DVDMRStatus {
 	s := d.stfu()
 	now := d.now()

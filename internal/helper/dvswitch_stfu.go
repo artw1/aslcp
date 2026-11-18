@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,30 +19,50 @@ import (
 	"github.com/artw1/aslcp/internal/dvswitch/ini"
 )
 
-// The DMR connection method (docs/DVSWITCH.md, "DMR connection method").
-// DMR reaches its network either through MMDVM_Bridge's own DMR network (the
-// stock setup) or through a separate client: for BrandMeister, STFU, which
-// speaks the Open DMR Terminal protocol and shows in BrandMeister SelfCare as
-// an "Open DMR Terminal". The choice is a (network, via) pair kept in a root
-// record; other networks (TGIF, FreeDMR, HBlink) are further rows of
-// dvDMRMethods. Only one client may log in to BrandMeister with the ID, so
-// with STFU MMDVM_Bridge's DMR is switched off ([DMR] Enable=0 and
-// [DMR Network] Enable=0) while it keeps running for YSF, P25 and NXDN; the
-// previous flags are restored on the way back.
+// BrandMeister through STFU and "DMR - Other" through MMDVM_Bridge
+// (docs/DVSWITCH.md, "BrandMeister and DMR - Other"). The two are separate
+// DMR connections that may run at the same time:
+//
+//   - BrandMeister: STFU, a client of the Open DMR Terminal protocol (it
+//     shows in BrandMeister SelfCare under "DMR Terminals" as "Open DMR
+//     Terminal"), on its own TLV ports from DVSwitch.ini [STFU];
+//   - DMR - Other: MMDVM_Bridge's own DMR network ([DMR Network] of
+//     MMDVM_Bridge.ini) on the [DMR] TLV ports, for any master that is not
+//     BrandMeister.
+//
+// Switching between them is the ordinary runtime mode switch of
+// Analog_Bridge (ambeMode=DMR with the section's ports, dvswitch_tune.go):
+// no file is rewritten and nothing restarts. Analog_Bridge reports
+// ambe_mode DMR for both; which one is live follows from its TLV ports
+// (dvPanel).
 
 // Operation names.
 const (
-	OpDVSwitchDMRVia      = "dvswitch-dmr-via"      // switch the DMR connection method
+	OpDVSwitchBM          = "dvswitch-bm"           // save or clear the BrandMeister connection
 	OpDVSwitchSTFUInstall = "dvswitch-stfu-install" // apt-get install stfu in a transient unit
 )
 
-// DMR connection methods and networks.
+// Actions of dvswitch-bm.
 const (
-	DVViaMMDVM        = "mmdvm_bridge"
-	DVViaSTFU         = "stfu"
-	DVNetBrandMeister = "brandmeister"
-	// DefaultDVSTFUServer is the BrandMeister ODMRT server STFU logs in to
-	// when none was set.
+	DVBMSave  = "save"  // write [STFU], enable and (re)start stfu
+	DVBMClear = "clear" // stop and disable stfu, reset the password
+)
+
+// DMR connections (DVDMRStatus.Via).
+const (
+	DVViaMMDVM = "mmdvm_bridge"
+	DVViaSTFU  = "stfu"
+)
+
+// Panel modes of the two DMR connections (DVTuneModes).
+const (
+	DVModeBM  = "BM"
+	DVModeDMR = "DMR"
+)
+
+const (
+	// DefaultDVSTFUServer is the BrandMeister server STFU logs in to when
+	// none was set.
 	DefaultDVSTFUServer = "3102.repeater.net"
 	// DefaultDVSTFULog is STFU's log; at startup it logs every setting,
 	// the BM password included, so it is read with those lines dropped and
@@ -64,133 +83,39 @@ const (
 	dvSTFUUnit        = "stfu"
 	dvSTFUJobUnit     = "aslcp-dvswitch-stfu"
 	dvSTFUSimFile     = "stfu-sim.txt"
-	dvDMRRecordFile   = "dmr.json"
 	dvTalkerAliasMax  = 27
 
 	// StepSTFUPlan is the dependency guard of the STFU install unit.
 	StepSTFUPlan = "stfu-plan"
-
-	// DVDMRRecordWarning is the setup-view warning for an unreadable record.
-	DVDMRRecordWarning = "The DMR connection record cannot be read: switch the DMR connection again to rewrite it"
 )
-
-// dvDMRMethod is one way to reach a DMR network other than MMDVM_Bridge's
-// own DMR network: Section is its section in DVSwitch.ini (its TLV ports),
-// Unit its systemd unit, Package its Debian package.
-type dvDMRMethod struct {
-	Network, Via, Section, Unit, Package string
-}
-
-var dvDMRMethods = []dvDMRMethod{
-	{Network: DVNetBrandMeister, Via: DVViaSTFU, Section: dvSTFUSection, Unit: dvSTFUUnit, Package: dvSTFUPkg},
-}
-
-func dvDMRMethodFor(network, via string) (dvDMRMethod, bool) {
-	for _, m := range dvDMRMethods {
-		if m.Network == network && m.Via == via {
-			return m, true
-		}
-	}
-	return dvDMRMethod{}, false
-}
 
 // Errors (mapped back by the client, client.go).
 var (
 	ErrDVSTFUNotInstalled = errors.New("stfu_not_installed: STFU is not installed, or DVSwitch.ini has no [STFU] section")
 	ErrDVSTFUInstalled    = errors.New("stfu_installed: STFU is already installed")
 	ErrDVNoIdentity       = errors.New("no_identity: save the callsign and DMR ID first")
-	ErrDVNoPassword       = errors.New("no_password: save the BrandMeister hotspot password first")
-	ErrDVDMRRecord        = errors.New("dmr_record: the DMR connection record cannot be read")
-	ErrDVSwitchFailed     = errors.New("switch_failed: the DMR connection could not be switched; the previous settings were restored")
+	ErrDVNoPassword       = errors.New("no_password: enter the BrandMeister hotspot security password")
+	ErrDVBMMaster         = errors.New("bm_master: BrandMeister masters are set up under BrandMeister, not DMR - Other")
+	ErrDVSwitchFailed     = errors.New("switch_failed: the BrandMeister connection could not be changed; the previous settings were restored")
 )
 
-// DVDMRVia is the argument of dvswitch-dmr-via. Network is required for a
-// method other than MMDVM_Bridge (only "brandmeister" for STFU). Server is
-// the BrandMeister ODMRT server ("" keeps the saved one, or the default).
-// Nil TalkerAlias and StartTG keep the saved value (or the default: the
-// callsign and 4000).
-type DVDMRVia struct {
-	Via         string  `json:"via"`
-	Network     string  `json:"network,omitempty"`
+// DVBM is the argument of dvswitch-bm. Save: Server is the BrandMeister
+// server STFU logs in to ("" keeps the saved one, or the default); its port
+// is always 54006. Password is the hotspot security password of SelfCare
+// (nil keeps the saved one; write-only). Nil TalkerAlias and StartTG keep
+// the saved value (or the default: the callsign and 4000). Clear takes no
+// other field.
+type DVBM struct {
+	Action      string  `json:"action"`
 	Server      string  `json:"server,omitempty"`
+	Password    *string `json:"password,omitempty"`
 	TalkerAlias *string `json:"talkerAlias,omitempty"`
 	StartTG     *string `json:"startTg,omitempty"`
 }
 
-// DVDMRRecord is the root-only record of the method in use. No file means
-// MMDVM_Bridge. PrevMMDVMDMR: MMDVM_Bridge's DMR flags were on before the
-// switch. ABRetargeted: Analog_Bridge's [AMBE_AUDIO] ports were moved from
-// MMDVM_Bridge's [DMR] ports to the method's.
-type DVDMRRecord struct {
-	Version      int    `json:"version"`
-	Network      string `json:"network"`
-	Via          string `json:"via"`
-	PrevMMDVMDMR bool   `json:"prevMMDVMDMR"`
-	ABRetargeted bool   `json:"abRetargeted"`
-}
-
-func (o *Ops) dvDMRRecordPath() string  { return filepath.Join(o.dvStateDir(), dvDMRRecordFile) }
 func (o *Ops) dvSTFULogPath() string    { return orDefault(o.DVSTFULog, DefaultDVSTFULog) }
 func (o *Ops) dvSTFUDropinPath() string { return orDefault(o.DVSTFUDropin, DefaultDVSTFUDropin) }
 func (o *Ops) dvSTFUSimPath() string    { return filepath.Join(o.dvStateDir(), dvSTFUSimFile) }
-
-// ReadDVDMRRecord reads the record; (nil, nil) when there is none. Anything
-// unexpected is an error (never half-trusted).
-func ReadDVDMRRecord(path string) (*DVDMRRecord, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, ErrDVDMRRecord
-	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, 4<<10))
-	if err != nil {
-		return nil, ErrDVDMRRecord
-	}
-	var r DVDMRRecord
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&r); err != nil || r.Version != 1 {
-		return nil, ErrDVDMRRecord
-	}
-	if _, ok := dvDMRMethodFor(r.Network, r.Via); !ok {
-		return nil, ErrDVDMRRecord
-	}
-	return &r, nil
-}
-
-func (o *Ops) writeDVDMRRecord(r DVDMRRecord) error {
-	if err := os.MkdirAll(o.dvStateDir(), 0o700); err != nil {
-		return err
-	}
-	b, _ := json.MarshalIndent(r, "", "  ")
-	return writeStateFile(o.dvDMRRecordPath(), append(b, '\n'), 0o600)
-}
-
-// dvVia returns the method in use (DVViaMMDVM when there is no record).
-func (o *Ops) dvVia() (string, *DVDMRRecord, error) {
-	r, err := ReadDVDMRRecord(o.dvDMRRecordPath())
-	if err != nil {
-		return "", nil, err
-	}
-	if r == nil {
-		return DVViaMMDVM, nil, nil
-	}
-	return r.Via, r, nil
-}
-
-// dvDMRSection is the DVSwitch.ini section whose ports the DMR mode switch
-// points Analog_Bridge at: [DMR] (MMDVM_Bridge) or the method's section.
-func (o *Ops) dvDMRSection() string {
-	if _, r, err := o.dvVia(); err == nil && r != nil {
-		if m, ok := dvDMRMethodFor(r.Network, r.Via); ok {
-			return m.Section
-		}
-	}
-	return "DMR"
-}
 
 // ---- validators
 
@@ -225,66 +150,73 @@ func vTalkerAlias(s string) bool {
 	return true
 }
 
+// dvBMDomains are the host name suffixes of BrandMeister's servers.
+var dvBMDomains = []string{"brandmeister.network", "repeater.net"}
+
+// DVBMHostName reports whether host is one of BrandMeister's by name
+// (*.brandmeister.network, *.repeater.net).
+func DVBMHostName(host string) bool {
+	h := strings.ToLower(strings.TrimSuffix(host, "."))
+	for _, d := range dvBMDomains {
+		if h == d || strings.HasSuffix(h, "."+d) {
+			return true
+		}
+	}
+	return false
+}
+
+// dvIsBMHost reports whether host is a BrandMeister server: by name, or the
+// address of a BM_ entry of DMR_Hosts.txt.
+func (o *Ops) dvIsBMHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	if DVBMHostName(host) {
+		return true
+	}
+	data, err := o.dvReadList("dmr")
+	if err != nil {
+		return false
+	}
+	for _, it := range ParseDMRHosts(data) {
+		if strings.HasPrefix(it.Name, "BM_") && strings.EqualFold(it.Address, host) {
+			return true
+		}
+	}
+	return false
+}
+
 // ---- hooks of the other config ops
 
-// dvSTFUIdentity: with STFU in use, a new DMR ID goes to [STFU] UserID too.
-func (o *Ops) dvSTFUIdentity(dmrID string) []dvChange {
-	if via, _, err := o.dvVia(); err == nil && via == DVViaSTFU {
+// dvBMIdentity: with BrandMeister configured ([STFU] holds a password), a
+// new DMR ID goes to [STFU] UserID too.
+func (o *Ops) dvBMIdentity(dmrID string) []dvChange {
+	def, _ := dvFileByID(DVFileDVSwitch)
+	st, err := o.dvRead(def)
+	if err != nil || !st.regular {
+		return nil
+	}
+	f := ini.Parse(st.data)
+	if pw, _ := f.GetFold(dvSTFUSection, "BMPassword"); f.HasSection(dvSTFUSection) && dvPasswordSet(pw) {
 		return []dvChange{{DVFileDVSwitch, dvSTFUSection, "UserID", dmrID}}
 	}
 	return nil
 }
 
-// dvSTFUCredentials: with STFU in use, a new BM password goes to
-// [STFU] BMPassword too; clearing it is refused (BrandMeister needs one).
-func (o *Ops) dvSTFUCredentials(c *DVCredentials) ([]dvChange, error) {
-	via, _, err := o.dvVia()
-	if err != nil {
-		return nil, err
-	}
-	if via != DVViaSTFU {
-		return nil, nil
-	}
-	if c.ClearPassword {
-		return nil, dvInvalid("DMR Network/Password")
-	}
-	if c.Password != nil {
-		return []dvChange{{DVFileDVSwitch, dvSTFUSection, "BMPassword", *c.Password}}, nil
-	}
-	return nil, nil
-}
-
-// dvSTFUModes: with STFU in use MMDVM_Bridge's DMR stays off. "DMR on" is
-// already true (skipped); "DMR off" is refused: switch the method back first.
-func (o *Ops) dvSTFUModes(on bool) (skip bool, err error) {
-	via, _, err := o.dvVia()
-	if err != nil {
-		return false, err
-	}
-	if via != DVViaSTFU {
-		return false, nil
-	}
-	if on {
-		return true, nil
-	}
-	return false, dvInvalid("modes/dmr")
-}
+// dvPasswordSet: a password that is not empty, not the stock one and valid.
+func dvPasswordSet(pw string) bool { return pw != "" && pw != dvStockPassword && vPassword(pw) }
 
 // ---- setup view
 
-// DVDMRConnView is the DMR connection part of the setup view. Error: the
-// record cannot be read (Via then reads mmdvm_bridge).
-type DVDMRConnView struct {
-	Via     string     `json:"via"`
-	Network string     `json:"network"`
-	Error   bool       `json:"error,omitempty"`
-	STFU    DVSTFUView `json:"stfu"`
-}
-
-// DVSTFUView: the [STFU] values of DVSwitch.ini. Present: the section exists.
-// The password only as PasswordSet.
-type DVSTFUView struct {
+// DVBMView is the BrandMeister part of the setup view. Installed: the stfu
+// unit is there; Present: DVSwitch.ini has [STFU]; Enabled: the unit is
+// enabled. Configured: all of these, a saved password and a 7-digit UserID:
+// the panel offers BrandMeister. The password only as PasswordSet.
+type DVBMView struct {
+	Installed   bool   `json:"installed"`
 	Present     bool   `json:"present"`
+	Enabled     bool   `json:"enabled"`
+	Configured  bool   `json:"configured"`
 	Server      string `json:"server"`
 	Port        int    `json:"port"`
 	TalkerAlias string `json:"talkerAlias"`
@@ -294,20 +226,28 @@ type DVSTFUView struct {
 	PasswordSet bool   `json:"passwordSet"`
 }
 
-func (o *Ops) dvDMRConnView(dv, _ *ini.File) DVDMRConnView {
-	v := DVDMRConnView{Via: DVViaMMDVM}
-	if _, r, err := o.dvVia(); err != nil {
-		v.Error = true
-	} else if r != nil {
-		v.Via, v.Network = r.Via, r.Network
+// dvBMUnit reports whether the stfu unit is loaded and enabled.
+func (o *Ops) dvBMUnit(ctx context.Context) (loaded, enabled bool) {
+	for _, u := range o.dvUnitStates(ctx) {
+		if u.Name == dvSTFUUnit {
+			return u.Loaded, u.Loaded && u.Enabled == "enabled"
+		}
 	}
-	if dv != nil && dv.HasSection(dvSTFUSection) {
-		get := func(k string) string { s, _ := dv.GetFold(dvSTFUSection, k); return s }
-		atoi := func(s string) int { n, _ := strconv.Atoi(s); return n }
-		pw := get("BMPassword")
-		v.STFU = DVSTFUView{Present: true, Server: get("BMAddress"), Port: atoi(get("BMPort")), TalkerAlias: get("TalkerAlias"),
-			StartTG: get("StartTG"), TxPort: atoi(get("txPort")), RxPort: atoi(get("rxPort")), PasswordSet: pw != "" && pw != dvStockPassword}
+	return false, false
+}
+
+func dvBMView(dv *ini.File, loaded, enabled bool) DVBMView {
+	v := DVBMView{Installed: loaded, Enabled: enabled}
+	if dv == nil || !dv.HasSection(dvSTFUSection) {
+		return v
 	}
+	get := func(k string) string { s, _ := dv.GetFold(dvSTFUSection, k); return s }
+	atoi := func(s string) int { n, _ := strconv.Atoi(s); return n }
+	v.Present = true
+	v.Server, v.Port, v.TalkerAlias, v.StartTG = get("BMAddress"), atoi(get("BMPort")), get("TalkerAlias"), get("StartTG")
+	v.TxPort, v.RxPort = atoi(get("txPort")), atoi(get("rxPort"))
+	v.PasswordSet = dvPasswordSet(get("BMPassword"))
+	v.Configured = loaded && enabled && v.PasswordSet && reDVDigits7.MatchString(get("UserID"))
 	return v
 }
 
@@ -327,62 +267,34 @@ func dvIniPort(f *ini.File, sec, key string) int {
 	return n
 }
 
-// dvSTFUPorts picks STFU's TLV ports: the [STFU] ones when they are valid and
-// clash with nothing else (the other DVSwitch.ini sections, the stock mode
-// ports, the park port, Analog_Bridge's USRP and AMBE ports), else the stock
-// 36100/36103 when those are free.
-func dvSTFUPorts(dv, ab *ini.File) (tx, rx int, err error) {
+// dvSTFUPortsFree reports whether STFU's stock TLV ports 36100/36103 clash
+// with nothing else: the other DVSwitch.ini sections, the stock mode ports,
+// the park port, Analog_Bridge's USRP and AMBE ports.
+func dvSTFUPortsFree(dv, ab *ini.File) bool {
 	used := map[int]bool{dvTLVSwitchPort: true}
 	for _, p := range dvTLVPorts {
 		used[p] = true
 	}
 	for _, sec := range dv.Sections() {
-		if sec != dvSTFUSection {
+		if !strings.EqualFold(sec, dvSTFUSection) {
 			used[dvIniPort(dv, sec, "txPort")], used[dvIniPort(dv, sec, "rxPort")] = true, true
 		}
 	}
 	for _, k := range [][2]string{{"USRP", "txPort"}, {"USRP", "rxPort"}, {"AMBE_AUDIO", "ambePort"}} {
 		used[dvIniPort(ab, k[0], k[1])] = true
 	}
-	free := func(t, r int) bool { return t != 0 && r != 0 && t != r && !used[t] && !used[r] }
-	if t, r := dvIniPort(dv, dvSTFUSection, "txPort"), dvIniPort(dv, dvSTFUSection, "rxPort"); free(t, r) {
-		return t, r, nil
-	}
-	if free(dvSTFUTx, dvSTFURx) {
-		return dvSTFUTx, dvSTFURx, nil
-	}
-	return 0, 0, dvInvalid("dmrVia/ports")
+	return !used[dvSTFUTx] && !used[dvSTFURx]
 }
 
-// dvABRetarget returns the changes that move Analog_Bridge's [AMBE_AUDIO]
-// partner ports to (toTx, toRx) of a DVSwitch.ini section when they point at
-// one of the from pairs (each the section's txPort, rxPort); nil otherwise.
-// Analog_Bridge's txPort is the partner's rxPort and the other way round.
-func dvABRetarget(ab *ini.File, toTx, toRx int, from ...[2]int) []dvChange {
-	abTx, abRx := dvIniPort(ab, "AMBE_AUDIO", "txPort"), dvIniPort(ab, "AMBE_AUDIO", "rxPort")
-	if abTx == toRx && abRx == toTx {
-		return nil
-	}
-	for _, p := range from {
-		if p[0] != 0 && abTx == p[1] && abRx == p[0] {
-			return []dvChange{
-				{DVFileAnalogBridge, "AMBE_AUDIO", "txPort", strconv.Itoa(toRx)},
-				{DVFileAnalogBridge, "AMBE_AUDIO", "rxPort", strconv.Itoa(toTx)},
-			}
-		}
-	}
-	return nil
-}
+// ---- dvswitch-bm
 
-// ---- the switch
-
-// dvViaFiles are the parsed files the switch reads.
-type dvViaFiles struct {
+// dvBMFiles are the parsed files the op reads.
+type dvBMFiles struct {
 	mm, dv, ab *ini.File
 }
 
-func (o *Ops) dvViaRead(needSTFU bool) (dvViaFiles, error) {
-	var out dvViaFiles
+func (o *Ops) dvBMRead(needSTFU bool) (dvBMFiles, error) {
+	var out dvBMFiles
 	for _, x := range []struct {
 		id string
 		f  **ini.File
@@ -394,7 +306,10 @@ func (o *Ops) dvViaRead(needSTFU bool) (dvViaFiles, error) {
 		}
 		if !st.regular {
 			if x.id == DVFileDVSwitch {
-				return out, ErrDVSTFUNotInstalled
+				if needSTFU {
+					return out, ErrDVSTFUNotInstalled
+				}
+				continue
 			}
 			return out, ErrDVNotInstalled
 		}
@@ -406,87 +321,68 @@ func (o *Ops) dvViaRead(needSTFU bool) (dvViaFiles, error) {
 	return out, nil
 }
 
-// DVSwitchDMRVia switches the DMR connection method. To STFU: [STFU] is
-// written (server, port, password from MMDVM_Bridge's [DMR Network], UserID
-// from the identity, talker alias, start TG, ports), MMDVM_Bridge's DMR is
-// switched off, Analog_Bridge's startup ports follow; then mmdvm_bridge
-// restarts (if it runs), stfu is enabled and restarted, and a running
-// Analog_Bridge in DMR is pointed at STFU's ports through its TLV port (no
-// restart). Back to MMDVM_Bridge it is the reverse. A failed step restores
-// the files from their history copies and the units, and reports
-// switch_failed.
-func (o *Ops) DVSwitchDMRVia(ctx context.Context, req *DVSwitchRequest) (DVApplyResult, error) {
+func dvSectionPorts(f *ini.File, sec string) [2]int {
+	return [2]int{dvIniPort(f, sec, "txPort"), dvIniPort(f, sec, "rxPort")}
+}
+
+// DVSwitchBM saves, clears or moves to the BrandMeister connection.
+func (o *Ops) DVSwitchBM(ctx context.Context, req *DVSwitchRequest) (DVApplyResult, error) {
 	req, err := o.dvArgs(req)
 	if err != nil {
 		return DVApplyResult{}, err
 	}
-	d := req.DMRVia
-	if d == nil || req.Identity != nil || req.Credentials != nil || req.Modes != nil || req.Startup != nil || req.Tune != nil || req.USRP != nil || req.Private != nil {
-		return DVApplyResult{}, errors.New("invalid request: dmrVia only")
+	b := req.BM
+	if b == nil || req.Identity != nil || req.Credentials != nil || req.Modes != nil || req.Startup != nil || req.Tune != nil || req.USRP != nil || req.Private != nil {
+		return DVApplyResult{}, errors.New("invalid request: brandmeister only")
 	}
-	o.dmrViaMu.Lock()
-	defer o.dmrViaMu.Unlock()
-	_, rec, err := o.dvVia()
-	if err != nil && d.Via != DVViaMMDVM {
-		return DVApplyResult{}, err
-	}
-	switch d.Via {
-	case DVViaMMDVM:
-		if d.Network != "" || d.Server != "" || d.TalkerAlias != nil || d.StartTG != nil {
-			return DVApplyResult{}, dvInvalid("dmrVia")
+	o.bmMu.Lock()
+	defer o.bmMu.Unlock()
+	switch b.Action {
+	case DVBMSave:
+		return o.dvBMSave(ctx, b, req.Base)
+	case DVBMClear:
+		if b.Server != "" || b.Password != nil || b.TalkerAlias != nil || b.StartTG != nil {
+			return DVApplyResult{}, dvInvalid("brandmeister")
 		}
-		return o.dvToMMDVM(ctx, rec, req.Base)
-	case DVViaSTFU:
-		return o.dvToSTFU(ctx, d, rec, req.Base)
+		return o.dvBMClear(ctx, req.Base)
 	}
-	return DVApplyResult{}, dvInvalid("dmrVia/via")
+	return DVApplyResult{}, dvInvalid("brandmeister/action")
 }
 
-func (o *Ops) dvToSTFU(ctx context.Context, d *DVDMRVia, rec *DVDMRRecord, base map[string]string) (DVApplyResult, error) {
-	m, ok := dvDMRMethodFor(d.Network, d.Via)
-	if !ok {
-		return DVApplyResult{}, dvInvalid("dmrVia/network")
+func (o *Ops) dvBMSave(ctx context.Context, b *DVBM, base map[string]string) (DVApplyResult, error) {
+	if b.Server != "" && !vHostname(b.Server) {
+		return DVApplyResult{}, dvInvalid("brandmeister/server")
 	}
-	if d.Server != "" && !vHostname(d.Server) {
-		return DVApplyResult{}, dvInvalid("dmrVia/server")
+	if b.Password != nil && !dvPasswordSet(*b.Password) {
+		return DVApplyResult{}, dvInvalid("brandmeister/password")
 	}
-	if d.TalkerAlias != nil && !vTalkerAlias(*d.TalkerAlias) {
-		return DVApplyResult{}, dvInvalid("dmrVia/talkerAlias")
+	if b.TalkerAlias != nil && !vTalkerAlias(*b.TalkerAlias) {
+		return DVApplyResult{}, dvInvalid("brandmeister/talkerAlias")
 	}
-	if d.StartTG != nil && !reDVTG.MatchString(*d.StartTG) {
-		return DVApplyResult{}, dvInvalid("dmrVia/startTg")
+	if b.StartTG != nil && !reDVTG.MatchString(*b.StartTG) {
+		return DVApplyResult{}, dvInvalid("brandmeister/startTg")
 	}
-	have, err := o.dpkgInstalled(ctx, []string{m.Package})
+	f, err := o.dvBMReady(ctx)
 	if err != nil {
 		return DVApplyResult{}, err
 	}
-	if _, ok := have[m.Package]; !ok {
-		return DVApplyResult{}, ErrDVSTFUNotInstalled
+	if b.Password == nil {
+		if pw, _ := f.dv.GetFold(dvSTFUSection, "BMPassword"); !dvPasswordSet(pw) {
+			return DVApplyResult{}, ErrDVNoPassword
+		}
 	}
-	f, err := o.dvViaRead(true)
-	if err != nil {
-		return DVApplyResult{}, err
+	if !dvSTFUPortsFree(f.dv, f.ab) {
+		return DVApplyResult{}, dvInvalid("brandmeister/ports")
 	}
 	call, _ := f.mm.Get("General", "Callsign")
 	id, _ := f.mm.Get("General", "Id")
-	if !reDVCall.MatchString(call) || !reDVDigits9.MatchString(id) && !reDVDigits7.MatchString(id) {
-		return DVApplyResult{}, ErrDVNoIdentity
-	}
-	pw, _ := f.mm.Get("DMR Network", "Password")
-	if pw == "" || pw == dvStockPassword || !vPassword(pw) {
-		return DVApplyResult{}, ErrDVNoPassword
-	}
-	tx, rx, err := dvSTFUPorts(f.dv, f.ab)
-	if err != nil {
-		return DVApplyResult{}, err
-	}
 	cur := func(k string, ok func(string) bool, def string) string {
-		if v, _ := f.dv.GetFold(m.Section, k); ok(v) {
+		if v, _ := f.dv.GetFold(dvSTFUSection, k); ok(v) {
 			return v
 		}
 		return def
 	}
-	server := d.Server
+	server := b.Server
 	if server == "" {
 		server = cur("BMAddress", vHostname, DefaultDVSTFUServer)
 	}
@@ -495,57 +391,33 @@ func (o *Ops) dvToSTFU(ctx context.Context, d *DVDMRVia, rec *DVDMRRecord, base 
 		alias = alias[:dvTalkerAliasMax]
 	}
 	alias = cur("TalkerAlias", vTalkerAlias, alias)
-	if d.TalkerAlias != nil {
-		alias = *d.TalkerAlias
+	if b.TalkerAlias != nil {
+		alias = *b.TalkerAlias
 	}
 	startTG := cur("StartTG", reDVTG.MatchString, dvSTFUStartTG)
-	if d.StartTG != nil {
-		startTG = *d.StartTG
+	if b.StartTG != nil {
+		startTG = *b.StartTG
 	}
-	set := func(k, v string) dvChange { return dvChange{DVFileDVSwitch, m.Section, k, v} }
+	oldPorts := dvSectionPorts(f.dv, dvSTFUSection)
+	set := func(k, v string) dvChange { return dvChange{DVFileDVSwitch, dvSTFUSection, k, v} }
 	ch := []dvChange{
 		set("BMAddress", server),
-		set("BMPort", cur("BMPort", vInt(1, 65535), strconv.Itoa(dvSTFUDefaultPort))),
-		set("BMPassword", pw),
+		set("BMPort", strconv.Itoa(dvSTFUDefaultPort)),
 		set("Address", dvSTFULocal),
-		set("txPort", strconv.Itoa(tx)),
-		set("rxPort", strconv.Itoa(rx)),
+		set("txPort", strconv.Itoa(dvSTFUTx)),
+		set("rxPort", strconv.Itoa(dvSTFURx)),
 		set("UserID", id[:7]),
 		set("TalkerAlias", alias),
 		set("StartTG", startTG),
-		{DVFileMMDVMBridge, "DMR", "Enable", "0"},
-		{DVFileMMDVMBridge, "DMR Network", "Enable", "0"},
 	}
-	ch = append(ch, dvABRetarget(f.ab, tx, rx,
-		[2]int{dvIniPort(f.dv, "DMR", "txPort"), dvIniPort(f.dv, "DMR", "rxPort")},
-		[2]int{dvIniPort(f.dv, m.Section, "txPort"), dvIniPort(f.dv, m.Section, "rxPort")})...)
-
-	wasSTFU := rec != nil && rec.Via == m.Via
-	next := DVDMRRecord{Version: 1, Network: m.Network, Via: m.Via}
-	if wasSTFU {
-		next.PrevMMDVMDMR, next.ABRetargeted = rec.PrevMMDVMDMR, rec.ABRetargeted
-	} else {
-		a, _ := f.mm.Get("DMR", "Enable")
-		b, _ := f.mm.Get("DMR Network", "Enable")
-		next.PrevMMDVMDMR = a == "1" && b == "1"
-	}
-	for _, c := range ch {
-		if c.file == DVFileAnalogBridge {
-			next.ABRetargeted = true
-		}
+	if b.Password != nil {
+		ch = append(ch, set("BMPassword", *b.Password))
 	}
 
+	_, wasEnabled := o.dvBMUnit(ctx)
 	res, err := o.dvApply(ctx, ch, base)
 	if err != nil {
 		return res, err
-	}
-	changed := func(id string) bool {
-		for _, x := range res.Files {
-			if x == id {
-				return true
-			}
-		}
-		return false
 	}
 	_, dropErr := os.Lstat(o.dvSTFUDropinPath())
 	hadDropin := dropErr == nil
@@ -555,101 +427,129 @@ func (o *Ops) dvToSTFU(ctx context.Context, d *DVDMRVia, rec *DVDMRRecord, base 
 		step = "log"
 	case !o.dvSTFUDropinWrite(ctx):
 		step = "umask"
-	case changed(DVFileMMDVMBridge) && !o.dvSystemctl(ctx, "try-restart", "mmdvm_bridge.service"):
-		step = "mmdvm_bridge"
-	case !o.dvSystemctl(ctx, "enable", m.Unit+".service") || !o.dvSystemctl(ctx, "restart", m.Unit+".service"):
-		step = m.Unit
-	case o.writeDVDMRRecord(next) != nil:
-		step = "record"
+	case !o.dvSystemctl(ctx, "enable", dvSTFUUnit+".service") || !o.dvSystemctl(ctx, "restart", dvSTFUUnit+".service"):
+		step = dvSTFUUnit
 	}
 	if step != "" {
-		o.dvViaUndo(ctx, res.Files)
+		o.dvBMUndo(ctx, res.Files)
 		if !hadDropin {
 			o.dvSTFUDropinRemove(ctx)
 		}
-		if wasSTFU {
-			o.dvSystemctl(ctx, "restart", m.Unit+".service")
+		if wasEnabled {
+			o.dvSystemctl(ctx, "restart", dvSTFUUnit+".service")
 		} else {
-			o.dvSystemctl(ctx, "disable", "--now", m.Unit+".service")
+			o.dvSystemctl(ctx, "disable", "--now", dvSTFUUnit+".service")
 		}
-		o.dvSystemctl(ctx, "try-restart", "mmdvm_bridge.service")
 		return DVApplyResult{}, fmt.Errorf("%w (%s)", ErrDVSwitchFailed, step)
 	}
-	o.dvRepointDMR(ctx, tx, rx)
+	if oldPorts != [2]int{dvSTFUTx, dvSTFURx} {
+		o.dvRepointDMR(ctx, oldPorts, dvSTFUTx, dvSTFURx)
+	}
 	res.RestartHint = []string{}
 	return res, nil
 }
 
-func (o *Ops) dvToMMDVM(ctx context.Context, rec *DVDMRRecord, base map[string]string) (DVApplyResult, error) {
-	if rec == nil {
-		// unreadable record: make sure the other client is off, leave the
-		// files alone
-		if _, err := ReadDVDMRRecord(o.dvDMRRecordPath()); err != nil {
-			for _, m := range dvDMRMethods {
-				o.dvSystemctl(ctx, "disable", "--now", m.Unit+".service")
-			}
-			o.dvSTFUDropinRemove(ctx)
-			_ = os.Remove(o.dvDMRRecordPath())
-		}
-		return dvNoChange(), nil
+// dvBMReady checks what a save needs: stfu installed, [STFU] in
+// DVSwitch.ini, the identity saved.
+func (o *Ops) dvBMReady(ctx context.Context) (dvBMFiles, error) {
+	have, err := o.dpkgInstalled(ctx, []string{dvSTFUPkg})
+	if err != nil {
+		return dvBMFiles{}, err
 	}
-	m, _ := dvDMRMethodFor(rec.Network, rec.Via)
-	f, err := o.dvViaRead(false)
+	if _, ok := have[dvSTFUPkg]; !ok {
+		return dvBMFiles{}, ErrDVSTFUNotInstalled
+	}
+	f, err := o.dvBMRead(true)
+	if err != nil {
+		return f, err
+	}
+	call, _ := f.mm.Get("General", "Callsign")
+	id, _ := f.mm.Get("General", "Id")
+	if !reDVCall.MatchString(call) || !reDVDigits9.MatchString(id) && !reDVDigits7.MatchString(id) {
+		return f, ErrDVNoIdentity
+	}
+	return f, nil
+}
+
+// dvBMClear stops and disables stfu, removes its drop-in and resets [STFU]
+// BMPassword to the stock value. A live session on STFU's ports moves to
+// [DMR]'s.
+func (o *Ops) dvBMClear(ctx context.Context, base map[string]string) (DVApplyResult, error) {
+	f, err := o.dvBMRead(false)
 	if err != nil {
 		return DVApplyResult{}, err
 	}
-	val := "0"
-	if rec.PrevMMDVMDMR {
-		val = "1"
+	var ch []dvChange
+	stfu, dmr := [2]int{}, [2]int{}
+	if f.dv != nil && f.dv.HasSection(dvSTFUSection) {
+		if pw, ok := f.dv.GetFold(dvSTFUSection, "BMPassword"); ok && pw != dvStockPassword {
+			ch = append(ch, dvChange{DVFileDVSwitch, dvSTFUSection, "BMPassword", dvStockPassword})
+		}
+		stfu, dmr = dvSectionPorts(f.dv, dvSTFUSection), dvSectionPorts(f.dv, "DMR")
 	}
-	ch := []dvChange{
-		{DVFileMMDVMBridge, "DMR", "Enable", val},
-		{DVFileMMDVMBridge, "DMR Network", "Enable", val},
-	}
-	dmrTx, dmrRx := dvIniPort(f.dv, "DMR", "txPort"), dvIniPort(f.dv, "DMR", "rxPort")
-	if rec.ABRetargeted && dmrTx != 0 && dmrRx != 0 {
-		ch = append(ch, dvABRetarget(f.ab, dmrTx, dmrRx, [2]int{dvIniPort(f.dv, m.Section, "txPort"), dvIniPort(f.dv, m.Section, "rxPort")})...)
-	}
-	res, err := o.dvApply(ctx, ch, base)
-	if err != nil {
-		return res, err
-	}
-	step := ""
-	switch {
-	case !o.dvSystemctl(ctx, "disable", "--now", m.Unit+".service"):
-		step = m.Unit
-	case !o.dvSTFUDropinRemove(ctx):
-		step = "umask"
-	case !o.dvSystemctl(ctx, "try-restart", "mmdvm_bridge.service"):
-		step = "mmdvm_bridge"
-	}
-	if step == "" {
-		if err := os.Remove(o.dvDMRRecordPath()); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			step = "record"
+	res := dvNoChange()
+	if len(ch) > 0 {
+		if res, err = o.dvApply(ctx, ch, base); err != nil {
+			return res, err
 		}
 	}
-	if step != "" {
-		o.dvViaUndo(ctx, res.Files)
-		o.dvSTFUDropinWrite(ctx)
-		o.dvSystemctl(ctx, "enable", m.Unit+".service")
-		o.dvSystemctl(ctx, "restart", m.Unit+".service")
-		o.dvSystemctl(ctx, "try-restart", "mmdvm_bridge.service")
-		return DVApplyResult{}, fmt.Errorf("%w (%s)", ErrDVSwitchFailed, step)
+	if loaded, _ := o.dvBMUnit(ctx); loaded && !o.dvSystemctl(ctx, "disable", "--now", dvSTFUUnit+".service") {
+		o.dvBMUndo(ctx, res.Files)
+		return DVApplyResult{}, fmt.Errorf("%w (%s)", ErrDVSwitchFailed, dvSTFUUnit)
 	}
-	if dmrTx != 0 && dmrRx != 0 {
-		o.dvRepointDMR(ctx, dmrTx, dmrRx)
+	o.dvSTFUDropinRemove(ctx)
+	if stfu[0] != 0 && dmr[0] != 0 && dmr[1] != 0 {
+		o.dvRepointDMR(ctx, stfu, dmr[0], dmr[1])
 	}
 	res.RestartHint = []string{}
 	return res, nil
 }
 
-// dvViaUndo puts back the newest history copy of each file the switch
-// wrote (the copy dvApply just made).
-func (o *Ops) dvViaUndo(ctx context.Context, files []string) {
+// dvBMUndo puts back the newest history copy of each file the op wrote (the
+// copy dvApply just made).
+func (o *Ops) dvBMUndo(ctx context.Context, files []string) {
 	for _, id := range files {
 		_, _ = o.DVSwitchRollback(ctx, &DVSwitchRequest{File: id})
 	}
 }
+
+// ---- panel mode
+
+// DVPanelMode is the panel's mode of a bridge state: BM or DMR (both
+// ambe_mode DMR, told apart by the TLV ports, see dvPanel), YSF, P25, NXDN;
+// "" for a mode the panel does not handle. A state without Panel (a test
+// fake, an older helper) falls back to the AMBE mode.
+func DVPanelMode(info DVSwitchInfo) string {
+	switch info.Panel {
+	case DVModeBM, DVModeDMR, "YSF", "P25", "NXDN":
+		return info.Panel
+	}
+	return DVNormMode(info.Mode)
+}
+
+// DVDMRFamily: BM and DMR are both DMR on the air (talkgroups, private
+// calls, slot).
+func DVDMRFamily(mode string) bool { return mode == DVModeBM || mode == DVModeDMR }
+
+// dvPanel sets info.Panel: in ambe_mode DMR, BM when Analog_Bridge's live TLV
+// ports are [STFU]'s (it sends to STFU's rxPort and listens on its txPort),
+// else DMR. [STFU] ports equal to [DMR]'s cannot be told apart and read DMR.
+func (o *Ops) dvPanel(info *DVSwitchInfo) {
+	info.Panel = DVNormMode(info.Mode)
+	if info.Panel != DVModeDMR || info.tlvTx == 0 {
+		return
+	}
+	tx, rx, err := o.dvModePorts(dvSTFUSection)
+	if err != nil || info.tlvTx != rx || info.tlvRx != tx {
+		return
+	}
+	if dtx, drx, err := o.dvModePorts("DMR"); err == nil && dtx == tx && drx == rx {
+		return
+	}
+	info.Panel = DVModeBM
+}
+
+// ---- unit and file helpers
 
 // dvSystemctl runs one fixed systemctl command and reports success. The
 // output is not passed on.
@@ -729,11 +629,12 @@ func (o *Ops) dvSTFUDropinRemove(ctx context.Context) bool {
 	return o.dvSystemctl(ctx, "daemon-reload")
 }
 
-// dvRepointDMR points a running Analog_Bridge that is in DMR at the partner
-// with these DVSwitch.ini ports (its txport is the partner's rxPort), like a
-// mode switch. Best effort: Analog_Bridge in another mode, or not running,
-// picks the ports up at its next switch to DMR.
-func (o *Ops) dvRepointDMR(ctx context.Context, tx, rx int) bool {
+// dvRepointDMR points a running Analog_Bridge that is in DMR on the partner
+// with the from ports (DVSwitch.ini txPort, rxPort) at the partner with
+// these ports (its txport is the partner's rxPort), like a mode switch.
+// Best effort: Analog_Bridge in another mode or on other ports is left
+// alone.
+func (o *Ops) dvRepointDMR(ctx context.Context, from [2]int, tx, rx int) bool {
 	unlock, err := o.lockTune(ctx)
 	if err != nil {
 		return false
@@ -745,6 +646,9 @@ func (o *Ops) dvRepointDMR(ctx context.Context, tx, rx int) bool {
 	}
 	if info.tlvTx == rx && info.tlvRx == tx {
 		return true
+	}
+	if info.tlvTx != from[1] || info.tlvRx != from[0] {
+		return false
 	}
 	_, err = o.dvTLVSend(ctx, info.tlvRx, o.dvSwitchCmds("DMR", tx, rx))
 	return err == nil
@@ -768,9 +672,8 @@ func (o *Ops) dvSTFUJob(ctx context.Context) DVSwitchJob {
 }
 
 // dvSTFUInstallScript is the fixed script of the STFU install unit. The
-// package enables its unit on install: it is disabled again at once, so STFU
-// does not log in to BrandMeister next to MMDVM_Bridge before the method is
-// switched.
+// package enables its unit on install: it is disabled again at once, until
+// the BrandMeister section is saved.
 func (o *Ops) dvSTFUInstallScript() string {
 	self, sim := shQuote(o.selfPath()), shQuote(o.dvSTFUSimPath())
 	apt := "-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0"

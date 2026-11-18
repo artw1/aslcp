@@ -186,7 +186,7 @@ export interface DVSwitchStatus {
   canInstall: boolean; canUninstall: boolean;
   uninstallPackages: string[]; uninstallPaths: string[]; uninstallUnits: string[];
   install: DVSwitchJob; uninstall: DVSwitchJob;
-  /** The stfu package (BrandMeister through STFU) and its install job. */
+  /** The stfu package (BrandMeister through STFU; installed with DVSwitch, separately on older installs) and its install job. */
   stfu: DVSTFUStatus;
 }
 export interface DVSTFUStatus { installed: boolean; version?: string; canInstall: boolean; job: DVSwitchJob }
@@ -217,16 +217,15 @@ export interface DVStep { name: string; ok: boolean; detail?: string }
 export interface DVRollbackInfo { available: boolean; before?: boolean; ini?: boolean }
 export interface DVApplyResult { applied: boolean; kind: DVPlanKind; node: string; steps: DVStep[]; warnings?: string[]; keepRecord?: boolean; health?: unknown; rollback: DVRollbackInfo }
 export interface DVRollbackResult { rolledBack: boolean; problems: string[]; steps: DVStep[] }
-/** How DMR reaches its network (docs/DVSWITCH.md "DMR connection method"). No password: it is reused from the DMR credentials. */
+/** Which service holds a DMR login (docs/DVSWITCH.md "BrandMeister and DMR - Other"): MMDVM_Bridge for DMR - Other, STFU for BrandMeister. */
 export type DVDMRVia = 'mmdvm_bridge' | 'stfu';
-export type DVDMRNetwork = '' | 'brandmeister';
-export interface DVDMRConn {
-  via: DVDMRVia; network: DVDMRNetwork;
-  /** ASLCP's record of the switch is unreadable: switching back to MMDVM_Bridge repairs it. */
-  error?: boolean;
-  stfu: { present: boolean; server: string; port: number; talkerAlias: string; startTg: string; txPort: number; rxPort: number; passwordSet: boolean };
+/** The BrandMeister part of the setup view. `installed`: the stfu unit is there; `present`: DVSwitch.ini has [STFU]; `configured`: enabled, password saved and a 7-digit DMR ID, so the panel offers BM. The password only as `passwordSet`. */
+export interface DVBMView {
+  installed: boolean; present: boolean; enabled: boolean; configured: boolean;
+  server: string; port: number; talkerAlias: string; startTg: string; txPort: number; rxPort: number; passwordSet: boolean;
 }
-export interface DVDMRConnReq { via: DVDMRVia; network?: DVDMRNetwork; server?: string; talkerAlias?: string; startTg?: string; base?: Record<string, string> }
+/** PUT /api/dvswitch/brandmeister. `password` is write-only; absent fields keep the saved values. */
+export interface DVBMReq { server?: string; password?: string; talkerAlias?: string; startTg?: string; base?: Record<string, string> }
 /** The [Info] section of MMDVM_Bridge.ini. `frequencyHz` is 0 when RX and TX differ; `stock` is true while the stock sample values are in place. */
 export interface DVInfoView { location: string; description: string; url: string; frequencyHz: number; rxHz: number; txHz: number; latitude: string; longitude: string; stock: boolean }
 /** What PUT /api/dvswitch/identity takes for [Info]: one frequency, written to both RX and TX. */
@@ -234,7 +233,8 @@ export interface DVInfoInput { location: string; description: string; url?: stri
 export interface DVSwitchSetup {
   identity: { callsign: string; dmrId: string; essid: string; nxdnId: string; consistent: boolean; info: DVInfoView };
   warnings?: string[];
-  dmr: { address: string; port: number; passwordSet: boolean };
+  /** DMR - Other (MMDVM_Bridge). `enabled`: [DMR] and [DMR Network] are on; `pointsAtBm`: the master is a BrandMeister one (set it up under BrandMeister instead). */
+  dmr: { address: string; port: number; passwordSet: boolean; enabled?: boolean; pointsAtBm?: boolean };
   usrp: { address: string; rxPort: number; txPort: number };
   modes: { dmr: boolean; ysf: boolean; p25: boolean; nxdn: boolean };
   startup: { ambeMode: string; txTg: string; txTs: number; colorCode: number };
@@ -242,14 +242,16 @@ export interface DVSwitchSetup {
   files: DVFileView[];
   current: DVSwitchInfo;
   bridgeNode: DVBridgeSetup;
-  dmrConn: DVDMRConn;
+  brandmeister: DVBMView;
   changed?: string[]; skipped?: string[]; restartHint?: string[];
 }
 /** GET /api/dvswitch/dmr-status (operator and admin; docs/API.md "DVSwitch DMR login status"). Never holds the password. */
 export type DVDMRState = 'not_installed' | 'disabled' | 'not_running' | 'connecting' | 'logged_in' | 'login_failed' | 'timed_out' | 'socket_failed' | 'master_closing';
 /** A transmission received from the network (STFU only). */
 export interface DVDMRRx { active: boolean; src?: string; dst?: string; group: boolean; time?: string; frames?: number }
-export interface DVDMRStatus { state: DVDMRState; via?: DVDMRVia; master?: string; at?: string; since?: string; lastLine?: string; rx?: DVDMRRx }
+export interface DVDMRStatus { state: DVDMRState; via?: DVDMRVia; master?: string; at?: string; since?: string; lastLine?: string; rx?: DVDMRRx;
+  /** BrandMeister's login (STFU) next to DMR - Other's on the top level; absent when stfu is not installed. */
+  bm?: DVDMRStatus }
 export type DVRestartScope = 'dmr' | 'bridge' | 'gateways' | 'all';
 export interface DVSwitchRestartResult { action: 'restart' | 'start'; units: string[]; skipped: string[]; states: DVSwitchStatus['units']; warning: string }
 
@@ -260,7 +262,8 @@ export interface DVListItem { value: string; name: string; detail?: string; addr
 export interface DVList { mode: DVListMode; items: DVListItem[]; truncated?: boolean; etag: string }
 
 /** GET and PUT /api/dvswitch/resume (docs/API.md "DVSwitch tune and resume"): the last tune of each mode and the toggle. */
-export type DVTuneMode = 'DMR' | 'YSF' | 'P25' | 'NXDN';
+/** BM is BrandMeister through STFU, DMR is DMR - Other through MMDVM_Bridge; each has its own remembered tune and favourites. */
+export type DVTuneMode = 'BM' | 'DMR' | 'YSF' | 'P25' | 'NXDN';
 export interface DVRemembered { tune: string; ts?: string; at: string }
 export interface DVResume { resume: boolean; lastMode?: string; perMode: Partial<Record<DVTuneMode, DVRemembered>> }
 
@@ -286,5 +289,6 @@ export type DVLinkMode = 'ondemand' | 'permanent';
 /** `exclusive` is the saved "Disconnect other links first" (dvswitch.link_exclusive). */
 export interface DVLink { mode: DVLinkMode; localNode: string; linked: boolean; paused: boolean; exclusive: boolean }
 /** The reply of POST /api/dvswitch/mode, /unlink and /tune. */
-export interface DVCmdReply { mode: string; switched: boolean; confirmed: boolean; snapshot: DVSnapshot }
+/** `left`: the mode a switch unlinked before leaving it (it reconnects when switched back). */
+export interface DVCmdReply { mode: string; switched: boolean; confirmed: boolean; left?: string; snapshot: DVSnapshot }
 export interface DVFavorite { id: number; mode: DVTuneMode; value: string; name: string; sort: number }

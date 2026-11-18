@@ -445,13 +445,14 @@ var reYSFID = regexp.MustCompile(`^[0-9]{5}$`)
 
 // record remembers the current tune of the current mode.
 //
-//   - DMR: digital.tg (and ts). The startup talkgroup shown after a start is
+//   - BM and DMR (both ambe_mode DMR, told apart by the panel mode,
+//     helper.DVPanelMode): digital.tg (and ts). The startup talkgroup shown after a start is
 //     not a tune: it counts once it differs from the first state seen after
 //     the start, or once last_tune holds a value set in DMR.
 //   - YSF, P25, NXDN: last_tune, when it is not empty and valid for the mode.
 //     last_tune survives a mode change, so a value first seen in another mode
 //     is not taken for this one.
-//   - Right after a switch of mode to DMR the talkgroup is not trusted:
+//   - Right after a switch of mode to BM or DMR the talkgroup is not trusted:
 //     Analog_Bridge takes txTg= of a YSF tune ("192.0.2.10:42000") as a number
 //     and keeps its leading digits ("192") as digital.tg, so the first DMR
 //     sample after a switch shows a value that is nobody's tune. It counts
@@ -469,7 +470,7 @@ func (t *Tracker) record(info helper.DVSwitchInfo, now time.Time) {
 	if !info.Found {
 		return
 	}
-	mode := helper.DVNormMode(info.Mode)
+	mode := helper.DVPanelMode(info)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -481,7 +482,7 @@ func (t *Tracker) record(info helper.DVSwitchInfo, now time.Time) {
 	}
 	if mode != t.prevMode {
 		// a switch of mode (not the first sample of this start)
-		t.dmrHold = t.modeSeen && mode == "DMR"
+		t.dmrHold = t.modeSeen && helper.DVDMRFamily(mode)
 		t.prevMode = mode
 	}
 	t.modeSeen = true
@@ -494,8 +495,8 @@ func (t *Tracker) record(info helper.DVSwitchInfo, now time.Time) {
 
 	var tune, ts string
 	switch mode {
-	case "DMR":
-		if !helper.DVValidTune("DMR", info.TG) {
+	case helper.DVModeBM, helper.DVModeDMR:
+		if !helper.DVValidTune(mode, info.TG) {
 			return
 		}
 		// A private call (Parrot 9990#) is a one-off, not the mode's target:
@@ -505,13 +506,13 @@ func (t *Tracker) record(info helper.DVSwitchInfo, now time.Time) {
 			return
 		}
 		if t.dmrHold {
-			if info.Tune != info.TG || t.tuneMode != "DMR" {
+			if info.Tune != info.TG || t.tuneMode != mode {
 				return
 			}
 			t.dmrHold = false
 		}
 		moved := info.TG != t.baseTG || info.Slot != t.baseTS
-		if !moved && !(info.Tune != "" && t.tuneMode == "DMR") {
+		if !moved && !(info.Tune != "" && t.tuneMode == mode) {
 			return
 		}
 		tune, ts = info.TG, info.Slot

@@ -41,7 +41,7 @@ const (
 
 func isDVConfigOp(op string) bool {
 	switch op {
-	case OpDVSwitchIdentity, OpDVSwitchCredentials, OpDVSwitchModes, OpDVSwitchStartup, OpDVSwitchRollback, OpDVSwitchRestart, OpDVSwitchLists, OpDVSwitchTune, OpDVSwitchUSRP, OpDVSwitchPrivate, OpDVSwitchDMRVia:
+	case OpDVSwitchIdentity, OpDVSwitchCredentials, OpDVSwitchModes, OpDVSwitchStartup, OpDVSwitchRollback, OpDVSwitchRestart, OpDVSwitchLists, OpDVSwitchTune, OpDVSwitchUSRP, OpDVSwitchPrivate, OpDVSwitchBM:
 		return true
 	}
 	return false
@@ -82,7 +82,7 @@ const (
 	DVFileP25Gateway   = "p25gateway"
 	DVFileNXDNGateway  = "nxdngateway"
 	// DVFileDVSwitch is MMDVM_Bridge/DVSwitch.ini: only its [STFU] section is
-	// written (the DMR connection method, dvswitch_stfu.go). Its keys are
+	// written (the BrandMeister connection, dvswitch_stfu.go). Its keys are
 	// read case-insensitively by the DVSwitch tools.
 	DVFileDVSwitch = "dvswitch"
 )
@@ -205,11 +205,6 @@ var dvAllow = func() map[dvKey]func(string) bool {
 		{DVFileAnalogBridge, "AMBE_AUDIO", "txTs"}:         vInt(1, 2),
 		{DVFileAnalogBridge, "AMBE_AUDIO", "colorCode"}:    vInt(0, 15),
 
-		// The TLV partner ports: retargeted between MMDVM_Bridge's [DMR] ports
-		// and STFU's when the DMR connection method changes.
-		{DVFileAnalogBridge, "AMBE_AUDIO", "txPort"}: vInt(1024, 65535),
-		{DVFileAnalogBridge, "AMBE_AUDIO", "rxPort"}: vInt(1024, 65535),
-
 		{DVFileAnalogBridge, "USRP", "address"}: func(s string) bool { return s == dvUSRPAddress },
 		{DVFileAnalogBridge, "USRP", "rxPort"}:  vInt(1024, 65535),
 		{DVFileAnalogBridge, "USRP", "txPort"}:  vInt(1024, 65535),
@@ -278,8 +273,8 @@ type DVSwitchRequest struct {
 	// USRP: dvswitch-usrp. Private: dvswitch-private.
 	USRP    *DVUSRP    `json:"usrp,omitempty"`
 	Private *DVPrivate `json:"private,omitempty"`
-	// DMRVia: dvswitch-dmr-via (dvswitch_stfu.go).
-	DMRVia *DVDMRVia `json:"dmrVia,omitempty"`
+	// BM: dvswitch-bm (dvswitch_stfu.go).
+	BM *DVBM `json:"bm,omitempty"`
 }
 
 // DVIdentity: callsign, 7-digit DMR ID, 2-digit ESSID and the optional NXDN
@@ -805,7 +800,7 @@ func (o *Ops) DVSwitchIdentity(ctx context.Context, req *DVSwitchRequest) (DVApp
 	if id.NXDNID != "" {
 		ch = append(ch, dvChange{DVFileMMDVMBridge, "NXDN", "Id", id.NXDNID})
 	}
-	ch = append(ch, o.dvSTFUIdentity(id.DMRID)...)
+	ch = append(ch, o.dvBMIdentity(id.DMRID)...)
 	if id.Info != nil {
 		ic, err := dvInfoChanges(id.Info)
 		if err != nil {
@@ -829,6 +824,9 @@ func (o *Ops) DVSwitchCredentials(ctx context.Context, req *DVSwitchRequest) (DV
 	var ch []dvChange
 	add := func(k, v string) { ch = append(ch, dvChange{DVFileMMDVMBridge, "DMR Network", k, v}) }
 	if c.Address != nil {
+		if o.dvIsBMHost(*c.Address) {
+			return DVApplyResult{}, ErrDVBMMaster
+		}
 		add("Address", *c.Address)
 	}
 	if c.Port != nil {
@@ -843,11 +841,6 @@ func (o *Ops) DVSwitchCredentials(ctx context.Context, req *DVSwitchRequest) (DV
 	if c.ClearPassword {
 		add("Password", dvStockPassword)
 	}
-	stfu, err := o.dvSTFUCredentials(c)
-	if err != nil {
-		return DVApplyResult{}, err
-	}
-	ch = append(ch, stfu...)
 	if len(ch) == 0 {
 		// nothing to write: a harmless no-op, not an error
 		return dvNoChange(), nil
@@ -873,15 +866,6 @@ func (o *Ops) DVSwitchModes(ctx context.Context, req *DVSwitchRequest) (DVApplyR
 	}{{"dmr", m.DMR}, {"ysf", m.YSF}, {"p25", m.P25}, {"nxdn", m.NXDN}} {
 		if e.v == nil {
 			continue
-		}
-		if e.id == "dmr" {
-			skip, err := o.dvSTFUModes(*e.v)
-			if err != nil {
-				return DVApplyResult{}, err
-			}
-			if skip {
-				continue
-			}
 		}
 		val := "0"
 		if *e.v {
@@ -1009,9 +993,9 @@ type DVSwitchSetup struct {
 	Startup       DVStartupView    `json:"startup"`
 	Gateways      DVGateways       `json:"gateways"`
 	Files         []DVFileView     `json:"files"`
-	// DMRConn is the DMR connection method (MMDVM_Bridge or STFU) and the
-	// [STFU] values of DVSwitch.ini. No secret value.
-	DMRConn DVDMRConnView `json:"dmrConn"`
+	// BrandMeister is the STFU connection: the [STFU] values of
+	// DVSwitch.ini and the unit state. No secret value.
+	BrandMeister DVBMView `json:"brandmeister"`
 	// Warnings: non-blocking hints, e.g. NXDN enabled without an NXDN ID.
 	Warnings []string `json:"warnings"`
 }
@@ -1050,11 +1034,20 @@ func dvInfoView(get func(sec, key string) string) DVInfoView {
 	return v
 }
 
+// DVDMRView is DMR - Other: MMDVM_Bridge's own DMR network. Enabled: [DMR]
+// and [DMR Network] are both on. PointsAtBM: the master is a BrandMeister
+// server (set up by hand; BrandMeister belongs under BrandMeister).
 type DVDMRView struct {
 	Address     string `json:"address"`
 	Port        int    `json:"port"`
 	PasswordSet bool   `json:"passwordSet"`
+	Enabled     bool   `json:"enabled"`
+	PointsAtBM  bool   `json:"pointsAtBm"`
 }
+
+// DVDMRBMWarning is the setup-view warning for DMR - Other on a BrandMeister
+// master.
+const DVDMRBMWarning = "DMR - Other points at a BrandMeister master. BrandMeister is set up under BrandMeister (STFU); point DMR - Other at another network or clear it"
 
 type DVUSRPView struct {
 	Address string `json:"address"`
@@ -1154,10 +1147,10 @@ func (o *Ops) DVSwitchSetup(ctx context.Context) (DVSwitchSetup, error) {
 		return get(DVFileMMDVMBridge, sec, "Enable") == "1" && get(DVFileMMDVMBridge, sec+" Network", "Enable") == "1"
 	}
 	v.Modes = DVModesView{DMR: en("DMR"), YSF: en("System Fusion"), P25: en("P25"), NXDN: en("NXDN")}
-	v.DMRConn = o.dvDMRConnView(parsed[DVFileDVSwitch], parsed[DVFileAnalogBridge])
-	if v.DMRConn.Via == DVViaSTFU {
-		v.Modes.DMR = true // DMR runs through STFU; MMDVM_Bridge's own DMR is off on purpose
-	}
+	v.DMR.Enabled = v.Modes.DMR
+	v.DMR.PointsAtBM = vHostname(v.DMR.Address) && o.dvIsBMHost(v.DMR.Address)
+	loaded, enabled := o.dvBMUnit(ctx)
+	v.BrandMeister = dvBMView(parsed[DVFileDVSwitch], loaded, enabled)
 
 	v.Startup = DVStartupView{AmbeMode: get(DVFileAnalogBridge, "AMBE_AUDIO", "ambeMode"), TxTg: get(DVFileAnalogBridge, "AMBE_AUDIO", "txTg"),
 		TxTs: atoi(get(DVFileAnalogBridge, "AMBE_AUDIO", "txTs")), ColorCode: atoi(get(DVFileAnalogBridge, "AMBE_AUDIO", "colorCode"))}
@@ -1168,8 +1161,8 @@ func (o *Ops) DVSwitchSetup(ctx context.Context) (DVSwitchSetup, error) {
 	v.Identity.NXDNID = dvNXDNIDView(get(DVFileMMDVMBridge, "NXDN", "Id"))
 	v.Identity.Info = dvInfoView(func(sec, key string) string { return get(DVFileMMDVMBridge, sec, key) })
 	v.Warnings = dvWarnings(v.Modes, v.Identity)
-	if v.DMRConn.Error {
-		v.Warnings = append(v.Warnings, DVDMRRecordWarning)
+	if v.DMR.PointsAtBM && v.DMR.Enabled {
+		v.Warnings = append(v.Warnings, DVDMRBMWarning)
 	}
 	return v, nil
 }

@@ -27,7 +27,7 @@ type DemoDVSwitch struct {
 	dmrAt   time.Time
 	dmrRuns int
 
-	// the DMR connection method and STFU (dvswitch_demo_stfu.go)
+	// BrandMeister (STFU) (dvswitch_demo_stfu.go)
 	st *demoSTFU
 }
 

@@ -414,10 +414,10 @@ func (c *Client) DVSwitchStartup(ctx context.Context, req DVSwitchRequest) (DVAp
 	return r, c.dvCall(ctx, OpDVSwitchStartup, req, &r)
 }
 
-// DVSwitchDMRVia calls dvswitch-dmr-via.
-func (c *Client) DVSwitchDMRVia(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
+// DVSwitchBM calls dvswitch-bm.
+func (c *Client) DVSwitchBM(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
 	var r DVApplyResult
-	return r, c.dvCall(ctx, OpDVSwitchDMRVia, req, &r)
+	return r, c.dvCall(ctx, OpDVSwitchBM, req, &r)
 }
 
 // DVSwitchSTFUInstall calls dvswitch-stfu-install.

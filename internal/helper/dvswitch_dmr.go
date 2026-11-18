@@ -52,10 +52,15 @@ type DVDMRStatus struct {
 	At       string `json:"at,omitempty"`
 	Since    string `json:"since,omitempty"`
 	LastLine string `json:"lastLine,omitempty"`
-	// Via is the DMR connection method ("mmdvm_bridge" or "stfu").
+	// Via is the connection: "mmdvm_bridge" (DMR - Other) or "stfu"
+	// (BrandMeister).
 	Via string `json:"via,omitempty"`
 	// RX is the last transmission from the network (STFU only).
 	RX *DVDMRRx `json:"rx,omitempty"`
+	// BM is the BrandMeister login (STFU) next to DMR - Other's on the top
+	// level: nil when STFU is not installed, State disabled when its unit is
+	// not enabled. Set on the top level only.
+	BM *DVDMRStatus `json:"bm,omitempty"`
 }
 
 func (o *Ops) dvLogDir() string { return orDefault(o.DVLogDir, DefaultDVLogDir) }
@@ -190,12 +195,22 @@ func (o *Ops) dvUnitStart(ctx context.Context, unit string) (loaded bool, active
 	return p["LoadState"] == "loaded", p["ActiveState"], since
 }
 
-// DVSwitchDMRStatus reports whether MMDVM_Bridge is logged in to its DMR
-// master, from the log lines written since the unit started.
+// DVSwitchDMRStatus reports both DMR logins: DMR - Other (MMDVM_Bridge to
+// its DMR master, from the log lines written since the unit started) on the
+// top level and BrandMeister (STFU, from STFU.log) in BM.
 func (o *Ops) DVSwitchDMRStatus(ctx context.Context) (DVDMRStatus, error) {
-	if via, _, err := o.dvVia(); err == nil && via == DVViaSTFU {
-		return o.dvSTFUStatus(ctx), nil
+	res, err := o.dvMMDVMStatus(ctx)
+	if loaded, enabled := o.dvBMUnit(ctx); loaded {
+		bm := DVDMRStatus{State: DMRDisabled, Via: DVViaSTFU}
+		if enabled {
+			bm = o.dvSTFUStatus(ctx)
+		}
+		res.BM = &bm
 	}
+	return res, err
+}
+
+func (o *Ops) dvMMDVMStatus(ctx context.Context) (DVDMRStatus, error) {
 	loaded, active, since := o.dvUnitStart(ctx, "mmdvm_bridge.service")
 	ini1, err := o.dvRead(dvFiles[1])
 	if err != nil || !loaded || !ini1.regular {

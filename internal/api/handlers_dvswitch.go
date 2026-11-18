@@ -36,9 +36,8 @@ type DVSwitch interface {
 	DVSwitchPrivate(ctx context.Context, p helper.DVPrivate) (helper.DVPrivateReply, error)
 	// Mode switch and tune.
 	DVSwitchTune(ctx context.Context, req helper.DVSwitchRequest) (helper.DVTuneResult, error)
-	// DMR connection method (MMDVM_Bridge or BrandMeister through STFU) and
-	// the STFU package.
-	DVSwitchDMRVia(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
+	// The BrandMeister connection (STFU) and the STFU package.
+	DVSwitchBM(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
 	DVSwitchSTFUInstall(ctx context.Context) (helper.DVSwitchStatus, error)
 }
 
@@ -69,7 +68,9 @@ func (s *Server) dvswitchRoutes() {
 	m.HandleFunc("PUT /api/dvswitch/credentials", s.authed(store.RoleAdmin, s.handleDVSwitchCredentials))
 	m.HandleFunc("PUT /api/dvswitch/modes", s.authed(store.RoleAdmin, s.handleDVSwitchModes))
 	m.HandleFunc("PUT /api/dvswitch/startup", s.authed(store.RoleAdmin, s.handleDVSwitchStartup))
-	m.HandleFunc("PUT /api/dvswitch/dmr-connection", s.authed(store.RoleAdmin, s.handleDVSwitchDMRConn))
+	m.HandleFunc("PUT /api/dvswitch/brandmeister", s.authed(store.RoleAdmin, s.handleDVSwitchBMSave))
+	m.HandleFunc("DELETE /api/dvswitch/brandmeister", s.authed(store.RoleAdmin, s.handleDVSwitchBMClear))
+	m.HandleFunc("DELETE /api/dvswitch/dmr-connection", s.authed(store.RoleAdmin, s.handleDVSwitchDMRClear))
 	m.HandleFunc("POST /api/dvswitch/stfu/install", s.authed(store.RoleAdmin, s.handleDVSwitchSTFUInstall))
 	// Tune and resume (M1): operators tune, only admins change the setting.
 	m.HandleFunc("POST /api/dvswitch/tune", s.authed(store.RoleOperator, s.handleDVSwitchTune))
@@ -212,8 +213,8 @@ func (s *Server) dvswitchError(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusConflict, "no_identity", err.Error())
 	case errors.Is(err, helper.ErrDVNoPassword):
 		writeErr(w, http.StatusConflict, "no_password", err.Error())
-	case errors.Is(err, helper.ErrDVDMRRecord):
-		writeErr(w, http.StatusConflict, "dmr_record", err.Error())
+	case errors.Is(err, helper.ErrDVBMMaster):
+		writeErr(w, http.StatusBadRequest, "bm_master", err.Error())
 	case errors.Is(err, helper.ErrDVSwitchFailed):
 		s.d.Logger.Printf("dvswitch: %v", err)
 		writeErr(w, http.StatusBadGateway, "switch_failed", err.Error())

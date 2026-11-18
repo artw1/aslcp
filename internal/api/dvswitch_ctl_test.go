@@ -26,6 +26,8 @@ type ctlDV struct {
 	noConf  bool // a switch does not show in ABInfo (the "not confirmed" path)
 	active  string
 	infoErr error
+	left    []string // the unlinks sent before a switch: "mode>value"
+	bm      bool     // BrandMeister configured
 }
 
 func newCtlDV() *ctlDV {
@@ -53,7 +55,8 @@ func (f *ctlDV) DVSwitchStatus(context.Context) (helper.DVSwitchStatus, error) {
 func (f *ctlDV) DVSwitchSetup(context.Context) (helper.DVSwitchSetup, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return helper.DVSwitchSetup{Identity: helper.DVIdentityView{Callsign: "N0CALL", DMRID: "1234567"}, Modes: f.modes, Files: []helper.DVFileView{}}, nil
+	return helper.DVSwitchSetup{Identity: helper.DVIdentityView{Callsign: "N0CALL", DMRID: "1234567"}, Modes: f.modes, Files: []helper.DVFileView{},
+		BrandMeister: helper.DVBMView{Configured: f.bm}}, nil
 }
 
 func (f *ctlDV) DVSwitchInfo(context.Context) (helper.DVSwitchInfo, error) {
@@ -76,10 +79,23 @@ func (f *ctlDV) DVSwitchTune(_ context.Context, r helper.DVSwitchRequest) (helpe
 	t := *r.Tune
 	f.tunes = append(f.tunes, t)
 	res := helper.DVTuneResult{Mode: t.Mode, Confirmed: !f.noConf}
-	if helper.DVNormMode(f.info.Mode) != t.Mode {
+	if cur := helper.DVPanelMode(f.info); cur != t.Mode {
 		res.Switched = true
+		// like the helper: a linked mode is unlinked before the switch
+		lt := f.info.Tune
+		if lt == "" && helper.DVDMRFamily(cur) {
+			lt = f.info.TG
+		}
+		if cur != "" && lt != "" && !helper.DVUnlinkValue(cur, lt) {
+			res.Left = cur
+			f.left = append(f.left, cur+">"+helper.DVUnlinkTune(cur))
+		}
 		if !f.noConf {
-			f.info.Mode = t.Mode
+			// BM is ambe_mode DMR on STFU's ports
+			f.info.Mode, f.info.Panel = t.Mode, t.Mode
+			if t.Mode == "BM" {
+				f.info.Mode = "DMR"
+			}
 		}
 	}
 	if !t.ModeOnly && !f.noConf {
@@ -88,7 +104,7 @@ func (f *ctlDV) DVSwitchTune(_ context.Context, r helper.DVSwitchRequest) (helpe
 			v = "192.0.2.10:42000"
 		}
 		f.info.Tune = v
-		if t.Mode == "DMR" {
+		if helper.DVDMRFamily(t.Mode) {
 			f.info.TG = v
 		} else if f.atoiTG {
 			// Analog_Bridge reads txTg= as a number: "192.0.2.10:42000" gives 192
@@ -150,8 +166,8 @@ func TestDVSnapshotRolesAndContent(t *testing.T) {
 	if b.Mode != "YSF" || b.Tune != "192.0.2.10:42000" || b.TargetName != "Example room" || b.Source != "abinfo" || b.Slot != 2 || !b.Muted {
 		t.Errorf("bridge: %+v", b)
 	}
-	if len(sn.Modes) != 4 || sn.Modes[0] != (api.DVModeView{ID: "DMR", Enabled: true, Unlink: "4000"}) ||
-		sn.Modes[1].Unlink != "disconnect" || sn.Modes[2].Enabled || sn.Modes[3].Unlink != "9999" {
+	if len(sn.Modes) != 5 || sn.Modes[0] != (api.DVModeView{ID: "BM", Enabled: false, Unlink: "4000"}) || sn.Modes[1] != (api.DVModeView{ID: "DMR", Enabled: true, Unlink: "4000"}) ||
+		sn.Modes[2].Unlink != "disconnect" || sn.Modes[3].Enabled || sn.Modes[4].Unlink != "9999" {
 		t.Errorf("modes: %+v", sn.Modes)
 	}
 	// ysfgateway is enabled (YSF) but down; p25gateway is not enabled; netcheck is not shown
@@ -231,7 +247,8 @@ func TestDVModeRolesAndBehaviour(t *testing.T) {
 	if c := e.do("op", "POST", "/api/dvswitch/mode", body, &rep); c != 200 || !rep.Confirmed || !rep.Switched || rep.Snapshot.Bridge.Mode != "YSF" {
 		t.Fatalf("%d %+v", c, rep)
 	}
-	if tn := f.lastTunes(); len(tn) != 1 || tn[0] != (helper.DVTune{Mode: "YSF", ModeOnly: true}) {
+	// no remembered YSF target: YSF's unlink value goes with the switch
+	if tn := f.lastTunes(); len(tn) != 1 || tn[0] != (helper.DVTune{Mode: "YSF", Tune: "disconnect"}) {
 		t.Fatalf("tunes %+v", tn)
 	}
 	// lower case is accepted; admin may switch too
@@ -623,14 +640,175 @@ func TestDVModeSwitchBackAfterDisconnectStaysDisconnected(t *testing.T) {
 	post("/api/dvswitch/mode", map[string]any{"mode": "YSF"})
 	n := len(f.lastTunes())
 	post("/api/dvswitch/mode", map[string]any{"mode": "DMR"})
-	for _, s := range f.lastTunes()[n:] {
-		if s.Tune != "" && !s.ModeOnly {
-			t.Fatalf("switching back re-tuned DMR: %+v", s)
-		}
+	// only DMR's unlink value goes with the switch
+	if sent := f.lastTunes()[n:]; len(sent) != 1 || sent[0] != (helper.DVTune{Mode: "DMR", Tune: "4000"}) {
+		t.Fatalf("switching back re-tuned DMR: %+v", sent)
 	}
 	// a new connection is remembered again
 	post("/api/dvswitch/tune", map[string]any{"mode": "DMR", "tune": "3100"})
 	if got := tr.Get().PerMode["DMR"].Tune; got != "3100" {
 		t.Fatalf("a new tune was not remembered: %q", got)
+	}
+}
+
+// trackedCtl is a ctlDV with a tracker and a post helper that polls twice
+// after each request.
+func trackedCtl(t *testing.T, f *ctlDV) (*env, *dvswitch.Tracker, func(string, map[string]any) map[string]any) {
+	t.Helper()
+	tr := &dvswitch.Tracker{Src: f, Store: &memSettings{}}
+	e := newEnv(t, opts{dvswitch: f, dvInstalled: installed, dvresume: tr,
+		dvNode: func(context.Context) (string, bool) { return "1999", true }})
+	ctx := context.Background()
+	tr.Poll(ctx)
+	tr.Poll(ctx)
+	post := func(path string, body map[string]any) map[string]any {
+		t.Helper()
+		var rep map[string]any
+		if c := e.do("op", "POST", path, body, &rep); c != 200 {
+			t.Fatalf("%s %v: %d", path, body, c)
+		}
+		tr.Poll(ctx)
+		tr.Poll(ctx)
+		return rep
+	}
+	return e, tr, post
+}
+
+func (f *ctlDV) lastLeft() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := f.left
+	f.left = nil
+	return out
+}
+
+// Leaving a linked mode unlinks it first; its remembered tune stays, so
+// switching back re-tunes it.
+func TestDVModeSwitchUnlinksTheModeLeft(t *testing.T) {
+	f := newCtlDV()
+	f.bm = true
+	f.info = helper.DVSwitchInfo{Found: true, Mode: "DMR", Panel: "BM", TG: "91", Tune: "91", Slot: "2"}
+	e, tr, post := trackedCtl(t, f)
+	if got := tr.Get().PerMode["BM"].Tune; got != "91" {
+		t.Fatalf("BM not remembered: %q", got)
+	}
+
+	// BM on 91 to DMR: BM's 4000 first, DMR unlinked (nothing remembered)
+	n := len(f.lastTunes())
+	rep := post("/api/dvswitch/mode", map[string]any{"mode": "DMR"})
+	if l := f.lastLeft(); len(l) != 1 || l[0] != "BM>4000" || rep["left"] != "BM" {
+		t.Fatalf("left %v, reply %v", l, rep["left"])
+	}
+	if sent := f.lastTunes()[n:]; len(sent) != 1 || sent[0] != (helper.DVTune{Mode: "DMR", Tune: "4000"}) {
+		t.Fatalf("%+v", sent)
+	}
+	if got := tr.Get().PerMode["BM"].Tune; got != "91" {
+		t.Fatalf("BM's tune forgotten: %q", got)
+	}
+	// and back: BM re-tunes 91; DMR was unlinked, nothing to leave
+	n = len(f.lastTunes())
+	post("/api/dvswitch/mode", map[string]any{"mode": "BM"})
+	if sent := f.lastTunes()[n:]; len(sent) != 1 || sent[0] != (helper.DVTune{Mode: "BM", Tune: "91"}) {
+		t.Fatalf("%+v", sent)
+	}
+	if l := f.lastLeft(); len(l) != 0 {
+		t.Fatalf("left %v", l)
+	}
+	aud, _ := e.st.ListAudit(50)
+	found := false
+	for _, a := range aud {
+		found = found || a.Action == "dvswitch.mode" && strings.Contains(a.Detail, `"left":"BM"`)
+	}
+	if !found {
+		t.Error("audit lacks the mode left")
+	}
+
+	// YSF linked to DMR: YSF disconnects first, comes back on the way back
+	post("/api/dvswitch/mode", map[string]any{"mode": "YSF"})
+	post("/api/dvswitch/tune", map[string]any{"mode": "YSF", "tune": "12345"})
+	f.lastLeft()
+	post("/api/dvswitch/mode", map[string]any{"mode": "DMR"})
+	if l := f.lastLeft(); len(l) != 1 || l[0] != "YSF>disconnect" {
+		t.Fatalf("left %v", l)
+	}
+	if got := tr.Get().PerMode["YSF"].Tune; got != "192.0.2.10:42000" {
+		t.Fatalf("YSF's tune forgotten: %q", got)
+	}
+	n = len(f.lastTunes())
+	post("/api/dvswitch/mode", map[string]any{"mode": "YSF"})
+	if sent := f.lastTunes()[n:]; len(sent) != 1 || sent[0] != (helper.DVTune{Mode: "YSF", Tune: "192.0.2.10:42000"}) {
+		t.Fatalf("%+v", sent)
+	}
+}
+
+// Regression ("DMR linked to 76"): a mode with nothing remembered gets its
+// unlink value on a switch, and the panel never shows another mode's value
+// as its talkgroup.
+func TestDVModeSwitchNeverShowsAnotherModesValue(t *testing.T) {
+	for _, c := range []struct{ from, to string }{
+		{"DMR", "DMR"}, {"BM", "BM"}, {"BM", "DMR"}, {"DMR", "BM"},
+	} {
+		t.Run(c.from+"-YSF-"+c.to, func(t *testing.T) {
+			f := newCtlDV()
+			f.bm, f.atoiTG = true, true
+			f.info = helper.DVSwitchInfo{Found: true, Mode: "DMR", Panel: c.from, TG: "4000", Slot: "2"}
+			e, tr, post := trackedCtl(t, f)
+			// to YSF (no remembered target: disconnect), then a reflector:
+			// Analog_Bridge reads its address as talkgroup 192
+			post("/api/dvswitch/mode", map[string]any{"mode": "YSF"})
+			post("/api/dvswitch/tune", map[string]any{"mode": "YSF", "tune": "12345"})
+			var sn api.DVSnapshot
+			e.do("viewer", "GET", "/api/dvswitch/snapshot", nil, &sn)
+			if f.info.TG != "192" || sn.Bridge.Mode != "YSF" {
+				t.Fatalf("setup: %+v %+v", f.info, sn.Bridge)
+			}
+			n := len(f.lastTunes())
+			rep := post("/api/dvswitch/mode", map[string]any{"mode": c.to})
+			if sent := f.lastTunes()[n:]; len(sent) != 1 || sent[0] != (helper.DVTune{Mode: c.to, Tune: "4000"}) {
+				t.Fatalf("%+v", sent)
+			}
+			b, _ := json.Marshal(rep)
+			if strings.Contains(string(b), `"tune":"192"`) {
+				t.Fatalf("reply shows YSF's value: %s", b)
+			}
+			time.Sleep(450 * time.Millisecond) // past the coalescing of snapshots
+			e.do("viewer", "GET", "/api/dvswitch/snapshot", nil, &sn)
+			if sn.Bridge.Mode != c.to || sn.Bridge.Tune == "192" || sn.Bridge.Tune == "192.0.2.10:42000" {
+				t.Fatalf("%+v", sn.Bridge)
+			}
+			if got := tr.Get().PerMode[c.to].Tune; got != "" {
+				t.Fatalf("%s remembered %q", c.to, got)
+			}
+		})
+	}
+}
+
+// The display alone: ABInfo in DMR still holding a YSF reflector as last
+// tune and its number in the talkgroup does not read as DMR talkgroup 192.
+func TestDVSnapshotDMRIgnoresYSFLeftovers(t *testing.T) {
+	f := newCtlDV()
+	f.info = helper.DVSwitchInfo{Found: true, Mode: "YSFN", Tune: "192.0.2.10:42000", TG: "192"}
+	e := ctlEnv(t, f)
+	var sn api.DVSnapshot
+	e.do("viewer", "GET", "/api/dvswitch/snapshot", nil, &sn)
+	f.set(func(f *ctlDV) { f.info.Mode = "DMR" })
+	time.Sleep(450 * time.Millisecond)
+	e.do("viewer", "GET", "/api/dvswitch/snapshot", nil, &sn)
+	if sn.Bridge.Mode != "DMR" || sn.Bridge.Tune != "" {
+		t.Fatalf("%+v", sn.Bridge)
+	}
+}
+
+func TestDVModeBMNeedsConfiguration(t *testing.T) {
+	f := newCtlDV()
+	e := ctlEnv(t, f)
+	expectErr(t, e, "op", "POST", "/api/dvswitch/mode", map[string]any{"mode": "BM"}, 409, "mode_disabled")
+	f.set(func(f *ctlDV) { f.bm = true })
+	var rep struct{ Snapshot api.DVSnapshot }
+	if c := e.do("op", "POST", "/api/dvswitch/mode", map[string]any{"mode": "bm"}, &rep); c != 200 || rep.Snapshot.Bridge.Mode != "BM" {
+		t.Fatalf("%d %+v", c, rep.Snapshot.Bridge)
+	}
+	if tn := f.lastTunes(); len(tn) != 1 || tn[0] != (helper.DVTune{Mode: "BM", Tune: "4000"}) {
+		t.Fatalf("%+v", tn)
 	}
 }

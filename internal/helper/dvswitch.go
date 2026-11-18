@@ -51,7 +51,7 @@ const (
 
 // dvInstallPackages is the constant install set (docs/DVSWITCH.md, decision
 // 7). It is never a parameter.
-const dvInstallPackages = "dvswitch-base analog-bridge mmdvm-bridge md380-emu ysfgateway p25gateway nxdngateway wget"
+const dvInstallPackages = "dvswitch-base analog-bridge mmdvm-bridge md380-emu ysfgateway p25gateway nxdngateway stfu wget"
 
 // DVSwitchPackages returns the install set.
 func DVSwitchPackages() []string { return strings.Fields(dvInstallPackages) }
@@ -98,7 +98,7 @@ var (
 )
 
 var dvErrors = []error{ErrDVAlreadyInstalled, ErrDVUnsupported, ErrDVClockUnset, ErrDVKeyMismatch, ErrDVOutsideASLCP, ErrDVInvalid, ErrDVNotInstalled, ErrDVNoHistory, ErrDVNoInfo, ErrDVNoList, ErrDVNoPorts,
-	ErrDVSTFUNotInstalled, ErrDVSTFUInstalled, ErrDVNoIdentity, ErrDVNoPassword, ErrDVDMRRecord, ErrDVSwitchFailed}
+	ErrDVSTFUNotInstalled, ErrDVSTFUInstalled, ErrDVNoIdentity, ErrDVNoPassword, ErrDVBMMaster, ErrDVSwitchFailed}
 
 // DVSwitchPkg is one package of the install set.
 type DVSwitchPkg struct {
@@ -188,7 +188,7 @@ type DVSwitchStatus struct {
 	Install   DVSwitchJob `json:"install"`
 	Uninstall DVSwitchJob `json:"uninstall"`
 
-	// STFU is the optional BrandMeister client (DMR connection method).
+	// STFU is the optional BrandMeister client (the BM mode).
 	STFU DVSTFUStatus `json:"stfu"`
 }
 
@@ -241,6 +241,9 @@ func (o *Ops) dvInstallScript() string {
 		"apt-get -s -q install --no-install-recommends " + dvInstallPackages + " > " + sim + " || { cat " + sim + "; exit 1; }",
 		self + " dvswitch-step install-plan",
 		"apt-get install -y -q --no-install-recommends " + apt + " " + dvInstallPackages,
+		// the stfu package enables its unit: it stays off until the
+		// BrandMeister section is saved
+		"systemctl disable --now " + dvSTFUUnit + ".service || true",
 		self + " dvswitch-step install-check",
 		"echo 'dvswitch install finished'",
 	}, "\n")
@@ -285,7 +288,6 @@ func (o *Ops) dvUninstallScript() string {
 		// Asterisk restarts when something was reverted.
 		self+" dvswitch-step "+StepPrivateRev,
 		"rm -f -- "+purge,
-		"rm -f -- "+shQuote(o.dvDMRRecordPath()),
 		"rm -f -- "+shQuote(o.dvMarkerPath()),
 		"echo 'dvswitch uninstall finished'",
 	)
@@ -534,7 +536,7 @@ func DVPlatform(codename, arch string) (bool, string) {
 // no apt.
 func (o *Ops) DVSwitchStatus(ctx context.Context) (DVSwitchStatus, error) {
 	st := DVSwitchStatus{Packages: []DVSwitchPkg{}, Units: []DVSwitchUnit{}, HostFiles: []DVSwitchHostFile{}}
-	names := append(DVSwitchPackages(), dvServerPkg, dvSTFUPkg)
+	names := append(DVSwitchPackages(), dvServerPkg)
 	inst, err := o.dpkgInstalled(ctx, names)
 	if err != nil {
 		return st, err
@@ -547,8 +549,8 @@ func (o *Ops) DVSwitchStatus(ctx context.Context) (DVSwitchStatus, error) {
 		if ok && n != dvWget {
 			anySet = true
 		}
-		if !ok {
-			complete = false
+		if !ok && n != dvSTFUPkg {
+			complete = false // an older install without stfu is complete: STFU installs on its own
 		}
 	}
 	_, server := inst[dvServerPkg]
