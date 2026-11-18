@@ -6,13 +6,13 @@ Release notes are taken from the section of the tag being released
 ## [Unreleased]
 
 ### Added
-- DVSwitch bridge node name: give the bridge node a display name (default "DVSwitch linked node") on the DVSwitch tab. It saves at once with no Asterisk restart and shows on the dashboard DVSwitch panel and in the connection status table.
-- Dashboard DVSwitch panel shows what is keying the bridge from the digital side, live: the mode and the talkgroup or reflector it is tuned to (for example "RX: DMR TG 3100").
+- DVSwitch bridge node name: give the bridge node a display name (default "DVSwitch linked node") on the DVSwitch tab. It saves at once with no Asterisk restart and shows in the header of the bridge node's section in the connection status table (and on the DVSwitch panel).
+- Connection status table: the bridge node's "RX keyed" line shows, live, the mode and the talkgroup or reflector the bridge is tuned to (for example "RX keyed · DMR TG 3100"). It is no longer a badge on the DVSwitch panel.
 - API: `PUT /api/dvswitch/private-node/name` (admin); the DVSwitch snapshot and setup carry `bridgeNode.name`.
 
 ### Changed
 - Dashboard: the Schedules card is now the first card, above the connection status tables.
-- Dashboard: clicking a node number (status table, Favorites, Network list) opens a popup with the same Connect, Disconnect, Monitor and Local Mon buttons and options as the Connect bar, prefilled with that node (with the local node selector when you have several). The popup closes after a successful action.
+- Dashboard: clicking a node number (status table, Network list) or anywhere on a Favorites row opens a popup with the same Connect, Disconnect, Monitor and Local Mon buttons and options as the Connect bar, prefilled with that node (with the local node selector when you have several). The popup closes after a successful action. Double-click-to-connect on Favorites rows is removed.
 - DVSwitch panel: "Link node" is now a green button and "Unlink node" a red one.
 
 ### Fixed

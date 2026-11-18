@@ -6,7 +6,7 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-  import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, bridgeRx, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, stateLine, stateTitle, stateTone, validFavName, validTune } from '../lib/dvpanel';
+  import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, stateLine, stateTitle, stateTone, validFavName, validTune } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import { exclusiveHint, linkButton, linkExclusiveOnClick, linkLine, pausedHint } from '../lib/dvbridge';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
@@ -29,7 +29,6 @@
   const linked = $derived(bridgeLinked(snap));
   const nodeName = $derived(bridgeNodeName(snap));
   // What keys the bridge from the digital side: the bridge node's link is keyed (live from the node status), mode and target from ABInfo.
-  const rx = $derived(bridgeRx(app.nodes, snap));
   let busy = $state(false);
 
   // Mode switch: highlighted at once, confirmed by the next snapshot, "Not confirmed" after 5 s.
@@ -152,7 +151,6 @@
       <span class={tone === 'warn' ? 'text-warn' : tone === 'ok' ? 'text-ok' : ''} title={stateTitle(snap)} data-tone={tone}>{stateLine(b)}</span>
       <span class="sr-only">{ok ? 'All services running' : 'A service is down or the state is unknown'}</span>
       {#if linked}<span class="sr-only">Bridge node linked</span>{/if}
-      {#if rx}<span class="rounded border border-rx/60 bg-rx/10 px-1.5 text-xs font-semibold text-rx" role="status" data-testid="dv-rx">{rx}</span>{/if}
       {#if admin}<a href="#/dvswitch" class="ml-auto text-xs text-accent underline hover:no-underline">Setup</a>{/if}
     </div>
 

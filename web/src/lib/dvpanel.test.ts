@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, bridgeRx, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, nodeLabel, nodeLinkClass, pendingOutcome, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validNodeName, validTune } from './dvpanel.ts';
+import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, nodeLabel, nodeLinkClass, pendingOutcome, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validNodeName, validTune } from './dvpanel.ts';
 import type { DVFavorite, DVSnapshot } from './types';
 
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
@@ -155,4 +155,15 @@ test('RX line shows the mode and target while the bridge node is keyed', () => {
   assert.equal(bridgeRx([local([link(true)])], snap({ bridge: { ...bridge, source: 'none', mode: '' } })), null);
   assert.equal(bridgeRx([], dmr), null);
   assert.equal(bridgeRx([local([link(true)])], null), null);
+});
+
+test('bridge RX target', () => {
+  assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, mode: 'DMR', tune: '3100', targetName: undefined } })), 'DMR TG 3100');
+  assert.equal(bridgeRxTarget(snap()), 'YSF Example room');
+  assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, targetName: undefined } })), 'YSF 192.0.2.10:42000');
+  assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, mode: 'P25', tune: '10100', targetName: undefined } })), 'P25 TG 10100');
+  assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, mode: 'DMR', tune: '', targetName: undefined } })), 'DMR');
+  assert.equal(bridgeRxTarget(snap({ bridgeNode: { present: false } })), null);
+  assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, source: 'none', mode: '' } })), null);
+  assert.equal(bridgeRxTarget(null), null);
 });

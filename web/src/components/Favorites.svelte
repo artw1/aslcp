@@ -1,9 +1,7 @@
 <script lang="ts">
   import { app, canOperate, clock, refreshFavorites, setFavScan } from '../lib/store.svelte';
   import { api } from '../lib/api';
-  import { connectTo } from '../lib/actions.svelte';
-  import { form, pickNode, openNode } from '../lib/form.svelte';
-  import { exclusive } from '../lib/settings.svelte';
+  import { form, openNode } from '../lib/form.svelte';
   import { toastError } from '../lib/toast.svelte';
   import type { Favorite } from '../lib/types';
   import FavoriteDialog from './FavoriteDialog.svelte';
@@ -152,12 +150,7 @@
   async function remove(f: Favorite) {
     try { await api.deleteFavorite(f.id); await refreshFavorites(); } catch (e) { toastError(e); }
   }
-  function rowClick(f: Favorite) { if (!manage) pickNode(f.node); }
-  function rowDbl(f: Favorite) {
-    if (manage || !op || !node) return;
-    pickNode(f.node);
-    connectTo(node.node, f.node, 'transceive', form.permanent, exclusive.value);
-  }
+  function rowClick(f: Favorite) { if (!manage) openNode(f.node); }
   const name = (f: Favorite) => f.label || f.info?.callsign || f.node;
 </script>
 
@@ -173,7 +166,7 @@
       <span class="rounded border border-line px-1.5 py-0.5 text-xs font-medium {scan ? 'text-fg' : 'text-muted'}" title="Show activity for favorite nodes from stats.allstarlink.org">Scan {scan ? 'on' : 'off'}</span>
     {/if}
     {#if scan}<span class="text-xs text-muted" aria-live="off">{scanState}</span>{/if}
-    <span class="ml-auto hidden text-xs text-muted lg:inline">{manage ? 'Drag rows or use the arrows to reorder' : 'Click a node for connect options, double-click a row to connect'}</span>
+    <span class="ml-auto hidden text-xs text-muted lg:inline">{manage ? 'Drag rows or use the arrows to reorder' : 'Click a row for connect options'}</span>
     {#if op}
       <button class="btn btn-sm {manage ? 'btn-primary' : ''}" aria-pressed={manage} onclick={() => (manage = !manage)}><Settings2 size={13} />Manage</button>
       <Menu label="Favorites menu" btnClass="btn btn-sm btn-icon" align="right">
@@ -211,7 +204,7 @@
             <tr class="{manage ? '' : 'cursor-pointer'} hover:bg-surface-2 {overId === f.id ? 'bg-accent/15' : ''} {form.target.trim() === f.node ? 'bg-accent/10' : ''}"
               draggable={manage && op} ondragstart={() => (dragId = f.id)} ondragend={() => (dragId = overId = null)}
               ondragover={(e) => { if (dragId != null) { e.preventDefault(); overId = f.id; } }} ondrop={(e) => { e.preventDefault(); drop(f); }}
-              onclick={() => rowClick(f)} ondblclick={() => rowDbl(f)}>
+              onclick={() => rowClick(f)}>
               {#if manage && op}
                 <td class="whitespace-nowrap">
                   <span class="inline-flex items-center">
@@ -225,7 +218,7 @@
               {/if}
               <td class="num text-center {cellClass(f.node)}" title={next === f.node ? 'Next to check' : cellTitle(f.node)} aria-label={next === f.node ? 'Next to check' : undefined}><span class="nx" class:nx-on={next === f.node}>{indexOf(f.id)}</span></td>
               <td class="num whitespace-nowrap font-semibold {l ? 'linked-cell' : ''}" title={l ? (l.keyed ? 'Linked to this node, keyed' : 'Linked to this node') : undefined}>
-                {#if l}<Link2 size={12} class="mr-0.5 inline" aria-hidden="true" /><span class="sr-only">linked</span>{/if}<button type="button" class="font-mono font-semibold text-accent hover:underline" onclick={(e) => { e.stopPropagation(); if (manage) return; openNode(f.node); }} aria-label="Connect options for node {f.node}{l ? ' (linked)' : ''}">{f.node}</button>
+                {#if l}<Link2 size={12} class="mr-0.5 inline" aria-hidden="true" /><span class="sr-only">linked</span>{/if}<button type="button" class="font-mono font-semibold text-accent hover:underline" onclick={(e) => { e.stopPropagation(); if (!manage) openNode(f.node); }} aria-label="Connect options for node {f.node}{l ? ' (linked)' : ''}">{f.node}</button>
               </td>
               <td class="max-w-0">
                 <div class="truncate font-medium">{name(f)}</div>

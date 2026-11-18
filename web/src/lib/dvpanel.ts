@@ -124,18 +124,20 @@ export function validNodeName(name: string): string | null {
 /** Button class of the node link button: green to link, red to unlink (solid colours, readable in both themes). */
 export const nodeLinkClass = (action: 'connect' | 'disconnect'): string => (action === 'connect' ? 'btn-ok' : 'btn-bad');
 
-/**
- * What is keying the bridge from the digital side right now: "RX: DMR TG 3100", "RX: YSF Example room",
- * or null when nothing is. The keyup is the bridge node's link on the local node (links[].keyed, or the
- * bridge node's own rxKeyed when it is monitored); mode and target are what the bridge is tuned to
- * (ABInfo), not what the talker sent. The caller is not known here.
- */
-export function bridgeRx(nodes: Pick<NodeStatus, 'node' | 'rxKeyed' | 'links'>[], s: Pick<DVSnapshot, 'bridgeNode' | 'bridge'> | null | undefined): string | null {
+/** The mode and target the bridge is tuned to: "DMR TG 3100", "YSF Example room", "P25 TG 10100", "DMR" with no target; null without a bridge node or mode. Not what the talker sent. */
+export function bridgeRxTarget(s: Pick<DVSnapshot, 'bridgeNode' | 'bridge'> | null | undefined): string | null {
   const bn = s?.bridgeNode;
   if (!s || !bn?.present || !bn.node || s.bridge.source === 'none' || !s.bridge.mode) return null;
-  const keyed = nodes.some((n) => (n.node === bn.node && n.rxKeyed) || n.links.some((l) => l.node === bn.node && l.keyed));
-  if (!keyed) return null;
   const { mode, tune, targetName } = s.bridge;
-  if (!tune) return `RX: ${mode}`;
-  return mode === 'YSF' ? `RX: YSF ${targetName || tune}` : `RX: ${mode} TG ${tune}`;
+  if (!tune) return mode;
+  return mode === 'YSF' ? `YSF ${targetName || tune}` : `${mode} TG ${tune}`;
+}
+
+/** "RX: DMR TG 3100" while the bridge node is keyed (its link on a local node, or the node itself when monitored), else null. */
+export function bridgeRx(nodes: Pick<NodeStatus, 'node' | 'rxKeyed' | 'links'>[], s: Pick<DVSnapshot, 'bridgeNode' | 'bridge'> | null | undefined): string | null {
+  const t = bridgeRxTarget(s);
+  const bn = s?.bridgeNode;
+  if (t === null || !bn) return null;
+  const keyed = nodes.some((n) => (n.node === bn.node && n.rxKeyed) || n.links.some((l) => l.node === bn.node && l.keyed));
+  return keyed ? `RX: ${t}` : null;
 }
