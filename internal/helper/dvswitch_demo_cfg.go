@@ -126,7 +126,7 @@ func (d *DemoDVSwitch) DVSwitchIdentity(_ context.Context, r DVSwitchRequest) (D
 // DVSwitchCredentials implements the API's DVSwitch interface.
 func (d *DemoDVSwitch) DVSwitchCredentials(_ context.Context, r DVSwitchRequest) (DVApplyResult, error) {
 	cr := r.Credentials
-	if cr == nil || cr.Address == nil && cr.Port == nil && cr.Password == nil {
+	if cr == nil || cr.Address == nil && cr.Port == nil && cr.Password == nil && !cr.ClearPassword {
 		return dvNoChange(), nil
 	}
 	if cr.Address != nil && !reDVHost.MatchString(*cr.Address) {
@@ -134,6 +134,9 @@ func (d *DemoDVSwitch) DVSwitchCredentials(_ context.Context, r DVSwitchRequest)
 	}
 	if cr.Port != nil && !vInt(1, 65535)(strconv.Itoa(*cr.Port)) {
 		return DVApplyResult{}, dvInvalid("DMR Network/Port")
+	}
+	if cr.Password != nil && cr.ClearPassword {
+		return DVApplyResult{}, dvInvalid("DMR Network/Password")
 	}
 	if cr.Password != nil && !vPassword(*cr.Password) {
 		return DVApplyResult{}, dvInvalid("DMR Network/Password")
@@ -147,6 +150,9 @@ func (d *DemoDVSwitch) DVSwitchCredentials(_ context.Context, r DVSwitchRequest)
 		}
 		if cr.Password != nil {
 			c.set = true
+		}
+		if cr.ClearPassword {
+			c.set = false
 		}
 		return nil
 	})

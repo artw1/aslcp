@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/artw1/aslcp/internal/helper"
@@ -104,9 +105,14 @@ func (s *Server) handleDVSwitchCredentials(w http.ResponseWriter, r *http.Reques
 		Address  *string           `json:"dmrAddress"`
 		Port     *int              `json:"dmrPort"`
 		Password *string           `json:"dmrPassword"`
+		Clear    bool              `json:"clearPassword"`
 		Base     map[string]string `json:"base"`
 	}
 	if !decode(w, r, &b, false) {
+		return
+	}
+	if b.Password != nil && b.Clear {
+		s.dvswitchError(w, fmt.Errorf("%w (DMR Network/Password)", helper.ErrDVInvalid)) // both set
 		return
 	}
 	var keys []string
@@ -119,9 +125,12 @@ func (s *Server) handleDVSwitchCredentials(w http.ResponseWriter, r *http.Reques
 	if b.Password != nil {
 		keys = append(keys, "dmrPassword") // the key name, never the value
 	}
+	if b.Clear {
+		keys = append(keys, "clearPassword")
+	}
 	s.dvWrite(w, r, u, "dvswitch.credentials", keys, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
 		return s.d.DVSwitch.DVSwitchCredentials(r.Context(), helper.DVSwitchRequest{Base: b.Base, Author: u.Username,
-			Credentials: &helper.DVCredentials{Address: b.Address, Port: b.Port, Password: b.Password}})
+			Credentials: &helper.DVCredentials{Address: b.Address, Port: b.Port, Password: b.Password, ClearPassword: b.Clear}})
 	})
 }
 

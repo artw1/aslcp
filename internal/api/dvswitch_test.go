@@ -230,6 +230,38 @@ func TestDVSwitchPasswordNeverEchoed(t *testing.T) {
 	}
 }
 
+func TestDVSwitchClearPassword(t *testing.T) {
+	f := &fakeDV{}
+	e := newEnv(t, opts{dvswitch: f})
+	code, raw, _ := e.raw("PUT", "/api/dvswitch/credentials", map[string]any{"clearPassword": true}, e.ck["admin"], nil)
+	if code != 200 {
+		t.Fatalf("%d %s", code, raw)
+	}
+	if f.last.Credentials == nil || !f.last.Credentials.ClearPassword || f.last.Credentials.Password != nil {
+		t.Errorf("clear not passed to the helper: %+v", f.last.Credentials)
+	}
+	aud, _ := e.st.ListAudit(50)
+	found := false
+	for _, a := range aud {
+		found = found || a.Action == "dvswitch.credentials" && strings.Contains(a.Detail, "clearPassword")
+	}
+	if !found {
+		t.Error("audit lacks the key name")
+	}
+	// false is the same as absent: a no-op
+	f.last = helper.DVSwitchRequest{}
+	code, _, _ = e.raw("PUT", "/api/dvswitch/credentials", map[string]any{"clearPassword": false}, e.ck["admin"], nil)
+	if code != 200 || f.last.Credentials != nil {
+		t.Errorf("clearPassword:false was not a no-op: %d %+v", code, f.last.Credentials)
+	}
+	// both set: refused before the helper is called
+	f.last = helper.DVSwitchRequest{}
+	code, raw, _ = e.raw("PUT", "/api/dvswitch/credentials", map[string]any{"dmrPassword": "example-pass", "clearPassword": true}, e.ck["admin"], nil)
+	if code != 400 || !strings.Contains(string(raw), "invalid_field") || f.last.Credentials != nil {
+		t.Fatalf("%d %s", code, raw)
+	}
+}
+
 func TestDVSwitchIdentityNXDNID(t *testing.T) {
 	f := &fakeDV{}
 	e := newEnv(t, opts{dvswitch: f})

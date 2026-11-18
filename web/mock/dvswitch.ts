@@ -101,14 +101,16 @@ function write(c: DVCtx, body: Body): boolean {
     cfg.identity = { callsign, dmrId, essid, nxdnId: nxdnId || (cfg.identity.nxdnId === '12345' ? '' : cfg.identity.nxdnId), consistent: true };
     done(FILES, FILES.map((f) => UNIT_OF[f]));
   } else if (c.p === '/dvswitch/credentials') {
-    const { dmrAddress, dmrPort, dmrPassword } = body as { dmrAddress?: string; dmrPort?: number; dmrPassword?: string };
-    if (dmrAddress === undefined && dmrPort === undefined && dmrPassword === undefined) return bad(c, 'credentials'), true;
+    const { dmrAddress, dmrPort, dmrPassword, clearPassword } = body as { dmrAddress?: string; dmrPort?: number; dmrPassword?: string; clearPassword?: boolean };
+    if (dmrAddress === undefined && dmrPort === undefined && dmrPassword === undefined && !clearPassword) return bad(c, 'credentials'), true;
     if (dmrAddress !== undefined && !/^[A-Za-z0-9.-]{1,253}$/.test(dmrAddress)) return bad(c, 'DMR Network/Address'), true;
     if (dmrPort !== undefined && !(Number.isInteger(dmrPort) && dmrPort >= 1 && dmrPort <= 65535)) return bad(c, 'DMR Network/Port'), true;
     if (dmrPassword !== undefined && !/^[\x21\x24-\x3a\x3c-\x7e]{1,64}$/.test(dmrPassword)) return bad(c, 'DMR Network/Password'), true;
+    if (clearPassword && dmrPassword !== undefined) return bad(c, 'DMR Network/Password'), true;
     if (dmrAddress !== undefined) cfg.dmr.address = dmrAddress;
     if (dmrPort !== undefined) cfg.dmr.port = dmrPort;
     if (dmrPassword !== undefined) cfg.dmr.passwordSet = true;
+    if (clearPassword) cfg.dmr.passwordSet = false;
     done(['mmdvm_bridge'], ['mmdvm_bridge']);
   } else if (c.p === '/dvswitch/modes') {
     const m = body as Record<string, unknown>; let any = false;

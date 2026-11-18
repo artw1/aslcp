@@ -26,6 +26,22 @@ export function dvErrorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+export interface DVNetForm { address: string; port: string; password: string }
+export interface DVCredsPatch { dmrAddress?: string; dmrPort?: number; dmrPassword?: string; clearPassword?: true }
+
+/**
+ * The credentials body for the fields that changed, or null when nothing did. A typed password and "clear"
+ * are never sent together: clear wins (the box is disabled while it is selected).
+ */
+export function credentialsPatch(snap: DVNetForm, net: DVNetForm, clearPassword: boolean): DVCredsPatch | null {
+  const b: DVCredsPatch = {};
+  if (net.address !== snap.address) b.dmrAddress = net.address;
+  if (net.port !== snap.port && net.port.trim() !== '') b.dmrPort = Number(net.port);
+  if (clearPassword) b.clearPassword = true;
+  else if (net.password) b.dmrPassword = net.password;
+  return Object.keys(b).length ? b : null;
+}
+
 /** True when the two forms differ in any field (a typed password always counts as a change). */
 export function formChanged(before: unknown, after: unknown): boolean {
   return JSON.stringify(before) !== JSON.stringify(after);

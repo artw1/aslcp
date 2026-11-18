@@ -6,7 +6,7 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import type { DVDMRStatus, DVListItem, DVListMode, DVRestartScope, DVSwitchSetup, DVSwitchStatus } from '../lib/types';
   import { badge, bridgeInUse, IDLE_POLL_MS, outcomeFor, waitForLogin, type Outcome } from '../lib/dmrlogin';
-  import { dvErrorMessage, formChanged } from '../lib/dvmsg';
+  import { credentialsPatch, dvErrorMessage, formChanged } from '../lib/dvmsg';
   import { findByValue, indexList, optionLabel, searchList } from '../lib/dvlist';
   import Confirm from './Confirm.svelte';
   import NodePicker from './NodePicker.svelte';
@@ -31,6 +31,7 @@
   const hit = (m: Exclude<DVListMode, 'dmr'>, value: string) => findByValue(lists[m], value);
   let id = $state({ callsign: '', dmrId: '', essid: '', nxdnId: '' });
   let net = $state({ address: '', port: '', password: '' });
+  let clearPw = $state(false);
   let modes = $state({ dmr: false, ysf: false, p25: false, nxdn: false });
   let st = $state({ ambeMode: 'DMR', txTg: '', txTs: '2', colorCode: '1', ysf: '', p25: '', nxdn: '' });
   let scope = $state<DVRestartScope>('bridge');
@@ -42,6 +43,7 @@
     v = s;
     id = { callsign: s.identity.callsign, dmrId: s.identity.dmrId, essid: s.identity.essid, nxdnId: s.identity.nxdnId ?? '' };
     net = { address: s.dmr.address, port: s.dmr.port ? String(s.dmr.port) : '', password: '' };
+    clearPw = false;
     modes = { ...s.modes };
     st = { ambeMode: s.startup.ambeMode || 'DMR', txTg: s.startup.txTg, txTs: String(s.startup.txTs || 2), colorCode: String(s.startup.colorCode), ysf: s.gateways.ysf.startup, p25: s.gateways.p25.startup, nxdn: s.gateways.nxdn.startup };
     snap = { id: { ...id }, net: { ...net }, modes: { ...modes }, st: { ...st } };
@@ -121,12 +123,9 @@
   }
   const saveIdentity = () => formChanged(snap.id, id) ? save('Identity', () => api.dvswitchIdentity({ ...id, nxdnId: id.nxdnId.trim() || undefined, base: base() }), true) : noChanges('Identity');
   function saveNet() {
-    const b: { dmrAddress?: string; dmrPort?: number; dmrPassword?: string; base: Record<string, string> } = { base: base() };
-    if (net.address !== snap.net.address) b.dmrAddress = net.address;
-    if (net.port !== snap.net.port && net.port.trim() !== '') b.dmrPort = Number(net.port);
-    if (net.password) b.dmrPassword = net.password;
-    if (b.dmrAddress === undefined && b.dmrPort === undefined && b.dmrPassword === undefined) return noChanges('DMR master');
-    return save('DMR master', async () => { try { return await api.dvswitchCredentials(b); } finally { net.password = ''; } }, true);
+    const p = credentialsPatch(snap.net, net, clearPw);
+    if (!p) return noChanges('DMR master');
+    return save('DMR master', async () => { try { return await api.dvswitchCredentials({ ...p, base: base() }); } finally { net.password = ''; clearPw = false; } }, true);
   }
   const saveModes = () => formChanged(snap.modes, modes) ? save('Modes', () => api.dvswitchModes({ ...modes, base: base() })) : noChanges('Modes');
   const saveStartup = () => !formChanged(snap.st, st) ? noChanges('Startup values') : save('Startup values', () => api.dvswitchStartup({
@@ -183,8 +182,11 @@
         <div><label class="label" for="dv-port">Port</label><input id="dv-port" class="input font-mono" bind:value={net.port} inputmode="numeric" maxlength="5" /></div>
         <p id="dv-addr-hint" class="text-xs text-muted sm:col-span-3">{lists.dmr.length ? 'Search by name, network ID or address. Picking a master fills the address and the port; you can also type your own.' : 'Type the master address and port.'} The list never holds your password: enter your own below.</p>
         <div class="sm:col-span-3">
-          <label class="label" for="dv-pw">DMR password <span class="text-muted">({v.dmr.passwordSet ? 'set' : 'not set'})</span></label>
-          <input id="dv-pw" class="input font-mono" type="password" autocomplete="new-password" bind:value={net.password} placeholder={v.dmr.passwordSet ? 'Leave empty to keep the password' : 'Enter the password'} maxlength="64" />
+          <label class="label" for="dv-pw">DMR password <span class="text-muted" data-testid="dv-pw-state">({v.dmr.passwordSet ? 'Password saved' : 'No password'})</span></label>
+          <input id="dv-pw" class="input font-mono" type="password" autocomplete="new-password" bind:value={net.password} disabled={clearPw} placeholder={clearPw ? 'The password will be cleared' : v.dmr.passwordSet ? 'Leave empty to keep the password' : 'Enter the password'} maxlength="64" />
+          {#if v.dmr.passwordSet}
+            <label class="mt-1 flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={clearPw} /> Clear password <span class="text-xs text-muted">(for masters that don't need a password)</span></label>
+          {/if}
           <p class="mt-1 text-xs text-muted">Write-only: it is never shown again. Printable ASCII, up to 64 characters, without quotes, # or ;.</p>
         </div>
         <div class="sm:col-span-3"><button class="btn btn-primary" disabled={busy || !!verify.working}>Save DMR master</button><span class="ml-2 text-xs text-muted">Saving restarts mmdvm_bridge only, then checks the login.</span></div>

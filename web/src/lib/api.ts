@@ -144,7 +144,7 @@ export const api = {
   dvswitchUninstall: () => req<DVSwitchStatus>('POST', '/dvswitch/uninstall'),
   dvswitchSetup: () => req<DVSwitchSetup>('GET', '/dvswitch/setup'),
   dvswitchIdentity: (b: { callsign: string; dmrId: string; essid: string; nxdnId?: string; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/identity', b),
-  dvswitchCredentials: (b: { dmrAddress?: string; dmrPort?: number; dmrPassword?: string; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/credentials', b),
+  dvswitchCredentials: (b: { dmrAddress?: string; dmrPort?: number; dmrPassword?: string; clearPassword?: boolean; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/credentials', b),
   dvswitchModes: (b: { dmr?: boolean; ysf?: boolean; p25?: boolean; nxdn?: boolean; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/modes', b),
   dvswitchStartup: (b: { useCurrent?: boolean; ambeMode?: string; txTg?: string; txTs?: number; colorCode?: number; ysf?: string; p25?: string; nxdn?: string; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/startup', b),
   dvswitchList: (mode: DVListMode) => req<DVList>('GET', `/dvswitch/lists?mode=${mode}`),

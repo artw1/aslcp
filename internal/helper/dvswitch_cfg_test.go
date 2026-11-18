@@ -252,6 +252,37 @@ func TestDVCredentialsWriteOnly(t *testing.T) {
 	}
 }
 
+func TestDVCredentialsClearPassword(t *testing.T) {
+	o, _ := cfgOps(t)
+	ctx := context.Background()
+	if _, err := o.DVSwitchCredentials(ctx, &DVSwitchRequest{Credentials: &DVCredentials{Password: sp(dvTestPass)}}); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := o.DVSwitchSetup(ctx); !v.DMR.PasswordSet {
+		t.Fatal("password not set")
+	}
+	// both set is invalid and writes nothing
+	_, err := o.DVSwitchCredentials(ctx, &DVSwitchRequest{Credentials: &DVCredentials{Password: sp(dvTestPass), ClearPassword: true}})
+	if !errors.Is(err, ErrDVInvalid) {
+		t.Fatalf("both set: %v", err)
+	}
+	if !strings.Contains(readDV(t, o, DVFileMMDVMBridge), dvTestPass) {
+		t.Fatal("refused request changed the file")
+	}
+	// clear writes the stock value, not an empty one
+	res, err := o.DVSwitchCredentials(ctx, &DVSwitchRequest{Credentials: &DVCredentials{ClearPassword: true}})
+	if err != nil || len(res.Files) == 0 {
+		t.Fatalf("%v %+v", err, res)
+	}
+	got := readDV(t, o, DVFileMMDVMBridge)
+	if strings.Contains(got, dvTestPass) || !strings.Contains(got, "Password="+dvStockPassword) {
+		t.Errorf("password not reset to the stock value:\n%s", got)
+	}
+	if v, _ := o.DVSwitchSetup(ctx); v.DMR.PasswordSet {
+		t.Error("passwordSet still true")
+	}
+}
+
 func TestDVModesBothSections(t *testing.T) {
 	o, _ := cfgOps(t)
 	ctx := context.Background()
@@ -601,6 +632,9 @@ func TestDemoDVSwitchCfg(t *testing.T) {
 	}
 	v, _ := d.DVSwitchSetup(ctx)
 	b, _ := json.Marshal(v)
+	if _, err := d.DVSwitchCredentials(ctx, DVSwitchRequest{Credentials: &DVCredentials{Password: sp(dvTestPass), ClearPassword: true}}); !errors.Is(err, ErrDVInvalid) {
+		t.Fatalf("both set: %v", err)
+	}
 	if strings.Contains(string(b), dvTestPass) || !v.DMR.PasswordSet {
 		t.Fatalf("%s", b)
 	}

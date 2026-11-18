@@ -364,7 +364,7 @@ Design: docs/DVSWITCH.md (M4). All endpoints are admin only (`403 forbidden` oth
 |---|---|---|---|
 | GET | `/api/dvswitch/setup` | | `200` Setup |
 | PUT | `/api/dvswitch/identity` | `{"callsign","dmrId","essid","nxdnId"?,"base"?}` (`nxdnId`: digits, 1-65519, no leading zeros; omitted or empty leaves the NXDN ID alone) | `200` Setup |
-| PUT | `/api/dvswitch/credentials` | `{"dmrAddress"?,"dmrPort"?,"dmrPassword"?,"base"?}` | `200` Setup |
+| PUT | `/api/dvswitch/credentials` | `{"dmrAddress"?,"dmrPort"?,"dmrPassword"?,"clearPassword"?,"base"?}` | `200` Setup. `"clearPassword": true` resets the DMR password to the stock `passw0rd` (for masters without a password); `passwordSet` becomes false. With `dmrPassword` too: `400 invalid_field`. `false` is the same as absent |
 | PUT | `/api/dvswitch/modes` | `{"dmr"?,"ysf"?,"p25"?,"nxdn"?,"base"?}` (booleans) | `200` Setup |
 | PUT | `/api/dvswitch/startup` | `{"useCurrent":true}` or `{"ambeMode"?,"txTg"?,"txTs"?,"colorCode"?,"ysf"?,"p25"?,"nxdn"?,"base"?}` | `200` Setup |
 | POST | `/api/dvswitch/rollback` | `{"file":"analog_bridge","base"?}` (file ids: `analog_bridge`, `mmdvm_bridge`, `ysfgateway`, `p25gateway`, `nxdngateway`) | `200` Setup |

@@ -254,11 +254,13 @@ type DVIdentity struct {
 }
 
 // DVCredentials: the DMR master. Nil fields are left alone. The password is
-// write-only.
+// write-only. ClearPassword writes the stock value (dvStockPassword, reported
+// as "not set") for masters that need no password; it excludes Password.
 type DVCredentials struct {
-	Address  *string `json:"address,omitempty"`
-	Port     *int    `json:"port,omitempty"`
-	Password *string `json:"password,omitempty"`
+	Address       *string `json:"address,omitempty"`
+	Port          *int    `json:"port,omitempty"`
+	Password      *string `json:"password,omitempty"`
+	ClearPassword bool    `json:"clearPassword,omitempty"`
 }
 
 // DVModes: nil fields are left alone.
@@ -675,8 +677,14 @@ func (o *Ops) DVSwitchCredentials(ctx context.Context, req *DVSwitchRequest) (DV
 	if c.Port != nil {
 		add("Port", strconv.Itoa(*c.Port))
 	}
+	if c.Password != nil && c.ClearPassword {
+		return DVApplyResult{}, dvInvalid("DMR Network/Password")
+	}
 	if c.Password != nil {
 		add("Password", *c.Password)
+	}
+	if c.ClearPassword {
+		add("Password", dvStockPassword)
 	}
 	if len(ch) == 0 {
 		// nothing to write: a harmless no-op, not an error
