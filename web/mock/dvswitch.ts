@@ -22,13 +22,32 @@ function progress() {
   return job.kind === 'install' ? { install: cur, uninstall: idle } : { install: idle, uninstall: cur };
 }
 
+// DMR login simulation: each (re)start of mmdvm_bridge takes 4 s, then the master answers with the next
+// outcome of the cycle. The fifth leaves the unit stopped (a crash), so the Start button can be tried.
+const DMR_CYCLE = [
+  { state: 'logged_in', line: 'DMR, Logged into the master successfully: 192.0.2.10:62031' },
+  { state: 'login_failed', line: 'DMR, Login to the master has failed, retrying login ...' },
+  { state: 'timed_out', line: 'DMR, Connection to the master has timed out, retrying connection' },
+  { state: 'socket_failed', line: 'DMR, Socket has failed, retrying connection to the master' },
+  { state: 'not_running', line: '' },
+];
+let dmrRuns = 0, dmrAt = 0, dmrDown = false;
+function dmrStatus() {
+  if (!installed) return { state: 'not_installed' };
+  if (!cfg.modes.dmr) return { state: 'disabled' };
+  const o = DMR_CYCLE[dmrRuns % DMR_CYCLE.length], since = dmrAt || Date.now() - 3.6e6;
+  if (Date.now() - since < 4000) return { state: 'connecting', since: new Date(since).toISOString() };
+  if (o.state === 'not_running') { dmrDown = true; return { state: 'not_running', since: new Date(since).toISOString() }; }
+  return { state: o.state, since: new Date(since).toISOString(), at: new Date(since + 4000).toISOString(), lastLine: o.line, ...(o.state === 'logged_in' ? { master: '192.0.2.10:62031' } : {}) };
+}
+
 function status() {
   const j = progress(), running = j.install.job === 'running' || j.uninstall.job === 'running';
   return {
     installed, installedBy: installed ? 'aslcp' : '', version: installed ? '1.7.0' : '', arch: 'arm64', osCodename: 'bookworm', supported: true,
     repoPresent: installed, keyPresent: installed, keyOk: installed, ...(installed ? { keyFingerprint: FP } : {}),
     packages: PKGS.map((name) => ({ name, installed, ...(installed ? { version: '1.7.0' } : {}) })),
-    units: UNITS.map((name) => ({ name, loaded: installed, active: installed ? 'active' : 'inactive', enabled: installed ? 'enabled' : '' })),
+    units: UNITS.map((name) => ({ name, loaded: installed, active: installed && !(name === 'mmdvm_bridge' && dmrDown) ? 'active' : 'inactive', enabled: installed ? 'enabled' : '' })),
     hostFiles: ['DMRIds.dat', 'YSFHosts.txt', 'P25Hosts.txt', 'NXDNHosts.txt'].map((name) => ({ name, present: installed, size: installed ? 4096 : 0 })), hostFilesOk: installed,
     marker: installed ? { version: 1, installedAt: new Date().toISOString(), wgetPreinstalled: false, packages: ['qemu-user-static', 'wget'] } : null,
     canInstall: !installed && !running, canUninstall: installed && !running,
@@ -110,8 +129,9 @@ function write(c: DVCtx, body: Body): boolean {
     hist[f]--; rev[f] = (rev[f] ?? 0) + 1;
     c.json(200, setup({ changed: [f], skipped: [], restartHint: [UNIT_OF[f]] }));
   } else if (c.p === '/dvswitch/restart') {
-    const scope = String(body.scope ?? ''), units = ({ bridge: ['analog_bridge', 'mmdvm_bridge'], gateways: ['ysfgateway', 'p25gateway', 'nxdngateway'], all: ['analog_bridge', 'mmdvm_bridge', 'ysfgateway', 'p25gateway', 'nxdngateway'] } as Record<string, string[]>)[scope];
+    const scope = String(body.scope ?? ''), units = ({ dmr: ['mmdvm_bridge'], bridge: ['analog_bridge', 'mmdvm_bridge'], gateways: ['ysfgateway', 'p25gateway', 'nxdngateway'], all: ['analog_bridge', 'mmdvm_bridge', 'ysfgateway', 'p25gateway', 'nxdngateway'] } as Record<string, string[]>)[scope];
     if (!units) return bad(c, 'scope'), true;
+    if (units.includes('mmdvm_bridge')) { dmrRuns++; dmrAt = Date.now(); dmrDown = false; }
     c.json(200, { action: body.action === 'start' ? 'start' : 'restart', units, skipped: [], states: status().units, warning: 'A restart resets the running mode and talkgroup to the startup values in the ini files.' });
   }
   return true;
@@ -155,6 +175,12 @@ export function handleDVSwitch(c: DVCtx): boolean {
     const mode = c.url?.searchParams.get('mode') ?? '';
     if (!(mode in LISTS)) { c.err(400, 'mode must be dmr, ysf, p25 or nxdn', 'bad_request'); return true; }
     c.json(200, { mode, items: LISTS[mode], etag: 'mock' });
+    return true;
+  }
+  if (c.m === 'GET' && c.p === '/dvswitch/dmr-status') {
+    if (c.user.role === 'viewer') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
+    progress();
+    c.json(200, dmrStatus());
     return true;
   }
   if (c.user.role !== 'admin') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }

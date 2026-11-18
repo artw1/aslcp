@@ -4,7 +4,8 @@
   import { onMount } from 'svelte';
   import { api, ApiError } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
-  import type { DVListItem, DVListMode, DVSwitchSetup, DVSwitchStatus } from '../lib/types';
+  import type { DVDMRStatus, DVListItem, DVListMode, DVRestartScope, DVSwitchSetup, DVSwitchStatus } from '../lib/types';
+  import { badge, bridgeInUse, IDLE_POLL_MS, outcomeFor, waitForLogin, type Outcome } from '../lib/dmrlogin';
   import { findByValue, indexList, optionLabel, searchList } from '../lib/dvlist';
   import Confirm from './Confirm.svelte';
   import NodePicker from './NodePicker.svelte';
@@ -31,7 +32,7 @@
   let net = $state({ address: '', port: '', password: '' });
   let modes = $state({ dmr: false, ysf: false, p25: false, nxdn: false });
   let st = $state({ ambeMode: 'DMR', txTg: '', txTs: '2', colorCode: '1', ysf: '', p25: '', nxdn: '' });
-  let scope = $state<'bridge' | 'gateways' | 'all'>('bridge');
+  let scope = $state<DVRestartScope>('bridge');
   let confirmRestart = $state(false), rbOpen = $state(false), rollbackFile = $state('');
 
   function fill(s: DVSwitchSetup) {
@@ -42,30 +43,82 @@
     st = { ambeMode: s.startup.ambeMode || 'DMR', txTg: s.startup.txTg, txTs: String(s.startup.txTs || 2), colorCode: String(s.startup.colorCode), ysf: s.gateways.ysf.startup, p25: s.gateways.p25.startup, nxdn: s.gateways.nxdn.startup };
   }
   async function load() { try { fill(await api.dvswitchSetup()); err = ''; } catch (e) { err = e instanceof Error ? e.message : String(e); } }
-  onMount(() => { load(); loadLists(); });
+
+  // DMR login: a live badge (light poll while the page is open) and the check after a save.
+  let dmr = $state<DVDMRStatus | null>(null);
+  let verify = $state<{ working: string; outcome: Outcome | null }>({ working: '', outcome: null });
+  let gen = 0; // a newer check, or leaving the page, cancels the running one
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+  async function pollOnce() {
+    if (verify.working) return;
+    try { dmr = await api.dvswitchDmrStatus(); } catch { /* keep the last badge */ }
+  }
+  onMount(() => {
+    load(); loadLists(); pollOnce();
+    const t = setInterval(() => { if (!document.hidden) pollOnce(); }, IDLE_POLL_MS);
+    return () => { clearInterval(t); gen++; };
+  });
+  const bd = $derived(badge(dmr));
+  const TONE = { ok: 'border-ok text-ok', warn: 'border-warn text-warn', danger: 'border-danger text-danger', muted: '' } as const;
+  const KIND = { ok: 'border-ok text-ok', error: 'border-danger text-danger', warn: 'border-warn text-warn', info: 'border-line text-muted' } as const;
+
+  async function watch(my: number) {
+    verify = { working: 'Waiting for the DMR master…', outcome: null };
+    const r = await waitForLogin(() => api.dvswitchDmrStatus(), { sleep, cancelled: () => my !== gen, onStatus: (x) => { dmr = x; } });
+    if (!r || my !== gen) return;
+    verify = { working: '', outcome: r.outcome };
+  }
+  // Saved credentials only take effect after mmdvm_bridge restarts: restart that unit alone, then wait for a verdict.
+  async function verifyLogin() {
+    const my = ++gen;
+    const done = (outcome: Outcome) => { verify = { working: '', outcome }; };
+    if (!v?.modes.dmr) { done(outcomeFor({ state: 'disabled' }, true)!); return; }
+    const { inUse, running } = bridgeInUse(units);
+    if (!inUse) { done({ kind: 'info', message: 'Saved. mmdvm_bridge is neither enabled nor running, so the login was not tried.' }); return; }
+    if (!running) { done({ kind: 'warn', message: 'Saved. mmdvm_bridge is not running, so the login has not been tried.', needStart: true }); return; }
+    verify = { working: 'Restarting mmdvm_bridge…', outcome: null };
+    try {
+      const r = await api.dvswitchDmrRestart('restart');
+      onunits(r.states);
+      hint = hint.filter((h) => h !== 'mmdvm_bridge');
+    } catch (e) { verify = { working: '', outcome: null }; toastError(e); return; }
+    await watch(my);
+  }
+  async function startBridge() {
+    const my = ++gen;
+    verify = { working: 'Starting mmdvm_bridge…', outcome: null };
+    try {
+      const r = await api.dvswitchDmrRestart('start');
+      onunits(r.states);
+      hint = hint.filter((h) => h !== 'mmdvm_bridge');
+    } catch (e) { verify = { working: '', outcome: null }; toastError(e); return; }
+    await watch(my);
+  }
 
   const base = () => Object.fromEntries((v?.files ?? []).filter((f) => f.sha256).map((f) => [f.id, f.sha256]));
 
-  async function save(what: string, call: () => Promise<DVSwitchSetup>) {
+  async function save(what: string, call: () => Promise<DVSwitchSetup>, check = false) {
     busy = true;
     try {
       const s = await call();
       fill(s);
       hint = s.restartHint ?? [];
       notes = s.applyWarnings ?? [];
-      toast(s.changed && s.changed.length ? `${what} saved.` : `${what}: nothing to change.`, 'info');
+      const changed = !!(s.changed && s.changed.length);
+      toast(changed ? `${what} saved.` : `${what}: nothing to change.`, 'info');
+      if (check) { if (changed) { busy = false; await verifyLogin(); } else pollOnce(); }
     } catch (e) {
       if (e instanceof ApiError && e.code === 'conflict') { toast('A file changed on disk. The values were reloaded; check them and save again.', 'error'); await load(); }
       else toastError(e);
     } finally { busy = false; }
   }
-  const saveIdentity = () => save('Identity', () => api.dvswitchIdentity({ ...id, nxdnId: id.nxdnId.trim() || undefined, base: base() }));
+  const saveIdentity = () => save('Identity', () => api.dvswitchIdentity({ ...id, nxdnId: id.nxdnId.trim() || undefined, base: base() }), true);
   function saveNet() {
     const b: { dmrAddress?: string; dmrPort?: number; dmrPassword?: string; base: Record<string, string> } = { base: base() };
     if (net.address !== v?.dmr.address) b.dmrAddress = net.address;
     if (Number(net.port) !== v?.dmr.port) b.dmrPort = Number(net.port);
     if (net.password) b.dmrPassword = net.password;
-    return save('DMR master', async () => { try { return await api.dvswitchCredentials(b); } finally { net.password = ''; } });
+    return save('DMR master', async () => { try { return await api.dvswitchCredentials(b); } finally { net.password = ''; } }, true);
   }
   const saveModes = () => save('Modes', () => api.dvswitchModes({ ...modes, base: base() }));
   const saveStartup = () => save('Startup values', () => api.dvswitchStartup({
@@ -84,6 +137,7 @@
       hint = [];
       toast(`${action === 'start' ? 'Started' : 'Restarted'}: ${r.units.join(', ')}.`, 'info');
       await load();
+      if (scope !== 'gateways') pollOnce();
     } catch (e) { toastError(e); } finally { busy = false; }
   }
   const downNames = $derived(units.filter((u) => u.loaded && u.active !== 'active').map((u) => u.name));
@@ -112,6 +166,10 @@
         <div class="sm:col-span-3"><button class="btn btn-primary" disabled={busy}>Save identity</button><span class="ml-2 text-xs text-muted">Written to every place that holds it.</span></div>
       </form>
       <form class="grid grid-cols-1 gap-2 border-t border-line pt-3 sm:grid-cols-3" onsubmit={(e) => { e.preventDefault(); saveNet(); }}>
+        <div class="flex flex-wrap items-center gap-2 sm:col-span-3" aria-label="DMR login">
+          <h3 class="text-sm font-semibold">DMR login</h3>
+          <span class="badge {TONE[bd.tone]}" role="status" title={dmr?.lastLine ?? ''}>{bd.text}</span>
+        </div>
         <div class="sm:col-span-2"><label class="label" for="dv-addr">DMR master address</label>
           <NodePicker id="dv-addr" bind:value={net.address} options={lists.dmr} search={find('dmr')} label={label('dmr')} onpickoption={(o) => { net.port = String(o.port); }} placeholder="Search a master or type an address" inputmode="text" maxlength={253} describedby="dv-addr-hint" /></div>
         <div><label class="label" for="dv-port">Port</label><input id="dv-port" class="input font-mono" bind:value={net.port} inputmode="numeric" maxlength="5" /></div>
@@ -121,7 +179,12 @@
           <input id="dv-pw" class="input font-mono" type="password" autocomplete="new-password" bind:value={net.password} placeholder={v.dmr.passwordSet ? 'Leave empty to keep the password' : 'Enter the password'} maxlength="64" />
           <p class="mt-1 text-xs text-muted">Write-only: it is never shown again. Printable ASCII, up to 64 characters, without quotes, # or ;.</p>
         </div>
-        <div class="sm:col-span-3"><button class="btn btn-primary" disabled={busy}>Save DMR master</button></div>
+        <div class="sm:col-span-3"><button class="btn btn-primary" disabled={busy || !!verify.working}>Save DMR master</button><span class="ml-2 text-xs text-muted">Saving restarts mmdvm_bridge only, then checks the login.</span></div>
+        {#if verify.working}
+          <p class="rounded border border-line p-2 text-sm text-muted sm:col-span-3" role="status">{verify.working}</p>
+        {:else if verify.outcome}
+          <p class="rounded border p-2 text-sm sm:col-span-3 {KIND[verify.outcome.kind]}" role="status">{verify.outcome.message}{#if verify.outcome.needStart}<button type="button" class="btn btn-sm ml-2" onclick={startBridge}>Start mmdvm_bridge</button>{/if}</p>
+        {/if}
       </form>
     </section>
 
@@ -161,7 +224,7 @@
       </ul>
       <div class="flex flex-wrap items-center gap-2">
         <label class="sr-only" for="dv-scope">Scope</label>
-        <select id="dv-scope" class="input w-auto" bind:value={scope}><option value="bridge">Bridge (Analog_Bridge, MMDVM_Bridge)</option><option value="gateways">Gateways (YSF, P25, NXDN)</option><option value="all">All</option></select>
+        <select id="dv-scope" class="input w-auto" bind:value={scope}><option value="dmr">DMR master only (MMDVM_Bridge)</option><option value="bridge">Bridge (Analog_Bridge, MMDVM_Bridge)</option><option value="gateways">Gateways (YSF, P25, NXDN)</option><option value="all">All</option></select>
         <button class="btn" disabled={busy} onclick={() => run('start')} title="Start the units that are stopped">Start</button>
         <button class="btn btn-primary" disabled={busy} onclick={() => (confirmRestart = true)}>Restart</button>
       </div>
@@ -185,5 +248,5 @@
   </div>
 {/if}
 
-<Confirm bind:open={confirmRestart} title="Restart services?" confirmLabel="Restart" message={`This restarts the ${scope === 'all' ? 'bridge and the gateways' : scope === 'bridge' ? 'bridge' : 'gateways'}. ${WARNING}`} onconfirm={() => run('restart')} />
+<Confirm bind:open={confirmRestart} title="Restart services?" confirmLabel="Restart" message={`This restarts the ${({ all: 'bridge and the gateways', bridge: 'bridge', dmr: 'DMR master connection (MMDVM_Bridge)', gateways: 'gateways' } as const)[scope]}. ${WARNING}`} onconfirm={() => run('restart')} />
 <Confirm bind:open={rbOpen} title="Restore the previous version?" confirmLabel="Restore" message={`${FILE_LABEL[rollbackFile] ?? rollbackFile} goes back to its previous version. Services pick it up on a restart.`} onconfirm={() => rollback(rollbackFile)} />

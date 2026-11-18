@@ -247,7 +247,7 @@ func (s *Server) handleDVSwitchRestart(w http.ResponseWriter, r *http.Request, u
 
 func safeScope(s string) string {
 	switch s {
-	case "bridge", "gateways", "all":
+	case "dmr", "bridge", "gateways", "all":
 		return s
 	}
 	return "?"

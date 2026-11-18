@@ -368,9 +368,19 @@ Design: docs/DVSWITCH.md (M4). All endpoints are admin only (`403 forbidden` oth
 | PUT | `/api/dvswitch/modes` | `{"dmr"?,"ysf"?,"p25"?,"nxdn"?,"base"?}` (booleans) | `200` Setup |
 | PUT | `/api/dvswitch/startup` | `{"useCurrent":true}` or `{"ambeMode"?,"txTg"?,"txTs"?,"colorCode"?,"ysf"?,"p25"?,"nxdn"?,"base"?}` | `200` Setup |
 | POST | `/api/dvswitch/rollback` | `{"file":"analog_bridge","base"?}` (file ids: `analog_bridge`, `mmdvm_bridge`, `ysfgateway`, `p25gateway`, `nxdngateway`) | `200` Setup |
-| POST | `/api/dvswitch/restart` | `{"scope":"bridge\|gateways\|all","action"?:"restart\|start"}` | `200` `{"action","units":[],"skipped":[],"states":[{name,loaded,active,enabled}],"warning"}` |
+| POST | `/api/dvswitch/restart` | `{"scope":"dmr\|bridge\|gateways\|all","action"?:"restart\|start"}` (`dmr` is `mmdvm_bridge` alone) | `200` `{"action","units":[],"skipped":[],"states":[{name,loaded,active,enabled}],"warning"}` |
 
 Every write reply (Setup) can also carry `"applyWarnings": ["..."]`: values the write left out and why. `PUT /api/dvswitch/startup {"useCurrent":true}` in a YSF mode maps ABInfo's `host:port` to the reflector id through `YSFHosts.txt`; when no entry matches (or the file is missing) the YSF `Startup` is not written and a warning says so (P25 and NXDN: the tune is not a TG number). The other values are still written. The text never holds the tune.
+
+### DVSwitch DMR login status (operator)
+
+Design: docs/DVSWITCH.md ("DMR login status"). Answers whether `mmdvm_bridge` is logged in to its DMR master, from the log lines written since the unit started.
+
+| Method | Path | Reply |
+|---|---|---|
+| GET | `/api/dvswitch/dmr-status` | `200` `{"state","master"?,"at"?,"since"?,"lastLine"?}`. `operator` and `admin` only (`401`, `403 forbidden` for a viewer). `503 dvswitch_unavailable`. `Cache-Control: no-store`. No password and no DMR ID: digit runs of 7 or more in `lastLine` and `master` are replaced by `***` |
+
+`state` is one of `not_installed`, `disabled` (DMR mode off), `not_running`, `connecting` (running, no verdict line since the start), `logged_in`, `login_failed`, `timed_out`, `socket_failed`, `master_closing`. `master` (`host:port`, only with `logged_in`), `at` (RFC 3339 UTC time of the matched line) and `lastLine` (for example `DMR, Login to the master has failed, retrying login ...`) are present only when a verdict line matched; `since` (RFC 3339 UTC unit start) is present when the unit start is known. Example: `{"state":"logged_in","master":"3103.master.brandmeister.network:62031","at":"2026-11-18T01:23:15Z","since":"2026-11-18T01:23:00Z","lastLine":"DMR, Logged into the master successfully: 3103.master.brandmeister.network:62031"}`.
 
 ### DVSwitch host and TG lists (operator)
 
@@ -521,6 +531,6 @@ System update operations (fixed apt/systemd commands, no arguments and no packag
 
 DVSwitch operations (no arguments; fixed scripts in transient units `aslcp-dvswitch-install` and `aslcp-dvswitch-uninstall`): `dvswitch-status`, `dvswitch-job`, `dvswitch-install`, `dvswitch-uninstall`. The units call back into the helper binary as `aslcp-helper dvswitch-step <install-plan|install-check|uninstall-plan>` (root only, not a socket op). Refusals come back as errors prefixed `already_installed:`, `unsupported_platform:`, `clock_unset:`, `key_mismatch:` or `not_aslcp_installed:`.
 
-DVSwitch config operations (M4, take a `dvswitch` request object, rejected on every other op): `dvswitch-setup`, `dvswitch-info`, `dvswitch-identity`, `dvswitch-credentials`, `dvswitch-modes`, `dvswitch-startup`, `dvswitch-rollback`, `dvswitch-restart`, `dvswitch-lists` (`mode` enum `dmr|ysf|p25|nxdn`, maps to one fixed file). The file is an enum id, never a path. Errors are prefixed `invalid_field:`, `not_installed:`, `no_history:`, `no_info:`, `no_list:`; a base mismatch is the usual conflict error.
+DVSwitch config operations (M4, take a `dvswitch` request object, rejected on every other op): `dvswitch-setup`, `dvswitch-info`, `dvswitch-identity`, `dvswitch-credentials`, `dvswitch-modes`, `dvswitch-startup`, `dvswitch-rollback`, `dvswitch-restart`, `dvswitch-dmr-status` (read-only, takes no argument, so a `dvswitch` field is rejected), `dvswitch-lists` (`mode` enum `dmr|ysf|p25|nxdn`, maps to one fixed file). The file is an enum id, never a path. Errors are prefixed `invalid_field:`, `not_installed:`, `no_history:`, `no_info:`, `no_list:`; a base mismatch is the usual conflict error.
 
 Backup operations: `backup-info` (plain request/response: `{parts:[{id,present,size}],sa818}`), `backup-create` and `backup-restore` (streaming). `backup-create` takes `backup:{history,allmon3,sounds,dvswitch}` and answers with one JSON line, the header (`arch`, `asl3Version`, `asteriskVersion`, `osId`, `osCodename`, `osName`, `channel`, `nodes`, `packages`, `parts`, `missingStock`, `skipped`, `entries` with per-file type, size and sha256), followed by a plain tar stream of the system files and EOF; an error before the header is an `{"error"}` line, a later failure cuts the stream short. `backup-restore` takes `restore:{dryRun,deleteMissing}` and is followed on the same connection by the gzip archive; the client half-closes after the last byte and reads one JSON result (`ok`, `files`, `steps`, node versions and Debian release, `sa818Port`/`sa818PortPresent`, `dvswitchNotInstalled`). The helper re-validates the archive as root, classifies conffiles with `dpkg-query` (never a shell), writes to fixed destinations only (including `/etc/aslcp/aslcp.conf`, since the server cannot write there), and undoes config changes if a step fails. Streaming requests may take up to 20 minutes; the helper stays alive while one runs.

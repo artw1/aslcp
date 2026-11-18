@@ -19,6 +19,7 @@ type fakeDV struct {
 	listMode             string
 	listCalls            int
 	listErr              error
+	dmrCalls             int
 }
 
 func (f *fakeDV) rec(r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
@@ -35,6 +36,10 @@ func (f *fakeDV) DVSwitchSetup(context.Context) (helper.DVSwitchSetup, error) {
 }
 func (f *fakeDV) DVSwitchInfo(context.Context) (helper.DVSwitchInfo, error) {
 	return helper.DVSwitchInfo{Found: true, Mode: "DMR"}, nil
+}
+func (f *fakeDV) DVSwitchDMRStatus(context.Context) (helper.DVDMRStatus, error) {
+	f.dmrCalls++
+	return helper.DVDMRStatus{State: "logged_in", Master: "3103.master.brandmeister.network:62031"}, f.err
 }
 func (f *fakeDV) DVSwitchIdentity(_ context.Context, r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
 	return f.rec(r)
@@ -350,4 +355,40 @@ func (f *fakeDVWarn) DVSwitchStartup(_ context.Context, r helper.DVSwitchRequest
 	res, err := f.rec(r)
 	res.Warnings = []string{"YSF startup was not changed: the current reflector is not in YSFHosts.txt"}
 	return res, err
+}
+
+func TestDVSwitchDMRStatusRoles(t *testing.T) {
+	f := &fakeDV{}
+	e := newEnv(t, opts{dvswitch: f})
+	expectErr(t, e, "", "GET", "/api/dvswitch/dmr-status", nil, 401, "unauthorized")
+	expectErr(t, e, "viewer", "GET", "/api/dvswitch/dmr-status", nil, 403, "forbidden")
+	if f.dmrCalls != 0 {
+		t.Fatal("a viewer reached the helper")
+	}
+	for _, role := range []string{"op", "admin"} {
+		var r helper.DVDMRStatus
+		if c := e.do(role, "GET", "/api/dvswitch/dmr-status", nil, &r); c != 200 || r.State != "logged_in" || !strings.HasPrefix(r.Master, "3103.") {
+			t.Fatalf("%s: %d %+v", role, c, r)
+		}
+	}
+	// read-only: no write method is routed
+	expectErr(t, e, "admin", "POST", "/api/dvswitch/dmr-status", map[string]any{}, 404, "not_found")
+	e = newEnv(t, opts{})
+	expectErr(t, e, "op", "GET", "/api/dvswitch/dmr-status", nil, 503, "dvswitch_unavailable")
+	e = newEnv(t, opts{dvswitch: &fakeDV{err: errors.New("boom")}})
+	expectErr(t, e, "op", "GET", "/api/dvswitch/dmr-status", nil, 502, "helper_error")
+}
+
+func TestDVSwitchRestartScopeDMR(t *testing.T) {
+	f := &fakeDV{}
+	e := newEnv(t, opts{dvswitch: f})
+	// the restart stays admin only, the new scope included
+	expectErr(t, e, "op", "POST", "/api/dvswitch/restart", map[string]any{"scope": "dmr"}, 403, "forbidden")
+	if f.calls != 0 {
+		t.Fatal("an operator reached the helper")
+	}
+	var r struct{ Action string }
+	if c := e.do("admin", "POST", "/api/dvswitch/restart", map[string]any{"scope": "dmr"}, &r); c != 200 || f.last.Scope != "dmr" {
+		t.Fatalf("%d %+v scope %q", c, r, f.last.Scope)
+	}
 }

@@ -374,6 +374,12 @@ func (c *Client) DVSwitchInfo(ctx context.Context) (DVSwitchInfo, error) {
 	return s, c.Do(ctx, OpDVSwitchInfo, &s)
 }
 
+// DVSwitchDMRStatus calls dvswitch-dmr-status.
+func (c *Client) DVSwitchDMRStatus(ctx context.Context) (DVDMRStatus, error) {
+	var s DVDMRStatus
+	return s, c.Do(ctx, OpDVSwitchDMRStatus, &s)
+}
+
 func (c *Client) dvCall(ctx context.Context, op string, req DVSwitchRequest, out any) error {
 	return c.do(ctx, Request{Op: op, DVSwitch: &req}, out, 1<<20)
 }

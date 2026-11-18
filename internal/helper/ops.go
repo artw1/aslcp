@@ -81,6 +81,8 @@ type Ops struct {
 	DVOptDir     string
 	DVHistoryDir string
 	DVProcDir    string
+	// DVLogDir holds MMDVM_Bridge-YYYY-MM-DD.log (default /var/log/mmdvm).
+	DVLogDir string
 	// SelfPath is the helper binary the install and uninstall units call for
 	// their steps (default: this executable).
 	SelfPath string
@@ -125,6 +127,8 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return o.DVSwitchSetup(ctx)
 	case OpDVSwitchInfo:
 		return o.DVSwitchInfo(ctx)
+	case OpDVSwitchDMRStatus:
+		return o.DVSwitchDMRStatus(ctx)
 	case OpDVSwitchIdentity:
 		return o.DVSwitchIdentity(ctx, req.DVSwitch)
 	case OpDVSwitchCredentials:

@@ -215,6 +215,7 @@ type DVRestartResult struct {
 }
 
 var dvScopes = map[string][]string{
+	"dmr":      {"mmdvm_bridge"},
 	"bridge":   {"analog_bridge", "mmdvm_bridge"},
 	"gateways": {"ysfgateway", "p25gateway", "nxdngateway"},
 	"all":      {"analog_bridge", "mmdvm_bridge", "ysfgateway", "p25gateway", "nxdngateway"},

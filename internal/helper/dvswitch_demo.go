@@ -21,6 +21,11 @@ type DemoDVSwitch struct {
 	// Lists serves the host lists from a temporary directory (NewDemoOps);
 	// nil means there are none.
 	Lists *Ops
+
+	// DMR login simulation (dvswitch_demo_cfg.go): the demo never reads the
+	// real /var/log/mmdvm.
+	dmrAt   time.Time
+	dmrRuns int
 }
 
 // NewDemoDVSwitch returns a demo node without DVSwitch.

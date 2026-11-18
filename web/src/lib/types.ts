@@ -206,6 +206,10 @@ export interface DVSwitchSetup {
   /** Values a write left out and why (for example a YSF reflector that is not in YSFHosts.txt). */
   applyWarnings?: string[];
 }
+/** GET /api/dvswitch/dmr-status (operator and admin; docs/API.md "DVSwitch DMR login status"). Never holds the password. */
+export type DVDMRState = 'not_installed' | 'disabled' | 'not_running' | 'connecting' | 'logged_in' | 'login_failed' | 'timed_out' | 'socket_failed' | 'master_closing';
+export interface DVDMRStatus { state: DVDMRState; master?: string; at?: string; since?: string; lastLine?: string }
+export type DVRestartScope = 'dmr' | 'bridge' | 'gateways' | 'all';
 export interface DVSwitchRestartResult { action: 'restart' | 'start'; units: string[]; skipped: string[]; states: DVSwitchStatus['units']; warning: string }
 
 /** GET /api/dvswitch/lists?mode=... (operator and admin; docs/API.md "DVSwitch host lists"). 404 `no_list` when the node has no file for the mode. */

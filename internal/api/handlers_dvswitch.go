@@ -19,6 +19,8 @@ type DVSwitch interface {
 	// Credentials and ini config (M4).
 	DVSwitchSetup(ctx context.Context) (helper.DVSwitchSetup, error)
 	DVSwitchInfo(ctx context.Context) (helper.DVSwitchInfo, error)
+	// DMR login state from MMDVM_Bridge's log (read-only, no secret).
+	DVSwitchDMRStatus(ctx context.Context) (helper.DVDMRStatus, error)
 	DVSwitchIdentity(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
 	DVSwitchCredentials(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
 	DVSwitchModes(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
@@ -39,6 +41,8 @@ func (s *Server) dvswitchRoutes() {
 	m.HandleFunc("POST /api/dvswitch/uninstall", s.authed(store.RoleAdmin, s.handleDVSwitchUninstall))
 	// The lists are public reflector data: any operator may read them (M1).
 	m.HandleFunc("GET /api/dvswitch/lists", s.authed(store.RoleOperator, s.handleDVSwitchLists))
+	// The DMR login state holds no secret: operators may read it too.
+	m.HandleFunc("GET /api/dvswitch/dmr-status", s.authed(store.RoleOperator, s.handleDVSwitchDMRStatus))
 	m.HandleFunc("GET /api/dvswitch/setup", s.authed(store.RoleAdmin, s.handleDVSwitchSetup))
 	m.HandleFunc("PUT /api/dvswitch/identity", s.authed(store.RoleAdmin, s.handleDVSwitchIdentity))
 	m.HandleFunc("PUT /api/dvswitch/credentials", s.authed(store.RoleAdmin, s.handleDVSwitchCredentials))
@@ -58,6 +62,20 @@ func (s *Server) handleDVSwitchStatus(w http.ResponseWriter, r *http.Request, _ 
 		s.dvswitchError(w, err)
 		return
 	}
+	writeJSON(w, 200, st)
+}
+
+func (s *Server) handleDVSwitchDMRStatus(w http.ResponseWriter, r *http.Request, _ store.User) {
+	if s.d.DVSwitch == nil {
+		s.dvswitchError(w, errDVUnavailable)
+		return
+	}
+	st, err := s.d.DVSwitch.DVSwitchDMRStatus(r.Context())
+	if err != nil {
+		s.dvswitchError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, st)
 }
 

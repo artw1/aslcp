@@ -87,6 +87,7 @@ func NewDemoOps(dir string, files map[string]string) (*Ops, error) {
 		AslcpConf:    filepath.Join(dir, "etc", "aslcp", "aslcp.conf"),
 		DVOptDir:     filepath.Join(dir, "opt"),
 		DVHostDir:    filepath.Join(dir, "var", "mmdvm"),
+		DVLogDir:     filepath.Join(dir, "var", "log", "mmdvm"),
 		DVHistoryDir: filepath.Join(dir, "var", "dv-history"),
 		SourceList:   filepath.Join(dir, "etc", "aslcp.list"),
 		TempDir:      dir,

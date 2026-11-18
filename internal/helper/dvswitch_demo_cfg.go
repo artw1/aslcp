@@ -3,6 +3,7 @@ package helper
 import (
 	"context"
 	"strconv"
+	"time"
 )
 
 // Demo side of the M4 ops: values live in memory, nothing is written. The
@@ -263,5 +264,53 @@ func (d *DemoDVSwitch) DVSwitchRestart(_ context.Context, r DVSwitchRequest) (DV
 	if err := d.ready(); err != nil {
 		return DVRestartResult{}, err
 	}
+	for _, u := range units {
+		if u == "mmdvm_bridge" {
+			d.dmrAt, d.dmrRuns = d.now(), d.dmrRuns+1
+		}
+	}
 	return DVRestartResult{Action: action, Units: append([]string{}, units...), Skipped: []string{}, States: d.status().Units}, nil
+}
+
+// demoDMROutcomes is what the simulated master answers after each restart of
+// mmdvm_bridge, in turn. The first (before any restart) is a login.
+var demoDMROutcomes = []struct{ state, line string }{
+	{DMRLoggedIn, "DMR, Logged into the master successfully: 192.0.2.10:62031"},
+	{DMRLoginFailed, "DMR, Login to the master has failed, retrying login ..."},
+	{DMRTimedOut, "DMR, Connection to the master has timed out, retrying connection"},
+	{DMRSocketFailed, "DMR, Socket has failed, retrying connection to the master"},
+	{DMRLoggedIn, "DMR, Logged into the master successfully: 192.0.2.10:62031"},
+}
+
+// demoDMRConnect is how long the simulated login takes after a restart.
+const demoDMRConnect = 4 * time.Second
+
+// DVSwitchDMRStatus implements the API's DVSwitch interface. States cycle
+// with the restarts of mmdvm_bridge; the host and the master are placeholders.
+func (d *DemoDVSwitch) DVSwitchDMRStatus(context.Context) (DVDMRStatus, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.installed {
+		return DVDMRStatus{State: DMRNotInstalled}, nil
+	}
+	c := d.cfg()
+	if !c.modes.DMR {
+		return DVDMRStatus{State: DMRDisabled}, nil
+	}
+	now := d.now()
+	since := d.dmrAt
+	if since.IsZero() {
+		since = now.Add(-time.Hour)
+	}
+	res := DVDMRStatus{State: DMRConnecting, Since: since.UTC().Format(time.RFC3339)}
+	if now.Sub(since) < demoDMRConnect {
+		return res, nil
+	}
+	o := demoDMROutcomes[d.dmrRuns%len(demoDMROutcomes)]
+	res.State, res.LastLine = o.state, o.line
+	res.At = since.Add(demoDMRConnect).UTC().Format(time.RFC3339)
+	if o.state == DMRLoggedIn {
+		res.Master = "192.0.2.10:62031"
+	}
+	return res, nil
 }
