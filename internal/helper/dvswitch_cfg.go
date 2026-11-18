@@ -41,7 +41,7 @@ const (
 
 func isDVConfigOp(op string) bool {
 	switch op {
-	case OpDVSwitchIdentity, OpDVSwitchCredentials, OpDVSwitchModes, OpDVSwitchStartup, OpDVSwitchRollback, OpDVSwitchRestart, OpDVSwitchLists, OpDVSwitchTune:
+	case OpDVSwitchIdentity, OpDVSwitchCredentials, OpDVSwitchModes, OpDVSwitchStartup, OpDVSwitchRollback, OpDVSwitchRestart, OpDVSwitchLists, OpDVSwitchTune, OpDVSwitchUSRP, OpDVSwitchPrivate:
 		return true
 	}
 	return false
@@ -200,6 +200,10 @@ var dvAllow = func() map[dvKey]func(string) bool {
 		{DVFileAnalogBridge, "AMBE_AUDIO", "txTs"}:         vInt(1, 2),
 		{DVFileAnalogBridge, "AMBE_AUDIO", "colorCode"}:    vInt(0, 15),
 
+		{DVFileAnalogBridge, "USRP", "address"}: func(s string) bool { return s == dvUSRPAddress },
+		{DVFileAnalogBridge, "USRP", "rxPort"}:  vInt(1024, 65535),
+		{DVFileAnalogBridge, "USRP", "txPort"}:  vInt(1024, 65535),
+
 		{DVFileMMDVMBridge, "General", "Callsign"}:     vMatch(reDVCall),
 		{DVFileMMDVMBridge, "General", "Id"}:           vMatch(reDVDigits9),
 		{DVFileMMDVMBridge, "NXDN", "Id"}:              vNXDNID,
@@ -244,6 +248,9 @@ type DVSwitchRequest struct {
 	Mode string `json:"mode,omitempty"`
 	// Tune: dvswitch-tune.
 	Tune *DVTune `json:"tune,omitempty"`
+	// USRP: dvswitch-usrp. Private: dvswitch-private.
+	USRP    *DVUSRP    `json:"usrp,omitempty"`
+	Private *DVPrivate `json:"private,omitempty"`
 }
 
 // DVIdentity: callsign, 7-digit DMR ID, 2-digit ESSID and the optional NXDN
@@ -828,10 +835,15 @@ type DVSwitchSetup struct {
 	Identity DVIdentityView `json:"identity"`
 	DMR      DVDMRView      `json:"dmr"`
 	USRP     DVUSRPView     `json:"usrp"`
-	Modes    DVModesView    `json:"modes"`
-	Startup  DVStartupView  `json:"startup"`
-	Gateways DVGateways     `json:"gateways"`
-	Files    []DVFileView   `json:"files"`
+	// Private is the record of what ASLCP changed for the private bridge
+	// node (nil: none). ReservedPorts are the DVSwitch ports a USRP port must
+	// not use.
+	Private       *DVPrivateRecord `json:"private"`
+	ReservedPorts []int            `json:"reservedPorts"`
+	Modes         DVModesView      `json:"modes"`
+	Startup       DVStartupView    `json:"startup"`
+	Gateways      DVGateways       `json:"gateways"`
+	Files         []DVFileView     `json:"files"`
 	// Warnings: non-blocking hints, e.g. NXDN enabled without an NXDN ID.
 	Warnings []string `json:"warnings"`
 }
@@ -943,6 +955,9 @@ func (o *Ops) DVSwitchSetup(ctx context.Context) (DVSwitchSetup, error) {
 		PasswordSet: pw != "" && pw != dvStockPassword}
 	v.USRP = DVUSRPView{Address: get(DVFileAnalogBridge, "USRP", "address"), RxPort: atoi(get(DVFileAnalogBridge, "USRP", "rxPort")), TxPort: atoi(get(DVFileAnalogBridge, "USRP", "txPort"))}
 
+	v.Private, _ = ReadDVPrivate(o.dvPrivatePath())
+	v.ReservedPorts = dvReservedPorts(func(sec, key string) int { return atoi(get(DVFileAnalogBridge, sec, key)) })
+
 	en := func(sec string) bool {
 		return get(DVFileMMDVMBridge, sec, "Enable") == "1" && get(DVFileMMDVMBridge, sec+" Network", "Enable") == "1"
 	}
@@ -979,3 +994,28 @@ func dvWarnings(m DVModesView, id DVIdentityView) []string {
 }
 
 var _ = time.Second
+
+// dvTLVPorts are the stock TLV ports of the mode gateways (DMR, YSF, P25,
+// NXDN: the in and out port each).
+var dvTLVPorts = []int{31100, 31103, 35100, 35103, 34100, 34103, 33100, 33103}
+
+// dvReservedPorts returns the ports a USRP port must avoid: the stock TLV
+// ports and the ones Analog_Bridge itself uses ([AMBE_AUDIO]).
+func dvReservedPorts(get func(sec, key string) int) []int {
+	seen := map[int]bool{}
+	var out []int
+	add := func(p int) {
+		if p > 0 && !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	for _, p := range dvTLVPorts {
+		add(p)
+	}
+	for _, k := range []string{"txPort", "rxPort", "ambePort"} {
+		add(get("AMBE_AUDIO", k))
+	}
+	sort.Ints(out)
+	return out
+}

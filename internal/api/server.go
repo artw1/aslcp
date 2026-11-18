@@ -21,6 +21,7 @@ import (
 	"github.com/artw1/aslcp/internal/config"
 	"github.com/artw1/aslcp/internal/configsvc"
 	"github.com/artw1/aslcp/internal/diag"
+	"github.com/artw1/aslcp/internal/dvswitch"
 	"github.com/artw1/aslcp/internal/favstats"
 	"github.com/artw1/aslcp/internal/helper"
 	"github.com/artw1/aslcp/internal/nodelist"
@@ -97,6 +98,10 @@ type Deps struct {
 	// schedules_unavailable). New wires its link controller (unless set) and
 	// its change broadcast.
 	Schedules *schedules.Engine
+	// DVLink keeps the permanent link of the private bridge node (nil: the
+	// link features are off). New wires its Linker (unless set), Store (unless
+	// set) and its change notification; Run starts it.
+	DVLink *dvswitch.LinkReconciler
 }
 
 // Server is the HTTP API.
@@ -129,6 +134,9 @@ type Server struct {
 	mon   *rpt.Monitor
 
 	dvs *dvSnapper // DVSwitch snapshot and its change events
+	// dvUndo is what the last private-node apply changed (for its rollback).
+	dvUndo   *dvPrivateUndo
+	dvUndoMu sync.Mutex
 
 	stop     chan struct{}
 	stopOnce sync.Once
@@ -178,6 +186,7 @@ func New(d Deps) *Server {
 	s.initFavStats()
 	s.initSchedules()
 	s.initDVSwitch()
+	s.initDVLink()
 	s.routes()
 	return s
 }
@@ -195,6 +204,9 @@ func (s *Server) Run(ctx context.Context) {
 	}
 	if s.d.Schedules != nil {
 		go s.d.Schedules.Run(ctx)
+	}
+	if s.d.DVLink != nil {
+		go s.d.DVLink.Run(ctx)
 	}
 	<-ctx.Done()
 	s.Shutdown()

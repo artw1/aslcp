@@ -160,6 +160,10 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return o.DVSwitchLists(ctx, req.DVSwitch)
 	case OpDVSwitchTune:
 		return o.DVSwitchTune(ctx, req.DVSwitch)
+	case OpDVSwitchUSRP:
+		return o.DVSwitchUSRP(ctx, req.DVSwitch)
+	case OpDVSwitchPrivate:
+		return o.DVSwitchPrivate(ctx, req.DVSwitch)
 	case OpBackupInfo:
 		return o.BackupInfo(ctx)
 	case OpAsteriskRestart:

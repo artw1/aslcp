@@ -106,6 +106,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request, u store.U
 	s.d.Logger.Printf("connect %s -> %s (%s, permanent=%v, exclusive=%v) by %s", node, in.Target, mode, in.Permanent, exclusive, u.Username)
 	s.afterCommand(node)
 	s.manualSchedules(node, fmt.Sprintf("manual connect %s on %s by %s", in.Target, node, u.Username))
+	s.dvManualConnect(node, in.Target)
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -242,6 +243,7 @@ func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request, u stor
 	}
 	s.d.Logger.Printf("disconnect %s -> %s (permanent=%v) by %s", node, in.Target, in.Permanent, u.Username)
 	s.manualSchedules(node, fmt.Sprintf("manual disconnect %s on %s by %s", in.Target, node, u.Username))
+	s.dvManualDisconnect(node, in.Target)
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -263,6 +265,7 @@ func (s *Server) handleDisconnectAll(w http.ResponseWriter, r *http.Request, u s
 	s.d.Logger.Printf("disconnect-all %s by %s", node, u.Username)
 	s.afterCommand(node)
 	s.manualSchedules(node, fmt.Sprintf("manual disconnect all on %s by %s", node, u.Username))
+	s.dvManualDisconnect(node, "")
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -337,29 +340,43 @@ func (s *Server) handleNodeStats(w http.ResponseWriter, r *http.Request, _ store
 	writeJSON(w, 200, map[string]any{"node": node, "stats": fields})
 }
 
-// restartAsterisk restarts Asterisk: gracefully over AMI when connected,
-// otherwise (config editing available) through the root helper.
-func (s *Server) restartAsterisk(w http.ResponseWriter, r *http.Request, u store.User) bool {
-	ctx, cancel := s.cmdContext(r)
-	defer cancel()
+// restartAsteriskNow restarts Asterisk: gracefully over AMI when connected,
+// otherwise (config editing available) through the root helper. It writes no
+// response; the permanent link of the private bridge node is checked again
+// afterwards.
+func (s *Server) restartAsteriskNow(ctx context.Context) error {
 	var err error
 	switch {
 	case s.amiUp():
 		err = s.rpt.RestartAsterisk(ctx)
 	case s.d.ConfigEditor != nil:
 		err = s.d.ConfigEditor.RestartViaHelper(ctx)
-		if err != nil {
-			s.configError(w, err)
-			return false
-		}
 	default:
 		err = errAMIDown
 	}
 	if err != nil {
-		s.commandError(w, err)
-		return false
+		return err
 	}
 	s.rescanNodes()
+	if s.d.DVLink != nil {
+		s.d.DVLink.AsteriskRestarted()
+	}
+	return nil
+}
+
+// restartAsterisk restarts Asterisk and answers on failure; it reports
+// whether it succeeded.
+func (s *Server) restartAsterisk(w http.ResponseWriter, r *http.Request, u store.User) bool {
+	ctx, cancel := s.cmdContext(r)
+	defer cancel()
+	if err := s.restartAsteriskNow(ctx); err != nil {
+		if s.amiUp() || s.d.ConfigEditor == nil {
+			s.commandError(w, err)
+		} else {
+			s.configError(w, err)
+		}
+		return false
+	}
 	s.d.Logger.Printf("asterisk restart requested by %s", u.Username)
 	s.audit(u, "asterisk.restart", nil)
 	return true

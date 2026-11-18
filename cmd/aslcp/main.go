@@ -285,9 +285,16 @@ func run(cfgPath string, dev, demoMode bool) error {
 	favScan.SetRate(cfg.FavStatsRate)
 	// Schedules: the API wires the engine's link controller and broadcast.
 	sched := &schedules.Engine{Store: st, Logger: logger, StartDelay: 5 * time.Second}
+	// The permanent link of the private bridge node: the API wires its
+	// Linker and Store; it checks at start (after the monitor knows the nodes).
+	dvLink := &dvswitch.LinkReconciler{Store: st, StartDelay: 15 * time.Second}
+	if demoMode {
+		dvLink.StartDelay, dvLink.Tick = 3*time.Second, 5*time.Second
+	}
 	srv := api.New(api.Deps{
 		FavStats:     favScan,
 		Schedules:    sched,
+		DVLink:       dvLink,
 		RescanNodes:  func() { kick(rescan) },
 		Tuning:       tune,
 		ConfigEditor: cfgSvc,

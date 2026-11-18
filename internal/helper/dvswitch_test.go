@@ -140,8 +140,12 @@ func TestDVUninstallPathsFixed(t *testing.T) {
 	if !strings.Contains(lines[len(lines)-2], o.dvMarkerPath()) {
 		t.Errorf("marker not removed last: %q", lines[len(lines)-2])
 	}
-	if !strings.Contains(s, "TODO(M2)") {
-		t.Error("M2 hook missing")
+	if strings.Contains(s, "TODO(M2)") {
+		t.Error("the M2 placeholder is still in the script")
+	}
+	rev, purge, marker := strings.Index(s, "dvswitch-step "+StepPrivateRev), strings.Index(s, "apt-get purge"), strings.Index(s, "rm -f -- "+shQuote(o.dvMarkerPath()))
+	if rev < 0 || rev < purge || rev > marker {
+		t.Errorf("private-node revert must run after the purge and before the marker goes (%d %d %d)", purge, rev, marker)
 	}
 	if !strings.Contains(s, "rm -rf -- "+shQuote(o.dvHistoryDir())) {
 		t.Error("history dir not removed")

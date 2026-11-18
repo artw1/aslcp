@@ -11,6 +11,7 @@
   import { ambeModeFor, cardPatch, lastUsed, MODE_LABEL, nextTab, resumeHint, startupModeOf, STARTUP_MODES, type StartupMode } from '../lib/dvstartup';
   import Confirm from './Confirm.svelte';
   import NodePicker from './NodePicker.svelte';
+  import DvswitchBridge from './DvswitchBridge.svelte';
 
   let { units, onunits }: { units: DVSwitchStatus['units']; onunits: (u: DVSwitchStatus['units']) => void } = $props();
 
@@ -278,6 +279,8 @@
         </div>
       {/if}{/each}
     </section>
+
+    <DvswitchBridge b={v.bridgeNode} base={base()} onsaved={load} />
 
     <section class="card space-y-3 p-4" aria-label="Services">
       <h2 class="text-base font-semibold">Services</h2>

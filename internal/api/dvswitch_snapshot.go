@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/artw1/aslcp/internal/dvswitch"
 	"github.com/artw1/aslcp/internal/helper"
 )
 
@@ -26,6 +27,8 @@ type DVSnapshot struct {
 	Modes      []DVModeView    `json:"modes"`
 	Services   []DVServiceView `json:"services"`
 	BridgeNode DVBridgeNode    `json:"bridgeNode"`
+	// Link is the link of the bridge node to a local node (M2).
+	Link DVLink `json:"link"`
 }
 
 // DVBridge: Mode is DMR, YSF, P25 or NXDN ("" when unknown); Tune is the TG
@@ -154,7 +157,7 @@ func (d *dvSnapper) build(ctx context.Context, info helper.DVSwitchInfo, infoErr
 }
 
 func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, infoErr error) DVSnapshot {
-	sn := DVSnapshot{Bridge: DVBridge{Source: "none"}, Modes: []DVModeView{}, Services: []DVServiceView{}}
+	sn := DVSnapshot{Bridge: DVBridge{Source: "none"}, Modes: []DVModeView{}, Services: []DVServiceView{}, Link: DVLink{Mode: dvswitch.LinkOnDemand}}
 	if !d.wired() {
 		return sn
 	}
@@ -206,6 +209,7 @@ func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, i
 		d.fillBridge(ctx, &sn, info)
 	}
 	sn.BridgeNode = d.getBridgeNode(ctx)
+	sn.Link = d.s.dvLinkView(sn.BridgeNode)
 	return sn
 }
 

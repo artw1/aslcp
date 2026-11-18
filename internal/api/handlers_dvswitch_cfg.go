@@ -23,6 +23,8 @@ type dvSetupReply struct {
 	Changed     []string            `json:"changed,omitempty"`
 	Skipped     []string            `json:"skipped,omitempty"`
 	RestartHint []string            `json:"restartHint,omitempty"`
+	// BridgeNode is what the "Bridge node" section needs (M2).
+	BridgeNode DVBridgeSetup `json:"bridgeNode"`
 }
 
 func (s *Server) dvSetupView(w http.ResponseWriter, r *http.Request, res *helper.DVApplyResult) {
@@ -32,6 +34,7 @@ func (s *Server) dvSetupView(w http.ResponseWriter, r *http.Request, res *helper
 		return
 	}
 	reply := dvSetupReply{DVSwitchSetup: v}
+	reply.BridgeNode = s.dvBridgeSetup(r.Context(), v)
 	// ABInfo is optional: a bridge that is stopped or a file in an
 	// unexpected format leaves "found": false.
 	if info, err := s.d.DVSwitch.DVSwitchInfo(r.Context()); err == nil {

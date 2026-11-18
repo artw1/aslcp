@@ -1,6 +1,6 @@
 # DVSwitch (digital voice modes)
 
-Status: M3 (install and full uninstall) and M4 (credentials and config) are implemented; M1 and M2 are design only. Goal: an admin can install DVSwitch Server from the panel, give the node a private "bridge" node wired to it through chan_usrp, and operators can switch the mode (DMR, YSF, P25, NXDN) and tune talkgroups and reflectors from the dashboard.
+Status: M1 (panel), M2 (private bridge node, USRP ports, link reconciler, uninstall revert), M3 (install and full uninstall) and M4 (credentials and config) are implemented. M2 is **implemented, unverified on a real node**: see "Private node and USRP (M2)" and its verify checklist. Goal: an admin can install DVSwitch Server from the panel, give the node a private "bridge" node wired to it through chan_usrp, and operators can switch the mode (DMR, YSF, P25, NXDN) and tune talkgroups and reflectors from the dashboard.
 
 Placeholders used below: callsign `N0CALL`, DMR ID `1234567`, private bridge node `1999`, local node `2006`, documentation IPs from RFC 5737 (`192.0.2.x`).
 
@@ -243,7 +243,7 @@ Helper op `dvswitch-uninstall`, no arguments, admin only, transient unit `aslcp-
 | No autoremove | No `apt-get autoremove` anywhere, global or otherwise |
 | Fixed paths | `/var/lib/mmdvm`, `/var/lib/dvswitch`, `/var/log/dvswitch`, `/var/log/mmdvm`, `/opt/Analog_Bridge`, `/opt/MMDVM_Bridge` (`rm -rf`); `/etc/cron.d/dvswitch`, `/etc/cron.daily/dvswitch-log-cleanup`, `/tmp/ABInfo_*.json`, the apt source and the keyring (`rm -f`). The list is a constant in the helper; the confirm dialog shows it from the status reply |
 | **M4 (done)** | The script removes `/var/lib/aslcp-dvswitch-history` (the history copies of the ini edits; the purge already removes the inis) |
-| **TODO (M2)** | The script keeps a marked hook (`TODO(M2)` before the marker is removed). When the private node and USRP link (M2: `rpt.conf` node stanza, `modules.conf` chan_usrp, reconciler state) exist, the uninstall must revert them here, in the same job, before the marker goes. Until then the uninstall leaves Asterisk configuration alone |
+| **M2 (done)** | Before the packages go, the script calls `aslcp-helper dvswitch-step private-revert` (see "Uninstall revert" below), which removes exactly what ASLCP added to `rpt.conf` and `modules.conf` and restarts Asterisk. The API first disconnects a permanent link (`DVLink.Unlink`), and clears the link settings after a successful uninstall. The confirmation dialog says that Asterisk restarts |
 
 ### Verify on a real node (M3 checklist)
 
@@ -342,30 +342,78 @@ From the apt index, bookworm suite, component `hamradio`. Versions as listed; ar
 
 ## Private node and USRP (M2)
 
-Admin chooses `node` (1 to 1999, private, must not exist in rpt.conf; the stock ASL3 config already ships a `[1999]` stanza, so the form suggests the first free number in 1900-1997 and warns that 1998/1999 are commonly used in examples and loop protection can bite when linking to public nodes), `rxPort`/`txPort`, and the link mode.
+Status: **implemented, unverified on a real node.** Where the first design and the code differ, the code wins and this section describes the code.
 
-One apply (preview first, like Config): the rpt.conf and modules.conf parts go through the existing `configsvc` pipeline (history, conflict check, health, rollback); ini ports go through the helper.
+Admin chooses `node`, `rxPort`/`txPort` and the link mode in the "Bridge node" section of the DVSwitch tab. Rules (server and `web/src/lib/dvbridge.ts` use the same ones):
+
+- Node: digits, **below 2000** (`400 invalid_node` otherwise). The form suggests the first free number in **1900-1997**; 1998 and 1999 are allowed but warned about (other guides use them, and the stock ASL3 config ships a `[1999]` stanza). A node that exists in `rpt.conf`, in `[nodes]` or as a local node is `409 node_in_use`.
+- Ports: 1024-65535, different from each other. They are prefilled with the stock values **rx 34001, tx 32001** (the `Analog_Bridge.ini` stock `[USRP]` ports are the mirror image: the node's `rxchannel` is `USRP/127.0.0.1:<rxPort>:<txPort>` and the ini's `rxPort`/`txPort` are swapped, which the helper does). A port used by another USRP stanza, by `DVSwitch.ini` or by the other bridge ports is `409 port_conflict`.
+- Duplex is fixed at `0` (half duplex, no telemetry or hang time; unverified).
+- Only one bridge node per node. When one exists (recorded by ASLCP, or detected in `rpt.conf` with a USRP `rxchannel`), choosing a different number is `409 node_in_use`: change its ports or link, or uninstall first.
+
+`PUT /api/dvswitch/private-node` is a dry run (`dryRun: true`: a plan with a per-file diff, `restartAsterisk`, `restarts`, warnings and the `base` hashes) or an apply. See docs/API.md for the bodies and errors.
 
 | Step | What | How |
 |---|---|---|
-| 1 | rpt.conf: `[1999](node-main)` with `rxchannel = USRP/127.0.0.1:34001:32001`, `duplex = 0`, `callerid = "DVSwitch 1999" <0000000000>`; `[nodes]` line `1999 = radio@127.0.0.1/1999,NONE` | `astconf.AddSection(name, template, parents)` using the template the existing local node inherits (stock: `node-main`). Without a template (flat layout) a self-contained minimal stanza is written (`rxchannel`, `duplex`, `context`, `callerid`, the stanza names of `functions`, `telemetry`, `morse`, `wait_times` copied from the linked local node). Inherited keys that make no sense on a bridge (`idrecording`, `idtalkover`, tail messages) are unset in the stanza, list to verify |
-| 2 | modules.conf: `noload = chan_usrp.so` becomes `load = chan_usrp.so` | `astconf` entry edit; if the line is absent, add `load = chan_usrp.so`. `ReloadMap` has no `modules.conf` entry, so `PlanReload` already returns `restart: true`: the plan says "Restart Asterisk (links drop)" and requires explicit confirmation |
-| 3 | Analog_Bridge.ini `[USRP]` `address`, `rxPort`, `txPort` | helper `dvswitch-config-apply` (typed, see below) |
-| 4 | restart | Asterisk (existing `asterisk-restart`), then `dvswitch-restart` scope `bridge` |
-| 5 | health | existing configsvc health check plus `dvswitch-status` units active; failure offers rollback of rpt.conf/modules.conf (existing) and of the ini (`dvswitch-config-rollback`) |
+| 1 | `rpt.conf` stanza and `[nodes]` line `1999 = radio@127.0.0.1/1999,NONE`; `modules.conf` | through `configsvc` (history, conflict check, syntax check, health). `astconf.AddBridgeNode` picks one of four layouts: **template** (`[1999](node-main)` with only the changed keys), **flat** (a self-contained stanza that copies the function, telemetry, morse and wait stanza names of the local node), **minimal** (no local node to copy from) or **existing** (the stanza is already there: only `rxchannel` is updated). `modules.conf`: `noload = chan_usrp.so` becomes `load   = chan_usrp.so` (the value column is kept); a missing line is added as `load = chan_usrp.so`; an absent file is left to Asterisk's autoload with a warning |
+| 2 | `Analog_Bridge.ini [USRP]` `address`, `rxPort`, `txPort` | typed helper op `dvswitch-usrp` (allowlist, atomic write, history copy, base-hash conflict check). Skipped when the values already match |
+| 3 | Asterisk restart | `restartAsteriskNow` (the existing restart path; it tells the link reconciler). Only when step 1 changed a file |
+| 4 | `dvswitch-restart` scope `bridge` | |
+| 5 | health | the configsvc health check and the DVSwitch units |
+| 6 | record | `dvswitch-private` set: what ASLCP changed (below), then the link settings are saved and the reconciler is kicked |
 
-The order protects against a half state: Asterisk config first (it is the only part with history and rollback), then the ini, then restarts.
+Any change of `rpt.conf` or `modules.conf` needs an Asterisk restart (neither is reloadable here). The apply answers `409 restart_required` unless the body has `restart: true`, and the dialog says that links and calls drop. A re-save that changes no Asterisk file needs no restart.
 
-Duplex: no official recommendation. Default `0` (half duplex, no telemetry or hang time, "preferred when interfacing with an external multiport controller" per the stock comment); unverified, see below.
+Failure handling: a failed Asterisk config write (conflict, syntax) changes nothing. A failure at the ini or record step restores the Asterisk files automatically. A failure at the Asterisk restart, the bridge restart or the health check answers `502 apply_failed` with `step`, the steps done and `rollback: {available}`; the UI offers "Roll back Asterisk and the ini file", which calls `POST /api/dvswitch/private-node/rollback` (restore `rpt.conf` and `modules.conf` from the pre-apply snapshot, restore the ini, restart again). The rollback state is kept **in server memory** (`Server.dvUndo`), so it is lost when ASLCP restarts; the files' own history and the Config page's restore still work.
+
+### What ASLCP records and how the uninstall reverts it
+
+The record is `privatenode.json` (root, 0600, in the helper's DVSwitch state directory next to the install marker): the node, whether the stanza was added (`stanzaAdded`, with its exact text) or only edited, whether the `[nodes]` line was added (with its text), and the state `chan_usrp.so` had in `modules.conf` before (`noload`, `load` or `absent`). The uninstall script calls `aslcp-helper dvswitch-step private-revert` before the packages are purged:
+
+- the stanza and the `[nodes]` line are removed **only if they still match the record** (a hand-edited stanza stays, with a log line);
+- `modules.conf` gets its previous state back (`noload` line restored, or the added `load` line removed when it was absent) only if ASLCP changed it, and only if the line is still the one ASLCP wrote;
+- a stanza that already existed before ASLCP (only `rxchannel` and `duplex` edited) is left in place;
+- a bridge node that ASLCP did not add is never touched;
+- when anything could not be reverted the record is kept, the log says what, and the uninstall can be run again;
+- Asterisk is restarted when anything changed; the UI confirmation says so, and says that a permanent link is disconnected first.
 
 ### Link mode
 
+Settings: `dvswitch.link_mode`, `dvswitch.link_node` (the local node), `dvswitch.node` (the bridge node), `dvswitch.link_paused`.
+
 | Mode | Behaviour |
 |---|---|
-| `ondemand` (default) | The bridge node is a normal local node: connect it from the dashboard like any link (ConnectBar). The DVSwitch card has "Link bridge to 2006" / "Unlink" for convenience, using the existing connect code (`rpt.Client`) |
-| `permanent` | ASLCP issues a permanent connect (`ilink 13`, transceive) from the chosen local node (`dvswitch.link_node`, `2006`) to `1999`; app_rpt restores permanent links itself on restart. A reconciler (injectable `Linker` interface like `schedules`) re-issues it when the link is missing at ASLCP start, after Asterisk restarts, and after a setup change. It does **not** fight a manual disconnect: a disconnect of that link made through the panel API pauses the reconciler (setting `dvswitch.link_paused`, cleared by saving setup or by an Asterisk restart), exactly like `Schedules.ManualAction` treats manual actions. Its own commands never count as manual actions. See Decision 1 |
+| `ondemand` (default) | The bridge node is a normal local node. The dashboard card shows "Link node" / "Unlink node" (operator and up) using the existing connect and disconnect endpoints (`POST /api/nodes/{local}/connect`, transceive, not permanent) |
+| `permanent` | `dvswitch.LinkReconciler` (injectable `Linker`, like `schedules`) issues a permanent transceive connect (`ilink 13`) from the local node to the bridge node when the link is missing. A **manual disconnect** of that link through the panel API (`disconnect` of that target, or `disconnect-all`) pauses it (`dvswitch.link_paused`); saving the bridge node setup or an Asterisk restart through the panel clears the pause. Its own commands never count as manual actions |
 
-Terminology in the UI: "Unlink" on the DVSwitch card sends the mode's unlink talkgroup/reflector; it never touches the app_rpt link. The bridge node also shows up in the dashboard's status table; it is tagged "DVSwitch bridge" there.
+The reconciler is **level-triggered**: it checks after `StartDelay` (15 s) at start, when kicked (setup change, Asterisk restart through the panel, un-pause) and on a 60 s tick, so an Asterisk restart done outside the panel is caught too. "Connecting" counts as linked. A failed attempt is retried after `Retry` (not on every tick). The pause persists across an ASLCP restart. The `Linker` reads the link state from the monitor (`Status(local).Links`).
+
+Terminology in the UI: the talkgroup "Unlink" button of the card is now labelled "Unlink DMR target" (mode name) and sends the mode's unlink value to Analog_Bridge; "Link node" / "Unlink node" act on the app_rpt link of the bridge node. They are different things and the tooltips say so.
+
+### Verify on a real node (M2 checklist)
+
+Placeholders: bridge node `1999`, local node `2006`. Do this on a spare or quiet node; the apply restarts Asterisk.
+
+1. Setup, "Bridge node": the suggestion is the first free number of 1900-1997; 1998 and 1999 show a warning; 2000 and up and a used node are refused; the ports show 34001 and 32001.
+2. "Review changes" lists `rpt.conf`, `modules.conf` and `Analog_Bridge.ini` with diffs and says that Asterisk restarts. Compare the diff with your layout (template or flat).
+3. Apply with the restart. Afterwards: `asterisk -rx 'module show like usrp'` shows chan_usrp loaded; `asterisk -rx 'rpt show variables 1999'` answers; `grep -n -A8 '^\[1999\]' /etc/asterisk/rpt.conf`; `grep -n usrp /etc/asterisk/modules.conf`; `grep -n -A6 '^\[USRP\]' /opt/Analog_Bridge/Analog_Bridge.ini` shows the swapped ports; `systemctl is-active analog_bridge`.
+4. Audio: with Analog_Bridge in DMR (or another mode) connect 1999 to 2006 and check audio both ways; check that `duplex = 0` is right (no courtesy tones, no hang time) and that no loop protection trips.
+5. On demand: the card shows "Link node"; the button links and unlinks 1999 to 2006. The talkgroup "Unlink" does not change the app_rpt link.
+6. Permanent: save with Permanent; the card says "linked ... (permanent)". Restart Asterisk from the panel and from `systemctl restart asterisk` and check that the link returns within about a minute. Disconnect it from the panel and check that it stays down (paused); a new save or a panel restart brings it back. Restart ASLCP and check the pause persists.
+7. Failure path: make the health check fail (for example by stopping `analog_bridge` after the restart step in a test) and check the "Roll back" button restores `rpt.conf`, `modules.conf` and the ini and that Asterisk comes back.
+8. Re-save with nothing changed: no restart is asked.
+9. Uninstall: the dialog mentions the Asterisk restart (and a permanent link). Afterwards the 1999 stanza, its `[nodes]` line and the `load` line are gone (`noload` is back if ASLCP had changed it), nodes you added by hand are untouched, and the record `privatenode.json` in the helper's DVSwitch state directory is gone. Edit the stanza by hand first and check the uninstall leaves it and says so in the log.
+10. A node that already had a USRP stanza before ASLCP: the setup shows it as found, not owned, and the uninstall leaves it.
+
+### Divergences of M2 from the first design
+
+- The template layout writes only the keys that differ and does **not** unset inherited ones (`idrecording`, `idtalkover`, tail messages); the first design said it would.
+- The `[USRP]` write is a typed helper op `dvswitch-usrp`, not a generic config apply.
+- The record is `privatenode.json`; the uninstall reverts it in the helper step `private-revert`, not in shell.
+- Link settings are store settings; the API (not the reconciler) computes the snapshot `link`. The reconciler is level-triggered with a 60 s tick instead of purely event-driven.
+- `modules.conf` keeps the value column (`noload = x` becomes `load   = x`).
+- A bridge node cannot be renamed in place (409 `node_in_use`); rollback state lives in server memory.
+- `DemoHelper.ConfigApply` (configsvc demo) now returns `Before`, like the real helper, so a rollback works in the demo.
 
 ## Credentials and ini files (M4; M2 uses the ports subset)
 
@@ -431,7 +479,7 @@ Code: `internal/dvswitch/ini` (editor and stock fixtures), `internal/helper/dvsw
 
 - The helper has typed ops per form (`dvswitch-identity`, `-credentials`, `-modes`, `-startup`, `-rollback`, `-restart`, `-setup`) instead of one `dvswitch-config-apply` with a free `changes` list (see Helper ops). The change lists are fixed in the helper.
 - The Setup view reply (`GET /api/dvswitch/setup` and every write) also carries `current` (the ABInfo state, `found: false` when the bridge does not run) and, after a write, `changed`, `skipped` and `restartHint`.
-- `Options` of `[DMR Network]` is not editable in M4, and `Analog_Bridge.ini [USRP]` is read, not written (M2 writes it).
+- `Options` of `[DMR Network]` is not editable in M4, and `Analog_Bridge.ini [USRP]` is read in M4 and written by M2 (`dvswitch-usrp`).
 - The MMDVM_Bridge `Id` is written as DMR ID + ESSID (9 digits), like `repeaterID`. The stock value is the 7-digit `1234567`; until the identity is saved once the Setup view reports `consistent: false` for a stock file.
 - `passwordSet` is false for an empty password and for the stock `passw0rd`.
 - **Clearing the password.** Switching to a master that needs no password (HBlink, FreeDMR style masters accept any password) must be possible without typing `passw0rd`. When `passwordSet` is true the page shows a "Clear password" checkbox ("for masters that don't need a password") next to the field and the state "Password saved" or "No password". Selecting it disables the box; Save sends `clearPassword: true`, never together with a typed password. The helper writes the stock `passw0rd` (the DVSwitch default, never an empty value, which MMDVM_Bridge may not handle), so the view then reports `passwordSet: false`. Clearing counts as a change like any other credentials save: it restarts `mmdvm_bridge` and runs the DMR login check, and it is a field for the no-op rule above (a request with only `clearPassword: false` is a no-op).
@@ -531,6 +579,8 @@ New file `internal/helper/dvswitch.go`; constants in `proto.go`; dispatch in `Op
 | `dvswitch-rollback` | `file` (enum), `base` | as above | M4; restores the newest history copy |
 | `dvswitch-restart` | `scope: dmr\|bridge\|gateways\|all`, `action: restart\|start` | `{action, units, skipped, states}` | M4; fixed argv |
 | `dvswitch-dmr-status` | none (a `dvswitch` field is refused) | `{state, master?, at?, since?, lastLine?}` | Read-only DMR login state, see "DMR login status" |
+| `dvswitch-usrp` | `usrp: {address, rxPort, txPort}`, `base` | `{files, skipped, restartHint, hashes}` | M2; writes `[USRP]` of `Analog_Bridge.ini` with history; the keys are in the allowlist |
+| `dvswitch-private` | `private: {action: get\|set\|clear, record?}` | the record | M2; the record of what ASLCP changed (`privatenode.json`, root 0600); read by the uninstall step `private-revert` (root only, not a socket op) |
 | `dvswitch-lists` | `mode` (enum `dmr\|ysf\|p25\|nxdn`) | `{mode, items, truncated?, etag}` | Host and TG lists, read-only. One fixed file per mode below the host dir, `O_NOFOLLOW`, regular file, 4 MiB cap, at most 5000 items. `no_list:` when the file is missing |
 | | | | The typed ops are not a single `dvswitch-config-apply` with free `changes`: each op builds its own fixed change list, so no client chooses a file, section or key. All write ops refuse with `busy` while an install or uninstall runs, and with `not_installed` when `Analog_Bridge.ini` or `MMDVM_Bridge.ini` is missing |
 
@@ -586,7 +636,7 @@ What the code does differently from the first design (the code wins):
 
 - The snapshot is its own endpoint, `GET /api/dvswitch/snapshot`; `GET /api/dvswitch` stays the admin install status, because it carries install logs.
 - Mode ids are upper case (`DMR`, `YSF`, `P25`, `NXDN`), as in `/tune`; `/mode` accepts any case. The tune body is `{mode, tune}`, not `{mode, target}`; `bridge.tune` is the value ABInfo reports (for DMR the talkgroup).
-- `slot` is an integer (0 when unknown). No `supported`, `version`, `node`, `link` or `install` fields; the link line and its reconciler belong to M2. `bridge.source` is `abinfo` or `none` (no `commanded` fallback).
+- `slot` is an integer (0 when unknown). No `supported`, `version`, `node`, `link` or `install` fields; the link is the separate `link` object (M2). `bridge.source` is `abinfo` or `none` (no `commanded` fallback).
 - `installed` is the DVSwitch install check; `running` is analog_bridge active; **`configured` = installed and running** (the card shows the controls on it). `bridgeNode` is read-only from `rpt.conf`: the first numeric node section whose rxchannel is `USRP/...`, cached 60 s. When absent the card says "No bridge node yet: audio through AllStar needs the bridge node setup".
 - `services` lists analog_bridge, mmdvm_bridge and the gateway of every enabled mode. No `enabled` field per unit.
 - `targetName` is resolved from the host lists (YSF by id or `host:port`, P25, NXDN and DMR by value) and falls back to a favourite with the same value; cached per mode for 10 minutes (1 minute after a read error). It never contains the callsign, the DMR ID or a password.
@@ -597,7 +647,9 @@ What the code does differently from the first design (the code wins):
 - No rate limit on the new endpoints (they are operator-only and the helper serializes TLV writes).
 - Audit actions: `dvswitch.mode`, `dvswitch.unlink`, `dvswitch.tune`, `dvswitch.favorite.add`, `.update`, `.delete`, each with `.refused` where a refusal is audited (`mode`, `unlink`).
 
-Setup view (admin): `{identity: {callsign, dmrId, essid}, dmr: {address, port, passwordSet}, usrp: {rxPort, txPort}, privateNode: {node, exists, moduleLoaded}, link, modes, gateways: {ysf: {present, startup}, ...}, files: [{id, present, writable}]}`; no secret values anywhere.
+Setup view (admin): `{identity, dmr: {address, port, passwordSet}, usrp: {address, rxPort, txPort}, modes, startup, gateways: {ysf: {present, startup}, ...}, files: [{id, present, writable, sha256, history}], current, bridgeNode: {node, owned, suggested, used, localNodes, rxPort, txPort, link: {mode, localNode, bridge}, paused}}`; no secret values anywhere. `bridgeNode` is the M2 part (the first design had `privateNode` and a top-level `link`).
+
+Snapshot additions (M2): `link: {mode, localNode, linked, paused}` (computed by the API from the saved settings and the monitor; `mode` is `ondemand` when nothing is saved). `bridgeNode` stays the read-only detection.
 
 SSE: event `dvswitch` (all roles) carries the Snapshot, published only when it changed (the comparison ignores `bridge.updated`) and only while a client is connected; not in the initial state: the client fetches `GET /api/dvswitch/snapshot` after login, like schedules. Drivers: the tracker poll (every 15 s, every 2 s while a resume is pending, about 5 s while at least one SSE client is connected), and after an own command (mode, tune, unlink, install, config write, restart) a re-read at about 300 ms and 1.5 s. Reads inside the poll are cached (status and setup 15 s) so the 5 s cadence costs one ABInfo read.
 
@@ -642,18 +694,20 @@ Docs touched at implementation time: `docs/API.md`, `docs/BACKUP.md`, `docs/CONF
 - Tune: `NodePicker` in list mode over `GET /api/dvswitch/lists` for YSF, P25 and NXDN, a plain number field for DMR, validated like the server (`validTune`), and a "Go" button. **DMR has no talkgroup list**: the `dmr` list holds master servers, not talkgroups, so DMR takes a free number only.
 - Favourites: chips for the current mode (a click tunes; a "..." menu renames or deletes), and a star that saves the current target (`bridge.tune`, for YSF the host:port ABInfo reports) after a name prompt that starts with the resolved name. The star is disabled with a reason when nothing valid is tuned, when the target is the unlink value, when it is already a favourite, or at 50 per mode.
 - "Unlink" button: sends the unlink value of the current mode (DMR `4000`, YSF `disconnect`, P25 and NXDN `9999`).
-- Operator and admin get the controls; viewers get text only (state line, dots, favourite names). Admin sees a "Setup" link to the DVSwitch tab. The link line (bridge node linked to ...) belongs to M2 and is not in the card.
+- Operator and admin get the controls; viewers get text only (state line, dots, favourite names). Admin sees a "Setup" link to the DVSwitch tab. 
+- Bridge node line (M2): "Bridge node 1999 linked to 2006 (permanent)", or "not linked ... (permanent, reconnecting)" / "(permanent, paused: you disconnected it)"; in `ondemand` mode a "Link node" / "Unlink node" button for operator and admin (`web/src/lib/dvbridge.ts`, tests `dvbridge.test.ts`). "No bridge node yet" stays when none is configured.
 
 ### Setup page
 
-Recommendation: **its own top-level tab "DVSwitch" (`#/dvswitch`, admin, lazy-loaded)** next to Config, not inside Config. Config is the `/etc/asterisk` editor and snapshot history; DVSwitch spans non-Asterisk files, services and an apt install, which that scope (and its history) does not cover. The tab is visible to admins even before anything is installed (so Install is discoverable) unless `supported` is false. Sections: 1 Install (button, confirm dialog, live log), 2 Node and link (M2), 3 Identity and network (M4: callsign, DMR ID, ESSID, DMR master and password write-only field showing "set"/"not set", enabled modes, startup mode), 4 Services (status, restart buttons with the "mode resets to startup values" warning, rollback).
+Recommendation: **its own top-level tab "DVSwitch" (`#/dvswitch`, admin, lazy-loaded)** next to Config, not inside Config. Config is the `/etc/asterisk` editor and snapshot history; DVSwitch spans non-Asterisk files, services and an apt install, which that scope (and its history) does not cover. The tab is visible to admins even before anything is installed (so Install is discoverable) unless `supported` is false. Sections: 1 Install (button, confirm dialog, live log), 2 Bridge node (M2: node number with suggestion and warnings, ports prefilled 34001/32001, duplex 0, link mode and local node, a plan dialog with diffs and the Asterisk restart confirmation, the rollback offer), 3 Identity and network (M4: callsign, DMR ID, ESSID, DMR master and password write-only field showing "set"/"not set", enabled modes, startup mode), 4 Services (status, restart buttons with the "mode resets to startup values" warning, rollback).
 
 **DMR login check (credentials and identity).** The DMR master form shows a live "DMR login" badge (Logged in to <master> / Login failed / Timed out / Connecting… / Not running / DMR disabled), refreshed every 10 s while the page is open. After a successful save of the master, port, password or the identity, if `mmdvm_bridge` is enabled or running, the page restarts only `mmdvm_bridge` (`scope: dmr`) and polls `dmr-status` every 2 s for up to 40 s. A success ends it at once; a failure state ends it when two polls in a row agree (a single failed attempt can still be followed by a success), or at the end. Outcomes: "Logged in to <master>"; for `login_failed`, "BrandMeister refused the login: check the hotspot security password (set in BrandMeister SelfCare, not your account password) and the ESSID"; for `timed_out` and `socket_failed`, "No answer from the master: check the address, port and internet access"; still connecting at the end, "No answer yet". When the bridge is not running the page does not start it silently: it shows a Start button (`action: start`, scope `dmr`) and then polls the same way. DMR disabled under Enabled modes, or a bridge that is neither enabled nor running, is reported instead of restarted. A save that changed nothing does not restart. The other services named in the restart hint are left for the Services section. If the guided node actions of CONFIG beta.5 ship, section 2 gets a link from there; the page stays.
 
 ## Demo mode and mock
 
 - `--demo`: `Deps.DVSwitch` is a `Service` over `internal/dvswitch/fake`: configured, in-memory state (mode, target, slot), commands applied by parsing the same `key=value` strings the real path builds (so the TLV encoder and validators are exercised), embedded sample host lists with placeholder entries on `192.0.2.x`, a few favourites, services all green, a DMR login that cycles logged in, login failed, timed out and socket failed with each restart of `mmdvm_bridge` (4 s of connecting each time; placeholder master `192.0.2.10`; the demo never reads `/var/log/mmdvm`, `NewDemoOps` points its log dir into the demo temp dir), an install job that replays scripted log lines over ~10 s, setup forms that mutate the fake and report `passwordSet`. A demo switch needs no helper.
-- `web/mock/dvswitch.ts` also serves the panel endpoints (snapshot, mode, unlink, tune, favourites) with a bridge that answers like ABInfo: a mode switch shows after 1.2 s, **P25 takes 7 s** so the card's "Not confirmed" notice and its recovery can be seen, NXDN is not enabled (greyed out), and install completion pushes a `dvswitch` SSE event. `web/mock/dvswitch.ts` implements the same endpoints for the Vite mock; one fixture is "installed but not configured" to show the setup flow. Its DMR login cycles logged in, login failed, timed out, socket failed and a stopped bridge (for the Start button) with each restart.
+- `web/mock/dvswitch.ts` also serves the M2 endpoints (no bridge node at first, local node `2001`, plan and apply, rollback, the card link following the Link node button), and serves the panel endpoints (snapshot, mode, unlink, tune, favourites) with a bridge that answers like ABInfo: a mode switch shows after 1.2 s, **P25 takes 7 s** so the card's "Not confirmed" notice and its recovery can be seen, NXDN is not enabled (greyed out), and install completion pushes a `dvswitch` SSE event. `web/mock/dvswitch.ts` implements the same endpoints for the Vite mock; one fixture is "installed but not configured" to show the setup flow. Its DMR login cycles logged in, login failed, timed out, socket failed and a stopped bridge (for the Start button) with each restart.
+- Demo (M2): `DemoHelper` keeps the USRP values and the private record in memory and the demo config tree (`configsvc` demo, local node `2006`, a `modules.conf` with `noload = chan_usrp.so`) is the only thing an apply writes, so the demo never touches `/etc/asterisk`. The reconciler runs with a 3 s start delay and a 5 s tick.
 - Go tests: conformance test of the TLV sequence against a loopback UDP listener; ABInfo parsing against a fixture; ini editor round-trip (comments, spacing styles); allowlist table tests (traversal impossible by enum, bad keys, bad values never echoed); astconf bridge-node edit on the `asl3-dist` corpus; reconciler with a fake `Linker`.
 
 ## Phasing
@@ -663,7 +717,7 @@ Each milestone is shippable alone and useful on a node where DVSwitch was instal
 | M | Content | Must be verified on a real node first |
 |---|---|---|
 | **M1 Panel (implemented 2026-11-18, unverified on a real node)** | `dvswitch-status`, `dvswitch-info`, native TLV control, snapshot/SSE, lists, favourites, card, demo/mock, API docs. Configured = a USRP node exists and `analog_bridge` is loaded; nothing is written to any config | ABInfo sample, option A works (or B), exact datagram sequence and timing of `mode`, a real mode switch and tune per mode, host file formats and permissions |
-| **M2 Private node + USRP** | astconf node and modules edits, preview/apply plan, ports through `dvswitch-config-apply` (USRP keys only), `dvswitch-restart`, link toggle + reconciler, DVSwitch tab (Node section), DVSwitch part in backups, mask.go rule | Stanza and `duplex` on a working bridge, chan_usrp load behaviour, `update-config.sh` effect, unit dependencies, backup/restore round trip |
+| **M2 Private node + USRP (implemented, unverified on a real node)** | astconf node and modules edits, preview/apply plan, ports through `dvswitch-config-apply` (USRP keys only), `dvswitch-restart`, link toggle + reconciler, DVSwitch tab (Node section), DVSwitch part in backups, mask.go rule | Stanza and `duplex` on a working bridge, chan_usrp load behaviour, `update-config.sh` effect, unit dependencies, backup/restore round trip |
 | **M3 Installer (implemented, install and uninstall unverified on a real node)** | `dvswitch-install`, `dvswitch-uninstall`, job UI, platform gating, explicit package set (no `dvswitch-server`) | Minimal set works without recommends at runtime (the packages ship the scripts, inis, units and host files: verified 2026-11-17), armhf and amd64 against arm64 behaviour, trixie architectures, keyring holds one primary key, licence, whether Asterisk config is touched. Installer content, key, bookworm repo and package facts: verified 2026-11-17 |
 | **M4 Credentials and config (implemented; gateway ini keys verified from the packages, the rest unverified on a real node)** | Identity, DMR network password, enabled modes, startup values, gateway startup reflectors, rollback, restart/start, DVSwitch tab sections, mask.go rule | Password character handling, DMR connect with a test hotspot account, restarts per change, 9-digit MMDVM `Id`; see the M4 checklist |
 
@@ -693,8 +747,9 @@ The installer, the repository key, the bookworm repo and the package facts were 
 | Gateway ini keys | allowlist for P25/NXDN | `grep -n -E '^\[\|^(Callsign\|Id\|Suffix\|Startup\|HostsFile1)\s*=' /opt/YSFGateway/YSFGateway.ini /opt/P25Gateway/P25Gateway.ini /opt/NXDNGateway/NXDNGateway.ini` (replace the callsign and ID values in the output) |
 | MMDVM_Bridge keys | allowlist, password character rules | `grep -n -E '^\[\|^(Callsign\|Id\|Enable\|Address\|Port\|Local\|Options\|Duplex)\s*=' /opt/MMDVM_Bridge/MMDVM_Bridge.ini` (this pattern deliberately excludes `Password`; test special characters on a spare setup, not by posting values) |
 | Host and TG file formats | picker parsers (the formats were checked on the pistar.uk downloads; confirm that `/var/lib/mmdvm/DMR_Hosts.txt` exists on a DVSwitch node and has the same five columns, and the directory mode) | `ls -l /var/lib/mmdvm/`; `head -n 4 /var/lib/mmdvm/YSFHosts.txt /var/lib/mmdvm/P25Hosts.txt /var/lib/mmdvm/NXDNHosts.txt /var/lib/mmdvm/TGList_BM.txt 2>&1`; `wc -l /var/lib/mmdvm/*Hosts.txt` |
+| M2 verify checklist | see "Verify on a real node (M2 checklist)" below | |
 | Bridge node stanza and `duplex` | M2 defaults | `awk '/^\[1999\]/,/^\[[^1]/' /etc/asterisk/rpt.conf \| grep -v -i -E 'pass\|secret'` (use your bridge node's number); `grep -n usrp /etc/asterisk/modules.conf`; `asterisk -rx 'module show like usrp'`; the stock `[node-main]` comment recommends `duplex = 0` for external controllers, check what works with real traffic |
-| Inherited template keys on a bridge | which keys to unset | `asterisk -rx 'rpt show variables 1999' 2>&1 \| head -40` and compare `idrecording`, `idtalkover`, `tailmessagetime` against the stock `[node-main]` |
+| Inherited template keys on a bridge | the template layout does **not** unset inherited keys (the first design did); check whether `idrecording`, `idtalkover` and tail messages matter | `asterisk -rx 'rpt show variables 1999' 2>&1 \| head -40` and compare `idrecording`, `idtalkover`, `tailmessagetime` against the stock `[node-main]` |
 | Licence | whether ASLCP may even mention/offer the install | `dpkg -S /opt/Analog_Bridge/Analog_Bridge /opt/MMDVM_Bridge/MMDVM_Bridge`; then `ls /usr/share/doc/<package>/` and `head -n 60 /usr/share/doc/<package>/copyright` for each owning package |
 | Services after a fresh install | "Not configured" state | `systemctl is-enabled analog_bridge mmdvm_bridge; systemctl is-active analog_bridge mmdvm_bridge; journalctl -u analog_bridge -n 20 --no-pager \| sed -E 's/[0-9]{7,9}/1234567/g'` (exit 252/253/254 meanings) |
 

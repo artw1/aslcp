@@ -20,6 +20,10 @@ type demoDVCfg struct {
 	hist     map[string]int
 	times    int
 
+	// the private bridge node (M2): the ini's [USRP] values and the record
+	usrp DVUSRPView
+	priv *DVPrivateRecord
+
 	// The demo's ABInfo: what the running bridge shows. It lives in memory
 	// only (the demo never reads /tmp or runs a binary). A restart of the
 	// bridge resets it to the startup values and sets a new start time.
@@ -38,6 +42,7 @@ func newDemoDVCfg() *demoDVCfg {
 		startup:  DVStartupView{AmbeMode: "DMR", TxTg: "9", TxTs: 2, ColorCode: 1},
 		gw:       DVGateways{YSF: DVGatewayView{Present: true, Startup: "US-Example"}, P25: DVGatewayView{Present: true}, NXDN: DVGatewayView{Present: true}},
 		hist:     map[string]int{},
+		usrp:     DVUSRPView{Address: "127.0.0.1", RxPort: 34001, TxPort: 32001},
 	}
 }
 
@@ -66,7 +71,7 @@ func (d *DemoDVSwitch) setup() DVSwitchSetup {
 	d.progress()
 	c := d.cfg()
 	v := DVSwitchSetup{Identity: c.identity, DMR: c.dmr, Modes: c.modes, Startup: c.startup, Gateways: c.gw,
-		USRP: DVUSRPView{Address: "127.0.0.1", RxPort: 34001, TxPort: 32001}, Files: []DVFileView{}}
+		USRP: c.usrp, Private: c.priv, ReservedPorts: dvReservedPortsDemo(), Files: []DVFileView{}}
 	v.DMR.PasswordSet = c.set
 	v.Warnings = dvWarnings(v.Modes, v.Identity)
 	for i, id := range DVFileIDs() {
@@ -408,4 +413,52 @@ func (d *DemoDVSwitch) DVSwitchDMRStatus(context.Context) (DVDMRStatus, error) {
 		res.Master = "192.0.2.10:62031"
 	}
 	return res, nil
+}
+
+// dvReservedPortsDemo: the TLV and AMBE ports of the stock files.
+func dvReservedPortsDemo() []int { return append([]int(nil), dvTLVPorts...) }
+
+// DVSwitchUSRP implements the API's DVSwitch interface: the demo keeps the
+// [USRP] values in memory (the real ini is never touched).
+func (d *DemoDVSwitch) DVSwitchUSRP(_ context.Context, r DVSwitchRequest) (DVApplyResult, error) {
+	u := r.USRP
+	if u == nil || (u.RxPort != 0 && u.RxPort == u.TxPort) {
+		return DVApplyResult{}, dvInvalid("usrp/ports")
+	}
+	if u.Address != "" && u.Address != "127.0.0.1" {
+		return DVApplyResult{}, dvInvalid("usrp/address")
+	}
+	return d.demoWrite([]string{DVFileAnalogBridge}, []string{"analog_bridge"}, func(c *demoDVCfg) error {
+		if u.Address != "" {
+			c.usrp.Address = u.Address
+		}
+		if u.RxPort != 0 {
+			c.usrp.RxPort = u.RxPort
+		}
+		if u.TxPort != 0 {
+			c.usrp.TxPort = u.TxPort
+		}
+		return nil
+	})
+}
+
+// DVSwitchPrivate implements the API's DVSwitch interface (in memory).
+func (d *DemoDVSwitch) DVSwitchPrivate(_ context.Context, p DVPrivate) (DVPrivateReply, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	c := d.cfg()
+	switch p.Action {
+	case "get":
+	case "set":
+		if !p.Record.valid() {
+			return DVPrivateReply{}, dvInvalid("private/record")
+		}
+		r := *p.Record
+		c.priv = &r
+	case "clear":
+		c.priv = nil
+	default:
+		return DVPrivateReply{}, dvInvalid("private/action")
+	}
+	return DVPrivateReply{Record: c.priv}, nil
 }

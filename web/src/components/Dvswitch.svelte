@@ -3,6 +3,8 @@
   import { api } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
   import type { DVSwitchStatus } from '../lib/types';
+  import { app } from '../lib/store.svelte';
+  import { uninstallNote } from '../lib/dvbridge';
   import { dismissKey, isDismissed, jobSummary, pickJobKind, setDismissed } from '../lib/dvjob';
   import Dialog from './Dialog.svelte';
   import DvswitchSetup from './DvswitchSetup.svelte';
@@ -55,6 +57,10 @@
     busy = true;
     try { st = await (kind === 'install' ? api.dvswitchInstall() : api.dvswitchUninstall()); err = ''; } catch (e) { toastError(e); await load(); } finally { busy = false; }
   }
+  // The uninstall also reverts the bridge node ASLCP added, and that restarts Asterisk.
+  let owned = $state(false);
+  const uninstallExtra = $derived(uninstallNote(app.dvswitch, owned));
+  $effect(() => { if (uninstallOpen) api.dvswitchSetup().then((v) => { owned = v.bridgeNode?.owned ?? false; }).catch(() => { owned = false; }); });
   const yes = (b: boolean) => (b ? 'yes' : 'no');
 </script>
 <div class="space-y-4">
@@ -143,6 +149,7 @@
     <div><h3 class="font-semibold">Purges packages</h3><p class="font-mono text-xs">{st?.uninstallPackages.join(', ')}</p>
       <p class="text-xs text-muted">{#if st?.marker?.wgetPreinstalled}wget stays (it was installed before DVSwitch). {/if}A package that something else still needs is kept; the log says which.</p></div>
     <div><h3 class="font-semibold">Deletes</h3><ul class="font-mono text-xs">{#each st?.uninstallPaths ?? [] as p}<li>{p}</li>{/each}</ul></div>
+    {#each uninstallExtra as line}<p class="rounded border border-warn/60 p-2 text-warn" role="alert">{line}</p>{/each}
     <p class="text-xs text-muted">If the purge would remove anything else, it is aborted before anything is changed. Asterisk and allstarlink packages are never touched.</p>
   </div>
   {#snippet footer()}

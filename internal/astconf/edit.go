@@ -227,3 +227,47 @@ func (f *File) AddSection(name string, template bool, parents []string) *Section
 	f.renumber()
 	return s
 }
+
+// SetKey renames the entry's key in place, keeping the operator, the value,
+// the trailing comment and the column of the value (when the padding after
+// the key is whitespace). It is a no-op on lines that are not key/value lines.
+func (e *Entry) SetKey(k string) {
+	if e.Kind != KindKeyValue {
+		return
+	}
+	k = strings.TrimSpace(stripEOL(k))
+	if k == "" || k == e.Key {
+		return
+	}
+	if d := len(e.Key) - len(k); d != 0 && e.sep != "" && strings.ContainsRune(wsChars, rune(e.sep[0])) {
+		if d > 0 {
+			e.sep = strings.Repeat(" ", d) + e.sep
+		} else if n := len(e.sep) - len(strings.TrimLeft(e.sep, wsChars)); n > -d && strings.Trim(e.sep[:n], " ") == "" {
+			e.sep = e.sep[-d:]
+		}
+	}
+	e.Key = k
+	e.Raw = e.render()
+}
+
+// RemoveSection deletes the section with all its lines. With dropBlank, when
+// it was the last section, the blank line before it goes with it (the one
+// AddSection put there).
+func (f *File) RemoveSection(s *Section, dropBlank bool) bool {
+	for i, x := range f.sections {
+		if x != s || i == 0 {
+			continue
+		}
+		last := i == len(f.sections)-1
+		f.sections = append(f.sections[:i], f.sections[i+1:]...)
+		if last && dropBlank && i > 0 {
+			p := f.sections[i-1]
+			if n := len(p.lines); n > 0 && p.lines[n-1].Kind == KindBlank {
+				p.lines = p.lines[:n-1]
+			}
+		}
+		f.renumber()
+		return true
+	}
+	return false
+}
