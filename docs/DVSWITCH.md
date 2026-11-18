@@ -348,19 +348,39 @@ Admin chooses `node`, `rxPort`/`txPort` and the link mode in the "Bridge node" s
 
 - Node: digits, **below 2000** (`400 invalid_node` otherwise). The form suggests the first free number in **1900-1997**; 1998 and 1999 are allowed but warned about (other guides use them, and the stock ASL3 config ships a `[1999]` stanza). A node that exists in `rpt.conf`, in `[nodes]` or as a local node is `409 node_in_use`.
 - Ports: 1024-65535, different from each other. They are prefilled with the stock values **rx 34001, tx 32001** (the `Analog_Bridge.ini` stock `[USRP]` ports are the mirror image: the node's `rxchannel` is `USRP/127.0.0.1:<rxPort>:<txPort>` and the ini's `rxPort`/`txPort` are swapped, which the helper does). A port used by another USRP stanza, by `DVSwitch.ini` or by the other bridge ports is `409 port_conflict`.
-- Duplex is fixed at `0` (half duplex, no telemetry or hang time; unverified).
+- Duplex is fixed at `0` (half duplex), and the new stanza also neutralises ID, telemetry, courtesy tones and hang time (stanza example below; unverified on a real node).
 - Only one bridge node per node. When one exists (recorded by ASLCP, or detected in `rpt.conf` with a USRP `rxchannel`), choosing a different number is `409 node_in_use`: change its ports or link, or uninstall first.
 
 `PUT /api/dvswitch/private-node` is a dry run (`dryRun: true`: a plan with a per-file diff, `restartAsterisk`, `restarts`, warnings and the `base` hashes) or an apply. See docs/API.md for the bodies and errors.
 
 | Step | What | How |
 |---|---|---|
-| 1 | `rpt.conf` stanza and `[nodes]` line `1999 = radio@127.0.0.1/1999,NONE`; `modules.conf` | through `configsvc` (history, conflict check, syntax check, health). `astconf.AddBridgeNode` picks one of four layouts: **template** (`[1999](node-main)` with only the changed keys), **flat** (a self-contained stanza that copies the function, telemetry, morse and wait stanza names of the local node), **minimal** (no local node to copy from) or **existing** (the stanza is already there: only `rxchannel` is updated). `modules.conf`: `noload = chan_usrp.so` becomes `load   = chan_usrp.so` (the value column is kept); a missing line is added as `load = chan_usrp.so`; an absent file is left to Asterisk's autoload with a warning |
+| 1 | `rpt.conf` stanza and `[nodes]` line `1999 = radio@127.0.0.1/1999,NONE`; `modules.conf` | through `configsvc` (history, conflict check, syntax check, health). `astconf.AddBridgeNode` picks one of four layouts: **template** (`[1999](node-main)` with the keys below), **flat** (the same keys plus a self-contained stanza that copies the function, telemetry, morse and wait stanza names of the local node), **minimal** (the same keys, no local node to copy from) or **existing** (the stanza is already there: only `rxchannel` and `duplex` are updated, nothing else of the operator's stanza is touched). `modules.conf`: `noload = chan_usrp.so` becomes `load   = chan_usrp.so` (the value column is kept); a missing line is added as `load = chan_usrp.so`; an absent file is left to Asterisk's autoload with a warning |
 | 2 | `Analog_Bridge.ini [USRP]` `address`, `rxPort`, `txPort` | typed helper op `dvswitch-usrp` (allowlist, atomic write, history copy, base-hash conflict check). Skipped when the values already match |
 | 3 | Asterisk restart | `restartAsteriskNow` (the existing restart path; it tells the link reconciler). Only when step 1 changed a file |
 | 4 | `dvswitch-restart` scope `bridge` | |
 | 5 | health | the configsvc health check and the DVSwitch units |
 | 6 | record | `dvswitch-private` set: what ASLCP changed (below), then the link settings are saved and the reconciler is kicked |
+
+The stanza written by the template layout (flat and minimal write the same keys, followed by the copied stanza names or `context = radio`):
+
+```
+[1999](node-main)
+rxchannel = USRP/127.0.0.1:34001:32001
+duplex = 0
+callerid = "DVSwitch 1999" <0000000000>
+hangtime = 0
+althangtime = 0
+holdofftelem = 1
+telemdefault = 0
+telemdynamic = 0
+nounkeyct = 1
+linktolink = yes
+idtime = 0
+tailmessagetime = 0
+```
+
+These keys make the bridge node neutral, so that the local node's ID, telemetry, courtesy tones and hang time are not played out to DMR/YSF. Checked against the ASL3 app_rpt source (`apps/app_rpt/rpt_config.c`, `load_rpt_vars`, and `apps/app_rpt.c`, `queue_id` and the scheduler): `idtime = 0` is the documented way to stop the periodic and the talkover ID (an empty `idrecording` would not: "" is played); `hangtime`/`althangtime` are floored by app_rpt at 1 ms, so `0` means 1 ms; `tailmessagetime = 0` stops tail messages. **`statpost_url` is not written:** an empty value stays a non-NULL "" in app_rpt and still posts (`statpost()` only skips a NULL URL), so a child stanza cannot unset it. The stock `[node-main]` has it commented out; if you enabled it there, the bridge node posts stats too. A stanza that already existed is not changed beyond `rxchannel` and `duplex`.
 
 Any change of `rpt.conf` or `modules.conf` needs an Asterisk restart (neither is reloadable here). The apply answers `409 restart_required` unless the body has `restart: true`, and the dialog says that links and calls drop. A re-save that changes no Asterisk file needs no restart.
 
@@ -397,7 +417,7 @@ Placeholders: bridge node `1999`, local node `2006`. Do this on a spare or quiet
 1. Setup, "Bridge node": the suggestion is the first free number of 1900-1997; 1998 and 1999 show a warning; 2000 and up and a used node are refused; the ports show 34001 and 32001.
 2. "Review changes" lists `rpt.conf`, `modules.conf` and `Analog_Bridge.ini` with diffs and says that Asterisk restarts. Compare the diff with your layout (template or flat).
 3. Apply with the restart. Afterwards: `asterisk -rx 'module show like usrp'` shows chan_usrp loaded; `asterisk -rx 'rpt show variables 1999'` answers; `grep -n -A8 '^\[1999\]' /etc/asterisk/rpt.conf`; `grep -n usrp /etc/asterisk/modules.conf`; `grep -n -A6 '^\[USRP\]' /opt/Analog_Bridge/Analog_Bridge.ini` shows the swapped ports; `systemctl is-active analog_bridge`.
-4. Audio: with Analog_Bridge in DMR (or another mode) connect 1999 to 2006 and check audio both ways; check that `duplex = 0` is right (no courtesy tones, no hang time) and that no loop protection trips.
+4. Audio: with Analog_Bridge in DMR (or another mode) connect 1999 to 2006 and check audio both ways; check that the neutral stanza works (no ID, courtesy tones, telemetry or hang time reach the other side) and that no loop protection trips.
 5. On demand: the card shows "Link node"; the button links and unlinks 1999 to 2006. The talkgroup "Unlink" does not change the app_rpt link.
 6. Permanent: save with Permanent; the card says "linked ... (permanent)". Restart Asterisk from the panel and from `systemctl restart asterisk` and check that the link returns within about a minute. Disconnect it from the panel and check that it stays down (paused); a new save or a panel restart brings it back. Restart ASLCP and check the pause persists.
 7. Failure path: make the health check fail (for example by stopping `analog_bridge` after the restart step in a test) and check the "Roll back" button restores `rpt.conf`, `modules.conf` and the ini and that Asterisk comes back.
@@ -407,7 +427,7 @@ Placeholders: bridge node `1999`, local node `2006`. Do this on a spare or quiet
 
 ### Divergences of M2 from the first design
 
-- The template layout writes only the keys that differ and does **not** unset inherited ones (`idrecording`, `idtalkover`, tail messages); the first design said it would.
+- The new stanza now writes the neutral keys listed with the stanza example in the apply section (hang times 0, `holdofftelem`, `telemdefault`, `telemdynamic`, `nounkeyct`, `linktolink`, `idtime = 0`, `tailmessagetime = 0`), so inherited ID, telemetry, courtesy tones, hang time and tail messages do not reach the bridge. It cannot unset an inherited `idrecording` (an empty value is played), which `idtime = 0` makes moot, or an inherited `statpost_url` (the bridge node would post stats if the local template enables it).
 - The `[USRP]` write is a typed helper op `dvswitch-usrp`, not a generic config apply.
 - The record is `privatenode.json`; the uninstall reverts it in the helper step `private-revert`, not in shell.
 - Link settings are store settings; the API (not the reconciler) computes the snapshot `link`. The reconciler is level-triggered with a 60 s tick instead of purely event-driven.
@@ -749,7 +769,7 @@ The installer, the repository key, the bookworm repo and the package facts were 
 | Host and TG file formats | picker parsers (the formats were checked on the pistar.uk downloads; confirm that `/var/lib/mmdvm/DMR_Hosts.txt` exists on a DVSwitch node and has the same five columns, and the directory mode) | `ls -l /var/lib/mmdvm/`; `head -n 4 /var/lib/mmdvm/YSFHosts.txt /var/lib/mmdvm/P25Hosts.txt /var/lib/mmdvm/NXDNHosts.txt /var/lib/mmdvm/TGList_BM.txt 2>&1`; `wc -l /var/lib/mmdvm/*Hosts.txt` |
 | M2 verify checklist | see "Verify on a real node (M2 checklist)" below | |
 | Bridge node stanza and `duplex` | M2 defaults | `awk '/^\[1999\]/,/^\[[^1]/' /etc/asterisk/rpt.conf \| grep -v -i -E 'pass\|secret'` (use your bridge node's number); `grep -n usrp /etc/asterisk/modules.conf`; `asterisk -rx 'module show like usrp'`; the stock `[node-main]` comment recommends `duplex = 0` for external controllers, check what works with real traffic |
-| Inherited template keys on a bridge | the template layout does **not** unset inherited keys (the first design did); check whether `idrecording`, `idtalkover` and tail messages matter | `asterisk -rx 'rpt show variables 1999' 2>&1 \| head -40` and compare `idrecording`, `idtalkover`, `tailmessagetime` against the stock `[node-main]` |
+| Neutral keys on a bridge | the stanza writes `hangtime`, `althangtime`, `holdofftelem`, `telemdefault`, `telemdynamic`, `nounkeyct`, `linktolink`, `idtime = 0`, `tailmessagetime = 0`; check they take effect (no ID, courtesy tone or tail message reaches DMR/YSF) and whether an inherited `statpost_url` makes the bridge node post | `asterisk -rx 'rpt show variables 1999' 2>&1 \| head -40` and compare `idtime`, `hangtime`, `nounkeyct`, `tailmessagetime`; `grep -n statpost_url /etc/asterisk/rpt.conf`; key a call through the bridge for longer than the stock `idtime` and listen for an ID |
 | Licence | whether ASLCP may even mention/offer the install | `dpkg -S /opt/Analog_Bridge/Analog_Bridge /opt/MMDVM_Bridge/MMDVM_Bridge`; then `ls /usr/share/doc/<package>/` and `head -n 60 /usr/share/doc/<package>/copyright` for each owning package |
 | Services after a fresh install | "Not configured" state | `systemctl is-enabled analog_bridge mmdvm_bridge; systemctl is-active analog_bridge mmdvm_bridge; journalctl -u analog_bridge -n 20 --no-pager \| sed -E 's/[0-9]{7,9}/1234567/g'` (exit 252/253/254 meanings) |
 

@@ -409,3 +409,43 @@ func TestParseConnLongName(t *testing.T) {
 		t.Fatalf("got node %q ip %q err %v", c.Node, c.IP, err)
 	}
 }
+
+func TestMergeDedupesLinksAndNetwork(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	x := &XStat{
+		Conns: []Conn{
+			{Node: "1998", Direction: DirOut, State: "CONNECTING", Connected: time.Second},
+			{Node: "1997", Direction: DirIn, State: StateEstablished, Connected: time.Minute},
+			{Node: "1998", Direction: DirIn, State: StateEstablished, Connected: time.Hour},
+			{Node: "1997", Direction: DirOut, State: StateEstablished, Connected: time.Second},
+			{Node: "1999", Direction: DirIn, State: "CONNECTING"},
+			{Node: "1999", Direction: DirOut, State: "CONNECTING"},
+		},
+		Network: []LinkedNode{
+			{Node: "1998", Mode: ModeTransceive}, {Node: "1997", Mode: ModeLocalMonitor},
+			{Node: "1998", Mode: ModeLocalMonitor}, {Node: "1997", Mode: ModeLocalMonitor},
+		},
+	}
+	st := Merge("1996", x, nil, now)
+	if len(st.Links) != 3 {
+		t.Fatalf("links: %+v", st.Links)
+	}
+	// first position kept; the ESTABLISHED duplicate replaces a CONNECTING first
+	if st.Links[0].Node != "1998" || st.Links[0].State != StateEstablished || st.Links[0].Direction != DirIn || st.Links[0].Connected != time.Hour {
+		t.Fatalf("1998: %+v", st.Links[0])
+	}
+	// both ESTABLISHED: the first wins
+	if st.Links[1].Node != "1997" || st.Links[1].Direction != DirIn || st.Links[1].Connected != time.Minute {
+		t.Fatalf("1997: %+v", st.Links[1])
+	}
+	// both CONNECTING: the first wins
+	if st.Links[2].Node != "1999" || st.Links[2].Direction != DirIn {
+		t.Fatalf("1999: %+v", st.Links[2])
+	}
+	if len(st.Network) != 2 || st.Network[0].Node != "1998" || st.Network[0].Mode != ModeTransceive || st.Network[1].Node != "1997" {
+		t.Fatalf("network: %+v", st.Network)
+	}
+	if len(x.Network) != 4 {
+		t.Fatal("input modified")
+	}
+}

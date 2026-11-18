@@ -25,8 +25,11 @@ func TestAddBridgeNodeTemplate(t *testing.T) {
 		t.Fatalf("%+v", r)
 	}
 	out := string(r.Out)
-	if !strings.Contains(out, "[1997](node-main)\nrxchannel = USRP/127.0.0.1:34001:32001\nduplex = 0\ncallerid = \"DVSwitch 1997\" <0000000000>\n") {
+	if !strings.Contains(out, "[1997](node-main)\nrxchannel = USRP/127.0.0.1:34001:32001\nduplex = 0\ncallerid = \"DVSwitch 1997\" <0000000000>\nhangtime = 0\nalthangtime = 0\nholdofftelem = 1\ntelemdefault = 0\ntelemdynamic = 0\nnounkeyct = 1\nlinktolink = yes\nidtime = 0\ntailmessagetime = 0\n") {
 		t.Fatalf("stanza:\n%s", r.StanzaText)
+	}
+	if !strings.Contains(out, "nounkeyct = 1\n") {
+		t.Fatal("neutral keys missing")
 	}
 	if r.NodesLine != "1997 = radio@127.0.0.1/1997,NONE" || !strings.Contains(out, r.NodesLine+"\n") {
 		t.Fatalf("nodes line %q", r.NodesLine)
@@ -46,9 +49,14 @@ func TestAddBridgeNodeFlatAndMinimal(t *testing.T) {
 	if r.Layout != LayoutFlat {
 		t.Fatal(r.Layout)
 	}
-	want := "[1997]\nrxchannel = USRP/127.0.0.1:34001:32001\nduplex = 0\ncallerid = \"DVSwitch 1997\" <0000000000>\nfunctions = functions-1999\ntelemetry = telemetry-1999"
+	want := "[1997]\nrxchannel = USRP/127.0.0.1:34001:32001\nduplex = 0\ncallerid = \"DVSwitch 1997\" <0000000000>\nhangtime = 0\nalthangtime = 0\nholdofftelem = 1\ntelemdefault = 0\ntelemdynamic = 0\nnounkeyct = 1\nlinktolink = yes\nidtime = 0\ntailmessagetime = 0\nfunctions = functions-1999\ntelemetry = telemetry-1999"
 	if r.StanzaText != want {
 		t.Fatalf("stanza %q", r.StanzaText)
+	}
+	for _, k := range []string{"statpost_url", "idrecording"} {
+		if strings.Contains(r.StanzaText, k) {
+			t.Fatalf("%s written", k)
+		}
 	}
 	if strings.Contains(r.StanzaText, "idrecording") {
 		t.Fatal("idrecording copied")
@@ -56,8 +64,13 @@ func TestAddBridgeNodeFlatAndMinimal(t *testing.T) {
 	if !strings.Contains(string(r.Out), "1999 = radio@127.0.0.1/1999,NONE\n1997 = radio@127.0.0.1/1997,NONE\n") {
 		t.Fatalf("%s", r.Out)
 	}
+	for _, k := range []string{"hangtime = 0", "idtime = 0", "linktolink = yes"} {
+		if !strings.Contains(r.StanzaText, k) {
+			t.Fatalf("flat: %s missing", k)
+		}
+	}
 	m, err := AddBridgeNode([]byte("[general]\n"), BridgeSpec{Node: "1997", RxPort: 34001, TxPort: 32001})
-	if err != nil || m.Layout != LayoutMinimal || !strings.Contains(string(m.Out), "[nodes]\n1997 = radio@127.0.0.1/1997,NONE") {
+	if err != nil || m.Layout != LayoutMinimal || !strings.Contains(string(m.Out), "[nodes]\n1997 = radio@127.0.0.1/1997,NONE") || !strings.Contains(m.StanzaText, "idtime = 0") {
 		t.Fatalf("%v %s", err, m.Out)
 	}
 }
@@ -67,6 +80,9 @@ func TestAddBridgeNodeExisting(t *testing.T) {
 	r, err := AddBridgeNode([]byte(in), BridgeSpec{Node: "1997", RxPort: 34001, TxPort: 32001, Local: "1999"})
 	if err != nil || r.Layout != LayoutExisting || r.StanzaAdded || r.NodesLineAdded {
 		t.Fatalf("%v %+v", err, r)
+	}
+	if r.StanzaText != "[1997]\nrxchannel = USRP/127.0.0.1:34001:32001\nduplex = 0" {
+		t.Fatalf("existing stanza touched beyond rxchannel/duplex:\n%s", r.StanzaText)
 	}
 	if !strings.Contains(string(r.Out), "rxchannel = USRP/127.0.0.1:34001:32001\nduplex = 0\n") {
 		t.Fatalf("%s", r.Out)

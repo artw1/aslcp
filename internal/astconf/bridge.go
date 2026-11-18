@@ -57,6 +57,39 @@ func BridgeChannel(rx, tx int) string { return fmt.Sprintf("USRP/127.0.0.1:%d:%d
 // the bridge node needs to behave like a node).
 var flatCopy = []string{"functions", "link_functions", "phone_functions", "telemetry", "morse", "wait_times", "context"}
 
+// neutralKeys are written to every new bridge stanza so that the node does not
+// inherit the local node's ID, telemetry, courtesy tones or hang time, which
+// would otherwise be played out to DMR/YSF. Sources: app_rpt
+// (github.com/AllStarLink/app_rpt, master as read 2026-11-18).
+//
+//   - hangtime/althangtime: load_rpt_vars() in apps/app_rpt/rpt_config.c
+//     (RPT_CONFIG_VAR_INT_MIN_FLOOR) floors them at 1 ms, so 0 means 1 ms.
+//   - idtime = 0: load_rpt_vars() reads it with retrieve_astcfgint(min -60000),
+//     where a negative min means "zero is valid" (rpt_config.c,
+//     retrieve_astcfgint), and apps/app_rpt.c (queue_id, the scheduler in
+//     rpt_master) only IDs when p.idtime is non-zero ("ID time must be
+//     non-zero"). That stops the periodic ID and the talkover ID, which is
+//     only started from queue_id and while an ID is playing. An empty
+//     idrecording would not do: the value is then "" (non-NULL) and is played.
+//   - tailmessagetime = 0: no tail messages (app_rpt.c tests p.tailmessagetime).
+//   - statpost_url is deliberately not written: RPT_CONFIG_VAR keeps an empty
+//     value as a non-NULL "" and statpost()/do_link_post() in app_rpt.c only
+//     skip posting when the pointer is NULL, so an empty value would post to
+//     "?node=...". It cannot be unset from a child stanza. The stock
+//     [node-main] has it commented out; if the operator enabled it there, the
+//     bridge node posts too (docs/DVSWITCH.md).
+var neutralKeys = [][2]string{
+	{"hangtime", "0"},
+	{"althangtime", "0"},
+	{"holdofftelem", "1"},
+	{"telemdefault", "0"},
+	{"telemdynamic", "0"},
+	{"nounkeyct", "1"},
+	{"linktolink", "yes"},
+	{"idtime", "0"},
+	{"tailmessagetime", "0"},
+}
+
 // sectionText returns the section's text without trailing blank lines.
 func sectionText(s *Section) string {
 	ls := s.Lines()
@@ -119,6 +152,9 @@ func AddBridgeNode(rpt []byte, spec BridgeSpec) (BridgeResult, error) {
 		s.Add("rxchannel", "", ch)
 		s.Add("duplex", "", "0")
 		s.Add("callerid", "", fmt.Sprintf("\"DVSwitch %s\" <0000000000>", spec.Node))
+		for _, kv := range neutralKeys {
+			s.Add(kv[0], "", kv[1])
+		}
 		if res.Layout == LayoutMinimal {
 			s.Add("context", "", "radio")
 		}

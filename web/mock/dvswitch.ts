@@ -171,7 +171,7 @@ function privateNode(c: DVCtx, body: Body): boolean {
   if (rx === 34002 || tx === 34002) { c.err(409, 'port_conflict: port 34002 is used by another channel', 'port_conflict'); return true; }
   if (!['ondemand', 'permanent'].includes(mode) || !LOCALS.includes(local)) { c.err(400, 'invalid_node: pick the link mode and a local node', 'invalid_node'); return true; }
   const asteriskChange = node !== pb.node;
-  const diff = (t: string) => `--- a/${t}\n+++ b/${t}\n@@\n+[${node}]\n+rxchannel = USRP/127.0.0.1:${rx}:${tx}\n+duplex = 0\n`;
+  const diff = (t: string) => `--- a/${t}\n+++ b/${t}\n@@\n+[${node}](node-main)\n+rxchannel = USRP/127.0.0.1:${rx}:${tx}\n+duplex = 0\n+callerid = "DVSwitch ${node}" <0000000000>\n+hangtime = 0\n+althangtime = 0\n+holdofftelem = 1\n+telemdefault = 0\n+telemdynamic = 0\n+nounkeyct = 1\n+linktolink = yes\n+idtime = 0\n+tailmessagetime = 0\n`;
   if (body.dryRun === true) {
     c.json(200, {
       node, rxPort: rx, txPort: tx, layout: 'template',
