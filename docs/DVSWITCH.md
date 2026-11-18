@@ -180,7 +180,7 @@ The demo uses its own temp dir and a fake in-memory ABInfo; it never touches rea
 
 ### Verify on a real node (tune and resume)
 
-1. Capture the real script and compare with ours: `sudo tcpdump -i lo -X udp and dst port <tlv.rx_port>` while running `dvswitch.sh mode P25` then `dvswitch.sh tune 10100`; the tag `0x05`, the order and the `info` are unverified.
+1. Capture the real script and compare with ours: `sudo tcpdump -i lo -X udp and dst port <tlv.rx_port>` while running `dvswitch.sh mode P25` then `dvswitch.sh tune 10100`; the tag `0x05`, the commands (`rxport=30000`, `ambeMode=<MODE>`, `txport=<DVSwitch.ini RXPort>`, `rxport=<DVSwitch.ini TXPort>`, `info`; tune `txTg=<value>`) and their order match upstream `dvswitch.sh` (DVSwitch/MMDVM_Bridge master, `setMode`, `tune`, `remoteControlCommand`), checked 2026-11-18. Still to observe on a node: that Analog_Bridge acts on them with ASLCP's spacing (upstream sends without delays, one python process per command) and rewrites ABInfo after `info`.
 2. Does Analog_Bridge write ABInfo at start and refresh it after a TLV tune? Run `watch -n1 cat /tmp/ABInfo_<port>.json` (inside the PrivateTmp of the helper: `/proc/<pid>/root/tmp`).
 3. Is 100 ms between datagrams and 400 ms settle enough (`confirmed: true`)?
 4. `systemctl show -p ActiveEnterTimestamp --timestamp=unix analog_bridge.service` prints `@<seconds>` on the node's systemd.
