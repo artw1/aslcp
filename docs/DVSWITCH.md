@@ -625,14 +625,15 @@ Docs touched at implementation time: `docs/API.md`, `docs/BACKUP.md`, `docs/CONF
 
 ### Dashboard card
 
-`DvswitchCard.svelte` after `SchedulesCard`, rendered when the snapshot says `installed` (the controls need `configured`).
+`DvswitchCard.svelte` after `SchedulesCard`, rendered when the snapshot says `installed` (implemented). The snapshot is fetched after login (`GET /api/dvswitch/snapshot`) and kept current by the `dvswitch` SSE event. The pure logic is in `web/src/lib/dvpanel.ts` (tests: `dvpanel.test.ts`).
 
-- Header "DVSwitch" with service dots (analog_bridge, mmdvm_bridge, active gateways); amber when a unit is down or the state is unknown.
-- Line: "Mode YSF, tuned to Example room (192.0.2.10:42000)", name resolved from the lists or a favourite; "Mode unknown" when `source` is `none`.
-- Mode buttons DMR / YSF / P25 / NXDN (current one highlighted; disabled with a tooltip when the mode is not enabled in MMDVM_Bridge). Pending state until the SSE snapshot confirms; "Not confirmed" toast if it does not within 5 s.
-- Tune: input with per-mode validation and "Go"; picker (search over `lists` for YSF/P25/NXDN, TG list or free number for DMR); favourites as chips for the current mode (star button saves the current target, long-press or menu to rename/delete); "Unlink" button.
-- Link line: "Bridge node 1999 linked to 2006 (permanent)" or, on demand, a Link/Unlink-node button.
-- Operator/admin get controls; viewers get text only. Admin sees a "Setup" link to the DVSwitch tab.
+- Header "DVSwitch" with service dots (analog_bridge, mmdvm_bridge, active gateways); amber when a unit is down or the state is unknown (`bridge.source` is `none`).
+- Line: "Mode YSF, tuned to Example room (192.0.2.10:42000)", the name resolved by the server from the lists or a favourite; "Mode unknown" when `source` is `none`. A line "Analog_Bridge is not running" shows when it is down, and "No bridge node yet: audio through AllStar needs the bridge node setup" when `bridgeNode.present` is false.
+- Mode buttons DMR / YSF / P25 / NXDN: the current one is highlighted; a mode that is not enabled in MMDVM_Bridge is greyed out with a tooltip. A click highlights the new mode at once (pending); the next snapshot confirms it, and after 5 s without it the card shows "Not confirmed: the bridge still reports X" until a snapshot confirms or the user dismisses it.
+- Tune: `NodePicker` in list mode over `GET /api/dvswitch/lists` for YSF, P25 and NXDN, a plain number field for DMR, validated like the server (`validTune`), and a "Go" button. **DMR has no talkgroup list**: the `dmr` list holds master servers, not talkgroups, so DMR takes a free number only.
+- Favourites: chips for the current mode (a click tunes; a "..." menu renames or deletes), and a star that saves the current target (`bridge.tune`, for YSF the host:port ABInfo reports) after a name prompt that starts with the resolved name. The star is disabled with a reason when nothing valid is tuned, when the target is the unlink value, when it is already a favourite, or at 50 per mode.
+- "Unlink" button: sends the unlink value of the current mode (DMR `4000`, YSF `disconnect`, P25 and NXDN `9999`).
+- Operator and admin get the controls; viewers get text only (state line, dots, favourite names). Admin sees a "Setup" link to the DVSwitch tab. The link line (bridge node linked to ...) belongs to M2 and is not in the card.
 
 ### Setup page
 
@@ -643,7 +644,7 @@ Recommendation: **its own top-level tab "DVSwitch" (`#/dvswitch`, admin, lazy-lo
 ## Demo mode and mock
 
 - `--demo`: `Deps.DVSwitch` is a `Service` over `internal/dvswitch/fake`: configured, in-memory state (mode, target, slot), commands applied by parsing the same `key=value` strings the real path builds (so the TLV encoder and validators are exercised), embedded sample host lists with placeholder entries on `192.0.2.x`, a few favourites, services all green, a DMR login that cycles logged in, login failed, timed out and socket failed with each restart of `mmdvm_bridge` (4 s of connecting each time; placeholder master `192.0.2.10`; the demo never reads `/var/log/mmdvm`, `NewDemoOps` points its log dir into the demo temp dir), an install job that replays scripted log lines over ~10 s, setup forms that mutate the fake and report `passwordSet`. A demo switch needs no helper.
-- `web/mock/dvswitch.ts` implements the same endpoints for the Vite mock; one fixture is "installed but not configured" to show the setup flow. Its DMR login cycles logged in, login failed, timed out, socket failed and a stopped bridge (for the Start button) with each restart.
+- `web/mock/dvswitch.ts` also serves the panel endpoints (snapshot, mode, unlink, tune, favourites) with a bridge that answers like ABInfo: a mode switch shows after 1.2 s, **P25 takes 7 s** so the card's "Not confirmed" notice and its recovery can be seen, NXDN is not enabled (greyed out), and install completion pushes a `dvswitch` SSE event. `web/mock/dvswitch.ts` implements the same endpoints for the Vite mock; one fixture is "installed but not configured" to show the setup flow. Its DMR login cycles logged in, login failed, timed out, socket failed and a stopped bridge (for the Start button) with each restart.
 - Go tests: conformance test of the TLV sequence against a loopback UDP listener; ABInfo parsing against a fixture; ini editor round-trip (comments, spacing styles); allowlist table tests (traversal impossible by enum, bad keys, bad values never echoed); astconf bridge-node edit on the `asl3-dist` corpus; reconciler with a fake `Linker`.
 
 ## Phasing
@@ -652,7 +653,7 @@ Each milestone is shippable alone and useful on a node where DVSwitch was instal
 
 | M | Content | Must be verified on a real node first |
 |---|---|---|
-| **M1 Panel (backend implemented 2026-11-18)** | `dvswitch-status`, `dvswitch-info`, native TLV control, snapshot/SSE, lists, favourites, card, demo/mock, API docs. Configured = a USRP node exists and `analog_bridge` is loaded; nothing is written to any config | ABInfo sample, option A works (or B), exact datagram sequence and timing of `mode`, a real mode switch and tune per mode, host file formats and permissions |
+| **M1 Panel (implemented 2026-11-18, unverified on a real node)** | `dvswitch-status`, `dvswitch-info`, native TLV control, snapshot/SSE, lists, favourites, card, demo/mock, API docs. Configured = a USRP node exists and `analog_bridge` is loaded; nothing is written to any config | ABInfo sample, option A works (or B), exact datagram sequence and timing of `mode`, a real mode switch and tune per mode, host file formats and permissions |
 | **M2 Private node + USRP** | astconf node and modules edits, preview/apply plan, ports through `dvswitch-config-apply` (USRP keys only), `dvswitch-restart`, link toggle + reconciler, DVSwitch tab (Node section), DVSwitch part in backups, mask.go rule | Stanza and `duplex` on a working bridge, chan_usrp load behaviour, `update-config.sh` effect, unit dependencies, backup/restore round trip |
 | **M3 Installer (implemented, install and uninstall unverified on a real node)** | `dvswitch-install`, `dvswitch-uninstall`, job UI, platform gating, explicit package set (no `dvswitch-server`) | Minimal set works without recommends at runtime (the packages ship the scripts, inis, units and host files: verified 2026-11-17), armhf and amd64 against arm64 behaviour, trixie architectures, keyring holds one primary key, licence, whether Asterisk config is touched. Installer content, key, bookworm repo and package facts: verified 2026-11-17 |
 | **M4 Credentials and config (implemented; gateway ini keys verified from the packages, the rest unverified on a real node)** | Identity, DMR network password, enabled modes, startup values, gateway startup reflectors, rollback, restart/start, DVSwitch tab sections, mask.go rule | Password character handling, DMR connect with a test hotspot account, restarts per change, 9-digit MMDVM `Id`; see the M4 checklist |

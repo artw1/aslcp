@@ -239,7 +239,7 @@ export function mockApi(): Plugin {
         const forbid = () => err(res, 403, 'forbidden', 'forbidden');
         let mm: RegExpExecArray | null;
         if (handleRadio({ m, p, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }), links: (n) => locals[n]?.links.map((l) => l.node) ?? [] })) return;
-        if (handleDVSwitch({ m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
+        if (handleDVSwitch({ push: (ev, d) => broadcast(ev, () => d), m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleConfig({ m, p, body, url, user, json: (c, b) => json(res, c, b), err: (c, msg, code, extra) => json(res, c, { error: msg, code, ...extra }) })) return;
 
         if (p === '/session') return json(res, 200, user);

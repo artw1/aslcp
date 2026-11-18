@@ -65,7 +65,8 @@ const cfg = {
   identity: { callsign: 'N0CALL', dmrId: '1234567', essid: '01', nxdnId: '12346', consistent: true },
   dmr: { address: '192.0.2.10', port: 62031, passwordSet: false },
   usrp: { address: '127.0.0.1', rxPort: 34001, txPort: 32001 },
-  modes: { dmr: true, ysf: false, p25: false, nxdn: false },
+  // DMR, YSF and P25 are enabled so the dashboard card's mode buttons can be tried; NXDN stays off (greyed out).
+  modes: { dmr: true, ysf: true, p25: true, nxdn: false },
   startup: { ambeMode: 'DMR', txTg: '9', txTs: 2, colorCode: 1 },
   gateways: { ysf: { present: true, startup: 'US-Example' }, p25: { present: true, startup: '' }, nxdn: { present: true, startup: '' } },
 };
@@ -151,6 +152,8 @@ const remembered: Record<string, { tune: string; ts?: string; at: string }> = {
 const resumeView = () => ({ resume, lastMode, perMode: remembered });
 
 export interface DVCtx {
+  /** Pushes an SSE event to every client (the dashboard card's `dvswitch` snapshot). */
+  push?: (ev: string, data: unknown) => void;
   m: string; p: string; url?: URL; body?: Body; user?: { username: string; role: string };
   json: (code: number, body?: unknown) => void; err: (code: number, msg: string, c: string) => void;
 }
@@ -179,6 +182,118 @@ const LISTS: Record<string, { value: string; name: string; detail?: string; addr
     { value: '65', name: 'NXDN TG 65', address: '203.0.113.43', port: 41400 },
   ],
 };
+
+// Dashboard panel (GET /dvswitch/snapshot, /mode, /unlink, favourites). The bridge answers like ABInfo:
+// a mode switch shows up after a delay (1.2 s; P25 takes 7 s so the card's "Not confirmed" notice and its
+// recovery can be seen), and last_tune of another mode is not shown.
+type PMode = 'DMR' | 'YSF' | 'P25' | 'NXDN';
+const UNLINK: Record<PMode, string> = { DMR: '4000', YSF: 'disconnect', P25: '9999', NXDN: '9999' };
+const bridge: { mode: PMode; tune: string; slot: number; muted: boolean } = { mode: 'DMR', tune: '91', slot: 2, muted: false };
+const favs: { id: number; mode: PMode; value: string; name: string; sort: number }[] = [
+  { id: 1, mode: 'DMR', value: '91', name: 'Worldwide', sort: 0 },
+  { id: 2, mode: 'DMR', value: '3100', name: 'USA', sort: 1 },
+  { id: 3, mode: 'YSF', value: '00001', name: 'Example room', sort: 0 },
+];
+let favSeq = 3;
+const lcMode = (m: PMode) => m.toLowerCase();
+function targetName(): string | undefined {
+  const t = bridge.tune;
+  if (!t) return undefined;
+  const items = bridge.mode === 'DMR' ? [] : LISTS[lcMode(bridge.mode)];
+  const hit = items.find((i) => i.value === t || `${i.address}:${i.port}` === t);
+  return hit?.name ?? favs.find((f) => f.mode === bridge.mode && f.value === t)?.name;
+}
+function snapshot() {
+  progress();
+  const modeOn: Record<PMode, boolean> = { DMR: cfg.modes.dmr, YSF: cfg.modes.ysf, P25: cfg.modes.p25, NXDN: cfg.modes.nxdn };
+  const unit = (n: string) => status().units.find((u) => u.name === n)?.active === 'active';
+  const gw = (['YSF', 'P25', 'NXDN'] as PMode[]).filter((m) => modeOn[m]).map((m) => `${lcMode(m)}gateway`);
+  const running = installed && unit('analog_bridge');
+  const name = targetName();
+  return {
+    installed, running, configured: installed && running,
+    bridge: running
+      ? { mode: bridge.mode, tune: bridge.tune, ...(name ? { targetName: name } : {}), slot: bridge.slot, muted: bridge.muted, source: 'abinfo', updated: new Date().toISOString() }
+      : { mode: '', tune: '', slot: 0, muted: false, source: 'none', updated: '' },
+    modes: (['DMR', 'YSF', 'P25', 'NXDN'] as PMode[]).map((id) => ({ id, enabled: modeOn[id], unlink: UNLINK[id] })),
+    services: installed ? ['analog_bridge', 'mmdvm_bridge', ...gw].map((u) => ({ unit: u, active: unit(u) })) : [],
+    bridgeNode: { present: true, node: '2001' },
+  };
+}
+const tuneRe: Record<PMode, RegExp> = { DMR: /^[0-9]{1,8}$/, YSF: /^(disconnect|[A-Za-z0-9._-]{1,32}|[A-Za-z0-9.-]{1,253}:[0-9]{1,5})$/, P25: /^[0-9]{1,5}$/, NXDN: /^[0-9]{1,5}$/ };
+const favView = (f: (typeof favs)[number]) => ({ id: f.id, mode: f.mode, value: f.value, name: f.name, sort: f.sort });
+// What ABInfo's last_tune shows: a YSF id or name resolves to host:port like the helper does.
+function abTune(mode: PMode, v: string) {
+  if (mode !== 'YSF') return v;
+  const hit = LISTS.ysf.find((i) => i.value === v || i.name === v);
+  return hit ? `${hit.address}:${hit.port}` : v;
+}
+function applyMode(m: PMode, delay: number, push?: DVCtx['push']) {
+  setTimeout(() => { if (bridge.mode !== m) { bridge.mode = m; bridge.tune = ''; } push?.('dvswitch', snapshot()); }, delay);
+}
+function panelHandler(c: DVCtx): boolean {
+  const op = c.user!.role !== 'viewer';
+  const forbid = () => (c.err(403, 'insufficient permissions', 'forbidden'), true);
+  const reply = (mode: PMode, switched: boolean, confirmed: boolean) => c.json(200, { mode, switched, confirmed, snapshot: snapshot() });
+  if (c.m === 'GET' && c.p === '/dvswitch/snapshot') { c.json(200, snapshot()); return true; }
+  if (c.m === 'GET' && c.p === '/dvswitch/favorites') { c.json(200, favs.map(favView)); return true; }
+  if (!op) return forbid();
+  const body = (c.body ?? {}) as Record<string, unknown>;
+  const running = () => snapshot().running;
+  if (c.m === 'POST' && c.p === '/dvswitch/mode') {
+    const m = String(body.mode ?? '').toUpperCase() as PMode;
+    if (!(m in UNLINK)) return c.err(400, 'mode must be DMR, YSF, P25 or NXDN', 'bad_request'), true;
+    if (!running()) return c.err(409, 'no_info: the bridge is not running', 'no_info'), true;
+    if (!snapshot().modes.find((x) => x.id === m)?.enabled) return c.err(409, `mode_disabled: ${m} is not enabled in MMDVM_Bridge`, 'mode_disabled'), true;
+    if (bridge.mode === m) return reply(m, false, true), true;
+    const delay = m === 'P25' ? 7000 : 1200;
+    applyMode(m, delay, c.push);
+    setTimeout(() => reply(m, true, delay <= 1800), Math.min(delay, 1800));
+    return true;
+  }
+  if (c.m === 'POST' && c.p === '/dvswitch/unlink') {
+    if (!running()) return c.err(409, 'no_info: the bridge is not running', 'no_info'), true;
+    bridge.tune = UNLINK[bridge.mode];
+    reply(bridge.mode, false, true);
+    c.push?.('dvswitch', snapshot());
+    return true;
+  }
+  if (c.m === 'POST' && c.p === '/dvswitch/tune') {
+    const mode = String(body.mode ?? '').toUpperCase() as PMode, tune = body.tune;
+    if (!(mode in tuneRe) || typeof tune !== 'string' || !tuneRe[mode].test(tune)) return bad(c, 'tune'), true;
+    if (!running()) return c.err(409, 'no_info: the bridge is not running', 'no_info'), true;
+    const switched = bridge.mode !== mode;
+    bridge.mode = mode; bridge.tune = abTune(mode, tune);
+    if (!UNLINK[mode] || tune !== UNLINK[mode]) remembered[mode] = { tune, ...(mode === 'DMR' ? { ts: '2' } : {}), at: new Date().toISOString() };
+    lastMode = mode;
+    reply(mode, switched, true);
+    c.push?.('dvswitch', snapshot());
+    return true;
+  }
+  if (c.m === 'POST' && c.p === '/dvswitch/favorites') {
+    const mode = String(body.mode ?? '').toUpperCase() as PMode, value = typeof body.value === 'string' ? body.value : '', name = typeof body.name === 'string' ? body.name.trim() : '';
+    if (!(mode in tuneRe) || !tuneRe[mode].test(value) || [...name].length < 1 || [...name].length > 40) return c.err(400, 'bad_request: check the mode, the value and the name (1 to 40 characters)', 'bad_request'), true;
+    if (favs.some((f) => f.mode === mode && f.value === value)) return c.err(409, 'duplicate: this target is already a favourite', 'duplicate'), true;
+    if (favs.filter((f) => f.mode === mode).length >= 50) return c.err(409, 'limit: at most 50 favourites per mode', 'limit'), true;
+    const f = { id: ++favSeq, mode, value, name, sort: favs.filter((x) => x.mode === mode).length };
+    favs.push(f);
+    c.json(201, favView(f));
+    return true;
+  }
+  const m = /^\/dvswitch\/favorites\/(\d+)$/.exec(c.p);
+  if (m) {
+    const i = favs.findIndex((f) => f.id === Number(m[1]));
+    if (i < 0) return c.err(404, 'not_found: no such favourite', 'not_found'), true;
+    if (c.m === 'DELETE') { favs.splice(i, 1); c.json(204); return true; }
+    if (c.m === 'PUT') {
+      if (body.name !== undefined) { const n = typeof body.name === 'string' ? body.name.trim() : ''; if ([...n].length < 1 || [...n].length > 40) return c.err(400, 'bad_request: the name must be 1 to 40 characters', 'bad_request'), true; favs[i].name = n; }
+      if (typeof body.sort === 'number') favs[i].sort = body.sort;
+      c.json(200, favView(favs[i]));
+      return true;
+    }
+  }
+  return false;
+}
 
 export function handleDVSwitch(c: DVCtx): boolean {
   if (!c.p.startsWith('/dvswitch')) return false;
@@ -209,16 +324,15 @@ export function handleDVSwitch(c: DVCtx): boolean {
     c.json(200, resumeView());
     return true;
   }
-  if (c.p === '/dvswitch/tune' && c.m === 'POST') {
-    if (c.user.role === 'viewer') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
-    const b = (c.body ?? {}) as { mode?: string; tune?: string };
-    const re: Record<string, RegExp> = { DMR: /^[0-9]{1,8}$/, YSF: /^(disconnect|[A-Za-z0-9._-]{1,32}|[A-Za-z0-9.-]{1,253}:[0-9]{1,5})$/, P25: /^[0-9]{1,5}$/, NXDN: /^[0-9]{1,5}$/ };
-    if (!b.mode || !re[b.mode] || typeof b.tune !== 'string' || !re[b.mode].test(b.tune)) return bad(c, 'tune'), true;
-    if (!['4000', 'disconnect', '9999'].includes(b.tune)) remembered[b.mode] = { tune: b.tune, ...(b.mode === 'DMR' ? { ts: '2' } : {}), at: new Date().toISOString() };
-    lastMode = b.mode;
-    c.json(200, { mode: b.mode, switched: true, confirmed: true });
+  if (c.p === '/dvswitch/resume' && c.m === 'PUT') {
+    if (c.user.role !== 'admin') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
+    const r = (c.body ?? {}).resume;
+    if (typeof r !== 'boolean') { c.err(400, 'resume must be true or false', 'bad_request'); return true; }
+    resume = r;
+    c.json(200, resumeView());
     return true;
   }
+  if (panelHandler(c)) return true;
   if (c.user.role !== 'admin') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
   if (c.m === 'GET' && c.p === '/dvswitch') { c.json(200, status()); return true; }
   if (c.m === 'GET' && c.p === '/dvswitch/job') { c.json(200, progress()); return true; }
@@ -230,7 +344,7 @@ export function handleDVSwitch(c: DVCtx): boolean {
     if (s.install.job === 'running' || s.uninstall.job === 'running') c.err(409, 'an install, uninstall or update is already running', 'job_running');
     else if (kind === 'install' && installed) c.err(409, 'already_installed: DVSwitch is already installed', 'already_installed');
     else if (kind === 'uninstall' && !installed) c.err(409, 'DVSwitch was installed outside ASLCP', 'not_aslcp_installed');
-    else { job = { kind, at: Date.now() }; c.json(202, status()); }
+    else { job = { kind, at: Date.now() }; c.json(202, status()); setTimeout(() => c.push?.('dvswitch', snapshot()), DURATION + 200); }
     return true;
   }
   return false;

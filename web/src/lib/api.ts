@@ -1,4 +1,4 @@
-import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVSwitchRestartResult, DVDMRStatus, DVRestartScope, DVList, DVListMode, DVResume, DVTuneMode } from './types';
+import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVSwitchRestartResult, DVDMRStatus, DVRestartScope, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVCmdReply, DVFavorite } from './types';
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public body?: Record<string, unknown>) { super(message); }
@@ -147,7 +147,14 @@ export const api = {
   dvswitchCredentials: (b: { dmrAddress?: string; dmrPort?: number; dmrPassword?: string; clearPassword?: boolean; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/credentials', b),
   dvswitchModes: (b: { dmr?: boolean; ysf?: boolean; p25?: boolean; nxdn?: boolean; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/modes', b),
   dvswitchStartup: (b: { ambeMode?: string; txTg?: string; txTs?: number; colorCode?: number; ysf?: string; p25?: string; nxdn?: string; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/startup', b),
-  dvswitchTune: (b: { mode: DVTuneMode; tune: string }) => req<{ mode: string; switched: boolean; confirmed: boolean }>('POST', '/dvswitch/tune', b),
+  dvswitchTune: (b: { mode: DVTuneMode; tune: string }) => req<DVCmdReply>('POST', '/dvswitch/tune', b),
+  dvswitchSnapshot: () => req<DVSnapshot>('GET', '/dvswitch/snapshot'),
+  dvswitchMode: (mode: DVTuneMode) => req<DVCmdReply>('POST', '/dvswitch/mode', { mode }),
+  dvswitchUnlink: () => req<DVCmdReply>('POST', '/dvswitch/unlink', {}),
+  dvswitchFavorites: () => req<DVFavorite[]>('GET', '/dvswitch/favorites'),
+  dvswitchAddFavorite: (b: { mode: DVTuneMode; value: string; name: string }) => req<DVFavorite>('POST', '/dvswitch/favorites', b),
+  dvswitchUpdateFavorite: (id: number, b: { name?: string; sort?: number }) => req<DVFavorite>('PUT', `/dvswitch/favorites/${id}`, b),
+  dvswitchDeleteFavorite: (id: number) => req<void>('DELETE', `/dvswitch/favorites/${id}`),
   dvswitchResume: () => req<DVResume>('GET', '/dvswitch/resume'),
   dvswitchSetResume: (resume: boolean) => req<DVResume>('PUT', '/dvswitch/resume', { resume }),
   dvswitchList: (mode: DVListMode) => req<DVList>('GET', `/dvswitch/lists?mode=${mode}`),

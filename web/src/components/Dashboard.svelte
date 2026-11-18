@@ -5,6 +5,7 @@
   import ConnectBar from './ConnectBar.svelte';
   import NetworkList from './NetworkList.svelte';
   import SchedulesCard from './SchedulesCard.svelte';
+  import DvswitchCard from './DvswitchCard.svelte';
   import Favorites from './Favorites.svelte';
   import Footer from './Footer.svelte';
 
@@ -25,6 +26,7 @@
     </section>
     <ConnectBar />
     <SchedulesCard />
+    <DvswitchCard />
     <Favorites />
     {#if node}<NetworkList {node} showNode={app.nodes.length > 1} />{/if}
   {/if}

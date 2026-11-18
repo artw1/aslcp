@@ -220,3 +220,16 @@ export interface DVList { mode: DVListMode; items: DVListItem[]; truncated?: boo
 export type DVTuneMode = 'DMR' | 'YSF' | 'P25' | 'NXDN';
 export interface DVRemembered { tune: string; ts?: string; at: string }
 export interface DVResume { resume: boolean; lastMode?: string; perMode: Partial<Record<DVTuneMode, DVRemembered>> }
+
+/** GET /api/dvswitch/snapshot and the SSE `dvswitch` event (all roles; docs/API.md "DVSwitch panel"). No install log, no identity, no secret. */
+export interface DVBridge { mode: string; tune: string; targetName?: string; slot: number; muted: boolean; source: 'abinfo' | 'none'; updated: string }
+export interface DVSnapshot {
+  installed: boolean; running: boolean; configured: boolean;
+  bridge: DVBridge;
+  modes: { id: DVTuneMode; enabled: boolean; unlink: string }[];
+  services: { unit: string; active: boolean }[];
+  bridgeNode: { present: boolean; node?: string };
+}
+/** The reply of POST /api/dvswitch/mode, /unlink and /tune. */
+export interface DVCmdReply { mode: string; switched: boolean; confirmed: boolean; snapshot: DVSnapshot }
+export interface DVFavorite { id: number; mode: DVTuneMode; value: string; name: string; sort: number }
