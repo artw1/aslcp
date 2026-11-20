@@ -8,7 +8,7 @@ Release notes are taken from the section of the tag being released
 Versions 1.3.0 to 1.3.4 are released together as 1.3.4.
 
 ### Added
-- A **System** tab for administrators, with a list of sections on the left (a menu on phones): Overview, Updates, Network, WiFi, ASL services, Web port, Terminal, Diagnostics, Logs and services, and Audit log. Sections are grouped and in a fixed order.
+- A **System** tab for administrators, with a list of sections on the left (a menu on phones): Overview, Updates, Network, WiFi, ASL services, Web port, Terminal, Logs and services, Diagnostics, and Audit log. Sections are grouped and in a fixed order.
 - **System, Overview** shows and changes the hostname (asks for confirmation), the time zone and network time (NTP), and has Reboot and Shut down buttons with confirmation. A tool that is missing on the node shows "not available".
 - **System, Network** shows interfaces, addresses, the default gateway and DNS servers (read only).
 - **System, Logs and services** shows the state of the Asterisk, ASLCP, network and DVSwitch services and the recent log lines of each, 50 to 1000 lines, optionally limited to the last hour, day or boot.
