@@ -364,11 +364,13 @@ cat >index.html <<EOH
 <p>The installer prints a one-time setup link at the end. Open it to create the administrator or to restore a backup from an existing node. <code>sudo aslcp admin setup-code</code> shows the code again.</p>
 <h2>Web port</h2>
 <p>The web interface listens on port <strong>8080</strong> by default. To pick another port, set <code>ASLCP_PORT</code> (1-65535) with the install command:</p>
-<pre><code>curl -fsSL $APT_URL/install.sh | sudo ASLCP_PORT=9090 sh</code></pre>
-<p>To change it later, run the same command again, or edit <code>listen</code> in <code>/etc/aslcp/aslcp.conf</code> (for example <code>listen = :9090</code>) and run <code>sudo systemctl restart aslcp</code>. The installer warns if another program already uses the port. If firewalld is running, the installer and the package open the configured port for you. With another firewall (ufw, nftables, a router) open the TCP port yourself, and if you edit <code>listen</code> by hand with firewalld, open the new port too.</p>
+<pre><code>curl -fsSL $APT_URL/install.sh | sudo ASLCP_PORT=8181 sh</code></pre>
+<p>To change it later, run the same command again, or edit <code>listen</code> in <code>/etc/aslcp/aslcp.conf</code> (for example <code>listen = :8181</code>) and run <code>sudo systemctl restart aslcp</code>. The installer warns if another program already uses the port. If firewalld is running, the installer and the package open the configured port for you. With another firewall (ufw, nftables, a router) open the TCP port yourself, and if you edit <code>listen</code> by hand with firewalld, open the new port too.</p>
 <h2>DVSwitch</h2>
-<p>To install DVSwitch as well, set <code>ASLCP_DVSWITCH=1</code> (<code>yes</code> and <code>true</code> work too). It can be combined with <code>ASLCP_PORT</code>:</p>
-<pre><code>curl -fsSL $APT_URL/install.sh | sudo ASLCP_DVSWITCH=1 ASLCP_PORT=9090 sh</code></pre>
+<p>To install DVSwitch as well, set <code>ASLCP_DVSWITCH=1</code> (<code>yes</code> and <code>true</code> work too):</p>
+<pre><code>curl -fsSL $APT_URL/install.sh | sudo ASLCP_DVSWITCH=1 sh</code></pre>
+<p>It can be combined with <code>ASLCP_PORT</code>:</p>
+<pre><code>curl -fsSL $APT_URL/install.sh | sudo ASLCP_DVSWITCH=1 ASLCP_PORT=8181 sh</code></pre>
 <p>After ASLCP is running, the installer runs <code>aslcp dvswitch install</code> (the same install as the DVSwitch page; it takes a few minutes). If it fails the installer still finishes, and you can retry with <code>sudo aslcp dvswitch install</code>.</p>
 <h2>Manual setup</h2>
 <pre><code>sudo curl -fsSL -o /usr/share/keyrings/aslcp-archive-keyring.gpg $APT_URL/aslcp-archive-keyring.gpg

@@ -5,7 +5,7 @@
 # Update channel: stable (default). ASLCP_CHANNEL=beta selects the beta suite;
 # without it, the channel of an existing install is kept.
 # Web port: 8080 by default. ASLCP_PORT=<1-65535> picks another one:
-#   curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_PORT=9090 sh
+#   curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_PORT=8181 sh
 # After the package is installed, the "listen" line in /etc/aslcp/aslcp.conf is
 # rewritten (an address part is kept), aslcp is restarted and the port is opened
 # in firewalld (if it is running). Without ASLCP_PORT the configured port is kept.
@@ -15,7 +15,7 @@
 # it takes a few minutes and follows the log). Any other non-empty value is
 # refused. If that install fails the installer warns and still finishes; run
 # "sudo aslcp dvswitch install" later to retry. It combines with ASLCP_PORT:
-#   curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DVSWITCH=1 ASLCP_PORT=9090 sh
+#   curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DVSWITCH=1 ASLCP_PORT=8181 sh
 # Pre-flight: before anything is changed the installer refuses to run while
 # ASL3 is still finishing its first-boot setup (systemd still starting, or
 # asl3-boot-oneshot.service / resize2fs_once.service running) or while another
@@ -231,7 +231,7 @@ warn_port_clash() {
 	"" | aslcp) return 0 ;;
 	esac
 	printf '\naslcp-install: WARNING: TCP port %s is already in use by "%s", so ASLCP cannot listen there.\n' "$1" "$o"
-	printf '  Pick another port: edit "listen" in %s (for example  listen = :9090 ),\n' "$CONF"
+	printf '  Pick another port: edit "listen" in %s (for example  listen = :8181 ),\n' "$CONF"
 	printf '  then  sudo systemctl restart aslcp ,  or run the installer again with ASLCP_PORT=<port>.\n'
 }
 

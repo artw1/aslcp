@@ -31,9 +31,9 @@ Firewall
   Otherwise open the port yourself if you use another firewall.
   To pick another port: run the installer again with ASLCP_PORT (it also opens
   the port in firewalld):
-      curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_PORT=9090 sh
+      curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_PORT=8181 sh
   or edit "listen" and run  sudo systemctl restart aslcp , then open the port in
-  your firewall (firewalld: sudo firewall-cmd --permanent --add-port=9090/tcp
+  your firewall (firewalld: sudo firewall-cmd --permanent --add-port=8181/tcp
   && sudo firewall-cmd --reload).
 
 Updates
