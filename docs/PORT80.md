@@ -66,6 +66,61 @@ An opt-in, per-service on/off switch is fine ethically and a security gain
   if ASLCP ever breaks; Allmon3 may be what a public status link points to.
 - **Show the state** (running, off) and confirm the ports are closed.
 
+## Turning them off by hand today
+
+Verified on an ASL3 Pi node: the units are `cockpit.socket` (enabled;
+`cockpit.service` and the other `cockpit-*` units are static and only start
+through the socket), `apache2.service` and `allmon3.service` (enabled).
+`apache-htcacheclean` is already disabled; `var-log-apache2.mount` is the
+image's log mount and listens on nothing.
+
+See what is reachable from the network (anything not bound to localhost):
+
+```sh
+sudo ss -tulnp | grep -v '127.0.0.1\|\[::1\]'
+```
+
+Turn off Cockpit (9090), Apache (80: Allmon3 and the landing page) and the
+Allmon3 service:
+
+```sh
+sudo systemctl disable --now cockpit.socket apache2 allmon3
+sudo systemctl stop cockpit.service
+```
+
+Check that 80 and 9090 are closed (no output):
+
+```sh
+sudo ss -tlnp | grep -E ':(80|9090)\b'
+```
+
+Optionally close them in firewalld too (a "not enabled" reply means it was
+never open; `sudo firewall-cmd --list-all` shows the zone):
+
+```sh
+sudo firewall-cmd --permanent --remove-service=cockpit --remove-service=http
+sudo firewall-cmd --reload
+```
+
+Undo:
+
+```sh
+sudo systemctl enable --now cockpit.socket apache2 allmon3
+```
+
+(and `--add-service` for anything removed from firewalld).
+
+Notes:
+
+- Make sure SSH works first: it is the fallback if ASLCP ever breaks.
+- Do not uninstall the packages; disabled is enough and keeps ASL3 updates
+  clean.
+- Other listeners worth a look: `avahi-daemon` (UDP 5353, `.local` names) can
+  go if unused; Asterisk IAX (UDP 4569) must stay for linking; ASLCP can be
+  limited to the LAN address with `listen = 192.0.2.10:8080` in
+  `/etc/aslcp/aslcp.conf` (example address).
+- This is what the future on/off switch would automate.
+
 ## Gaps to fill first
 
 - **WiFi manager.** `nmcli` behind the helper: scan, connect, forget, hotspot
