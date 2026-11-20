@@ -6,10 +6,13 @@ Release notes are taken from the section of the tag being released
 ## [1.2.3] - 2026-11-20
 
 ### Changed
+- The firewalld rule and the setup link in the install messages follow the configured port: the `aslcp` firewalld service for 8080, a plain TCP port for any other port. The firewall status in the diagnostics report shows whether the configured port is open (runtime or permanent configuration).
 - Installer: it no longer asks for the administrator account in the terminal. It prints a one-time setup link instead, which opens the first-run page where you can create the administrator or restore a backup from an existing node.
 
 ### Added
 - `aslcp admin setup-code` shows the one-time setup code again (until an account exists).
+- Installer: `ASLCP_PORT=<1-65535>` picks the web port at install (for example `curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_PORT=9090 sh`). It sets `listen` in `/etc/aslcp/aslcp.conf` (an address part is kept), restarts ASLCP and opens the port in firewalld. A bad value is refused before anything is installed.
+- Installer: it warns, naming the program, when the web port is already in use, and says so when ASLCP did not start, instead of only showing the setup-code hint.
 
 ## [1.2.2] - 2026-11-18
 

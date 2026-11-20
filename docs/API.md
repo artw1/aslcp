@@ -559,6 +559,7 @@ The server sends a comment line (`: ping`) every 15 s. While at least one client
 
 ```ini
 [server]
+; ":PORT" or "ADDR:PORT"; the default port is 8080
 listen = :8080
 datadir = /var/lib/aslcp
 
@@ -592,7 +593,7 @@ socket = /run/aslcp/helper.sock
 
 ### Helper protocol (internal)
 
-`aslcp-helper` listens on the socket (mode 0660, group `aslcp`) and also checks the peer uid (`SO_PEERCRED`: root or user `aslcp`). One JSON request per connection, one JSON response; operations are fixed and take no arguments: `update-status`, `update-check`, `update-apply` (`update-status` runs only `dpkg-query` and `systemctl show`, and reads the journal only while the job runs or once per finished job; `update-check` is kept for older servers and is the same as `update-status`, it no longer runs apt; `candidate` and `upgradable` are always empty/false; reply: `{"installed","candidate","upgradable","job","jobLog"}`) and `firewall-status`, `firewall-open` (reply: `{"present","running","serviceEnabled"}`). Failures reply `{"error": "..."}`.
+`aslcp-helper` listens on the socket (mode 0660, group `aslcp`) and also checks the peer uid (`SO_PEERCRED`: root or user `aslcp`). One JSON request per connection, one JSON response; operations are fixed and take no arguments: `update-status`, `update-check`, `update-apply` (`update-status` runs only `dpkg-query` and `systemctl show`, and reads the journal only while the job runs or once per finished job; `update-check` is kept for older servers and is the same as `update-status`, it no longer runs apt; `candidate` and `upgradable` are always empty/false; reply: `{"installed","candidate","upgradable","job","jobLog"}`) and `firewall-status`, `firewall-open` (reply: `{"present","running","serviceEnabled","port","portOpen","open"}`). The firewall operations take no arguments either: the helper reads the web port itself from `[server] listen` in `/etc/aslcp/aslcp.conf` (an invalid port is an error and nothing is changed). `firewall-status` queries the runtime and then the permanent configuration: `serviceEnabled` is the packaged `aslcp` firewalld service (TCP 8080, queried only when the port is 8080), `portOpen` is `<port>/tcp`, and `open` is true if either is. `firewall-open` adds the service for 8080 and `--add-port=<port>/tcp` for any other port, permanently, and reloads. Failures reply `{"error": "..."}`.
 
 Configuration operations (`config-list`, `config-read`, `config-apply`, `config-log`, `config-show`, `config-restore`) carry the arguments in a `config` object; any other operation with a `config` field is rejected. Requests may be up to 4 MiB (others 4 KiB). The helper validates every path itself, runs `git` with a fixed argv and hardening options (history in `/var/lib/aslcp-config-history`, root only), preserves owner/mode, writes atomically and rolls back on error. `config-apply` fails with `conflict: <files>` when a `base` hash no longer matches. `asterisk-restart` runs `systemctl restart asterisk`.
 

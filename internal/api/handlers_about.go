@@ -141,7 +141,7 @@ func (s *Server) buildReport(ctx context.Context) diag.Report {
 		if fw, err := s.d.Firewall(ctx); err != nil {
 			rep.HelperErr = err.Error()
 		} else {
-			rep.HaveFirewall, rep.FirewallPresent, rep.FirewallRunning, rep.FirewallEnabled = true, fw.Present, fw.Running, fw.ServiceEnabled
+			rep.HaveFirewall, rep.FirewallPresent, rep.FirewallRunning, rep.FirewallEnabled = true, fw.Present, fw.Running, fw.Open
 		}
 	}
 	rep.Config = configLines(s.d.Config, s.d.ConfigPath)

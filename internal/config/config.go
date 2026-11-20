@@ -75,6 +75,20 @@ func Defaults() Config {
 // AMIAddr returns host:port.
 func (c Config) AMIAddr() string { return net.JoinHostPort(c.AMIHost, strconv.Itoa(c.AMIPort)) }
 
+// ListenPort returns the TCP port of a listen address (":8080" or
+// "addr:port"), validated to 1..65535.
+func ListenPort(listen string) (int, error) {
+	_, ps, err := net.SplitHostPort(listen)
+	if err != nil {
+		return 0, fmt.Errorf("config: invalid listen address %q", listen)
+	}
+	p, err := strconv.Atoi(ps)
+	if err != nil || p < 1 || p > 65535 {
+		return 0, fmt.Errorf("config: invalid listen port %q (1..65535)", ps)
+	}
+	return p, nil
+}
+
 // Load reads path (a missing file yields the defaults) and resolves "auto"
 // AMI credentials lazily via ResolveAMI.
 func Load(path string) (Config, error) { return LoadWithManager(path, DefaultManagerConf) }

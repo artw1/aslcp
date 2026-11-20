@@ -360,6 +360,11 @@ cat >index.html <<EOH
 <p><a href="https://github.com/artw1/aslcp">Documentation, screenshots and bug reports on GitHub</a></p>
 <h2>Install</h2>
 <pre><code>curl -fsSL $APT_URL/install.sh | sudo sh</code></pre>
+<p>The installer prints a one-time setup link at the end. Open it to create the administrator or to restore a backup from an existing node. <code>sudo aslcp admin setup-code</code> shows the code again.</p>
+<h2>Web port</h2>
+<p>The web interface listens on port <strong>8080</strong> by default. To pick another port, set <code>ASLCP_PORT</code> (1-65535) with the install command:</p>
+<pre><code>curl -fsSL $APT_URL/install.sh | sudo ASLCP_PORT=9090 sh</code></pre>
+<p>To change it later, run the same command again, or edit <code>listen</code> in <code>/etc/aslcp/aslcp.conf</code> (for example <code>listen = :9090</code>) and run <code>sudo systemctl restart aslcp</code>. The installer warns if another program already uses the port. If firewalld is running, the installer and the package open the configured port for you. With another firewall (ufw, nftables, a router) open the TCP port yourself, and if you edit <code>listen</code> by hand with firewalld, open the new port too.</p>
 <h2>Manual setup</h2>
 <pre><code>sudo curl -fsSL -o /usr/share/keyrings/aslcp-archive-keyring.gpg $APT_URL/aslcp-archive-keyring.gpg
 echo "deb [signed-by=/usr/share/keyrings/aslcp-archive-keyring.gpg] $APT_URL stable main" | sudo tee /etc/apt/sources.list.d/aslcp.list
@@ -367,7 +372,7 @@ sudo apt update &amp;&amp; sudo apt install aslcp</code></pre>
 <p>Signing key fingerprint: <code>$fpr</code> (<a href="aslcp-archive-keyring.asc">armored key</a>)</p>
 <h2>Beta channel</h2>
 <p>Every new version is published to the <code>beta</code> suite as soon as it is built. It becomes a release (suite <code>stable</code>) when it is promoted after testing: the same package, not a rebuild. The <code>beta</code> suite also carries every release, so beta users are never behind. Betas may be less stable. To use it, put <code>beta</code> instead of <code>stable</code> in the line above, or install with <code>curl -fsSL $APT_URL/install.sh | sudo ASLCP_CHANNEL=beta sh</code>, or switch in Settings &rarr; Updates in the web UI (the same setting: it changes the suite in <code>/etc/apt/sources.list.d/aslcp.list</code>). Going back to <code>stable</code> does not downgrade: the node stays on the installed version until a release newer than it is promoted.</p>
-<p>After installing, open <code>http://&lt;your-node&gt;:8080</code>. Later updates: Settings &rarr; Updates in the web UI, or <code>sudo apt update &amp;&amp; sudo apt upgrade</code>.</p>
+<p>Later updates: Settings &rarr; Updates in the web UI, or <code>sudo apt update &amp;&amp; sudo apt upgrade</code>.</p>
 </body></html>
 EOH
 touch .nojekyll

@@ -22,7 +22,7 @@ Please include the ASLCP version, what you did, what happened and, if you can, h
 
 - problems in AllStarLink, Asterisk or the operating system themselves (report those upstream)
 - issues that need an already logged-in administrator to attack their own node
-- exposing port 8080 to the internet without TLS (not a supported setup)
+- exposing the web port (8080 by default) to the internet without TLS (not a supported setup)
 
 ## Supported versions
 

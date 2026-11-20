@@ -335,17 +335,31 @@ func TestJustStartedGrace(t *testing.T) {
 	}
 }
 
+func fwConf(t *testing.T, content string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "aslcp.conf")
+	if content != "" {
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return p
+}
+
 func TestFirewall(t *testing.T) {
 	r := map[string]resp{
 		"firewall-cmd --state":                         {out: "running\n"},
 		"firewall-cmd --query-service=aslcp":           {code: 1},
+		"firewall-cmd --permanent --query-service":     {code: 1},
+		"firewall-cmd --query-port":                    {code: 1},
+		"firewall-cmd --permanent --query-port":        {code: 1},
 		"firewall-cmd --permanent --add-service=aslcp": {out: "success"},
 		"firewall-cmd --reload":                        {out: "success"},
 	}
 	f := &fakeRunner{rules: r}
-	o := &Ops{Run: f}
+	o := &Ops{Run: f, AslcpConf: fwConf(t, "")} // missing file: default 8080
 	fw, _ := o.FirewallStatus(context.Background())
-	if !fw.Present || !fw.Running || fw.ServiceEnabled {
+	if !fw.Present || !fw.Running || fw.ServiceEnabled || fw.Open || fw.Port != 8080 {
 		t.Fatalf("%+v", fw)
 	}
 	f.hook = func(cmd string) {
@@ -356,12 +370,12 @@ func TestFirewall(t *testing.T) {
 		}
 	}
 	fw, err := o.FirewallOpen(context.Background())
-	if err != nil || !fw.ServiceEnabled {
+	if err != nil || !fw.ServiceEnabled || !fw.Open {
 		t.Fatalf("%+v %v", fw, err)
 	}
 	// not running
 	f2 := &fakeRunner{rules: map[string]resp{"firewall-cmd --state": {out: "not running\n", code: 252}}}
-	if _, err := (&Ops{Run: f2}).FirewallOpen(context.Background()); err == nil {
+	if _, err := (&Ops{Run: f2, AslcpConf: fwConf(t, "")}).FirewallOpen(context.Background()); err == nil {
 		t.Fatal("expected error when firewalld is not running")
 	}
 	if f2.called("firewall-cmd --permanent") != 0 {
@@ -369,9 +383,65 @@ func TestFirewall(t *testing.T) {
 	}
 	// not installed
 	f3 := &fakeRunner{rules: map[string]resp{"firewall-cmd": {err: errors.New("not found")}}}
-	fw, _ = (&Ops{Run: f3}).FirewallStatus(context.Background())
+	fw, _ = (&Ops{Run: f3, AslcpConf: fwConf(t, "")}).FirewallStatus(context.Background())
 	if fw.Present {
 		t.Fatalf("%+v", fw)
+	}
+}
+
+func TestFirewallCustomPort(t *testing.T) {
+	r := map[string]resp{
+		"firewall-cmd --state":                         {out: "running\n"},
+		"firewall-cmd --query-port":                    {code: 1},
+		"firewall-cmd --permanent --query-port":        {code: 1},
+		"firewall-cmd --permanent --add-port=9090/tcp": {out: "success"},
+		"firewall-cmd --reload":                        {out: "success"},
+	}
+	f := &fakeRunner{rules: r}
+	o := &Ops{Run: f, AslcpConf: fwConf(t, "[server]\nlisten = 192.0.2.10:9090 ; LAN only\n")}
+	fw, err := o.FirewallStatus(context.Background())
+	if err != nil || fw.Port != 9090 || fw.Open || fw.ServiceEnabled {
+		t.Fatalf("%+v %v", fw, err)
+	}
+	if f.called("firewall-cmd --query-service") != 0 || f.called("firewall-cmd --permanent --query-service") != 0 {
+		t.Fatal("the aslcp service covers 8080 only; must not be queried for another port")
+	}
+	f.hook = func(cmd string) {
+		if cmd == "firewall-cmd --permanent --add-port=9090/tcp" {
+			f.mu.Lock()
+			r["firewall-cmd --permanent --query-port=9090/tcp"] = resp{code: 0}
+			f.mu.Unlock()
+		}
+	}
+	fw, err = o.FirewallOpen(context.Background())
+	if err != nil || !fw.PortOpen || !fw.Open || fw.Port != 9090 {
+		t.Fatalf("%+v %v", fw, err)
+	}
+	if f.called("firewall-cmd --permanent --add-service") != 0 {
+		t.Fatal("must open the port, not the 8080 service")
+	}
+	// Only the permanent configuration has the port (not yet reloaded).
+	f4 := &fakeRunner{rules: map[string]resp{
+		"firewall-cmd --state":                           {out: "running\n"},
+		"firewall-cmd --query-port":                      {code: 1},
+		"firewall-cmd --permanent --query-port=9090/tcp": {code: 0},
+	}}
+	fw, _ = (&Ops{Run: f4, AslcpConf: o.AslcpConf}).FirewallStatus(context.Background())
+	if !fw.Open || !fw.PortOpen {
+		t.Fatalf("%+v", fw)
+	}
+}
+
+func TestFirewallBadPort(t *testing.T) {
+	for _, conf := range []string{"[server]\nlisten = :0\n", "[server]\nlisten = :70000\n", "[server]\nlisten = :http\n", "[server]\nlisten = nonsense\n"} {
+		f := &fakeRunner{rules: map[string]resp{"firewall-cmd --state": {out: "running\n"}}}
+		o := &Ops{Run: f, AslcpConf: fwConf(t, conf)}
+		if _, err := o.FirewallOpen(context.Background()); err == nil {
+			t.Fatalf("%q: expected an error", conf)
+		}
+		if f.called("firewall-cmd --permanent") != 0 || f.called("firewall-cmd --reload") != 0 {
+			t.Fatalf("%q: must not touch firewalld", conf)
+		}
 	}
 }
 

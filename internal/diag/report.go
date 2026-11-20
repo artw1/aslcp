@@ -205,7 +205,7 @@ func (r Report) Render() string {
 	case r.HelperErr != "":
 		p("Firewall (helper): unavailable: %s", r.HelperErr)
 	case r.HaveFirewall:
-		p("Firewall (helper): firewall-cmd installed=%s firewalld running=%s aslcp service enabled=%s", yesno(r.FirewallPresent), yesno(r.FirewallRunning), yesno(r.FirewallEnabled))
+		p("Firewall (helper): firewall-cmd installed=%s firewalld running=%s web port open=%s", yesno(r.FirewallPresent), yesno(r.FirewallRunning), yesno(r.FirewallEnabled))
 	default:
 		p("Firewall (helper): n/a")
 	}

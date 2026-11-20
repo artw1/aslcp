@@ -121,9 +121,17 @@ type Firewall struct {
 	Present bool `json:"present"`
 	// Running: firewalld is running.
 	Running bool `json:"running"`
-	// ServiceEnabled: the "aslcp" firewalld service is enabled in the
-	// runtime configuration.
+	// ServiceEnabled: the packaged "aslcp" firewalld service (TCP 8080) is
+	// enabled in the runtime or permanent configuration. Only meaningful
+	// when Port is 8080.
 	ServiceEnabled bool `json:"serviceEnabled"`
+	// Port is the TCP port from the [server] listen setting of aslcp.conf
+	// (read by the helper, never sent by the caller); 0 when unknown.
+	Port int `json:"port"`
+	// PortOpen: Port/tcp is open in the runtime or permanent configuration.
+	PortOpen bool `json:"portOpen"`
+	// Open: the web port is open (the service for 8080, or the port).
+	Open bool `json:"open"`
 }
 
 // errorResponse is sent for any failure.

@@ -1,9 +1,9 @@
 ASLCP - web control panel for AllStarLink 3
 ===========================================
 
-Open the web UI:      http://<this-host>:8080
-Admin account:        sudo aslcp admin create   (the install script offers this)
-Setup link fallback:  http://<this-host>:8080/#/setup?code=<code>, with the code from
+Open the web UI:      http://<this-host>:8080   (8080 is the default port; see "listen" in aslcp.conf)
+Admin account:        sudo aslcp admin create   (shows in the install output as a setup link)
+Setup link fallback:  http://<this-host>:<port>/#/setup?code=<code>, with the code from
                       /var/lib/aslcp/setup-code or "journalctl -u aslcp"
 Lost password:        sudo aslcp admin reset-password <user>
 Accounts:             sudo aslcp admin list
@@ -25,9 +25,16 @@ Asterisk access
   Alternatively set explicit credentials in the [ami] section of aslcp.conf.
 
 Firewall
-  If firewalld is running, installing the package opens TCP 8080 through the
-  firewalld service "aslcp". Otherwise open the port yourself if you use another
-  firewall. Settings > Updates in the UI shows the firewall state.
+  The web port is the one in "listen" in /etc/aslcp/aslcp.conf (default 8080).
+  If firewalld is running, installing the package opens it: through the
+  firewalld service "aslcp" for 8080, as a plain TCP port for any other port.
+  Otherwise open the port yourself if you use another firewall.
+  To pick another port: run the installer again with ASLCP_PORT (it also opens
+  the port in firewalld):
+      curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_PORT=9090 sh
+  or edit "listen" and run  sudo systemctl restart aslcp , then open the port in
+  your firewall (firewalld: sudo firewall-cmd --permanent --add-port=9090/tcp
+  && sudo firewall-cmd --reload).
 
 Updates
   Settings > Updates in the web UI (administrators), or the usual:
