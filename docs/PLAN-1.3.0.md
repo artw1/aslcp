@@ -42,7 +42,7 @@ What each tool does, and where ASLCP stands. "ASLCP today" was checked against `
 | Cockpit | AllStarLink `cockpit-wifimanager` | 1.3.0 | Scan, connect, forget, priority. Same priority property. |
 | Apache landing page | Links and node info | Not planned | The optional public status page covers part of it. |
 | Allmon3 | Node status, keyed/TX state | Today | Dashboard, live over SSE. |
-| Allmon3 | Several nodes in one view | Later | ASLCP shows the local node and its links. Multi-node view not built. |
+| Allmon3 | Several nodes in one view | Later | ASLCP shows the local node and its links. Multi-node view not built. Parked, see `docs/MULTINODE.md`. |
 | Allmon3 | Connect, disconnect | Today | `ConnectControls`, `NodeConnectDialog`, operator role. |
 | Allmon3 | Voter display | Later | Not built. |
 | Allmon3 | Users in `/etc/allmon3/users` | Not planned | ASLCP has its own users and roles. Allmon3 users are untouched. |
