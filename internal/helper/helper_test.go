@@ -770,3 +770,19 @@ func TestChannelOpsOverSocket(t *testing.T) {
 		t.Fatal("unknown channel op must fail")
 	}
 }
+
+// A DVSwitch purge or install prints apt's "0 upgraded, ..." summary; that
+// must read as succeeded, not as the upgrade units' "noop" (which the DVSwitch
+// page treats as a failure).
+func TestJobStateFromDVSwitchNotNoop(t *testing.T) {
+	inactive := map[string]string{"ActiveState": "inactive", "Result": "success"}
+	log := "0 upgraded, 0 newly installed, 6 to remove and 0 not upgraded.\ndvswitch uninstall finished\naslcp-dvswitch-uninstall.service: Deactivated successfully.\n"
+	for _, u := range []string{dvInstallUnit, dvUninstallUnit, dvSTFUJobUnit} {
+		if got := jobStateFrom(inactive, log, u); got != JobSucceeded {
+			t.Errorf("%s: got %s", u, got)
+		}
+	}
+	if got := jobStateFrom(inactive, log, upgradeUnit); got != JobNoop {
+		t.Errorf("upgrade unit: got %s", got)
+	}
+}

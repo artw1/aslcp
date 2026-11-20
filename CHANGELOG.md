@@ -20,6 +20,7 @@ Release notes are taken from the section of the tag being released
 - Restoring a backup onto a node without DVSwitch keeps the backup's DVSwitch settings and applies them automatically when you install DVSwitch, then starts the DVSwitch services, so no second restore is needed. The DVSwitch page shows the pending settings with a Discard button (`DELETE /api/dvswitch/restore-pending`; the status carries `restorePending`).
 
 ### Fixed
+- DVSwitch: an uninstall (or an install) that finished successfully could show as failed on the DVSwitch page.
 - Restore preview: DVSwitch packages are no longer offered under "Packages to install" with a plain `apt install` command (DVSwitch is installed from the DVSwitch page) and no longer listed under "Other software".
 
 ## [1.2.2] - 2026-11-18
