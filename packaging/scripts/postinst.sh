@@ -134,14 +134,20 @@ first_install_message() {
 		n=$((n + 1))
 	done
 	code=$(head -n 1 "$DATADIR/setup-code" 2>/dev/null || true)
-	cat <<EOM
-
-aslcp: installed. Open   http://$ip:8080
-aslcp: Create the admin account:   sudo aslcp admin create
-EOM
-	if [ -n "$code" ]; then
-		echo "aslcp: or use the one-time setup link:   http://$ip:8080/#/setup?code=$code"
+	if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+		G=$(printf '\033[1;32m') Y=$(printf '\033[1;33m') R=$(printf '\033[0m')
+	else
+		G='' Y='' R=''
 	fi
+	printf '\n%saslcp: installed.%s\n' "$G" "$R"
+	if [ -n "$code" ]; then
+		printf 'aslcp: open the one-time setup link to create the administrator or restore a backup:\n'
+		printf '    %shttp://%s:8080/#/setup?code=%s%s\n' "$Y" "$ip" "$code" "$R"
+		echo "aslcp: show the code again:   sudo aslcp admin setup-code"
+	else
+		echo "aslcp: open http://$ip:8080 and get the setup code with:   sudo aslcp admin setup-code"
+	fi
+	echo "aslcp: or create the admin in the terminal:   sudo aslcp admin create"
 	echo
 }
 

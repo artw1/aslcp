@@ -22,7 +22,7 @@ Contract between the Go server (`cmd/aslcp`) and the Svelte UI (`web/`). JSON ev
 | GET | `/api/session` | | `200` `User` or `401` |
 | POST | `/api/password` | `{"current", "new"}` | `204` |
 
-Accounts can also be created out of band with `aslcp admin create` (see `aslcp admin --help`), which removes `<datadir>/setup-code`, after which `GET /api/setup` reports `needed: false`.
+`aslcp admin setup-code` prints the current setup code (exit 1 once an account exists; it creates the file if missing, and the server always checks against the file). Accounts can also be created out of band with `aslcp admin create` (see `aslcp admin --help`), which removes `<datadir>/setup-code`, after which `GET /api/setup` reports `needed: false`.
 
 `User` = `{"id": int, "username": str, "role": "admin"|"operator"|"viewer"}`
 

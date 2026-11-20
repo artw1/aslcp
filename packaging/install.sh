@@ -85,7 +85,7 @@ apt-get update \
 say "installing aslcp"
 DEBIAN_FRONTEND=noninteractive apt-get install -y aslcp
 
-# --- first admin account ---------------------------------------------------
+# --- first-run setup link ---------------------------------------------------
 # ---8<--- admin-setup (exercised by a local test harness; keep self-contained)
 CONF="${ASLCP_CONF:-/etc/aslcp/aslcp.conf}"
 
@@ -116,10 +116,26 @@ pick_host() { # pick_host LISTEN
 	printf '%s\n' "$h"
 }
 
-have_tty() { [ -r /dev/tty ] && [ -w /dev/tty ] && ( : </dev/tty ) 2>/dev/null; }
-
 # no_users: succeeds when "aslcp admin list --quiet" exits 3 (no accounts).
 no_users() { aslcp admin list --quiet --config "$CONF" >/dev/null 2>&1 && return 1 || [ $? -eq 3 ]; }
+
+# setup_banner LINK: boxed one-time setup link. Colors only on a terminal.
+setup_banner() {
+	if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+		B=$(printf '\033[1;36m') G=$(printf '\033[1;32m') Y=$(printf '\033[1;33m') R=$(printf '\033[0m')
+	else
+		B='' G='' Y='' R=''
+	fi
+	bar='================================================================'
+	printf '\n%s%s%s\n' "$B" "$bar" "$R"
+	printf '%s  ASLCP is installed. One more step: open this link%s\n' "$G" "$R"
+	printf '\n    %s%s%s\n\n' "$Y" "$1" "$R"
+	printf '  The one-time link lets you create the administrator, or\n'
+	printf '  restore a backup from an existing node.\n\n'
+	printf '  Show the code again:  sudo aslcp admin setup-code\n'
+	printf '  Create the admin in the terminal instead:  sudo aslcp admin create\n'
+	printf '%s%s%s\n' "$B" "$bar" "$R"
+}
 
 setup_admin() {
 	listen=$(conf_get listen :8080)
@@ -139,35 +155,16 @@ setup_admin() {
 	done
 
 	if no_users; then
-		created=0
-		if have_tty; then
-			printf '\nCreate the ASLCP admin account\n\n'
-			tries=0
-			while [ "$tries" -lt 3 ]; do
-				tries=$((tries + 1))
-				if aslcp admin create --config "$CONF" </dev/tty >/dev/tty 2>&1; then
-					created=1
-					break
-				fi
-				no_users || break
-				[ "$tries" -lt 3 ] && printf 'Please try again.\n\n' >/dev/tty
-			done
-		fi
-		if [ "$created" -eq 0 ] && no_users; then
-			n=0
-			while [ ! -s "$datadir/setup-code" ] && [ "$n" -lt "${ASLCP_WAIT:-10}" ]; do
-				sleep 1
-				n=$((n + 1))
-			done
-			code=$(head -n 1 "$datadir/setup-code" 2>/dev/null || true)
-			printf '\n'
-			if [ -n "$code" ]; then
-				say "no admin account yet. Open this one-time setup link to create it:"
-				printf '  %s/#/setup?code=%s\n' "$url" "$code"
-				printf '  or run:  sudo aslcp admin create\n'
-			else
-				say "no admin account yet. Create one with:  sudo aslcp admin create"
-			fi
+		n=0
+		while [ ! -s "$datadir/setup-code" ] && [ "$n" -lt "${ASLCP_WAIT:-10}" ]; do
+			sleep 1
+			n=$((n + 1))
+		done
+		code=$(head -n 1 "$datadir/setup-code" 2>/dev/null || true)
+		if [ -n "$code" ]; then
+			setup_banner "$url/#/setup?code=$code"
+		else
+			printf '\nNo administrator account yet. Run:  sudo aslcp admin setup-code\n'
 		fi
 	fi
 

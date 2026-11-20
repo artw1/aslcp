@@ -244,3 +244,22 @@ func TestCookieFlags(t *testing.T) {
 		t.Fatal("secure over plain http")
 	}
 }
+
+// A code rewritten in the file (by "aslcp admin setup-code") is accepted
+// without a restart; the old in-memory one is not.
+func TestSetupCodeFileWins(t *testing.T) {
+	s := newSvc(t)
+	old, err := s.EnsureSetupCode()
+	if err != nil || old == "" {
+		t.Fatalf("EnsureSetupCode: %q %v", old, err)
+	}
+	if err := os.WriteFile(s.setupPath(), []byte("NEWCODE123\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CheckSetupCode("192.0.2.1", old); err != ErrBadSetupCode {
+		t.Fatalf("old code: %v", err)
+	}
+	if err := s.CheckSetupCode("192.0.2.1", "newcode123"); err != nil {
+		t.Fatalf("new code: %v", err)
+	}
+}

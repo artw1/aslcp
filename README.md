@@ -46,7 +46,7 @@ Prefer to do it by hand? See the manual steps on <https://artw1.github.io/aslcp/
 
 ### First login
 
-The admin account is created during the install. Log in with it at `http://<your-node>:8080`. If you skipped that step, run `sudo aslcp admin create`. Forgot the password? Run:
+The installer ends by printing a one-time setup link (`http://<your-node>:8080/#/setup?code=...`). Open it to create the administrator, or to restore a backup from an existing node. Lost the link? Run `sudo aslcp admin setup-code`, or create the admin in the terminal with `sudo aslcp admin create`. Then log in at `http://<your-node>:8080`. Forgot the password? Run:
 
 ```sh
 sudo aslcp admin reset-password <user>

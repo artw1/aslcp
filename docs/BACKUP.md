@@ -77,7 +77,7 @@ Later (not in beta.3): scheduled automatic backups kept on the node (last N) and
 
 ### Where
 
-- **Fresh install (the main case):** the first-run page that asks to create the admin account gets a second choice, "Restore from a backup". It needs the one-time setup code (the same code that allows creating the first admin; it is printed by the package install and by `sudo aslcp admin setup-code`), so nobody on the network can push a configuration onto a new node.
+- **Fresh install (the main case):** the first-run page that asks to create the admin account gets a second choice, "Restore from a backup". It needs the one-time setup code (the same code that allows creating the first admin; the installer prints it as a one-time setup link, and `sudo aslcp admin setup-code` shows it again), so nobody on the network can push a configuration onto a new node.
 - **Running node:** Backup tab > Restore (admin, password re-entry).
 
 ### Steps
