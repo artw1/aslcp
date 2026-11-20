@@ -1,5 +1,5 @@
 {
-  "version": "1.2.5",
-  "notes": "Merge pull request #10 from artw1/try/public-page\n\nInstall page rework; ASLCP_PORT 1024-65535 (1.2.5)",
+  "version": "1.2.6",
+  "notes": "Merge pull request #11 from artw1/try/page-logo\n\nInstall page: control panel logo (1.2.6)",
   "date": "2026-11-20"
 }
