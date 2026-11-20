@@ -3,6 +3,11 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [1.2.6] - 2026-11-20
+
+### Changed
+- The install page uses the control panel's logo.
+
 ## [1.2.5] - 2026-11-20
 
 ### Changed
