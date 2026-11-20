@@ -601,6 +601,39 @@ func (o *Ops) restoreSingle(sp *spool, path, dest string, uid, gid int, mode fs.
 	return atomicWrite(filepath.Join(parent, filepath.Base(dest)), parent, data, uid, gid, mode)
 }
 
+// restoreAslcpConf writes the backup's aslcp.conf but keeps this node's web
+// port (the [server] listen of the current file), so a backup from a node on
+// another port does not move ASLCP away from the port it was installed on
+// and opened in the firewall. The detail names the kept port when the
+// backup's differed.
+func (o *Ops) restoreAslcpConf(sp *spool, uid, gid int, mode fs.FileMode) (string, error) {
+	data, err := sp.read(backup.PathAslcpConf, maxRestoreConfigFile)
+	if err != nil {
+		return "", err
+	}
+	detail := ""
+	if cur, err := os.ReadFile(o.aslcpConf()); err == nil {
+		out, kept, was, changed := keepListen(data, cur)
+		if changed {
+			data = out
+			detail = "kept this node's web port (listen = " + kept + "); the backup had "
+			if was == "" {
+				detail += "no listen setting"
+			} else {
+				detail += was
+			}
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(o.aslcpConf()), 0o755); err != nil {
+		return "", err
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(o.aslcpConf()))
+	if err != nil {
+		return "", err
+	}
+	return detail, atomicWrite(filepath.Join(parent, filepath.Base(o.aslcpConf())), parent, data, uid, gid, mode)
+}
+
 func (o *Ops) restoreSounds(sp *spool, m *backup.Manifest) (string, error) {
 	paths := map[string]string{"var-lib": orDefault(o.SoundsDirs[0], DefaultSoundsVar), "usr-share": orDefault(o.SoundsDirs[1], DefaultSoundsUsr)}
 	roots := map[string]string{"var-lib": backup.PathSoundsVar, "usr-share": backup.PathSoundsUsr}
@@ -790,10 +823,11 @@ func (o *Ops) BackupRestore(ctx context.Context, req *RestoreRequest, in io.Read
 	}
 	if e := m.Find(backup.PathAslcpConf); e != nil {
 		uid, gid, mode := entryOwner(*e)
-		if err := o.restoreSingle(sp, backup.PathAslcpConf, o.aslcpConf(), uid, gid, mode&0o664); err != nil {
+		detail, err := o.restoreAslcpConf(sp, uid, gid, mode&0o664)
+		if err != nil {
 			return fail("Restore ASLCP settings", err)
 		}
-		okStep("Restore ASLCP settings", "")
+		okStep("Restore ASLCP settings", detail)
 	}
 	if m.Channel == ChannelStable || m.Channel == ChannelBeta {
 		if _, err := o.setChannelLocked(ctx, m.Channel); err != nil {

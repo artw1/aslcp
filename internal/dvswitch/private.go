@@ -169,3 +169,51 @@ func IsUSRPNode(t *astconf.Tree, node string) bool {
 	drv, _, _ := strings.Cut(rx, "/")
 	return strings.EqualFold(drv, "usrp")
 }
+
+// USRPChannel is the chan_usrp channel of a node: rxchannel
+// USRP/<Host>:<RxPort>:<TxPort>. Standard is true for the form ASLCP writes,
+// USRP/127.0.0.1:<port>:<port> (two ports, local host).
+type USRPChannel struct {
+	Node           string
+	Host           string
+	RxPort, TxPort int
+	Standard       bool
+}
+
+// USRPChannels lists the nodes of rpt.conf whose effective rxchannel is a
+// USRP channel, in file order.
+func USRPChannels(t *astconf.Tree) []USRPChannel {
+	var out []USRPChannel
+	seen := map[string]bool{}
+	for _, s := range t.Sections {
+		if s.Template || !isNodeName(s.Name) || seen[s.Name] {
+			continue
+		}
+		seen[s.Name] = true
+		es, err := astconf.Effective(t, s.Name)
+		if err != nil {
+			continue
+		}
+		rx := ""
+		for _, e := range es {
+			if strings.EqualFold(e.Key, "rxchannel") {
+				rx = strings.TrimSpace(e.Value)
+			}
+		}
+		drv, rest, _ := strings.Cut(rx, "/")
+		if !strings.EqualFold(drv, "usrp") {
+			continue
+		}
+		c := USRPChannel{Node: s.Name}
+		parts := strings.Split(rest, ":")
+		c.Host = strings.TrimSpace(parts[0])
+		if len(parts) == 3 {
+			a, e1 := strconv.Atoi(strings.TrimSpace(parts[1]))
+			b, e2 := strconv.Atoi(strings.TrimSpace(parts[2]))
+			c.RxPort, c.TxPort = a, b
+			c.Standard = e1 == nil && e2 == nil && c.Host == "127.0.0.1" && a >= 1024 && a <= 65535 && b >= 1024 && b <= 65535
+		}
+		out = append(out, c)
+	}
+	return out
+}

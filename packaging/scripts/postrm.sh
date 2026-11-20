@@ -13,6 +13,11 @@ purge)
 		systemctl daemon-reload || true
 	fi
 	rm -rf /var/lib/aslcp /run/aslcp
+	# The root-only state of the helper: the config history (git), the
+	# DVSwitch install and bridge-node records, pending restored DVSwitch
+	# settings and the DVSwitch ini history (both hold passwords).
+	# /etc/asterisk and DVSwitch's own files are not touched.
+	rm -rf /var/lib/aslcp-config-history /var/lib/aslcp-dvswitch /var/lib/aslcp-dvswitch-history
 	rmdir /etc/aslcp 2>/dev/null || true
 	if getent passwd aslcp >/dev/null 2>&1; then
 		deluser --system aslcp >/dev/null 2>&1 || true

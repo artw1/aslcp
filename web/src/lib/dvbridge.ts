@@ -132,12 +132,17 @@ export function planConfirm(p: PlanLike): string {
   return `${parts.join(', ')}. ${what}`;
 }
 
+/** "Manage this bridge node with ASLCP" is offered for a node that is in rpt.conf, not ASLCP's, and looks like the one ASLCP adds. */
+export const canAdopt = (b: Pick<DVBridgeSetup, 'node' | 'owned' | 'adoptable'>): boolean => !!b.node && !b.owned && !!b.adoptable;
+export const ADOPT_TEXT = 'ASLCP did not add this node, but it looks exactly like the one ASLCP adds. If ASLCP manages it, you can change its number or remove it here, and uninstalling DVSwitch takes it out again. Taking over changes no file now: it only saves ASLCP\'s record of the node.';
+export const ADOPT_CONFIRM = (node: string): string => `ASLCP will treat node ${node} as its own bridge node. No file is changed and nothing restarts. Later, Remove bridge node or uninstalling DVSwitch deletes node ${node} from rpt.conf and restores the stock chan_usrp and USRP settings. Take over only if nothing else uses this node.`;
+
 /** The uninstall confirmation's extra lines for the bridge node (Asterisk restarts, a permanent link is removed). */
 export function uninstallNote(s: Pick<DVSnapshot, 'bridgeNode' | 'link'> | null | undefined, owned: boolean): string[] {
   const out: string[] = [];
   if (s?.bridgeNode?.present && owned) {
     out.push(`Removes the bridge node ${s.bridgeNode.node ?? ''} that ASLCP added from rpt.conf, and restores modules.conf if ASLCP changed it, then restarts Asterisk. That drops every connection on this node for a moment.`.replace('  ', ' '));
     if (s.link.mode === 'permanent') out.push('The permanent link is disconnected first.');
-  } else if (s?.bridgeNode?.present) out.push('The bridge node was not added by ASLCP and stays as it is.');
+  } else if (s?.bridgeNode?.present) out.push('The bridge node was not added by ASLCP and stays as it is (unless you take it over first, in the Bridge node section).');
   return out;
 }

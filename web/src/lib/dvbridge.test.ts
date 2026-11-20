@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DUPLEX_TEXT, NODE_HINT, canChange, doneText, formError, planApplyLabel, planOrder, planTitle, linkButton, linkLine, nodeError, pausedHint, planConfirm, prefill, linkExclusiveOnClick, exclusiveHint, suggestNode, uninstallNote, validPort } from './dvbridge.ts';
+import { ADOPT_CONFIRM, DUPLEX_TEXT, canAdopt, NODE_HINT, canChange, doneText, formError, planApplyLabel, planOrder, planTitle, linkButton, linkLine, nodeError, pausedHint, planConfirm, prefill, linkExclusiveOnClick, exclusiveHint, suggestNode, uninstallNote, validPort } from './dvbridge.ts';
 import type { DVLink } from './types';
 
 const L = (o: Partial<DVLink> = {}): DVLink => ({ mode: 'ondemand', localNode: '1997', linked: false, paused: false, exclusive: false, ...o });
@@ -124,4 +124,13 @@ test('review dialog texts per kind', () => {
 test('the link line names the bridge node when it has a name', () => {
   assert.equal(linkLine('1999', L({ mode: 'permanent', localNode: '2006', linked: true }), 'Example room'), 'Example room (node 1999) linked to 2006 (permanent)');
   assert.equal(linkLine('1999', L({ localNode: '2006' }), 'DVSwitch linked node'), 'DVSwitch linked node (node 1999) not linked to 2006 (on demand)');
+});
+
+test('"Manage this bridge node with ASLCP" is offered only for a found, adoptable node that is not ASLCP\'s', () => {
+  assert.ok(canAdopt({ node: '1999', owned: false, adoptable: true }));
+  assert.ok(!canAdopt({ node: '1999', owned: true, adoptable: true }));
+  assert.ok(!canAdopt({ node: '1999', owned: false, adoptable: false }));
+  assert.ok(!canAdopt({ node: '1999', owned: false }));
+  assert.ok(!canAdopt({ node: '', owned: false, adoptable: true }));
+  assert.ok(ADOPT_CONFIRM('1999').includes('1999'));
 });

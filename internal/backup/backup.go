@@ -92,9 +92,16 @@ var DVSwitchFiles = []string{
 // DVSwitchPath returns the archive path of a DVSwitch part file.
 func DVSwitchPath(rel string) string { return PathDVSwitchOpt + "/" + rel }
 
+// PathDVSwitchPrivate is the archive path of the record of the private bridge
+// node (privatenode.json of the helper's DVSwitch state directory, not a file
+// of /opt). It is the DVSwitch part's one file outside dvswitch/opt, optional
+// (older backups lack it), and on restore it is kept only when the restored
+// rpt.conf has the node's stanza.
+const PathDVSwitchPrivate = "dvswitch/state/privatenode.json"
+
 var treeRoots = []string{PathAsteriskEtc, PathHistory, PathAllmon3, PathSoundsVar, PathSoundsUsr}
 var singleFiles = func() []string {
-	f := []string{PathAstDB, PathAslcpDB, PathAslcpConf, PathSA818}
+	f := []string{PathAstDB, PathAslcpDB, PathAslcpConf, PathSA818, PathDVSwitchPrivate}
 	for _, r := range DVSwitchFiles {
 		f = append(f, DVSwitchPath(r))
 	}
@@ -141,7 +148,8 @@ type Parts struct {
 	Allmon3 bool `json:"allmon3"`
 	SA818   bool `json:"sa818"`
 	AstDB   bool `json:"astdb"`
-	// DVSwitch is true when the archive holds files under dvswitch/opt.
+	// DVSwitch is true when the archive holds files under dvswitch/ (the ini
+	// files of dvswitch/opt, and the bridge node record).
 	// Added after format 1 shipped: older archives lack it (false) and stay
 	// valid; the format number did not change.
 	DVSwitch bool `json:"dvswitch,omitempty"`

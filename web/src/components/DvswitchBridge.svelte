@@ -5,7 +5,7 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import type { DVApplyResult, DVBridgeSetup, DVPlan, DVLinkMode } from '../lib/types';
   import { DEFAULT_NODE_NAME, NODE_NAME_MAX, validNodeName } from '../lib/dvpanel';
-  import { DUPLEX_TEXT, NODE_HINT, canChange, doneText, formError, nodeError, planApplyLabel, planConfirm, planOrder, planTitle, prefill, pausedHint } from '../lib/dvbridge';
+  import { ADOPT_CONFIRM, ADOPT_TEXT, DUPLEX_TEXT, canAdopt, NODE_HINT, canChange, doneText, formError, nodeError, planApplyLabel, planConfirm, planOrder, planTitle, prefill, pausedHint } from '../lib/dvbridge';
   import Dialog from './Dialog.svelte';
 
   let { b, base, onsaved }: { b: DVBridgeSetup; base: Record<string, string>; onsaved: () => void | Promise<void> } = $props();
@@ -82,6 +82,15 @@
       } else { open = false; problem = e instanceof Error ? e.message : String(e); }
     } finally { busy = false; }
   }
+  // Taking over a node ASLCP did not add: saves the record only, after a confirmation.
+  const adoptable = $derived(canAdopt(b));
+  let adoptOpen = $state(false);
+  async function adopt() {
+    busy = true;
+    try { await api.dvswitchPrivateAdopt(); adoptOpen = false; toast(`ASLCP now manages bridge node ${b.node}.`); await onsaved(); }
+    catch (e) { adoptOpen = false; problem = e instanceof Error ? e.message : String(e); await onsaved(); }
+    finally { busy = false; }
+  }
   async function rollback() {
     busy = true;
     try {
@@ -126,6 +135,10 @@
       <p id="dvb-name-hint" class="w-full text-xs {nameChecked === null ? 'text-danger' : 'text-muted'}">{nameChecked === null ? `Use up to ${NODE_NAME_MAX} printable characters.` : `Display only: saved at once, nothing restarts. Empty uses "${DEFAULT_NODE_NAME}".`}</p>
     </form>
   {/if}
+  {#if adoptable}
+    <div class="border-t border-line pt-3"><button type="button" class="btn" disabled={busy} onclick={() => (adoptOpen = true)}>Manage this bridge node with ASLCP</button>
+      <p class="mt-1 text-xs text-muted">{ADOPT_TEXT}</p></div>
+  {/if}
   {#if mine}
     <div class="border-t border-line pt-3"><button type="button" class="btn btn-danger" disabled={busy} onclick={previewRemove}>Remove bridge node</button>
       <span class="ml-2 text-xs text-muted">Takes node {b.node} out of rpt.conf, restores the USRP ports and unlinks it. Shows the plan first.</span></div>
@@ -162,5 +175,13 @@
   {#snippet footer()}
     <button class="btn" onclick={() => (open = false)}>Cancel</button>
     <button class="btn {plan?.kind === 'remove' ? 'btn-danger' : 'btn-primary'}" disabled={busy} onclick={apply}>{plan ? planApplyLabel(plan, busy) : 'Apply'}</button>
+  {/snippet}
+</Dialog>
+
+<Dialog bind:open={adoptOpen} title="Manage this bridge node with ASLCP">
+  <p class="text-sm">{ADOPT_CONFIRM(b.node)}</p>
+  {#snippet footer()}
+    <button class="btn" onclick={() => (adoptOpen = false)}>Cancel</button>
+    <button class="btn btn-primary" disabled={busy} onclick={adopt}>{busy ? 'Saving…' : 'Manage this node'}</button>
   {/snippet}
 </Dialog>

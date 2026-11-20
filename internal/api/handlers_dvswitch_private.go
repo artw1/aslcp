@@ -39,6 +39,7 @@ func (s *Server) dvPrivateRoutes() {
 	m.HandleFunc("PUT /api/dvswitch/private-node/name", s.authed(store.RoleAdmin, s.handleDVNodeName))
 	m.HandleFunc("DELETE /api/dvswitch/private-node", s.authed(store.RoleAdmin, s.handleDVPrivateRemove))
 	m.HandleFunc("POST /api/dvswitch/private-node/rollback", s.authed(store.RoleAdmin, s.handleDVPrivateRollback))
+	s.dvAdoptRoutes()
 }
 
 // dvNodeName is the display name of the bridge node: the saved one or the default.
@@ -1184,6 +1185,10 @@ type DVBridgeSetup struct {
 	// added it (so the uninstall removes it).
 	Node  string `json:"node"`
 	Owned bool   `json:"owned"`
+	// Adoptable: the node was found but not added by ASLCP, and it looks
+	// exactly like the one ASLCP adds, so "Manage this bridge node with
+	// ASLCP" (POST /api/dvswitch/private-node/adopt) would work.
+	Adoptable bool `json:"adoptable"`
 	// Suggested is the first free number of 1900-1997 ("" when none is left).
 	Suggested  string                `json:"suggested"`
 	Used       []string              `json:"used"`
@@ -1216,6 +1221,7 @@ func (s *Server) dvBridgeSetup(ctx context.Context, v helper.DVSwitchSetup) DVBr
 		b.Node, b.Owned = v.Private.Node, true
 	} else if n, ok := s.dvDetectedBridge(ctx); ok {
 		b.Node = n
+		b.Adoptable = s.dvAdoptable(ctx, v)
 	}
 	if b.Node != "" && v.USRP.RxPort != 0 && v.USRP.TxPort != 0 && v.USRP.RxPort != v.USRP.TxPort {
 		b.RxPort, b.TxPort = v.USRP.RxPort, v.USRP.TxPort

@@ -315,3 +315,71 @@ func RevertModuleLoad(data []byte, mod, was string) (out []byte, changed bool, e
 	}
 	return data, false, nil
 }
+
+// ExistingBridgeNode reads the bridge node as it stands in rpt.conf, for
+// taking over a node ASLCP did not record: the text of its one stanza (the
+// same text AddBridgeNode records) and its [nodes] line (as RevertBridgeNode
+// matches it; "" when there is none). ok is false when the node has no
+// stanza, more than one, or only a template.
+func ExistingBridgeNode(rpt []byte, node string) (stanza, nodesLine string, ok bool) {
+	f, err := Parse("rpt.conf", rpt)
+	if err != nil {
+		return "", "", false
+	}
+	ss := f.Section(node)
+	if len(ss) != 1 || ss[0].Template {
+		return "", "", false
+	}
+	stanza = sectionText(ss[0])
+	if ns := nodesSection(f); ns != nil {
+		if es := ns.Get(node); len(es) > 0 {
+			nodesLine = strings.TrimRight(es[0].Raw, "\r\n")
+		}
+	}
+	return stanza, nodesLine, true
+}
+
+// Module states reported by ModuleState besides ModNoload.
+const (
+	ModExplicit = "explicit" // a load line, no noload line
+	ModAuto     = "auto"     // neither line, autoload = yes
+	ModOff      = "off"      // neither line, no autoload: not loaded
+)
+
+// ModuleState says how modules.conf treats a module: ModNoload (a noload
+// line), ModExplicit (a load line), ModAuto (loaded by autoload) or ModOff.
+func ModuleState(data []byte, mod string) (string, error) {
+	f, err := Parse("modules.conf", data)
+	if err != nil {
+		return "", err
+	}
+	if moduleEntry(f, "noload", mod) != nil {
+		return ModNoload, nil
+	}
+	if moduleEntry(f, "load", mod) != nil {
+		return ModExplicit, nil
+	}
+	for _, s := range f.Section("modules") {
+		for _, e := range s.Get("autoload") {
+			switch strings.ToLower(strings.TrimSpace(e.Value)) {
+			case "yes", "true", "y", "t", "on", "1":
+				return ModAuto, nil
+			}
+		}
+	}
+	return ModOff, nil
+}
+
+// HasNodeStanza reports whether rpt.conf has a (non-template) stanza [node].
+func HasNodeStanza(rpt []byte, node string) bool {
+	f, err := Parse("rpt.conf", rpt)
+	if err != nil {
+		return false
+	}
+	for _, s := range f.Section(node) {
+		if !s.Template {
+			return true
+		}
+	}
+	return false
+}

@@ -110,6 +110,8 @@ sudo apt remove aslcp     # keeps users and favorites in /var/lib/aslcp
 sudo apt purge aslcp      # also deletes them
 ```
 
+`apt purge` also deletes the config history (`/var/lib/aslcp-config-history`) and ASLCP's DVSwitch state (`/var/lib/aslcp-dvswitch`, `/var/lib/aslcp-dvswitch-history`). Your Asterisk config and DVSwitch itself stay; uninstall DVSwitch from its page first if you want it gone too.
+
 ## Reporting bugs
 
 Please [open a bug report](https://github.com/artw1/aslcp/issues/new?template=bug_report.yml). The quickest way is **Settings, About, Report a bug** in ASLCP: it opens the form with your versions and hardware already filled in.

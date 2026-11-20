@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5" //nolint:gosec
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"io"
@@ -135,6 +136,11 @@ func (n *bkNode) astdb(rows ...string) {
 // archive runs backup-create and assembles the gzip archive like the server.
 func (n *bkNode) archive(req BackupRequest) []byte {
 	n.t.Helper()
+	return n.archiveExtra(req, nil)
+}
+
+func (n *bkNode) archiveExtra(req BackupRequest, extra map[string]string) []byte {
+	n.t.Helper()
 	var raw bytes.Buffer
 	if _, err := n.o.BackupCreate(context.Background(), &req, &raw); err != nil {
 		n.t.Fatal(err)
@@ -143,17 +149,30 @@ func (n *bkNode) archive(req BackupRequest) []byte {
 	if err != nil {
 		n.t.Fatal(err)
 	}
-	return assembleArchive(n.t, bs)
+	return assembleArchiveExtra(n.t, bs, extra)
 }
 
 func assembleArchive(t *testing.T, bs *BackupStream) []byte {
 	t.Helper()
+	return assembleArchiveExtra(t, bs, nil)
+}
+
+// assembleArchiveExtra is assembleArchive plus extra top-level files (the
+// ones the server adds, such as aslcp.conf), given as path -> content.
+func assembleArchiveExtra(t *testing.T, bs *BackupStream, extra map[string]string) []byte {
+	t.Helper()
 	h := bs.Header
 	order := append([]backup.Entry(nil), h.Entries...)
+	files := append([]backup.Entry(nil), h.Entries...)
+	for p, c := range extra {
+		sum := sha256.Sum256([]byte(c))
+		files = append(files, backup.Entry{Path: p, Type: backup.TypeFile, Size: int64(len(c)),
+			SHA256: hex.EncodeToString(sum[:]), Owner: "root", Group: "aslcp", Mode: "0640"})
+	}
 	m := &backup.Manifest{Format: 1, Created: time.Date(2026, 3, 4, 5, 6, 0, 0, time.UTC), CreatedBy: "admin",
 		ASLCPVersion: "2.0.0", ASL3Version: h.ASL3Version, AsteriskVersion: h.AsteriskVersion, Hostname: "node1",
 		Timezone: "UTC", Arch: h.Arch, Nodes: h.Nodes, Channel: h.Channel, Packages: h.Packages, Parts: h.Parts,
-		MissingStock: h.MissingStock, Skipped: h.Skipped, Files: h.Entries}
+		MissingStock: h.MissingStock, Skipped: h.Skipped, Files: files}
 	var out bytes.Buffer
 	w, err := backup.NewWriter(&out, m)
 	if err != nil {
@@ -164,6 +183,11 @@ func assembleArchive(t *testing.T, bs *BackupStream) []byte {
 	for _, e := range order {
 		if err := w.Add(e.Path, tr.next(e)); err != nil {
 			t.Fatalf("%s: %v", e.Path, err)
+		}
+	}
+	for p, c := range extra {
+		if err := w.Add(p, strings.NewReader(c)); err != nil {
+			t.Fatalf("%s: %v", p, err)
 		}
 	}
 	if err := w.Close(); err != nil {
