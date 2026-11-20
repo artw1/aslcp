@@ -196,6 +196,19 @@ func (s *Service) EnsureSetupCode() (string, error) {
 	return code, nil
 }
 
+// setupCodeOK compares code with the current setup code. The file wins over
+// the copy in memory, so a code recreated by "aslcp admin setup-code" works
+// without a restart. Call with s.mu held.
+func (s *Service) setupCodeOK(code string) bool {
+	if b, err := os.ReadFile(s.setupPath()); err == nil {
+		line, _, _ := strings.Cut(string(b), "\n")
+		if c := strings.ToUpper(strings.TrimSpace(line)); c != "" {
+			s.setupCode = c
+		}
+	}
+	return s.setupCode != "" && subtle.ConstantTimeCompare([]byte(strings.ToUpper(strings.TrimSpace(code))), []byte(s.setupCode)) == 1
+}
+
 // SetupNeeded reports whether no users exist.
 func (s *Service) SetupNeeded() (bool, error) {
 	n, err := s.Store.CountUsers()
@@ -217,7 +230,7 @@ func (s *Service) CompleteSetup(ip, code, username, password string) (string, st
 	if !need {
 		return "", store.User{}, ErrSetupDone
 	}
-	if s.setupCode == "" || subtle.ConstantTimeCompare([]byte(strings.ToUpper(strings.TrimSpace(code))), []byte(s.setupCode)) != 1 {
+	if !s.setupCodeOK(code) {
 		s.Limiter.Fail(key)
 		return "", store.User{}, ErrBadSetupCode
 	}
@@ -260,7 +273,7 @@ func (s *Service) CheckSetupCode(ip, code string) error {
 	if !need {
 		return ErrSetupDone
 	}
-	if s.setupCode == "" || subtle.ConstantTimeCompare([]byte(strings.ToUpper(strings.TrimSpace(code))), []byte(s.setupCode)) != 1 {
+	if !s.setupCodeOK(code) {
 		s.Limiter.Fail(key)
 		return ErrBadSetupCode
 	}

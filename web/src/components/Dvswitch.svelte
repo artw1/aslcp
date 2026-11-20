@@ -57,6 +57,12 @@
     busy = true;
     try { st = await (kind === 'install' ? api.dvswitchInstall() : api.dvswitchUninstall()); err = ''; } catch (e) { toastError(e); await load(); } finally { busy = false; }
   }
+  // Settings kept from a backup restore: applied by the install; "Discard" drops them.
+  const pending = $derived(st?.restorePending?.pending ? st.restorePending : null);
+  async function discardPending() {
+    busy = true;
+    try { st = await api.dvswitchRestoreDiscard(); err = ''; toast('Saved DVSwitch settings discarded', 'info'); } catch (e) { toastError(e); await load(); } finally { busy = false; }
+  }
   // The uninstall also reverts the bridge node ASLCP added, and that restarts Asterisk.
   let owned = $state(false);
   const uninstallExtra = $derived(uninstallNote(app.dvswitch, owned));
@@ -91,6 +97,13 @@
           <li class="flex flex-wrap items-baseline gap-x-2 px-2 py-1"><span class="font-mono font-semibold">{u.name}</span><span class="text-muted">{u.loaded ? `${u.active}, ${u.enabled || 'n/a'}` : 'not installed'}</span></li>
         {/each}
       </ul>
+      {#if pending}
+        <div class="space-y-2 rounded border border-line bg-surface-2/40 p-2 text-sm" role="status" aria-label="Settings from your backup">
+          <p>Settings from your backup ({pending.backupDate} UTC) will be applied when DVSwitch is installed.</p>
+          <ul class="font-mono text-xs text-muted">{#each pending.files as f}<li>{f}</li>{/each}</ul>
+          <button class="btn" disabled={busy || running} onclick={discardPending}><Trash size={14} />Discard</button>
+        </div>
+      {/if}
       <div class="flex flex-wrap gap-2">
         <button class="btn" disabled={busy || running} onclick={load}><Refresh size={14} />Refresh</button>
         <button class="btn btn-primary" disabled={busy || running || !st.canInstall} onclick={() => (installOpen = true)}><Download size={14} />Install DVSwitch</button>
@@ -135,6 +148,7 @@
     <ul class="list-disc pl-5 font-mono text-xs">{#each st?.packages ?? [] as p}<li>{p.name}</li>{/each}</ul>
     <p>Their dependencies come along, <span class="font-mono">qemu-user-static</span> among them on most hardware. ASLCP records what is newly installed so an uninstall can take exactly that back out.</p>
     {#if st?.packages?.some((p) => p.name === 'stfu')}<p class="text-xs text-muted">stfu (BrandMeister) stays stopped and disabled until you set up BrandMeister under Setup. It then runs only while BrandMeister is the active mode, unless you choose to stay logged in.</p>{/if}
+    {#if pending}<p class="text-xs text-muted">The settings saved from your backup are applied at the end of the install, and the DVSwitch services restarted.</p>{/if}
     <p class="text-xs text-muted">It does not touch Asterisk or app_rpt. It needs internet access and a few minutes.</p>
   </div>
   {#snippet footer()}

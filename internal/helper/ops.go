@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/artw1/aslcp/internal/config"
 )
 
 const (
@@ -49,7 +51,7 @@ type Ops struct {
 	SoundsDirs [2]string // custom sounds: var-lib, usr-share (defaults below)
 	SA818Conf  string    // default DefaultSA818Conf
 	AllmonDir  string    // default DefaultAllmonDir
-	AslcpConf  string    // default DefaultAslcpConf (restored, never read)
+	AslcpConf  string    // default DefaultAslcpConf (restored; read for the web port)
 	OSRelease  string    // default DefaultOSRelease
 	// TempDir is where an uploaded archive is staged during a restore
 	// (default /var/tmp).
@@ -217,6 +219,8 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return o.DVSwitchInstall(ctx)
 	case OpDVSwitchUninstall:
 		return o.DVSwitchUninstall(ctx)
+	case OpDVSwitchRestoreDiscard:
+		return o.DVSwitchRestoreDiscard(ctx)
 	case OpFirewallStatus:
 		return o.FirewallStatus(ctx)
 	case OpFirewallOpen:
@@ -444,8 +448,8 @@ var ErrBusy = errors.New("an update is already running")
 // sends reaches it. One unit does the (scoped) index refresh and the install,
 // so the first apt run is not paid twice. Quiet, no recommends, no changelog
 // reader (APT_LISTCHANGES_FRONTEND=none is set in the unit environment).
-const upgradeScript = "apt-get update -o Dir::Etc::sourcelist=sources.list.d/aslcp.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 -q && " +
-	"apt-get install -y -q --only-upgrade --no-install-recommends -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0 aslcp"
+const upgradeScript = "apt-get update -o DPkg::Lock::Timeout=600 -o Dir::Etc::sourcelist=sources.list.d/aslcp.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 -q && " +
+	"apt-get install -y -q -o DPkg::Lock::Timeout=600 --only-upgrade --no-install-recommends -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0 aslcp"
 
 // upgradeArgv is the systemd-run command line of update-apply.
 func upgradeArgv() []string {
@@ -484,7 +488,32 @@ func (o *Ops) UpdateApply(ctx context.Context) (Status, error) {
 	return st, nil
 }
 
-// FirewallStatus reports firewalld state for the aslcp service.
+// defaultPort is the port the packaged firewalld service "aslcp" covers.
+const defaultPort = 8080
+
+// webPort reads the port from the [server] listen setting of aslcp.conf. The
+// port is never taken from the request: the operations stay argument-free.
+func (o *Ops) webPort() (int, error) {
+	c, err := config.Load(o.aslcpConf())
+	if err != nil {
+		return 0, err
+	}
+	return config.ListenPort(c.Listen)
+}
+
+// fwQuery succeeds when a firewall-cmd --query-* call exits 0, in the runtime
+// configuration and then (a rule added with --permanent) the permanent one.
+func (o *Ops) fwQuery(ctx context.Context, query string) bool {
+	for _, args := range [][]string{{"firewall-cmd", query}, {"firewall-cmd", "--permanent", query}} {
+		if _, code, err := o.Run.Run(ctx, args...); err == nil && code == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// FirewallStatus reports firewalld state for the configured web port: open
+// when the aslcp service (port 8080 only) or the port itself is enabled.
 func (o *Ops) FirewallStatus(ctx context.Context) (Firewall, error) {
 	var fw Firewall
 	out, code, err := o.Run.Run(ctx, "firewall-cmd", "--state")
@@ -493,25 +522,43 @@ func (o *Ops) FirewallStatus(ctx context.Context) (Firewall, error) {
 	}
 	fw.Present = true
 	fw.Running = code == 0 && strings.TrimSpace(out) == "running"
+	port, perr := o.webPort()
+	if perr != nil {
+		return fw, perr
+	}
+	fw.Port = port
 	if fw.Running {
-		_, code, err = o.Run.Run(ctx, "firewall-cmd", "--query-service="+fwService)
-		fw.ServiceEnabled = err == nil && code == 0
+		if port == defaultPort {
+			fw.ServiceEnabled = o.fwQuery(ctx, "--query-service="+fwService)
+		}
+		if !fw.ServiceEnabled {
+			fw.PortOpen = o.fwQuery(ctx, fmt.Sprintf("--query-port=%d/tcp", port))
+		}
+		fw.Open = fw.ServiceEnabled || fw.PortOpen
 	}
 	return fw, nil
 }
 
-// FirewallOpen enables the aslcp firewalld service permanently and reloads.
+// FirewallOpen opens the configured web port permanently and reloads: the
+// aslcp service for 8080, else --add-port=<port>/tcp.
 func (o *Ops) FirewallOpen(ctx context.Context) (Firewall, error) {
-	fw, _ := o.FirewallStatus(ctx)
+	fw, err := o.FirewallStatus(ctx)
 	if !fw.Present {
 		return fw, errors.New("firewalld is not installed")
 	}
 	if !fw.Running {
 		return fw, errors.New("firewalld is not running")
 	}
+	if err != nil {
+		return fw, err
+	}
+	add := "--add-service=" + fwService
+	if fw.Port != defaultPort {
+		add = fmt.Sprintf("--add-port=%d/tcp", fw.Port)
+	}
 	// Reload first so firewalld knows the service definition shipped by the
-	// package, then add the service permanently and reload again.
-	for _, args := range [][]string{{"firewall-cmd", "--reload"}, {"firewall-cmd", "--permanent", "--add-service=" + fwService}, {"firewall-cmd", "--reload"}} {
+	// package, then add the rule permanently and reload again.
+	for _, args := range [][]string{{"firewall-cmd", "--reload"}, {"firewall-cmd", "--permanent", add}, {"firewall-cmd", "--reload"}} {
 		out, code, err := o.Run.Run(ctx, args...)
 		if err != nil || code != 0 {
 			return fw, fmt.Errorf("firewall-cmd %s failed: %s", args[1], LastLines(out, 3))

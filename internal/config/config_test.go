@@ -115,3 +115,16 @@ func TestFavStatsSection(t *testing.T) {
 		}
 	}
 }
+
+func TestListenPort(t *testing.T) {
+	for in, want := range map[string]int{":8080": 8080, "192.0.2.1:9090": 9090, "[::1]:65535": 65535, ":1": 1} {
+		if got, err := ListenPort(in); err != nil || got != want {
+			t.Errorf("%q: %d %v", in, got, err)
+		}
+	}
+	for _, in := range []string{"", "8080", ":0", ":65536", ":abc", ":-1", "host"} {
+		if _, err := ListenPort(in); err == nil {
+			t.Errorf("%q: expected an error", in)
+		}
+	}
+}

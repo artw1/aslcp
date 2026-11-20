@@ -728,10 +728,10 @@ func (o *Ops) dvSTFUInstallScript() string {
 	apt := "-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0"
 	return strings.Join([]string{
 		"set -e",
-		"apt-get update -q --allow-releaseinfo-change",
+		"apt-get update -q -o DPkg::Lock::Timeout=600 --allow-releaseinfo-change",
 		"apt-get -s -q install --no-install-recommends " + dvSTFUPkg + " > " + sim + " || { cat " + sim + "; exit 1; }",
 		self + " dvswitch-step " + StepSTFUPlan,
-		"apt-get install -y -q --no-install-recommends " + apt + " " + dvSTFUPkg,
+		"apt-get install -y -q -o DPkg::Lock::Timeout=600 --no-install-recommends " + apt + " " + dvSTFUPkg,
 		"systemctl disable --now " + dvSTFUUnit + ".service || true",
 		"echo 'stfu install finished'",
 	}, "\n")

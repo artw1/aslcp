@@ -142,6 +142,7 @@ export const api = {
   dvswitchJob: () => req<DVSwitchJobs>('GET', '/dvswitch/job'),
   dvswitchInstall: () => req<DVSwitchStatus>('POST', '/dvswitch/install'),
   dvswitchUninstall: () => req<DVSwitchStatus>('POST', '/dvswitch/uninstall'),
+  dvswitchRestoreDiscard: () => req<DVSwitchStatus>('DELETE', '/dvswitch/restore-pending'),
   dvswitchSetup: () => req<DVSwitchSetup>('GET', '/dvswitch/setup'),
   dvswitchBrandMeister: (b: DVBMReq) => req<DVSwitchSetup>('PUT', '/dvswitch/brandmeister', b),
   dvswitchBrandMeisterClear: () => req<DVSwitchSetup>('DELETE', '/dvswitch/brandmeister'),

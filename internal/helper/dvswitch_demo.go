@@ -83,7 +83,7 @@ func (d *DemoDVSwitch) status() DVSwitchStatus {
 		Arch: "arm64", OSCodename: "bookworm", Supported: true,
 		Packages: []DVSwitchPkg{}, HostFiles: []DVSwitchHostFile{}, Units: []DVSwitchUnit{},
 		UninstallPaths: (&Ops{}).DVSwitchUninstallPaths(), UninstallUnits: append([]string{}, dvUnits...),
-		UninstallPackages: []string{},
+		UninstallPackages: []string{}, RestorePending: DVRestorePending{Files: []string{}},
 	}
 	for _, n := range DVSwitchPackages() {
 		st.Packages = append(st.Packages, DVSwitchPkg{Name: n, Installed: d.installed, Version: map[bool]string{true: "1.7.0"}[d.installed]})
@@ -158,6 +158,14 @@ func (d *DemoDVSwitch) start(kind string) (DVSwitchStatus, error) {
 // DVSwitchInstall implements the API's DVSwitch interface.
 func (d *DemoDVSwitch) DVSwitchInstall(context.Context) (DVSwitchStatus, error) {
 	return d.start("install")
+}
+
+// DVSwitchRestoreDiscard implements the API's DVSwitch interface; the demo
+// never has pending settings.
+func (d *DemoDVSwitch) DVSwitchRestoreDiscard(context.Context) (DVSwitchStatus, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.status(), nil
 }
 
 // DVSwitchUninstall implements the API's DVSwitch interface.

@@ -14,19 +14,19 @@ import (
 )
 
 type fakeDV struct {
-	installs, uninstalls int
-	stfuInstalls         int
-	err                  error
-	last                 helper.DVSwitchRequest
-	calls                int
-	cfgErr               error
-	listMode             string
-	listCalls            int
-	listErr              error
-	dmrCalls             int
-	tuneCalls            int
-	lastTune             helper.DVTune
-	tuneErr              error
+	installs, uninstalls, discards int
+	stfuInstalls                   int
+	err                            error
+	last                           helper.DVSwitchRequest
+	calls                          int
+	cfgErr                         error
+	listMode                       string
+	listCalls                      int
+	listErr                        error
+	dmrCalls                       int
+	tuneCalls                      int
+	lastTune                       helper.DVTune
+	tuneErr                        error
 
 	// private bridge node (M2)
 	mu         sync.Mutex
@@ -188,12 +188,16 @@ func (f *fakeDV) DVSwitchSTFUInstall(context.Context) (helper.DVSwitchStatus, er
 	f.stfuInstalls++
 	return helper.DVSwitchStatus{STFU: helper.DVSTFUStatus{Job: helper.DVSwitchJob{Job: "running"}}}, f.err
 }
+func (f *fakeDV) DVSwitchRestoreDiscard(context.Context) (helper.DVSwitchStatus, error) {
+	f.discards++
+	return helper.DVSwitchStatus{}, f.err
+}
 func (f *fakeDV) DVSwitchUninstall(context.Context) (helper.DVSwitchStatus, error) {
 	f.uninstalls++
 	return helper.DVSwitchStatus{Uninstall: helper.DVSwitchJob{Job: "running"}}, f.err
 }
 
-var dvEndpoints = [][2]string{{"GET", "/api/dvswitch"}, {"GET", "/api/dvswitch/job"}, {"POST", "/api/dvswitch/install"}, {"POST", "/api/dvswitch/uninstall"}, {"POST", "/api/dvswitch/stfu/install"}}
+var dvEndpoints = [][2]string{{"GET", "/api/dvswitch"}, {"GET", "/api/dvswitch/job"}, {"POST", "/api/dvswitch/install"}, {"POST", "/api/dvswitch/uninstall"}, {"POST", "/api/dvswitch/stfu/install"}, {"DELETE", "/api/dvswitch/restore-pending"}}
 
 func TestDVSwitchRoles(t *testing.T) {
 	f := &fakeDV{}
@@ -203,7 +207,7 @@ func TestDVSwitchRoles(t *testing.T) {
 		expectErr(t, e, "viewer", ep[0], ep[1], nil, 403, "forbidden")
 		expectErr(t, e, "op", ep[0], ep[1], nil, 403, "forbidden")
 	}
-	if f.installs+f.uninstalls+f.stfuInstalls != 0 {
+	if f.installs+f.uninstalls+f.stfuInstalls+f.discards != 0 {
 		t.Fatal("a non-admin reached the helper")
 	}
 	var st helper.DVSwitchStatus
@@ -222,6 +226,9 @@ func TestDVSwitchRoles(t *testing.T) {
 	}
 	if c := e.do("admin", "POST", "/api/dvswitch/stfu/install", nil, &st); c != 202 || st.STFU.Job.Job != "running" || f.stfuInstalls != 1 {
 		t.Fatalf("stfu install: %d %+v", c, st)
+	}
+	if c := e.do("admin", "DELETE", "/api/dvswitch/restore-pending", nil, &st); c != 200 || f.discards != 1 {
+		t.Fatalf("restore discard: %d %+v", c, st)
 	}
 }
 
@@ -254,6 +261,7 @@ func TestDVSwitchErrors(t *testing.T) {
 		expectErr(t, e, "admin", "POST", "/api/dvswitch/install", nil, c.status, c.code)
 		expectErr(t, e, "admin", "POST", "/api/dvswitch/uninstall", nil, c.status, c.code)
 		expectErr(t, e, "admin", "POST", "/api/dvswitch/stfu/install", nil, c.status, c.code)
+		expectErr(t, e, "admin", "DELETE", "/api/dvswitch/restore-pending", nil, c.status, c.code)
 	}
 }
 

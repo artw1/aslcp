@@ -77,6 +77,7 @@ func newBkNode(t *testing.T, ver string, conf map[string]string) *bkNode {
 		AslcpConf:    filepath.Join(base, "etc", "aslcp", "aslcp.conf"),
 		DVOptDir:     filepath.Join(base, "opt"),
 		DVHistoryDir: filepath.Join(base, "var", "dv-history"),
+		DVStateDir:   filepath.Join(base, "var", "dv-state"),
 		SourceList:   filepath.Join(base, "etc", "aslcp.list"),
 		TempDir:      base,
 		NewFileOwner: func() (int, int, fs.FileMode) {

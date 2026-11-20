@@ -40,13 +40,25 @@ On the node:
 curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo sh
 ```
 
-The script adds the signed ASLCP apt repository, installs the `aslcp` package and asks for the admin username and password. Then open `http://<your-node>:8080`.
+The script adds the signed ASLCP apt repository, installs the `aslcp` package and prints a one-time setup link. Then open `http://<your-node>:8080` (8080 is the default port; see [Web port](#web-port)).
+
+On a freshly flashed ASL3 card, wait for the first-boot setup and its reboot (20-30 minutes) before installing: ASL3 installs updates and may reboot the node. The installer checks this (first-boot services, another running apt/dpkg or a held dpkg lock) and refuses to change anything until it is done; just run it again later. `ASLCP_SKIP_PREFLIGHT=1` skips the check. A pending reboot only produces a warning. Package operations started from the web UI wait up to 10 minutes for the apt lock instead of failing.
 
 Prefer to do it by hand? See the manual steps on <https://artw1.github.io/aslcp/>.
 
+### DVSwitch at install
+
+To install DVSwitch as well, set `ASLCP_DVSWITCH=1` (`yes` and `true` work too; any other value is refused). It combines with `ASLCP_PORT`:
+
+```sh
+curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DVSWITCH=1 ASLCP_PORT=9090 sh
+```
+
+Once ASLCP is running, the installer runs `aslcp dvswitch install`, the same install as the DVSwitch page, and shows its log. It takes a few minutes. If it fails, the installer warns and finishes anyway; retry with `sudo aslcp dvswitch install`. DVSwitch settings from a restored backup are applied at the end of that install.
+
 ### First login
 
-The admin account is created during the install. Log in with it at `http://<your-node>:8080`. If you skipped that step, run `sudo aslcp admin create`. Forgot the password? Run:
+The installer ends by printing a one-time setup link (`http://<your-node>:8080/#/setup?code=...`, with your port if you chose another). Open it to create the administrator, or to restore a backup from an existing node. Lost the link? Run `sudo aslcp admin setup-code`, or create the admin in the terminal with `sudo aslcp admin create`. Then log in at `http://<your-node>:8080`. Forgot the password? Run:
 
 ```sh
 sudo aslcp admin reset-password <user>
@@ -54,11 +66,19 @@ sudo aslcp admin reset-password <user>
 
 `sudo aslcp admin list` shows the accounts.
 
+### Web port
+
+ASLCP listens on TCP port 8080 by default. To pick another port when installing, set `ASLCP_PORT` (1-65535):
+
+```sh
+curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_PORT=9090 sh
+```
+
+The installer writes it to `listen` in `/etc/aslcp/aslcp.conf` (`listen = :9090`, or `listen = 192.0.2.10:9090` to bind one address), restarts ASLCP and warns if another program already uses the port. To change it later, rerun the installer the same way, or edit `listen` and run `sudo systemctl restart aslcp`. Ports below 1024 need a systemd override granting `CAP_NET_BIND_SERVICE`.
+
 ### Firewall
 
-ASLCP listens on TCP port 8080. If firewalld is running, the package opens that port for you (the firewalld service `aslcp`). With another firewall (ufw, nftables, a router), allow TCP 8080 from your LAN yourself. Do not expose the port to the internet without a reverse proxy that provides TLS.
-
-The port can be changed in `/etc/aslcp/aslcp.conf` (`[server] listen`), then `sudo systemctl restart aslcp`.
+If firewalld is running, the package and the installer open the configured port for you: the firewalld service `aslcp` for 8080, a plain TCP port for any other port. If you edit `listen` by hand, open the new port yourself (`sudo firewall-cmd --permanent --add-port=<port>/tcp && sudo firewall-cmd --reload`); a package upgrade also opens the configured port. With another firewall (ufw, nftables, a router), allow the TCP port from your LAN yourself. Do not expose the port to the internet without a reverse proxy that provides TLS.
 
 ## Public status page
 

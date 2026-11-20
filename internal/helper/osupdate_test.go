@@ -214,7 +214,7 @@ func TestOSApply(t *testing.T) {
 		t.Fatalf("%+v %v", st, err)
 	}
 	want := "systemd-run --no-block --unit=aslcp-osupgrade --collect --property=Type=oneshot --setenv=DEBIAN_FRONTEND=noninteractive --setenv=APT_LISTCHANGES_FRONTEND=none /bin/sh -c " +
-		"apt-get update -q && apt-get upgrade -y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0"
+		"apt-get update -q -o DPkg::Lock::Timeout=600 && apt-get upgrade -y -q -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0"
 	if f.called(want) != 1 {
 		t.Fatalf("calls: %v", f.calls)
 	}

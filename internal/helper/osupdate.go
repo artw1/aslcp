@@ -39,8 +39,8 @@ var ErrAptBusy = errors.New("apt is busy, try again later")
 // "upgrade" (never full-upgrade or dist-upgrade: nothing is removed and no
 // new package is pulled in; packages that would need that stay "kept back"),
 // keeping the local version of changed conffiles.
-const osUpgradeScript = "apt-get update -q && " +
-	"apt-get upgrade -y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0"
+const osUpgradeScript = "apt-get update -q -o DPkg::Lock::Timeout=600 && " +
+	"apt-get upgrade -y -q -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0"
 
 // osUpgradeArgv is the systemd-run command line of os-apply.
 func osUpgradeArgv() []string {

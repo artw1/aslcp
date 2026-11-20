@@ -41,6 +41,11 @@ Commands:
         Creating the first account completes the first-run setup.
   reset-password USER
         Set a new password for USER and sign that user out everywhere.
+  setup-code
+        Print the one-time first-run setup code (the web setup page takes it
+        to create the administrator or restore a backup). Only while no
+        account exists; otherwise exits 1. The setup link is
+        http://<host>:<port>/#/setup?code=CODE
   list [--quiet]
         List accounts. With --quiet print nothing and exit 3 when there are
         no accounts (0 otherwise), for scripts.
@@ -82,7 +87,7 @@ func runAdmin(args []string, env adminEnv) int {
 	case "-h", "--help", "help":
 		fmt.Fprint(env.out, adminUsage)
 		return exitOK
-	case "create", "reset-password", "list":
+	case "create", "reset-password", "list", "setup-code":
 	default:
 		fmt.Fprintf(env.errw, "aslcp admin: unknown command %q\n\n%s", cmd, adminUsage)
 		return exitUsage
@@ -148,6 +153,8 @@ func runAdmin(args []string, env adminEnv) int {
 		rerr = adminResetPassword(st, pos[0], env)
 	case "list":
 		code, rerr = adminList(st, quiet, env)
+	case "setup-code":
+		code, rerr = adminSetupCode(st, cfg.DataDir, env)
 	}
 	if rerr != nil {
 		fmt.Fprintf(env.errw, "aslcp admin %s: %v\n", cmd, rerr)
@@ -381,4 +388,35 @@ func adminList(st *store.Store, quiet bool, env adminEnv) (int, error) {
 		fmt.Fprintf(tw, "%s\t%s\t%s\n", u.Username, u.Role, u.Created.Local().Format("2006-01-02 15:04"))
 	}
 	return exitOK, tw.Flush()
+}
+
+// adminSetupCode prints the first-run setup code (stdout: the code only).
+// It exits 1 once an account exists.
+func adminSetupCode(st *store.Store, dataDir string, env adminEnv) (int, error) {
+	n, err := st.CountUsers()
+	if err != nil {
+		return exitError, err
+	}
+	if n > 0 {
+		fmt.Fprintln(env.errw, "aslcp admin setup-code: setup is already complete (an account exists); if you are locked out, use: aslcp admin reset-password <user>")
+		return exitError, nil
+	}
+	path := filepath.Join(dataDir, "setup-code")
+	b, _ := os.ReadFile(path)
+	code := strings.TrimSpace(string(b))
+	if i := strings.IndexAny(code, "\r\n"); i >= 0 {
+		code = code[:i]
+	}
+	if code == "" {
+		as, err := auth.NewService(st, dataDir)
+		if err != nil {
+			return exitError, err
+		}
+		if code, err = as.EnsureSetupCode(); err != nil {
+			return exitError, err
+		}
+		fixOwnership(dataDir)
+	}
+	fmt.Fprintln(env.out, code)
+	return exitOK, nil
 }

@@ -368,6 +368,12 @@ func (c *Client) DVSwitchUninstall(ctx context.Context) (DVSwitchStatus, error) 
 	return s, c.Do(ctx, OpDVSwitchUninstall, &s)
 }
 
+// DVSwitchRestoreDiscard calls dvswitch-restore-discard.
+func (c *Client) DVSwitchRestoreDiscard(ctx context.Context) (DVSwitchStatus, error) {
+	var s DVSwitchStatus
+	return s, c.Do(ctx, OpDVSwitchRestoreDiscard, &s)
+}
+
 // DVSwitchSetup calls dvswitch-setup.
 func (c *Client) DVSwitchSetup(ctx context.Context) (DVSwitchSetup, error) {
 	var s DVSwitchSetup

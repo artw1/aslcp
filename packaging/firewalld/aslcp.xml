@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <service>
   <short>ASLCP</short>
-  <description>ASLCP, the AllStarLink web control panel (HTTP on port 8080).</description>
+  <description>ASLCP, the AllStarLink web control panel (HTTP on the default port 8080; another port is opened by port number).</description>
   <port protocol="tcp" port="8080"/>
 </service>

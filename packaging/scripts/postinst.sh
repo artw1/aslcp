@@ -82,29 +82,58 @@ fw_service_sum() {
 	cksum <"$FW_SERVICE_FILE" 2>/dev/null | awk '{print $1 ":" $2}'
 }
 
+# conf_port: TCP port of "listen" in the [server] section of aslcp.conf
+# (":8080" or "addr:port"); 8080 when unset or invalid.
+conf_port() {
+	l=$(awk '
+		/^[ \t]*\[/ { sec = ($0 ~ /^[ \t]*\[server\][ \t]*$/); next }
+		sec && /^[ \t]*[;#]/ { next }
+		sec { i = index($0, "="); if (i == 0) next
+			k = substr($0, 1, i - 1); gsub(/[ \t]/, "", k)
+			if (k == "listen") { val = substr($0, i + 1); sub(/[ \t]*[;#].*$/, "", val); gsub(/^[ \t]+|[ \t]+$/, "", val); out = val } }
+		END { print out }' "${ASLCP_CONF:-/etc/aslcp/aslcp.conf}" 2>/dev/null || true)
+	p=${l##*:}
+	case "$p" in
+	'' | *[!0-9]* | 0*) p=8080 ;;
+	esac
+	[ "${#p}" -le 5 ] && [ "$p" -le 65535 ] || p=8080
+	printf '%s\n' "$p"
+}
+
+# Port 8080 uses the packaged firewalld service "aslcp"; any other port is
+# opened directly (--add-port).
 configure_firewalld() {
 	command -v firewall-cmd >/dev/null 2>&1 || return 0
+	port=$(conf_port)
+	if [ "$port" = 8080 ]; then
+		fw_query=--query-service=aslcp fw_add=--add-service=aslcp fw_what="service 'aslcp'"
+	else
+		fw_query=--query-port=$port/tcp fw_add=--add-port=$port/tcp fw_what="port"
+	fi
 	sum=$(fw_service_sum)
-	# Fast path on upgrade (1 firewall-cmd call, no reload): the service
-	# definition is unchanged and the rule is already active.
-	if [ -z "$FIRST_INSTALL" ] && [ -n "$sum" ] && [ "$sum" = "$(cat "$FW_SUM" 2>/dev/null)" ] &&
-		firewall-cmd --query-service=aslcp >/dev/null 2>&1; then
-		return 0
+	# Fast path on upgrade (1 firewall-cmd call, no reload): the rule is
+	# already active (port 8080: and the service definition is unchanged).
+	if [ -z "$FIRST_INSTALL" ] && firewall-cmd "$fw_query" >/dev/null 2>&1; then
+		if [ "$port" != 8080 ]; then
+			return 0
+		elif [ -n "$sum" ] && [ "$sum" = "$(cat "$FW_SUM" 2>/dev/null)" ]; then
+			return 0
+		fi
 	fi
 	firewall-cmd --state >/dev/null 2>&1 || return 0
 	# Reload so firewalld knows the service definition shipped by this package.
 	firewall-cmd --reload >/dev/null 2>&1 || true
-	if firewall-cmd --permanent --query-service=aslcp >/dev/null 2>&1; then
+	if firewall-cmd --permanent "$fw_query" >/dev/null 2>&1; then
 		[ -z "$sum" ] || echo "$sum" >"$FW_SUM" 2>/dev/null || true
 		return 0
 	fi
-	if firewall-cmd --permanent --add-service=aslcp >/dev/null 2>&1 && firewall-cmd --reload >/dev/null 2>&1; then
+	if firewall-cmd --permanent "$fw_add" >/dev/null 2>&1 && firewall-cmd --reload >/dev/null 2>&1; then
 		touch "$FW_MARKER"
 		[ -z "$sum" ] || echo "$sum" >"$FW_SUM" 2>/dev/null || true
-		echo "aslcp: firewalld is running: opened TCP 8080 (service 'aslcp', permanent)."
+		echo "aslcp: firewalld is running: opened TCP $port ($fw_what, permanent)."
 	else
-		echo "aslcp: warning: firewalld is running but opening the 'aslcp' service failed;"
-		echo "aslcp:   run: firewall-cmd --permanent --add-service=aslcp && firewall-cmd --reload"
+		echo "aslcp: warning: firewalld is running but opening TCP $port failed;"
+		echo "aslcp:   run: firewall-cmd --permanent $fw_add && firewall-cmd --reload"
 	fi
 }
 
@@ -134,14 +163,21 @@ first_install_message() {
 		n=$((n + 1))
 	done
 	code=$(head -n 1 "$DATADIR/setup-code" 2>/dev/null || true)
-	cat <<EOM
-
-aslcp: installed. Open   http://$ip:8080
-aslcp: Create the admin account:   sudo aslcp admin create
-EOM
-	if [ -n "$code" ]; then
-		echo "aslcp: or use the one-time setup link:   http://$ip:8080/#/setup?code=$code"
+	port=$(conf_port)
+	if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+		G=$(printf '\033[1;32m') Y=$(printf '\033[1;33m') R=$(printf '\033[0m')
+	else
+		G='' Y='' R=''
 	fi
+	printf '\n%saslcp: installed.%s\n' "$G" "$R"
+	if [ -n "$code" ]; then
+		printf 'aslcp: open the one-time setup link to create the administrator or restore a backup:\n'
+		printf '    %shttp://%s:%s/#/setup?code=%s%s\n' "$Y" "$ip" "$port" "$code" "$R"
+		echo "aslcp: show the code again:   sudo aslcp admin setup-code"
+	else
+		echo "aslcp: open http://$ip:$port and get the setup code with:   sudo aslcp admin setup-code"
+	fi
+	echo "aslcp: or create the admin in the terminal:   sudo aslcp admin create"
 	echo
 }
 

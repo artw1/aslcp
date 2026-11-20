@@ -246,3 +246,40 @@ func TestSetupLink(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestAdminSetupCode(t *testing.T) {
+	r := newRig(t)
+	st := r.store()
+	as, _ := auth.NewService(st, r.dir)
+	want, err := as.EnsureSetupCode()
+	if err != nil || want == "" {
+		t.Fatal(want, err)
+	}
+	code, out, e := r.run("", "setup-code")
+	if code != 0 || strings.TrimSpace(out) != want || e != "" {
+		t.Fatalf("exit %d out %q err %q want %q", code, out, e, want)
+	}
+
+	// Missing file: created like the server does.
+	if err := os.Remove(filepath.Join(r.dir, "setup-code")); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ = r.run("", "setup-code")
+	got := strings.TrimSpace(out)
+	if code != 0 || got == "" {
+		t.Fatalf("exit %d out %q", code, out)
+	}
+	b, err := os.ReadFile(filepath.Join(r.dir, "setup-code"))
+	if err != nil || strings.TrimSpace(string(b)) != got {
+		t.Fatalf("file %q err %v want %q", b, err, got)
+	}
+
+	// Accounts exist: error, exit 1, nothing on stdout.
+	if c, _, e := r.run("hunter2hunter2\nhunter2hunter2\n", "create"); c != 0 {
+		t.Fatal(c, e)
+	}
+	code, out, e = r.run("", "setup-code")
+	if code != 1 || out != "" || !strings.Contains(e, "already complete") {
+		t.Fatalf("exit %d out %q err %q", code, out, e)
+	}
+}
