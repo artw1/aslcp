@@ -156,13 +156,16 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return nil, errors.New("invalid request: unexpected terminal field")
 	}
 	if isSysOp(op) {
-		if req.Config != nil || req.DVSwitch != nil || req.Backup != nil || req.Restore != nil {
+		if req.Config != nil || req.DVSwitch != nil || req.Backup != nil || req.Restore != nil || req.Diag != nil {
 			return nil, errors.New("invalid request: unexpected field")
 		}
 		return o.handleSys(ctx, req)
 	}
 	if req.Sys != nil {
 		return nil, errors.New("invalid request: unexpected sys field")
+	}
+	if req.Diag != nil {
+		return nil, errors.New("invalid request: unexpected diag field")
 	}
 	if isConfigOp(op) {
 		return o.handleConfig(ctx, req)

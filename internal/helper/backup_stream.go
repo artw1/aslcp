@@ -22,6 +22,8 @@ func (s *Server) handleStream(ctx context.Context, conn net.Conn, in io.Reader, 
 		_ = json.NewEncoder(conn).Encode(v)
 	}
 	switch req.Op {
+	case OpDiagCollect:
+		s.handleDiagStream(cctx, conn, req, uid)
 	case OpBackupCreate:
 		br := req.Backup
 		if br == nil {

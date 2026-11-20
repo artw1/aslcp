@@ -158,7 +158,7 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 		// would turn the close after our reply into a connection reset.
 		drainUnread(conn, dec.Buffered())
 	}
-	if !isConfigOp(req.Op) && dec.InputOffset() > maxRequest {
+	if !isConfigOp(req.Op) && req.Op != OpDiagCollect && dec.InputOffset() > maxRequest {
 		s.logf("request too large for op %s", safeOp(req.Op))
 		fail("invalid request")
 		return
@@ -273,7 +273,7 @@ func (s *skipLeadingSpace) Read(p []byte) (int, error) {
 }
 
 func knownOp(op string) bool {
-	if isSysOp(op) {
+	if isSysOp(op) || op == OpDiagCollect {
 		return true
 	}
 	switch op {

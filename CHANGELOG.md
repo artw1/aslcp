@@ -3,6 +3,14 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [1.3.4] - 2026-11-20
+
+### Added
+- **System, Diagnostics**: one button downloads a `.tar.gz` for asking for help. It holds the ASLCP, Asterisk and ASL3 package versions, the recent log lines of each service, the network summary, disk and memory, service states and your configuration files, plus a `README.txt` that lists every file and how many values were hidden in it.
+- Passwords and other secrets are replaced by `<redacted>` before the file is built: Asterisk, AMI, IAX and registration passwords, EchoLink and DVSwitch passwords, ASLCP's own secrets, and WiFi keys. The password file, private keys, the ASLCP database and login sessions are never included.
+- A checkbox, on by default, also hides your callsign and your public IP address (`<callsign>`, `<own-ip>`). The page lists what is included and what is left out before you download. Read the files before you post a bundle in a public place.
+- Each download is written to the Audit log. Only one bundle is built at a time, the file is limited to 12 MB before compression, and building stops after 90 seconds.
+
 ## [1.3.3] - 2026-11-20
 
 ### Added

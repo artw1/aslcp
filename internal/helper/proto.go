@@ -86,6 +86,8 @@ type Request struct {
 	Sys *SysRequest `json:"sys,omitempty"`
 	// Terminal is accepted by terminal.open only (terminal.go).
 	Terminal *TerminalRequest `json:"terminal,omitempty"`
+	// Diag is accepted by diag-collect only (sys_diag.go).
+	Diag *DiagRequest `json:"diag,omitempty"`
 }
 
 // Status is the response of the update-* operations. Candidate and

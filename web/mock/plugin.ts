@@ -242,7 +242,7 @@ export function mockApi(): Plugin {
         let mm: RegExpExecArray | null;
         if (handleRadio({ m, p, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }), links: (n) => locals[n]?.links.map((l) => l.node) ?? [] })) return;
         if (handleWifi({ m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
-        if (handleSystem({ m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
+        if (handleSystem({ m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }), file: (name, text) => { res.statusCode = 200; res.setHeader('Content-Type', 'application/gzip'); res.setHeader('Content-Disposition', `attachment; filename="${name}"`); res.end(text); } })) return;
         if (handleDVSwitch({ push: (ev, d) => broadcast(ev, () => d), m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleConfig({ m, p, body, url, user, json: (c, b) => json(res, c, b), err: (c, msg, code, extra) => json(res, c, { error: msg, code, ...extra }) })) return;
 

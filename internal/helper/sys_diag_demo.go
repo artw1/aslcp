@@ -1,0 +1,40 @@
+package helper
+
+import (
+	"context"
+	"io"
+	"os"
+	"time"
+
+	"github.com/artw1/aslcp/internal/diag"
+)
+
+// DiagBundle builds a small bundle from canned data for --demo. It runs the
+// real redaction and packing, so the demo shows what a download looks like,
+// including a planted placeholder password that comes out as <redacted>.
+func (d *DemoSystem) DiagBundle(_ context.Context, req DiagRequest) (io.ReadCloser, error) {
+	if err := req.validate(); err != nil {
+		return nil, err
+	}
+	conf := "[general]\nsecret=example-pass\n[1999]\ncallsign=N0CALL\nregister => 1999:example-pass@register.example.net\n"
+	id := diag.ExtractIdentity(conf)
+	id.Callsigns = append(id.Callsigns, req.Callsigns...)
+	id.IPs = append(id.IPs, "192.0.2.10")
+	opts := diag.BundleOptions{MaskIdentity: req.MaskIdentity, Secrets: diag.ExtractSecrets(conf), Identity: id}
+	b, err := newDiagBuilder([]string{os.TempDir()}, opts, time.Now(), req.Version)
+	if err != nil {
+		return nil, err
+	}
+	b.add("report.txt", "ASLCP status report (demo)", orDefault(req.Report, "ASLCP demo report\nnode 2001 N0CALL at 192.0.2.10\n"), diag.KindText, DiagMaxReport)
+	b.add("versions.txt", "Versions (demo)", "ASLCP: "+orDefault(req.Version, "demo")+"\nAsterisk: Asterisk 22.0.0 (demo)\n", diag.KindText, diagMaxFile)
+	b.add("network.txt", "Network status (demo)", "eth0: UP\n    inet 192.0.2.10/24 scope global\n", diag.KindText, diagMaxFile)
+	b.add("journal/asterisk.txt", "Journal of asterisk (demo)", "2026-11-20T12:00:00+0000 node2001 asterisk[412]: N0CALL logged in from 192.0.2.10 with example-pass\n", diag.KindText, diagMaxFile)
+	b.add("config/asterisk/iax.conf", "Asterisk config file (demo)", conf, diag.KindConf, diagMaxConf)
+	b.add("audit.txt", "Recent audit log entries (demo)", orDefault(req.Audit, "(demo)\n"), diag.KindText, DiagMaxAudit)
+	bundle, err := b.pack()
+	if err != nil {
+		b.cleanup()
+		return nil, err
+	}
+	return bundle, nil
+}
