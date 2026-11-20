@@ -6,10 +6,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -61,6 +65,11 @@ func startHost(t *testing.T, id string, owner int64, mut func(*termHostCfg)) *ho
 	}()
 	// wait for the socket
 	for i := 0; i < 500; i++ {
+		select {
+		case <-h.done: // a session that ends at once is waited for by the test
+			return h
+		default:
+		}
 		if c, err := net.Dial("unix", h.sock); err == nil {
 			c.Close()
 			if _, err := os.Stat(filepath.Join(dir, id+".json")); err == nil {
@@ -443,5 +452,185 @@ func TestTermBackendOpenRunsUnitThenConnects(t *testing.T) {
 	b.run = run
 	if _, _, err = b.Open(context.Background(), 24, 80, 3); err == nil || !strings.Contains(err.Error(), "systemd-run failed") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// logSink collects term-host's log lines.
+type logSink struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (l *logSink) logf(f string, a ...any) {
+	l.mu.Lock()
+	l.lines = append(l.lines, fmt.Sprintf(f, a...))
+	l.mu.Unlock()
+}
+
+func (l *logSink) all() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return strings.Join(l.lines, "\n")
+}
+
+func shHost(t *testing.T, id, script string) (*hostRun, *logSink) {
+	t.Helper()
+	sink := &logSink{}
+	h := startHost(t, id, 1, func(c *termHostCfg) {
+		c.Argv = []string{"/bin/sh", "-c", script}
+		c.Logf = sink.logf
+	})
+	return h, sink
+}
+
+// A child that closes all its descriptors, waits, and reopens its terminal
+// by path (what login does around vhangup): the session must survive the
+// quiet period and deliver the later output.
+func TestTermHostSurvivesClosedDescriptors(t *testing.T) {
+	h, _ := shHost(t, "00000000000000d1", `t=$(tty); exec <&- >&- 2>&-; sleep 0.3; echo ok > "$t"; sleep 5`)
+	c := h.attach(t)
+	defer c.Close()
+	readUntil(t, c, "ok")
+	select {
+	case <-h.done:
+		t.Fatal("session ended while the child lives")
+	default:
+	}
+}
+
+// A child that really calls vhangup() on its terminal: until it reopens the
+// terminal every read on the master fails with EIO, and the session must
+// carry on.
+func TestTermHostSurvivesVhangup(t *testing.T) {
+	py, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("no python3")
+	}
+	script := `import ctypes, os, signal, sys, time
+signal.signal(signal.SIGHUP, signal.SIG_IGN)
+tty = os.ttyname(0)
+if ctypes.CDLL(None, use_errno=True).vhangup() != 0:
+    sys.exit(77)
+time.sleep(0.3)
+fd = os.open(tty, os.O_RDWR)
+os.write(fd, b"ok-after-vhangup")
+time.sleep(5)
+`
+	sink := &logSink{}
+	h := startHost(t, "00000000000000d2", 1, func(c *termHostCfg) {
+		c.Argv = []string{py, "-c", script}
+		c.Logf = sink.logf
+	})
+	c := h.attach(t)
+	defer c.Close()
+	// 77: vhangup is not permitted here (needs CAP_SYS_TTY_CONFIG)
+	done := make(chan struct{})
+	go func() { defer close(done); readUntil(t, c, "ok-after-vhangup") }()
+	select {
+	case <-done:
+	case <-h.done:
+		if rec, err := os.ReadFile(filepath.Join(h.dir, h.id+".ended.json")); err == nil && strings.Contains(string(rec), "status 77") {
+			t.Skip("vhangup not permitted")
+		}
+		t.Fatalf("session ended: %s", sink.all())
+	}
+}
+
+// A child that fails at once: the end says why, with status, time and what it
+// printed on the terminal.
+func TestTermHostEarlyExitIsExplained(t *testing.T) {
+	h, sink := shHost(t, "00000000000000d3", `echo "login: some error"; exit 1`)
+	rec := h.waitEnd(t)
+	if rec.Reason != EndExited {
+		t.Fatalf("%+v", rec)
+	}
+	for _, want := range []string{"sh exited with status 1", "after ", "login: some error"} {
+		if !strings.Contains(rec.Detail, want) {
+			t.Fatalf("detail %q lacks %q", rec.Detail, want)
+		}
+	}
+	logs := sink.all()
+	if !strings.Contains(logs, "ended (exited): sh exited with status 1 after") || !strings.Contains(logs, "first output of login: login: some error\\n") {
+		t.Fatalf("log:\n%s", logs)
+	}
+}
+
+func TestTermHostSignalExitIsExplained(t *testing.T) {
+	h, _ := shHost(t, "00000000000000d4", `kill -TERM $$`)
+	rec := h.waitEnd(t)
+	if rec.Reason != EndExited || !strings.Contains(rec.Detail, "killed by signal terminated") {
+		t.Fatalf("%+v", rec)
+	}
+}
+
+// The child is a session leader and the slave is its controlling terminal.
+func TestTermHostChildHasControllingTTY(t *testing.T) {
+	h, _ := shHost(t, "00000000000000d5", `echo "TTY=$(tty) PID=$$"; echo "STAT=$(cat /proc/$$/stat)"; sleep 5`)
+	c := h.attach(t)
+	defer c.Close()
+	out := readUntil(t, c, "STAT=")
+	var pts, pid int
+	if _, err := fmt.Sscanf(out[strings.Index(out, "TTY="):], "TTY=/dev/pts/%d PID=%d", &pts, &pid); err != nil {
+		t.Fatalf("output %q: %v", out, err)
+	}
+	// readUntil stops at the first chunk holding STAT=; wait for its line end
+	for !strings.Contains(out[strings.Index(out, "STAT="):], "\n") {
+		out += readUntil(t, c, "\n")
+	}
+	stat := out[strings.Index(out, "STAT="):]
+	f := strings.Fields(stat[strings.LastIndex(stat, ")")+1:])
+	// state ppid pgrp session tty_nr
+	sess, _ := strconv.Atoi(f[3])
+	ttyNr, _ := strconv.Atoi(f[4])
+	if sess != pid {
+		t.Fatalf("session %d, want the shell's own pid %d", sess, pid)
+	}
+	if want := 136<<8 | pts; ttyNr != want {
+		t.Fatalf("tty_nr %d, want pts/%d (%d)", ttyNr, pts, want)
+	}
+}
+
+// term-host itself does not take the slave as its controlling terminal.
+func TestTermHostOpenPTYDoesNotTakeControllingTTY(t *testing.T) {
+	m, s, _, err := openPTY(24, 80)
+	if err != nil {
+		t.Skip("no pty: ", err)
+	}
+	defer m.Close()
+	defer s.Close()
+	b, err := os.ReadFile("/proc/self/stat")
+	if err != nil {
+		t.Skip(err)
+	}
+	f := strings.Fields(string(b)[strings.LastIndex(string(b), ")")+1:])
+	ttyNr, _ := strconv.Atoi(f[4])
+	if ttyNr>>8 == 136 {
+		t.Fatalf("test process got a pts as its controlling terminal (tty_nr %d)", ttyNr)
+	}
+}
+
+func TestSanitizeTermOutput(t *testing.T) {
+	got := sanitizeTermOutput([]byte("login: x\r\n\x1b[31mred\x1b[0m\x00\xffend\n"))
+	if want := `login: x\n[31mred[0mend\n`; got != want {
+		t.Fatalf("%q != %q", got, want)
+	}
+}
+
+func TestTermBackendStartFailureReadsEndedRecord(t *testing.T) {
+	dir := t.TempDir()
+	b := &termBackend{dir: dir}
+	id := "00000000000000d6"
+	if b.startFailure(id) != "" {
+		t.Fatal("reason without a record")
+	}
+	rec, _ := json.Marshal(TerminalEnded{ID: id, Reason: EndExited, Detail: "login exited with status 1 after 0.2s"})
+	if err := os.WriteFile(filepath.Join(dir, id+".ended.json"), rec, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.startFailure(id); got != "login exited with status 1 after 0.2s" {
+		t.Fatalf("%q", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, id+".ended.json")); err == nil {
+		t.Fatal("record kept")
 	}
 }

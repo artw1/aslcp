@@ -5,6 +5,8 @@ package helper
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net"
 	"os"
@@ -13,6 +15,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -110,9 +113,22 @@ type termHost struct {
 	line   string // "pts/N"
 	now    func() time.Time
 
+	// slave is term-host's own descriptor of the slave side, opened with
+	// O_NOCTTY and kept until the child has exited: the master then never
+	// sees "every other side closed" (EIO) just because login closed or hung
+	// up its descriptors for a moment.
+	slave *os.File
+
 	childDone  chan struct{}
 	masterGone chan struct{}
 	endCh      chan string
+
+	// How the child ended, set before childDone is closed.
+	exitStatus string
+	// First read error seen on the master, and the first bytes login wrote
+	// (guarded by mu).
+	firstReadErr string
+	early        []byte
 
 	mu       sync.Mutex
 	ring     *ringBuf
@@ -190,9 +206,10 @@ func runTermHost(ctx context.Context, cfg termHostCfg) (string, error) {
 		os.Remove(cfg.Sock)
 		return "", err
 	}
-	slave.Close()
+	// The slave stays open here (see termHost.slave); it is closed when the
+	// child has exited, so the last output can still be read to its end.
 
-	h := &termHost{cfg: cfg, master: master, cmd: cmd, line: "pts/" + strconv.Itoa(pts), now: cfg.Now,
+	h := &termHost{cfg: cfg, master: master, slave: slave, cmd: cmd, line: "pts/" + strconv.Itoa(pts), now: cfg.Now,
 		childDone: make(chan struct{}), masterGone: make(chan struct{}), endCh: make(chan string, 1),
 		ring: newRing(termRingSize), started: cfg.Now()}
 	h.gm = newGraceMachine(cfg.Grace, cfg.Poll, cfg.Cap, cfg.Busy)
@@ -205,7 +222,16 @@ func runTermHost(ctx context.Context, cfg termHostCfg) (string, error) {
 	h.writeStateLocked()
 	h.mu.Unlock()
 
-	go func() { _ = cmd.Wait(); close(h.childDone) }()
+	go func() {
+		werr := cmd.Wait()
+		h.exitStatus = describeExit(filepath.Base(cfg.Argv[0]), cmd.ProcessState, werr)
+		// Closing the slave lets the master report the end (EIO) once no
+		// other process holds the terminal; the deadline covers background
+		// processes that do.
+		_ = slave.Close()
+		_ = master.SetReadDeadline(time.Now().Add(termDrainTail))
+		close(h.childDone)
+	}()
 	go h.drain()
 	go h.acceptLoop(ln)
 	go h.userPoll()
@@ -227,8 +253,6 @@ func (h *termHost) waitEnd(ctx context.Context) string {
 		case <-h.childDone:
 			h.drainWait()
 			return EndExited
-		case <-h.masterGone:
-			return EndExited
 		case <-t.C:
 			h.mu.Lock()
 			r := h.gm.Tick(h.now())
@@ -244,7 +268,7 @@ func (h *termHost) waitEnd(ctx context.Context) string {
 func (h *termHost) drainWait() {
 	select {
 	case <-h.masterGone:
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(termDrainTail + 500*time.Millisecond):
 	}
 }
 
@@ -271,7 +295,11 @@ func (h *termHost) finish(reason string, ln net.Listener) {
 		Reason: reason, Detached: wasDetached, LinuxUser: h.user}
 	h.mu.Unlock()
 	ln.Close()
-	h.logf("session %s ended (%s)", h.cfg.ID, reason)
+	rec.Detail = h.endDetail(reason)
+	h.logf("session %s ended (%s)%s", h.cfg.ID, reason, endLogSuffix(rec.Detail))
+	if out := h.earlyOutput(reason); out != "" {
+		h.logf("session %s: first output of login: %s", h.cfg.ID, out)
+	}
 	_ = writeJSONFile(filepath.Join(h.cfg.Dir, h.cfg.ID+".ended.json"), rec)
 	_ = os.Remove(filepath.Join(h.cfg.Dir, h.cfg.ID+".json"))
 	_ = os.Remove(h.cfg.Sock)
@@ -321,7 +349,26 @@ func writeJSONFile(path string, v any) error {
 // stalls longer is detached so the PTY keeps draining.
 const termClientWriteTimeout = 5 * time.Second
 
-// drain moves PTY output into the ring and to the attached client.
+// termDrainTail bounds how long the last output is read after the child has
+// exited.
+const termDrainTail = 300 * time.Millisecond
+
+// termEarly is how much of the first output is kept for the log of a session
+// that ends at once; termEarlyWindow is what "at once" means.
+const (
+	termEarly       = 2048
+	termEarlyWindow = 10 * time.Second
+)
+
+// termReadRetry is the pause after a read error on the master while the
+// child is alive.
+const termReadRetry = 50 * time.Millisecond
+
+// drain moves PTY output into the ring and to the attached client. A read
+// error is not the end of the session: util-linux login calls vhangup() on
+// its terminal, and until it reopens it every read on the master returns
+// EIO. The session ends when the child does (waitEnd); drain only stops
+// then, or when the master is closed.
 func (h *termHost) drain() {
 	defer close(h.masterGone)
 	buf := make([]byte, 16<<10)
@@ -330,6 +377,9 @@ func (h *termHost) drain() {
 		if n > 0 {
 			h.mu.Lock()
 			h.ring.Write(buf[:n])
+			if room := termEarly - len(h.early); room > 0 {
+				h.early = append(h.early, buf[:min(n, room)]...)
+			}
 			if c := h.client; c != nil {
 				_ = c.conn.SetWriteDeadline(time.Now().Add(termClientWriteTimeout))
 				if werr := WriteData(c.conn, buf[:n]); werr != nil {
@@ -338,10 +388,95 @@ func (h *termHost) drain() {
 			}
 			h.mu.Unlock()
 		}
-		if err != nil {
+		if err == nil {
+			continue
+		}
+		h.mu.Lock()
+		if h.firstReadErr == "" {
+			h.firstReadErr = err.Error()
+			h.logf("session %s: first read error on the master after %s: %v (the session goes on while the child lives)",
+				h.cfg.ID, h.now().Sub(h.started).Round(time.Millisecond), err)
+		}
+		closing := h.closing
+		h.mu.Unlock()
+		if closing || errors.Is(err, os.ErrClosed) {
 			return
 		}
+		select {
+		case <-h.childDone:
+			return
+		default:
+		}
+		time.Sleep(termReadRetry)
 	}
+}
+
+// describeExit says how the child ended: "login exited with status 1" or
+// "login killed by signal hangup".
+func describeExit(name string, ps *os.ProcessState, err error) string {
+	if ps == nil {
+		return fmt.Sprintf("%s: %v", name, err)
+	}
+	if ws, ok := ps.Sys().(syscall.WaitStatus); ok {
+		switch {
+		case ws.Signaled():
+			return fmt.Sprintf("%s killed by signal %s", name, strings.ToLower(ws.Signal().String()))
+		case ws.Exited():
+			return fmt.Sprintf("%s exited with status %d", name, ws.ExitStatus())
+		}
+	}
+	return fmt.Sprintf("%s ended (%s)", name, ps.String())
+}
+
+// sanitizeTermOutput keeps printable ASCII, writes newlines as \n and drops
+// everything else (escape sequences lose their ESC byte), so that what login
+// printed on the terminal is safe to put in a journal line.
+func sanitizeTermOutput(b []byte) string {
+	var sb strings.Builder
+	for _, c := range b {
+		switch {
+		case c == '\n':
+			sb.WriteString(`\n`)
+		case c >= 0x20 && c < 0x7f:
+			sb.WriteByte(c)
+		}
+	}
+	return sb.String()
+}
+
+// earlyOutput is the sanitized first output when the session ended on its
+// own within termEarlyWindow of the start, else "".
+func (h *termHost) earlyOutput(reason string) string {
+	if reason != EndExited || h.now().Sub(h.started) >= termEarlyWindow {
+		return ""
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return sanitizeTermOutput(h.early)
+}
+
+// endDetail is the precise cause recorded with an end that came from the
+// child ("login exited with status 1 after 0.2s: login: some error"): how it
+// ended, when, and a short piece of what it printed if that was early.
+func (h *termHost) endDetail(reason string) string {
+	if reason != EndExited {
+		return ""
+	}
+	d := h.exitStatus + " after " + h.now().Sub(h.started).Round(100*time.Millisecond).String()
+	if out := h.earlyOutput(reason); out != "" {
+		if len(out) > 100 {
+			out = out[:100]
+		}
+		d += ": " + out
+	}
+	return d
+}
+
+func endLogSuffix(detail string) string {
+	if detail == "" {
+		return ""
+	}
+	return ": " + detail
 }
 
 func (h *termHost) detachLocked(c *hostClient) {

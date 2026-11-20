@@ -22,6 +22,7 @@ test('endText covers the server reasons', () => {
   assert.match(endText('idle'), /15 minutes/);
   assert.match(endText('admin-ended'), /administrator/);
   assert.match(endText('detach'), /reattach/);
+  assert.equal(endText('start: the session did not start (login exited with status 1 after 0.2s)'), 'Could not start the terminal: the session did not start (login exited with status 1 after 0.2s)');
 });
 
 test('mockSession echoes printable input only', () => {
