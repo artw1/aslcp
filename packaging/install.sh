@@ -4,7 +4,7 @@
 # Run as root. Safe to run again (it also acts as an upgrade).
 # Update channel: stable (default). ASLCP_CHANNEL=beta selects the beta suite;
 # without it, the channel of an existing install is kept.
-# Web port: 8080 by default. ASLCP_PORT=<1-65535> picks another one:
+# Web port: 8080 by default. ASLCP_PORT=<1024-65535> picks another one:
 #   curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_PORT=8181 sh
 # After the package is installed, the "listen" line in /etc/aslcp/aslcp.conf is
 # rewritten (an address part is kept), aslcp is restarted and the port is opened
@@ -40,12 +40,12 @@ die() { printf '%s\n' "aslcp-install: error: $*" >&2; exit 1; }
 PORT_WANT=${ASLCP_PORT:-}
 if [ -n "$PORT_WANT" ]; then
 	case "$PORT_WANT" in
-	*[!0-9]* | 0*) die "ASLCP_PORT must be a number from 1 to 65535 without leading zeros (got '$PORT_WANT')" ;;
+	*[!0-9]* | 0*) die "ASLCP_PORT must be a number from 1024 to 65535 without leading zeros (got '$PORT_WANT')" ;;
 	esac
-	{ [ "${#PORT_WANT}" -le 5 ] && [ "$PORT_WANT" -le 65535 ]; } || die "ASLCP_PORT must be a number from 1 to 65535 (got '$PORT_WANT')"
-	if [ "$PORT_WANT" -lt 1024 ]; then
-		say "warning: ports below 1024 need a systemd override granting CAP_NET_BIND_SERVICE to aslcp.service; ASLCP will not start on $PORT_WANT without it"
-	fi
+	{ [ "${#PORT_WANT}" -le 5 ] && [ "$PORT_WANT" -le 65535 ]; } || die "ASLCP_PORT must be a number from 1024 to 65535 (got '$PORT_WANT')"
+	# The service runs without capabilities, so it cannot listen below 1024
+	# (port 80: docs/PORT80.md).
+	[ "$PORT_WANT" -ge 1024 ] || die "ASLCP_PORT must be 1024 or higher: ASLCP runs without privileges and cannot listen on port $PORT_WANT (got '$PORT_WANT')"
 fi
 
 # --- DVSwitch (ASLCP_DVSWITCH) ----------------------------------------------

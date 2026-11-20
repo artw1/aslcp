@@ -348,39 +348,260 @@ if [ "$sync_root" -eq 1 ] || [ ! -f install.sh ]; then
 fi
 beta_note=""
 [ "$newest_all" != "$newest_stable" ] || beta_note=" (same as stable)"
-cat >index.html <<EOH
+# The page is a quoted heredoc (no shell expansion: the CSS/JS can use $ and
+# backticks freely); the @PLACEHOLDERS@ are filled in below. The replacement is
+# quoted, so characters such as & in a value are copied literally.
+read -r -d '' page <<'EOH' || true
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>ASLCP - web control panel for AllStarLink 3</title>
-<style>body{font:16px/1.5 system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem}pre{background:#8881;padding:.75rem;overflow:auto;border-radius:6px}code{font-family:ui-monospace,monospace}</style>
+<meta name="description" content="Install ASLCP, a web control panel for AllStarLink 3 nodes (with DVSwitch), from the signed apt repository.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230ea5e9'/%3E%3Cpath d='M8 22a11 11 0 0 1 16 0M11.5 18.5a6 6 0 0 1 9 0' stroke='%23fff' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='23' r='2' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+:root{--bg:#f3f5f8;--surface:#fff;--surface-2:#e9edf2;--line:#cfd6df;--fg:#0f172a;--muted:#566274;--accent:#0369a1;--accent-fg:#fff;--ok:#15803d;--warn:#a16207;--danger:#b91c1c;
+--sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#0a0e14;--surface:#111821;--surface-2:#19222e;--line:#273344;--fg:#e6edf6;--muted:#93a1b5;--accent:#38bdf8;--accent-fg:#04121c;--ok:#4ade80;--warn:#facc15;--danger:#f87171;color-scheme:dark}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 var(--sans)}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+.wrap{max-width:760px;margin:0 auto;padding:0 16px}
+header.top{background:var(--surface);border-bottom:1px solid var(--line)}
+header.top .wrap{display:flex;align-items:center;gap:10px;padding-top:10px;padding-bottom:10px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:18px;letter-spacing:-.01em;color:var(--fg);text-decoration:none}
+.brand svg{width:28px;height:28px;flex:none}
+header.top .gh{margin-left:auto}
+.hero{padding:28px 0 4px}
+h1{font-size:24px;line-height:1.25;margin:0 0 8px;letter-spacing:-.015em}
+h2{font-size:17px;margin:0 0 8px;letter-spacing:-.01em}
+h3{font-size:14px;margin:18px 0 6px}
+p{margin:0 0 10px}
+.lead{color:var(--muted);font-size:16px;margin-bottom:12px}
+.muted{color:var(--muted)}
+.badges{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 4px;padding:0;list-style:none}
+.badge{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);background:var(--surface-2);border-radius:999px;padding:1px 10px;font-size:12px;font-weight:500;color:var(--muted)}
+.badge b{color:var(--fg);font-weight:600}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:16px;margin:16px 0}
+.card>:last-child{margin-bottom:0}
+.note{border-left:3px solid var(--accent);background:var(--surface-2);border-radius:0 6px 6px 0;padding:8px 12px;margin:0 0 10px;font-size:14px}
+.note.warn{border-left-color:var(--warn)}
+code{font-family:var(--mono);font-size:.9em}
+p code,li code,label code,.hint code{background:var(--surface-2);border:1px solid var(--line);border-radius:4px;padding:0 4px;word-break:break-word}
+.cmd{position:relative;margin:0 0 10px}
+.cmd pre{margin:0;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px 12px;overflow-x:auto;max-width:100%;font-family:var(--mono);font-size:13px;line-height:1.5}
+.cmd pre code{font-size:inherit;background:none;border:0;padding:0;word-break:normal;white-space:pre}
+.cmd-bar{display:flex;justify-content:flex-end;margin-bottom:4px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:32px;border-radius:4px;border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:2px 12px;font:500 13px var(--sans);cursor:pointer;text-decoration:none;transition:background .15s}
+.btn:hover{background:var(--surface-2)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn-primary{background:var(--accent);color:var(--accent-fg);border-color:transparent}
+.btn-primary:hover{background:var(--accent);opacity:.9}
+.btn.done{background:var(--ok);color:var(--accent-fg);border-color:transparent}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+fieldset{border:0;margin:0 0 16px;padding:0;min-width:0}
+legend,.label{display:block;padding:0;margin:0 0 4px;font-size:12px;font-weight:600;color:var(--muted)}
+.opt{display:flex;align-items:flex-start;gap:8px;padding:2px 0}
+.opt input{margin:4px 0 0;width:16px;height:16px;accent-color:var(--accent);flex:none}
+.opt label{font-size:14px;color:var(--fg)}
+.opt small{display:block;color:var(--muted);font-size:13px}
+.input{display:block;width:9rem;min-height:32px;border-radius:4px;border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:2px 10px;font:14px var(--sans)}
+.input::placeholder{color:var(--muted)}
+.input[aria-invalid=true]{border-color:var(--danger)}
+.hint{margin:4px 0 0;font-size:13px;color:var(--muted)}
+.err{margin:4px 0 0;font-size:13px;color:var(--danger);font-weight:500}
+.warnmsg{margin:4px 0 0;font-size:13px;color:var(--warn)}
+ul.plain{margin:0 0 10px;padding-left:20px}
+ul.plain li{margin:0 0 4px}
+dl.params{margin:0}
+dl.params dt{font-weight:600;margin-top:10px}
+dl.params dd{margin:2px 0 0;color:var(--muted)}
+footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
 </head><body>
-<h1>ASLCP</h1>
-<p>A modern web control panel for AllStarLink 3 nodes: connect, monitor and manage favorites with live status. For Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS on arm64, armhf and amd64.</p>
-<p>Latest release: <strong>${newest_stable:-none yet}</strong>. Latest beta: <strong>$newest_all</strong>$beta_note.</p>
-<p><a href="https://github.com/artw1/aslcp">Documentation, screenshots and bug reports on GitHub</a></p>
-<h2>Install</h2>
-<pre><code>curl -fsSL $APT_URL/install.sh | sudo sh</code></pre>
-<p>On a freshly flashed ASL3 card, wait for the first-boot setup and its reboot (20-30 minutes) before installing. The installer checks this and tells you if it is not done yet.</p>
-<p>The installer prints a one-time setup link at the end. Open it to create the administrator or to restore a backup from an existing node. <code>sudo aslcp admin setup-code</code> shows the code again.</p>
-<h2>Web port</h2>
-<p>The web interface listens on port <strong>8080</strong> by default. To pick another port, set <code>ASLCP_PORT</code> (1-65535) with the install command:</p>
-<pre><code>curl -fsSL $APT_URL/install.sh | sudo ASLCP_PORT=8181 sh</code></pre>
-<p>To change it later, run the same command again, or edit <code>listen</code> in <code>/etc/aslcp/aslcp.conf</code> (for example <code>listen = :8181</code>) and run <code>sudo systemctl restart aslcp</code>. The installer warns if another program already uses the port. If firewalld is running, the installer and the package open the configured port for you. With another firewall (ufw, nftables, a router) open the TCP port yourself, and if you edit <code>listen</code> by hand with firewalld, open the new port too.</p>
-<h2>DVSwitch</h2>
-<p>To install DVSwitch as well, set <code>ASLCP_DVSWITCH=1</code> (<code>yes</code> and <code>true</code> work too):</p>
-<pre><code>curl -fsSL $APT_URL/install.sh | sudo ASLCP_DVSWITCH=1 sh</code></pre>
-<p>It can be combined with <code>ASLCP_PORT</code>:</p>
-<pre><code>curl -fsSL $APT_URL/install.sh | sudo ASLCP_DVSWITCH=1 ASLCP_PORT=8181 sh</code></pre>
-<p>After ASLCP is running, the installer runs <code>aslcp dvswitch install</code> (the same install as the DVSwitch page; it takes a few minutes). If it fails the installer still finishes, and you can retry with <code>sudo aslcp dvswitch install</code>.</p>
-<h2>Manual setup</h2>
-<pre><code>sudo curl -fsSL -o /usr/share/keyrings/aslcp-archive-keyring.gpg $APT_URL/aslcp-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/aslcp-archive-keyring.gpg] $APT_URL stable main" | sudo tee /etc/apt/sources.list.d/aslcp.list
-sudo apt update &amp;&amp; sudo apt install aslcp</code></pre>
-<p>Signing key fingerprint: <code>$fpr</code> (<a href="aslcp-archive-keyring.asc">armored key</a>)</p>
-<h2>Beta channel</h2>
-<p>Every new version is published to the <code>beta</code> suite as soon as it is built. It becomes a release (suite <code>stable</code>) when it is promoted after testing: the same package, not a rebuild. The <code>beta</code> suite also carries every release, so beta users are never behind. Betas may be less stable. To use it, put <code>beta</code> instead of <code>stable</code> in the line above, or install with <code>curl -fsSL $APT_URL/install.sh | sudo ASLCP_CHANNEL=beta sh</code>, or switch in Settings &rarr; Updates in the web UI (the same setting: it changes the suite in <code>/etc/apt/sources.list.d/aslcp.list</code>). Going back to <code>stable</code> does not downgrade: the node stays on the installed version until a release newer than it is promoted.</p>
-<p>Later updates: Settings &rarr; Updates in the web UI, or <code>sudo apt update &amp;&amp; sudo apt upgrade</code>.</p>
+<header class="top"><div class="wrap">
+<a class="brand" href="#top" aria-label="ASLCP"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#0ea5e9"/><path d="M8 22a11 11 0 0 1 16 0M11.5 18.5a6 6 0 0 1 9 0" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round"/><circle cx="16" cy="23" r="2" fill="#fff"/></svg>ASLCP</a>
+<a class="btn gh" href="https://github.com/artw1/aslcp">GitHub</a>
+</div></header>
+<main class="wrap" id="top">
+<section class="hero">
+<h1>A web control panel for your AllStarLink 3 node</h1>
+<p class="lead">ASLCP lets you connect, monitor and manage favorites with live status from any browser, and it can set up DVSwitch for you. It runs on Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS (arm64, armhf, amd64).</p>
+<ul class="badges">
+<li class="badge">Latest release <b>@STABLE@</b></li>
+<li class="badge">Latest beta <b>@BETA@</b>@BETA_NOTE@</li>
+</ul>
+<p class="muted">Docs, screenshots and bug reports are on <a href="https://github.com/artw1/aslcp">GitHub</a>.</p>
+</section>
+
+<section class="card" aria-labelledby="h-quick">
+<h2 id="h-quick">Quick install</h2>
+<p>Run this on the node (over SSH or in a terminal):</p>
+<div class="cmd">
+<div class="cmd-bar"><button type="button" class="btn btn-primary" data-copy="cmd-default">Copy</button></div>
+<pre tabindex="0"><code id="cmd-default">curl -fsSL @APT_URL@/install.sh | sudo sh</code></pre>
+</div>
+<p class="note warn"><strong>Fresh ASL3 card?</strong> Wait for the ASL3 first-boot setup and its reboot (20-30 minutes) before you install. The installer checks this and tells you if it is not done yet.</p>
+<p class="note">At the end the installer prints a one-time setup link. Open it to create the administrator or to restore a backup from an existing node. <code>sudo aslcp admin setup-code</code> shows the code again.</p>
+</section>
+
+<section class="card" aria-labelledby="h-opts">
+<h2 id="h-opts">Install options</h2>
+<div id="wizard" hidden>
+<p class="muted">Pick what you need and copy the command. Everything is optional.</p>
+<form id="opts" onsubmit="return false" novalidate>
+<fieldset>
+<legend>DVSwitch</legend>
+<div class="opt"><input type="checkbox" id="o-dvs"><label for="o-dvs">Also install DVSwitch<small>Runs <code>aslcp dvswitch install</code> once ASLCP is up. It takes a few minutes.</small></label></div>
+</fieldset>
+<fieldset>
+<legend>Web port</legend>
+<label class="label" for="o-port">Port (1024-65535)</label>
+<input class="input" id="o-port" type="number" inputmode="numeric" min="1024" max="65535" step="1" placeholder="8181" aria-describedby="o-port-hint o-port-err" autocomplete="off">
+<p class="hint" id="o-port-hint">1024-65535; 8080 is the default. Avoid 9090 (Cockpit on ASL3).</p>
+<p class="err" id="o-port-err" role="alert" hidden></p>
+<p class="warnmsg" id="o-port-warn" hidden></p>
+</fieldset>
+<fieldset>
+<legend>Channel</legend>
+<div class="opt"><input type="radio" name="chan" id="o-stable" value="stable" checked><label for="o-stable">Stable<small>Tested releases. This is the default.</small></label></div>
+<div class="opt"><input type="radio" name="chan" id="o-beta" value="beta"><label for="o-beta">Beta<small>New builds before they are promoted to stable. You get fixes sooner, but they may be less stable.</small></label></div>
+</fieldset>
+</form>
+<h3>Your command</h3>
+<div class="cmd">
+<div class="cmd-bar"><button type="button" class="btn btn-primary" id="copy-gen" data-copy="cmd-gen">Copy</button></div>
+<pre tabindex="0"><code id="cmd-gen">curl -fsSL @APT_URL@/install.sh | sudo sh</code></pre>
+</div>
+</div>
+<div id="params-static">
+<p>Add these before <code>sh</code>, after <code>sudo</code>, separated by spaces. All are optional:</p>
+<dl class="params">
+<dt><code>ASLCP_DVSWITCH=1</code></dt><dd>Also install DVSwitch (<code>yes</code> and <code>true</code> work too).</dd>
+<dt><code>ASLCP_PORT=8181</code></dt><dd>Web port, 1024-65535. The default is 8080. Avoid 9090 (Cockpit on ASL3).</dd>
+<dt><code>ASLCP_CHANNEL=beta</code></dt><dd>Use the beta channel (new builds before they are promoted to stable). The default is <code>stable</code>.</dd>
+</dl>
+<p style="margin-top:10px">Example with all three:</p>
+<div class="cmd"><pre tabindex="0"><code>curl -fsSL @APT_URL@/install.sh | sudo ASLCP_DVSWITCH=1 ASLCP_PORT=8181 ASLCP_CHANNEL=beta sh</code></pre></div>
+</div>
+</section>
+
+<section class="card" aria-labelledby="h-later">
+<h2 id="h-later">Changing things later</h2>
+<h3>Web port</h3>
+<p>The web interface listens on port <strong>8080</strong> by default. To change it, run the installer again with <code>ASLCP_PORT</code> (1024-65535), or edit <code>listen</code> in <code>/etc/aslcp/aslcp.conf</code> (for example <code>listen = :8181</code>) and run <code>sudo systemctl restart aslcp</code>. The installer warns if another program already uses the port.</p>
+<p>If firewalld is running, the installer and the package open the configured port for you. With another firewall (ufw, nftables, a router) open the TCP port yourself. If you edit <code>listen</code> by hand while firewalld is running, open the new port too.</p>
+<h3>DVSwitch</h3>
+<p>Run <code>sudo aslcp dvswitch install</code>, or use the DVSwitch page in the web UI. If the install fails during the installer, the installer still finishes and you can retry with this command.</p>
+<h3>Update</h3>
+<p>Use Settings &rarr; Updates in the web UI, or:</p>
+<div class="cmd"><div class="cmd-bar"><button type="button" class="btn" data-copy="cmd-update">Copy</button></div>
+<pre tabindex="0"><code id="cmd-update">sudo apt update &amp;&amp; sudo apt upgrade</code></pre></div>
+<h3>Uninstall</h3>
+<div class="cmd"><div class="cmd-bar"><button type="button" class="btn" data-copy="cmd-remove">Copy</button></div>
+<pre tabindex="0"><code id="cmd-remove">sudo apt remove aslcp   # keeps users and favorites
+sudo apt purge aslcp    # also deletes them</code></pre></div>
+<p><code>apt purge</code> also deletes the config history and ASLCP's DVSwitch state (which holds copies of the DVSwitch passwords). Your Asterisk config and DVSwitch itself stay. Uninstall DVSwitch from its page first if you want it gone too.</p>
+</section>
+
+<section class="card" aria-labelledby="h-manual">
+<h2 id="h-manual">Manual apt setup</h2>
+<p>Prefer not to pipe a script? Add the signed repository yourself:</p>
+<div class="cmd"><div class="cmd-bar"><button type="button" class="btn" data-copy="cmd-manual">Copy</button></div>
+<pre tabindex="0"><code id="cmd-manual">sudo curl -fsSL -o /usr/share/keyrings/aslcp-archive-keyring.gpg @APT_URL@/aslcp-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/aslcp-archive-keyring.gpg] @APT_URL@ stable main" | sudo tee /etc/apt/sources.list.d/aslcp.list
+sudo apt update &amp;&amp; sudo apt install aslcp</code></pre></div>
+<p>Signing key fingerprint: <code>@FPR@</code> (<a href="aslcp-archive-keyring.asc">armored key</a>)</p>
+<h3>Beta channel</h3>
+<p>Every new version goes to the <code>beta</code> suite as soon as it is built. It becomes a release (suite <code>stable</code>) when it is promoted after testing: the same package, not a rebuild. The <code>beta</code> suite also carries every release, so beta users are never behind. Betas may be less stable.</p>
+<p>To use it, put <code>beta</code> instead of <code>stable</code> in the line above:</p>
+<div class="cmd"><div class="cmd-bar"><button type="button" class="btn" data-copy="cmd-beta">Copy</button></div>
+<pre tabindex="0"><code id="cmd-beta">echo "deb [signed-by=/usr/share/keyrings/aslcp-archive-keyring.gpg] @APT_URL@ beta main" | sudo tee /etc/apt/sources.list.d/aslcp.list</code></pre></div>
+<p>Or install with <code>ASLCP_CHANNEL=beta</code> (see the options above), or switch in Settings &rarr; Updates in the web UI. It is the same setting: it changes the suite in <code>/etc/apt/sources.list.d/aslcp.list</code>. Going back to <code>stable</code> does not downgrade: the node stays on the installed version until a release newer than it is promoted.</p>
+</section>
+</main>
+<footer><div class="wrap">ASLCP &middot; <a href="https://github.com/artw1/aslcp">GitHub</a> &middot; <a href="https://github.com/artw1/aslcp/issues">Report a bug</a></div></footer>
+<div class="sr" id="live" aria-live="polite" role="status"></div>
+<script>
+(function () {
+  var BASE = "@APT_URL@";
+  var live = document.getElementById("live");
+  function copyText(el) {
+    var text = el.textContent;
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).catch(function () { return fallback(el); });
+    }
+    return fallback(el);
+  }
+  function fallback(el) {
+    return new Promise(function (ok, fail) {
+      try {
+        var sel = window.getSelection(), r = document.createRange();
+        r.selectNodeContents(el); sel.removeAllRanges(); sel.addRange(r);
+        if (document.execCommand("copy")) ok(); else fail(new Error("copy failed"));
+      } catch (e) { fail(e); }
+    });
+  }
+  var btns = document.querySelectorAll("[data-copy]");
+  Array.prototype.forEach.call(btns, function (b) {
+    b.addEventListener("click", function () {
+      var el = document.getElementById(b.getAttribute("data-copy"));
+      if (!el) return;
+      copyText(el).then(function () { flash(b, "Copied", "Copied to clipboard", true); },
+        function () { flash(b, "Press Ctrl+C", "Copy failed, the command is selected: press Ctrl+C", false); });
+    });
+  });
+  function flash(b, label, say, good) {
+    var old = b.getAttribute("data-label") || b.textContent;
+    b.setAttribute("data-label", old);
+    b.textContent = label;
+    if (good) b.classList.add("done");
+    live.textContent = "";
+    setTimeout(function () { live.textContent = say; }, 30);
+    clearTimeout(b._t);
+    b._t = setTimeout(function () { b.textContent = old; b.classList.remove("done"); }, 2000);
+  }
+
+  var wiz = document.getElementById("wizard"), stat = document.getElementById("params-static");
+  var dvs = document.getElementById("o-dvs"), port = document.getElementById("o-port"),
+    beta = document.getElementById("o-beta"), out = document.getElementById("cmd-gen"),
+    err = document.getElementById("o-port-err"), warn = document.getElementById("o-port-warn"),
+    copyGen = document.getElementById("copy-gen");
+  wiz.hidden = false; stat.hidden = true;
+  function build() {
+    var raw = port.value.trim(), bad = port.validity && port.validity.badInput;
+    var valid = !bad && (raw === "" || (/^[1-9][0-9]{3,4}$/.test(raw) && Number(raw) >= 1024 && Number(raw) <= 65535));
+    port.setAttribute("aria-invalid", valid ? "false" : "true");
+    err.hidden = valid;
+    err.textContent = valid ? "" : "Enter a whole number from 1024 to 65535, or leave it empty for 8080.";
+    copyGen.disabled = !valid;
+    var w = "";
+    if (valid && raw === "9090") w = "Port 9090 is used by Cockpit on ASL3. Pick another port.";
+    warn.textContent = w; warn.hidden = !w;
+    if (!valid) return;
+    var vars = [];
+    if (dvs.checked) vars.push("ASLCP_DVSWITCH=1");
+    if (raw !== "" && raw !== "8080") vars.push("ASLCP_PORT=" + raw);
+    if (beta.checked) vars.push("ASLCP_CHANNEL=beta");
+    out.textContent = "curl -fsSL " + BASE + "/install.sh | sudo " + (vars.length ? vars.join(" ") + " " : "") + "sh";
+  }
+  document.getElementById("opts").addEventListener("input", build);
+  document.getElementById("opts").addEventListener("change", build);
+  build();
+})();
+</script>
 </body></html>
 EOH
+page=${page//@APT_URL@/"$APT_URL"}
+page=${page//@STABLE@/"${newest_stable:-none yet}"}
+page=${page//@BETA@/"$newest_all"}
+page=${page//@BETA_NOTE@/"$beta_note"}
+page=${page//@FPR@/"$fpr"}
+printf '%s
+' "$page" >index.html
 touch .nojekyll
 echo "publish-apt: repository updated (released $released, stable ${newest_stable:-none}, beta channel $newest_all, key $fpr)"

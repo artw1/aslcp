@@ -3,6 +3,12 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [Unreleased]
+
+### Changed
+- The install page (artw1.github.io/aslcp) has a new look matching the control panel, an install options builder (DVSwitch, port, channel) and Copy buttons.
+- Installer: `ASLCP_PORT` takes 1024-65535; a lower port is refused (ASLCP cannot listen on it).
+
 ## [1.2.4] - 2026-11-20
 
 ### Fixed
