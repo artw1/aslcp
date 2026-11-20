@@ -181,7 +181,8 @@ apt-get update -o DPkg::Lock::Timeout=600 \
 say "installing aslcp"
 # --force-confold: keep the edited /etc/aslcp/aslcp.conf (for example a changed
 # port) if a later package ships a different default, instead of prompting.
-DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold aslcp
+# ASLCP_INSTALLER=1: the package skips its own "installed" banner; the setup link is printed once at the end.
+ASLCP_INSTALLER=1 DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold aslcp
 
 # --- first-run setup link ---------------------------------------------------
 # ---8<--- admin-setup (exercised by a local test harness; keep self-contained)
