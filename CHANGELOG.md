@@ -3,7 +3,7 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
-## [Unreleased]
+## [1.2.5] - 2026-11-20
 
 ### Changed
 - The install page (artw1.github.io/aslcp) has a new look matching the control panel, an install options builder (DVSwitch, port, channel) and Copy buttons.

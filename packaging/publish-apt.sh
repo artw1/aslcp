@@ -389,16 +389,21 @@ p{margin:0 0 10px}
 .note.warn{border-left-color:var(--warn)}
 code{font-family:var(--mono);font-size:.9em}
 p code,li code,label code,.hint code{background:var(--surface-2);border:1px solid var(--line);border-radius:4px;padding:0 4px;word-break:break-word}
-.cmd{position:relative;margin:0 0 10px}
-.cmd pre{margin:0;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px 12px;overflow-x:auto;max-width:100%;font-family:var(--mono);font-size:13px;line-height:1.5}
+.cmd{position:relative;margin:0 0 10px;background:var(--bg);border:1px solid var(--line);border-radius:6px}
+.cmd pre{margin:0 2.75rem 0 0;background:none;border:0;border-radius:6px;padding:10px 12px;overflow-x:auto;max-width:100%;font-family:var(--mono);font-size:13px;line-height:1.5}
 .cmd pre code{font-size:inherit;background:none;border:0;padding:0;word-break:normal;white-space:pre}
-.cmd-bar{display:flex;justify-content:flex-end;margin-bottom:4px}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:32px;border-radius:4px;border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:2px 12px;font:500 13px var(--sans);cursor:pointer;text-decoration:none;transition:background .15s}
 .btn:hover{background:var(--surface-2)}
-.btn[disabled]{opacity:.45;cursor:not-allowed}
-.btn-primary{background:var(--accent);color:var(--accent-fg);border-color:transparent}
-.btn-primary:hover{background:var(--accent);opacity:.9}
-.btn.done{background:var(--ok);color:var(--accent-fg);border-color:transparent}
+.cmd pre:focus-visible{outline-offset:-2px}
+.copy{position:absolute;top:6px;right:6px;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer;transition:background .15s,color .15s,border-color .15s}
+.copy:hover{background:var(--surface-2);color:var(--fg)}
+.copy[disabled]{opacity:.4;cursor:not-allowed;background:transparent;color:var(--muted)}
+.copy[disabled]:hover{background:transparent;color:var(--muted)}
+.copy .i-check{display:none}
+.copy.done{color:var(--ok);border-color:var(--ok)}
+.copy.done .i-copy{display:none}
+.copy.done .i-check{display:block}
+.copy.fail{color:var(--warn);border-color:var(--warn)}
 .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 fieldset{border:0;margin:0 0 16px;padding:0;min-width:0}
 legend,.label{display:block;padding:0;margin:0 0 4px;font-size:12px;font-weight:600;color:var(--muted)}
@@ -442,8 +447,7 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <h2 id="h-quick">Quick install</h2>
 <p>Run this on the node (over SSH or in a terminal):</p>
 <div class="cmd">
-<div class="cmd-bar"><button type="button" class="btn btn-primary" data-copy="cmd-default">Copy</button></div>
-<pre tabindex="0"><code id="cmd-default">curl -fsSL @APT_URL@/install.sh | sudo sh</code></pre>
+<pre tabindex="0"><code id="cmd-default">curl -fsSL @APT_URL@/install.sh | sudo sh</code></pre><button type="button" class="copy" data-copy="cmd-default" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
 </div>
 <p class="note warn"><strong>Fresh ASL3 card?</strong> Wait for the ASL3 first-boot setup and its reboot (20-30 minutes) before you install. The installer checks this and tells you if it is not done yet.</p>
 <p class="note">At the end the installer prints a one-time setup link. Open it to create the administrator or to restore a backup from an existing node. <code>sudo aslcp admin setup-code</code> shows the code again.</p>
@@ -474,8 +478,7 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 </form>
 <h3>Your command</h3>
 <div class="cmd">
-<div class="cmd-bar"><button type="button" class="btn btn-primary" id="copy-gen" data-copy="cmd-gen">Copy</button></div>
-<pre tabindex="0"><code id="cmd-gen">curl -fsSL @APT_URL@/install.sh | sudo sh</code></pre>
+<pre tabindex="0"><code id="cmd-gen">curl -fsSL @APT_URL@/install.sh | sudo sh</code></pre><button type="button" class="copy" id="copy-gen" data-copy="cmd-gen" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
 </div>
 </div>
 <div id="params-static">
@@ -486,7 +489,7 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <dt><code>ASLCP_CHANNEL=beta</code></dt><dd>Use the beta channel (new builds before they are promoted to stable). The default is <code>stable</code>.</dd>
 </dl>
 <p style="margin-top:10px">Example with all three:</p>
-<div class="cmd"><pre tabindex="0"><code>curl -fsSL @APT_URL@/install.sh | sudo ASLCP_DVSWITCH=1 ASLCP_PORT=8181 ASLCP_CHANNEL=beta sh</code></pre></div>
+<div class="cmd"><pre tabindex="0"><code id="cmd-example">curl -fsSL @APT_URL@/install.sh | sudo ASLCP_DVSWITCH=1 ASLCP_PORT=8181 ASLCP_CHANNEL=beta sh</code></pre><button type="button" class="copy" data-copy="cmd-example" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
 </div>
 </section>
 
@@ -499,28 +502,24 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <p>Run <code>sudo aslcp dvswitch install</code>, or use the DVSwitch page in the web UI. If the install fails during the installer, the installer still finishes and you can retry with this command.</p>
 <h3>Update</h3>
 <p>Use Settings &rarr; Updates in the web UI, or:</p>
-<div class="cmd"><div class="cmd-bar"><button type="button" class="btn" data-copy="cmd-update">Copy</button></div>
-<pre tabindex="0"><code id="cmd-update">sudo apt update &amp;&amp; sudo apt upgrade</code></pre></div>
+<div class="cmd"><pre tabindex="0"><code id="cmd-update">sudo apt update &amp;&amp; sudo apt upgrade</code></pre><button type="button" class="copy" data-copy="cmd-update" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
 <h3>Uninstall</h3>
-<div class="cmd"><div class="cmd-bar"><button type="button" class="btn" data-copy="cmd-remove">Copy</button></div>
-<pre tabindex="0"><code id="cmd-remove">sudo apt remove aslcp   # keeps users and favorites
-sudo apt purge aslcp    # also deletes them</code></pre></div>
+<div class="cmd"><pre tabindex="0"><code id="cmd-remove">sudo apt remove aslcp   # keeps users and favorites
+sudo apt purge aslcp    # also deletes them</code></pre><button type="button" class="copy" data-copy="cmd-remove" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
 <p><code>apt purge</code> also deletes the config history and ASLCP's DVSwitch state (which holds copies of the DVSwitch passwords). Your Asterisk config and DVSwitch itself stay. Uninstall DVSwitch from its page first if you want it gone too.</p>
 </section>
 
 <section class="card" aria-labelledby="h-manual">
 <h2 id="h-manual">Manual apt setup</h2>
 <p>Prefer not to pipe a script? Add the signed repository yourself:</p>
-<div class="cmd"><div class="cmd-bar"><button type="button" class="btn" data-copy="cmd-manual">Copy</button></div>
-<pre tabindex="0"><code id="cmd-manual">sudo curl -fsSL -o /usr/share/keyrings/aslcp-archive-keyring.gpg @APT_URL@/aslcp-archive-keyring.gpg
+<div class="cmd"><pre tabindex="0"><code id="cmd-manual">sudo curl -fsSL -o /usr/share/keyrings/aslcp-archive-keyring.gpg @APT_URL@/aslcp-archive-keyring.gpg
 echo "deb [signed-by=/usr/share/keyrings/aslcp-archive-keyring.gpg] @APT_URL@ stable main" | sudo tee /etc/apt/sources.list.d/aslcp.list
-sudo apt update &amp;&amp; sudo apt install aslcp</code></pre></div>
+sudo apt update &amp;&amp; sudo apt install aslcp</code></pre><button type="button" class="copy" data-copy="cmd-manual" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
 <p>Signing key fingerprint: <code>@FPR@</code> (<a href="aslcp-archive-keyring.asc">armored key</a>)</p>
 <h3>Beta channel</h3>
 <p>Every new version goes to the <code>beta</code> suite as soon as it is built. It becomes a release (suite <code>stable</code>) when it is promoted after testing: the same package, not a rebuild. The <code>beta</code> suite also carries every release, so beta users are never behind. Betas may be less stable.</p>
 <p>To use it, put <code>beta</code> instead of <code>stable</code> in the line above:</p>
-<div class="cmd"><div class="cmd-bar"><button type="button" class="btn" data-copy="cmd-beta">Copy</button></div>
-<pre tabindex="0"><code id="cmd-beta">echo "deb [signed-by=/usr/share/keyrings/aslcp-archive-keyring.gpg] @APT_URL@ beta main" | sudo tee /etc/apt/sources.list.d/aslcp.list</code></pre></div>
+<div class="cmd"><pre tabindex="0"><code id="cmd-beta">echo "deb [signed-by=/usr/share/keyrings/aslcp-archive-keyring.gpg] @APT_URL@ beta main" | sudo tee /etc/apt/sources.list.d/aslcp.list</code></pre><button type="button" class="copy" data-copy="cmd-beta" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
 <p>Or install with <code>ASLCP_CHANNEL=beta</code> (see the options above), or switch in Settings &rarr; Updates in the web UI. It is the same setting: it changes the suite in <code>/etc/apt/sources.list.d/aslcp.list</code>. Going back to <code>stable</code> does not downgrade: the node stays on the installed version until a release newer than it is promoted.</p>
 </section>
 </main>
@@ -548,22 +547,22 @@ sudo apt update &amp;&amp; sudo apt install aslcp</code></pre></div>
   }
   var btns = document.querySelectorAll("[data-copy]");
   Array.prototype.forEach.call(btns, function (b) {
+    b.hidden = false;
     b.addEventListener("click", function () {
       var el = document.getElementById(b.getAttribute("data-copy"));
       if (!el) return;
-      copyText(el).then(function () { flash(b, "Copied", "Copied to clipboard", true); },
-        function () { flash(b, "Press Ctrl+C", "Copy failed, the command is selected: press Ctrl+C", false); });
+      copyText(el).then(function () { flash(b, "done", "Copied to clipboard"); },
+        function () { flash(b, "fail", "Copy failed, the command is selected: press Ctrl+C"); });
     });
   });
-  function flash(b, label, say, good) {
-    var old = b.getAttribute("data-label") || b.textContent;
-    b.setAttribute("data-label", old);
-    b.textContent = label;
-    if (good) b.classList.add("done");
+  function flash(b, cls, say) {
+    b.classList.remove("done", "fail");
+    b.classList.add(cls);
+    b.title = cls === "done" ? "Copied" : "Press Ctrl+C";
     live.textContent = "";
     setTimeout(function () { live.textContent = say; }, 30);
     clearTimeout(b._t);
-    b._t = setTimeout(function () { b.textContent = old; b.classList.remove("done"); }, 2000);
+    b._t = setTimeout(function () { b.classList.remove("done", "fail"); b.title = "Copy"; }, 2000);
   }
 
   var wiz = document.getElementById("wizard"), stat = document.getElementById("params-static");
