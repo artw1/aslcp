@@ -23,6 +23,13 @@ type SysRequest struct {
 	Unit     string `json:"unit,omitempty"`     // logs-read
 	Lines    int    `json:"lines,omitempty"`    // logs-read
 	Since    string `json:"since,omitempty"`    // logs-read
+
+	// svc-set (sys_svc.go): scope and action are checked against fixed sets.
+	SvcScope    string `json:"svcScope,omitempty"`
+	SvcAction   string `json:"svcAction,omitempty"`
+	SvcFirewall bool   `json:"svcFirewall,omitempty"`
+	// web-port-set (sys_webport.go): one of the WebPortAction* constants.
+	WebPortAction string `json:"webPortAction,omitempty"`
 }
 
 type sysHandler func(o *Ops, ctx context.Context, req *SysRequest) (any, error)

@@ -17,6 +17,8 @@ export const sections: SystemSection[] = [
   { id: 'updates', label: 'Updates', load: () => import('./Updates.svelte') },
   { id: 'network', label: 'Network', load: () => import('./Network.svelte') },
   { id: 'logs', label: 'Logs & services', load: () => import('./LogsServices.svelte') },
+  { id: 'asl-services', label: 'ASL services', title: 'ASL web services', load: () => import('./AslServices.svelte') },
+  { id: 'web-port', label: 'Web port', title: 'Web port of ASLCP', load: () => import('./WebPort.svelte') },
   { id: 'audit', label: 'Audit log', load: () => import('./AuditLog.svelte') },
 ];
 

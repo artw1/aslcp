@@ -44,7 +44,7 @@ if [ -n "$PORT_WANT" ]; then
 	esac
 	{ [ "${#PORT_WANT}" -le 5 ] && [ "$PORT_WANT" -le 65535 ]; } || die "ASLCP_PORT must be a number from 1024 to 65535 (got '$PORT_WANT')"
 	# The service runs without capabilities, so it cannot listen below 1024
-	# (port 80: docs/PORT80.md).
+	# (ASLCP can move itself to port 80 later: System tab, Web port).
 	[ "$PORT_WANT" -ge 1024 ] || die "ASLCP_PORT must be 1024 or higher: ASLCP runs without privileges and cannot listen on port $PORT_WANT (got '$PORT_WANT')"
 fi
 

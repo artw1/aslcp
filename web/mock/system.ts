@@ -1,3 +1,4 @@
+import { handleSvc } from './system_svc.ts';
 // In-memory System tab for `npm run dev:mock` (docs/API.md "System"). Dev only.
 type Ctx = {
   m: string; p: string; url: URL; body: any; user: { username: string; role: string } | undefined;
@@ -14,6 +15,7 @@ const status = () => { const d = new Date(); return { ...host, now: d.toISOStrin
 
 export function handleSystem(c: Ctx): boolean {
   const { m, p } = c;
+  if (handleSvc(c)) return true;
   if (!p.startsWith('/system/') && p !== '/audit') return false;
   const known = ['/system/host', '/system/timezones', '/system/poweroff', '/system/logs', '/system/services', '/system/network', '/audit'];
   if (!known.includes(p)) return false;

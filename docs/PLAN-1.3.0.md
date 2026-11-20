@@ -393,7 +393,7 @@ Each step is its own `try/*` branch and its own 1.3.x release. Each release is t
 | # | Branch (proposed) | Contents |
 |---|---|---|
 | 1 | `try/system-tab` | **1.3.0** System tab shell, Updates move and redirect, hostname and time, logs and services, network status, audit viewer |
-| 2 | `try/system-services-port80` | **1.3.1** ASL services switch, move to port 80, purge record and `postrm.sh` |
+| 2 | `try/system-services-port80` | **1.3.1** ASL services switch, move to port 80, purge record and `postrm.sh`. Status: built on `try/1.3.1`, not yet run on a real node. |
 | 3 | `try/system-wifi` | **1.3.2** WiFi manager, hotspot fallback, watchdog |
 | 4 | `try/system-terminal` | **1.3.3** Terminal (WebSocket, xterm.js, helper PTY) |
 | 5 | `try/system-diagnostics` | **1.3.4** Diagnostics bundle |
@@ -445,6 +445,16 @@ Manual, on a Pi with WiFi (and one with only Ethernet, and one without NetworkMa
 
 ### Still open
 
-Only the **to verify** items, which stay where they are: WiFi and timezone tooling on the image, Cockpit module list, `cockpit-wifimanager` priority property, NetworkManager hotspot settings and firewalld zone (9.3), hotspot subnet, `chrony` or `systemd-timesyncd`, `resolvectl`, Safari WebSocket under the CSP.
+From 1.3.1 (built, never run on a real node), to verify on a Pi with the ASL3 image:
+
+- `systemctl show` on the real image: is `cockpit.service` reported `static`, is `cockpit.socket` `enabled`, and does `disable --now cockpit.socket` leave nothing listening on 9090.
+- `apache2` on the image is the unit `apache2.service` and `disable --now` closes 80 and 443; `allmon3` closes 16080 and 16700+ (`ss -ltnH` output shape, IPv6 `[::]` and `*` columns).
+- firewalld service names `cockpit`, `http` and `https` exist in the node's zone, and the permanent list query matches what a `--reload` makes live.
+- Port 80 move: `AmbientCapabilities` in the drop-in with `NoNewPrivileges=yes` really lets the `aslcp` user bind 80; `systemd-run --on-active` as a transient timer survives `aslcp.service` and the helper restarting; the 60 s revert gives enough time on a Pi 3 (restart plus page load).
+- The browser keeps its session across ports (cookies are not port-scoped) so the new page can confirm the move; the page's CSP forbids probing the new origin, so the UI only watches the old address come back.
+- `apt purge aslcp` on a node where ASLCP turned off Apache, Cockpit and Allmon3: all three come back and the drop-in is gone.
+- An `apt upgrade` of ASL3 packages leaves a disabled service disabled.
+
+Other **to verify** items, which stay where they are: WiFi and timezone tooling on the image, Cockpit module list, `cockpit-wifimanager` priority property, NetworkManager hotspot settings and firewalld zone (9.3), hotspot subnet, `chrony` or `systemd-timesyncd`, `resolvectl`, Safari WebSocket under the CSP.
 
 Examples in this document use placeholders: callsign N0CALL, node 2001, hostname `node2001`, address `192.0.2.10`.

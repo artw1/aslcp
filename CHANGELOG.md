@@ -3,6 +3,17 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [1.3.1] - 2026-11-20
+
+### Added
+- **System, ASL services**: turn Cockpit, Apache and Allmon3 off or back on with one switch each, with a confirmation that says what you lose. Services are only stopped and disabled, never uninstalled. Turning Apache off offers to turn Allmon3 off too, because Allmon3 answers on ports 16080 and 16700+ on every address even without Apache. You can also close or reopen the matching firewalld services. The section shows which of ports 80, 443, 9090, 16080 and 16700+ are really listening.
+- **System, Web port**: move ASLCP to port 80 (and back) from the web UI. It is offered only when port 80 is free, so Apache has to be off first. The page shows the new address; if the new address is not opened within 60 seconds, ASLCP goes back to its old port by itself. The old port is not kept open.
+- Turning Apache back on is refused while ASLCP uses port 80, with a button to move ASLCP back.
+- These changes are recorded in the audit log.
+
+### Changed
+- `apt purge aslcp` turns back on the services ASLCP turned off (and only those) and removes the port 80 drop-in. `apt remove` leaves everything as it is.
+
 ## [1.3.0] - 2026-11-20
 
 ### Added

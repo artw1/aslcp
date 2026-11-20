@@ -80,7 +80,15 @@ ASLCP listens on TCP port 8080 by default. To pick another port when installing,
 curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_PORT=8181 sh
 ```
 
-The installer writes it to `listen` in `/etc/aslcp/aslcp.conf` (`listen = :8181`, or `listen = 192.0.2.10:8181` to bind one address), restarts ASLCP and warns if another program already uses the port. To change it later, rerun the installer the same way, or edit `listen` and run `sudo systemctl restart aslcp`. Ports below 1024 need a systemd override granting `CAP_NET_BIND_SERVICE`.
+The installer writes it to `listen` in `/etc/aslcp/aslcp.conf` (`listen = :8181`, or `listen = 192.0.2.10:8181` to bind one address), restarts ASLCP and warns if another program already uses the port. To change it later, rerun the installer the same way, or edit `listen` and run `sudo systemctl restart aslcp`. Ports below 1024 need a systemd drop-in granting `CAP_NET_BIND_SERVICE`; for port 80 let ASLCP write it for you (below).
+
+#### Port 80
+
+Administrators can move ASLCP to port 80 in **System, Web port**, so the panel answers on `http://<your-node>/`. Port 80 must be free: if Apache runs, turn it off first in **System, ASL services**. The move writes a systemd drop-in (`/etc/systemd/system/aslcp.service.d/port80.conf`) and changes `listen`, then restarts ASLCP. The page shows the new address; open it within 60 seconds to confirm. If you do not, ASLCP goes back to its old port by itself, so you cannot lock yourself out. The old port is closed after the move (old bookmarks stop working), and **Move back** undoes it. While ASLCP is on port 80, Apache cannot be turned back on.
+
+### ASL services (Cockpit, Apache, Allmon3)
+
+**System, ASL services** has one switch each for Cockpit, Apache and Allmon3. A switch only stops and disables the service (`systemctl disable --now`); nothing is uninstalled, so the ASL3 Pi appliance package keeps working, and turning it on again is one click. ASLCP asks first and says what you lose (Cockpit is a fallback terminal and WiFi settings if ASLCP ever breaks: keep it until you are sure SSH works). Turning Apache off offers to turn Allmon3 off too, because Allmon3 answers on ports 16080 and 16700+ on every address even without Apache. The page lists which of ports 80, 443, 9090, 16080 and 16700+ are really listening, and can close or reopen the matching firewalld services. ASLCP never touches these services during an install or update. `apt purge aslcp` turns back on the services ASLCP itself had turned off (and no others); `apt remove` leaves everything as it is.
 
 ### Firewall
 

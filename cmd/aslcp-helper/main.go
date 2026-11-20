@@ -36,6 +36,10 @@ func main() {
 	if len(os.Args) == 3 && os.Args[1] == "dvswitch-step" {
 		os.Exit(runStep(os.Args[2]))
 	}
+	// The port 80 revert timer (internal/helper/sys_webport.go).
+	if len(os.Args) == 2 && os.Args[1] == "web-port-guard" {
+		os.Exit(runGuard())
+	}
 	listen := flag.String("listen", "", "listen on this unix socket path instead of using systemd socket activation (testing)")
 	var allow uidList
 	flag.Var(&allow, "allow-uid", "additionally allow this uid (testing; repeatable)")
@@ -80,6 +84,20 @@ func runStep(phase string) int {
 	}
 	if err := helper.NewOps().RunDVSwitchStep(context.Background(), phase, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stdout, "error:", err)
+		return 1
+	}
+	return 0
+}
+
+// runGuard is the step of the transient revert timer started by the move to
+// port 80: it undoes the move when nobody confirmed the new address.
+func runGuard() int {
+	if os.Geteuid() != 0 {
+		fmt.Fprintln(os.Stderr, "web-port-guard must run as root")
+		return 1
+	}
+	if err := helper.NewOps().WebPortGuard(context.Background()); err != nil {
+		fmt.Fprintln(os.Stderr, "web-port-guard:", err)
 		return 1
 	}
 	return 0

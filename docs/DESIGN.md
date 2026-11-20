@@ -76,7 +76,7 @@ Allow/deny lists live in AstDB and are managed through AMI database actions (UI 
 - CSRF protection on all state-changing requests (custom header plus Origin check).
 - Login rate limiting.
 - Optional HTTPS: a self-signed certificate generated at install, or a user-supplied certificate.
-- Default port 8080, configurable, so ASLCP coexists with Allmon3 and Cockpit. The optional public status page is served on the same port without login (section 9.3).
+- Default port 8080, configurable, so ASLCP coexists with Allmon3 and Cockpit. With Apache off, the System tab can move ASLCP to port 80 (a systemd drop-in with `CAP_NET_BIND_SERVICE`, a 60 s revert timer if the new address is not opened) and the ASL services switch can stop and disable Cockpit, Apache and Allmon3 (never uninstall). The optional public status page is served on the same port without login (section 9.3).
 
 ### 3.4 Privilege separation
 

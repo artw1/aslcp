@@ -54,6 +54,9 @@ type Ops struct {
 	AslcpConf  string    // default DefaultAslcpConf (restored; read for the web port)
 	ResolvConf string    // default DefaultResolvConf (net-status)
 	OSRelease  string    // default DefaultOSRelease
+	// Svc holds the paths and timing of the services switch and the port 80
+	// move (sys_svc.go, sys_webport.go); the zero value means the defaults.
+	Svc SvcPaths
 	// TempDir is where an uploaded archive is staged during a restore
 	// (default /var/tmp).
 	TempDir string

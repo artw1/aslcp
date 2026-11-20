@@ -1,0 +1,31 @@
+Id=cockpit.socket
+Description=Cockpit Web Service Socket
+LoadState=loaded
+ActiveState=active
+SubState=listening
+UnitFileState=enabled
+ActiveEnterTimestamp=Fri 2026-11-20 08:00:01 CST
+
+Id=cockpit.service
+Description=Cockpit Web Service
+LoadState=loaded
+ActiveState=inactive
+SubState=dead
+UnitFileState=static
+ActiveEnterTimestamp=
+
+Id=apache2.service
+Description=The Apache HTTP Server
+LoadState=loaded
+ActiveState=active
+SubState=running
+UnitFileState=enabled
+ActiveEnterTimestamp=Fri 2026-11-20 08:00:02 CST
+
+Id=allmon3.service
+Description=Allmon3 web dashboard
+LoadState=loaded
+ActiveState=active
+SubState=running
+UnitFileState=enabled
+ActiveEnterTimestamp=Fri 2026-11-20 08:00:03 CST

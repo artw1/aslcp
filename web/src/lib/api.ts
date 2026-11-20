@@ -1,4 +1,5 @@
 import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVBMReq, DVSwitchRestartResult, DVDMRStatus, DVRestartScope, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, DVInfoInput, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage } from './types';
+import type { SvcStatus, SvcSetResult, WebPortStatus } from './svcweb';
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public body?: Record<string, unknown>) { super(message); }
@@ -145,6 +146,10 @@ export const api = {
   sysLogs: (unit: string, lines: number, since: string) => req<SysLogs>('GET', `/system/logs?unit=${q(unit)}&lines=${lines}${since ? '&since=' + q(since) : ''}`),
   sysServices: () => req<SysServices>('GET', '/system/services'),
   sysNetwork: () => req<SysNetwork>('GET', '/system/network'),
+  svcStatus: () => req<SvcStatus>('GET', '/system/asl-services'),
+  svcSet: (scope: string, action: 'enable' | 'disable', firewall: boolean) => req<SvcSetResult>('PUT', `/system/asl-services/${q(scope)}`, { action, firewall }),
+  webPort: () => req<WebPortStatus>('GET', '/system/web-port'),
+  setWebPort: (action: 'move' | 'back' | 'confirm') => req<WebPortStatus>('PUT', '/system/web-port', { action }),
   audit: (o: { before?: number; limit?: number; user?: string; action?: string } = {}) => req<AuditPage>('GET', `/audit?limit=${o.limit ?? 50}${o.before ? '&before=' + o.before : ''}${o.user ? '&user=' + q(o.user) : ''}${o.action ? '&action=' + q(o.action) : ''}`),
   restartAslcp: () => req<{ ok: boolean }>('POST', '/system/restart-aslcp'),
   dvswitch: () => req<DVSwitchStatus>('GET', '/dvswitch'),
