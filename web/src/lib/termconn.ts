@@ -1,6 +1,6 @@
 // Pure helpers for the browser terminal (System > Terminal). The wire format
 // is in docs/API.md: binary WebSocket messages are keyboard input going out
-// and program output coming in; the one text message is a JSON resize.
+// and program output coming in; the text messages are JSON: resize and end.
 
 export interface Loc { protocol: string; host: string }
 
@@ -19,6 +19,11 @@ export function resizeMsg(rows: number, cols: number): string {
   return JSON.stringify({ type: 'resize', rows: c(rows), cols: c(cols) });
 }
 
+/** The text message that ends the session for good (Disconnect, closing the page). */
+export function endMsg(): string {
+  return JSON.stringify({ type: 'end' });
+}
+
 /** Why a session ended, in words (the close reason sent by the server). */
 export function endText(reason: string): string {
   switch (reason) {
@@ -26,7 +31,9 @@ export function endText(reason: string): string {
     case 'limit': return 'Closed at the maximum session length.';
     case 'disabled': return 'The terminal was turned off.';
     case 'logout': return 'Closed because you were logged out.';
-    case 'error': return 'The connection to the helper failed.';
+    case 'admin-ended': return 'An administrator ended this session.';
+    case 'detach':
+    case 'error': return 'The connection was lost. The session keeps running for a short while: reattach from the list below.';
     default: return 'Session closed.';
   }
 }

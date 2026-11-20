@@ -45,6 +45,7 @@ type ticketStore struct {
 type ticketInfo struct {
 	user    int64
 	session string // hash of the session token
+	target  string // id of the detached session to reattach to ("": a new one)
 	expires time.Time
 }
 
@@ -75,6 +76,11 @@ func ticketKey(tok string) string {
 
 // issue returns a new ticket for user and session.
 func (t *ticketStore) issue(user int64, session string) (string, error) {
+	return t.issueFor(user, session, "")
+}
+
+// issueFor is issue for reattaching to the session target.
+func (t *ticketStore) issueFor(user int64, session, target string) (string, error) {
 	b := make([]byte, 24)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -94,7 +100,7 @@ func (t *ticketStore) issue(user int64, session string) (string, error) {
 	if len(t.m) >= maxTickets {
 		return "", errTooManyTickets
 	}
-	t.m[ticketKey(tok)] = ticketInfo{user: user, session: session, expires: now.Add(t.lifetime())}
+	t.m[ticketKey(tok)] = ticketInfo{user: user, session: session, target: target, expires: now.Add(t.lifetime())}
 	return tok, nil
 }
 
@@ -102,8 +108,15 @@ func (t *ticketStore) issue(user int64, session string) (string, error) {
 // wrong guess burns it; it succeeds only before it expires and only for the
 // user and session it was issued to.
 func (t *ticketStore) redeem(tok string, user int64, session string) bool {
+	_, ok := t.redeemFor(tok, user, session)
+	return ok
+}
+
+// redeemFor is redeem and also returns the session the ticket is for ("" for
+// a new one).
+func (t *ticketStore) redeemFor(tok string, user int64, session string) (string, bool) {
 	if tok == "" {
-		return false
+		return "", false
 	}
 	k := ticketKey(tok)
 	t.mu.Lock()
@@ -111,9 +124,12 @@ func (t *ticketStore) redeem(tok string, user int64, session string) bool {
 	delete(t.m, k)
 	t.mu.Unlock()
 	if !ok || !t.clock().Before(v.expires) {
-		return false
+		return "", false
 	}
-	return v.user == user && subtle.ConstantTimeCompare([]byte(v.session), []byte(session)) == 1
+	if v.user != user || subtle.ConstantTimeCompare([]byte(v.session), []byte(session)) != 1 {
+		return "", false
+	}
+	return v.target, true
 }
 
 // terminalExpiry says whether a session has to end now: "idle" when no
@@ -132,6 +148,8 @@ func terminalExpiry(now, started, lastInput time.Time, idle, maxLen time.Duratio
 // termSession is one open terminal as the registry sees it.
 type termSession struct {
 	started   time.Time
+	owner     int64
+	id        string       // the helper's session id, once known
 	lastInput atomic.Int64 // unix nanoseconds of the last keyboard input
 	reason    atomic.Value // string: why it ended, set once by end
 	cancel    func()
@@ -151,6 +169,22 @@ func (s *termSession) endReason() string {
 	}
 	return "closed"
 }
+
+func (s *termSession) setID(id string) {
+	s.mu.Lock()
+	s.id = id
+	s.mu.Unlock()
+}
+
+func (s *termSession) sessionID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.id
+}
+
+// detachReasons are the end reasons that mean the transport was lost rather
+// than anybody ending the session: the session is detached, not stopped.
+func isDetachReason(r string) bool { return r == "detach" || r == "error" }
 
 func (s *termSession) setLinuxUser(u string) {
 	s.mu.Lock()
@@ -216,19 +250,20 @@ func (t *termState) interval() time.Duration {
 }
 
 // reserve registers a session unless the limit of concurrent sessions is
-// reached.
-func (t *termState) reserve(cancel func()) (*termSession, bool) {
+// reached; extra counts sessions the helper holds that are not attached (they
+// count against the limit too).
+func (t *termState) reserve(cancel func(), owner int64, extra int) (*termSession, bool) {
 	maxLive, _, _ := t.limits()
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if len(t.live) >= maxLive {
+	if len(t.live)+extra >= maxLive {
 		return nil, false
 	}
 	if t.live == nil {
 		t.live = map[*termSession]struct{}{}
 	}
 	now := t.clock()
-	s := &termSession{started: now, cancel: cancel}
+	s := &termSession{started: now, owner: owner, cancel: cancel}
 	s.lastInput.Store(now.UnixNano())
 	t.live[s] = struct{}{}
 	return s, true
@@ -238,6 +273,18 @@ func (t *termState) release(s *termSession) {
 	t.mu.Lock()
 	delete(t.live, s)
 	t.mu.Unlock()
+}
+
+// liveByID returns the attached session with the helper's id, or nil.
+func (t *termState) liveByID(id string) *termSession {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for s := range t.live {
+		if s.sessionID() == id {
+			return s
+		}
+	}
+	return nil
 }
 
 func (t *termState) count() int {

@@ -213,6 +213,7 @@ func (s *Server) SetCommandGap(d time.Duration) { s.rpt.MinGap = d }
 func (s *Server) Run(ctx context.Context) {
 	go s.systemLoop(ctx)
 	go s.rec.Run(ctx)
+	go s.terminalLoop(ctx)
 	if s.d.FavStats != nil {
 		go s.d.FavStats.Run(ctx)
 	}

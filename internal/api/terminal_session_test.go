@@ -174,20 +174,20 @@ func TestCleanLinuxUser(t *testing.T) {
 func TestTermStateLimit(t *testing.T) {
 	var ts termState
 	ts.maxLive = 2
-	a, ok1 := ts.reserve(func() {})
-	_, ok2 := ts.reserve(func() {})
-	_, ok3 := ts.reserve(func() {})
+	a, ok1 := ts.reserve(func() {}, 0, 0)
+	_, ok2 := ts.reserve(func() {}, 0, 0)
+	_, ok3 := ts.reserve(func() {}, 0, 0)
 	if !ok1 || !ok2 || ok3 {
 		t.Fatalf("%v %v %v", ok1, ok2, ok3)
 	}
 	ts.release(a)
-	if _, ok := ts.reserve(func() {}); !ok {
+	if _, ok := ts.reserve(func() {}, 0, 0); !ok {
 		t.Fatal("slot not freed")
 	}
 	// endAll cancels everyone with the reason
 	var got []string
 	var s2 termState
-	s2.reserve(func() { got = append(got, "x") })
+	s2.reserve(func() { got = append(got, "x") }, 0, 0)
 	s2.endAll("disabled")
 	if len(got) != 1 {
 		t.Fatalf("%v", got)

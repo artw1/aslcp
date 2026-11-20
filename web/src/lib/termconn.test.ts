@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { wsURL, resizeMsg, endText, mockSession } from './termconn.ts';
+import { wsURL, resizeMsg, endMsg, endText, mockSession } from './termconn.ts';
 
 test('wsURL picks the scheme and encodes the ticket', () => {
   assert.equal(wsURL({ protocol: 'https:', host: 'node2001.local' }, 'ab+c', 24, 80), 'wss://node2001.local/api/system/terminal/ws?ticket=ab%2Bc&rows=24&cols=80');
@@ -13,9 +13,15 @@ test('resizeMsg is bounded JSON', () => {
   assert.deepEqual(JSON.parse(resizeMsg(0, 9999)), { type: 'resize', rows: 1, cols: 500 });
 });
 
+test('endMsg is the explicit end', () => {
+  assert.deepEqual(JSON.parse(endMsg()), { type: 'end' });
+});
+
 test('endText covers the server reasons', () => {
-  for (const r of ['idle', 'limit', 'disabled', 'logout', 'error', 'closed', 'whatever']) assert.ok(endText(r).length > 5);
+  for (const r of ['idle', 'limit', 'disabled', 'logout', 'error', 'detach', 'admin-ended', 'closed', 'whatever']) assert.ok(endText(r).length > 5);
   assert.match(endText('idle'), /15 minutes/);
+  assert.match(endText('admin-ended'), /administrator/);
+  assert.match(endText('detach'), /reattach/);
 });
 
 test('mockSession echoes printable input only', () => {

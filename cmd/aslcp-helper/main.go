@@ -36,6 +36,11 @@ func main() {
 	if len(os.Args) == 3 && os.Args[1] == "dvswitch-step" {
 		os.Exit(runStep(os.Args[2]))
 	}
+	// The session host of the browser terminal runs as the main process of
+	// its own transient unit (internal/helper/termhost.go).
+	if len(os.Args) >= 2 && os.Args[1] == "term-host" {
+		os.Exit(helper.RunTermHost(os.Args[2:]))
+	}
 	listen := flag.String("listen", "", "listen on this unix socket path instead of using systemd socket activation (testing)")
 	var allow uidList
 	flag.Var(&allow, "allow-uid", "additionally allow this uid (testing; repeatable)")

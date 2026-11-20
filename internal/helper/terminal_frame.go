@@ -20,6 +20,10 @@ const (
 	// FrameUser carries the Linux user name once login has authenticated it
 	// (helper to web server only, at most once). Unknown: never sent.
 	FrameUser byte = 2
+	// FrameEnd asks for the session to be ended (empty payload; client to
+	// helper, and helper to term-host). A stream that just closes is a
+	// transport loss and only detaches the session.
+	FrameEnd byte = 3
 )
 
 // MaxFramePayload is the largest payload of one frame (two byte length).
@@ -115,7 +119,7 @@ func ReadFrame(r io.Reader) (typ byte, payload []byte, err error) {
 		return 0, nil, err
 	}
 	typ = h[0]
-	if typ != FrameData && typ != FrameResize && typ != FrameUser {
+	if typ != FrameData && typ != FrameResize && typ != FrameUser && typ != FrameEnd {
 		return 0, nil, fmt.Errorf("%w: type %d", ErrBadFrame, typ)
 	}
 	n := int(binary.BigEndian.Uint16(h[1:3]))
