@@ -3,7 +3,7 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
-## [Unreleased]
+## [1.2.3] - 2026-11-20
 
 ### Changed
 - Installer: it no longer asks for the administrator account in the terminal. It prints a one-time setup link instead, which opens the first-run page where you can create the administrator or restore a backup from an existing node.
