@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { wsURL, resizeMsg, endMsg, endText, mockSession } from './termconn.ts';
+import { wsURL, resizeMsg, endMsg, endText, mockSession, newSessionId, resumeAction } from './termconn.ts';
+
+const row = (id: string, mine: boolean, attached: boolean) => ({ id, owner: 'admin', mine, started: 1, attached });
 
 test('wsURL picks the scheme and encodes the ticket', () => {
   assert.equal(wsURL({ protocol: 'https:', host: 'node2001.local' }, 'ab+c', 24, 80), 'wss://node2001.local/api/system/terminal/ws?ticket=ab%2Bc&rows=24&cols=80');
@@ -36,4 +38,19 @@ test('mockSession echoes printable input only', () => {
   got = '';
   s.send(new Uint8Array([13]));
   assert.match(got, /Login incorrect/);
+});
+
+test('newSessionId names the one new attached session of mine', () => {
+  const l = [row('a', true, false), row('b', true, true), row('c', false, true)];
+  assert.equal(newSessionId(['a'], l), 'b');
+  assert.equal(newSessionId(['a', 'b'], l), '');
+  assert.equal(newSessionId([], [row('b', true, true), row('d', true, true)]), '');
+});
+
+test('resumeAction decides what a reload does with the remembered session', () => {
+  assert.equal(resumeAction('', [row('a', true, false)]), 'none');
+  assert.equal(resumeAction('a', [row('a', true, false)]), 'attach');
+  assert.equal(resumeAction('a', [row('a', true, true)]), 'wait');
+  assert.equal(resumeAction('a', [row('a', false, false)]), 'clear');
+  assert.equal(resumeAction('a', []), 'clear');
 });

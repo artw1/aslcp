@@ -3,7 +3,7 @@
   import { onDestroy } from 'svelte';
   import { api } from '../../lib/api';
   import { toast, toastError } from '../../lib/toast.svelte';
-  import { wsURL, resizeMsg, endMsg, endText, mockSession } from '../../lib/termconn';
+  import { wsURL, resizeMsg, endMsg, endText, mockSession, newSessionId, resumeAction, SESSION_KEY } from '../../lib/termconn';
   import type { TerminalStatus, TerminalSessionInfo } from '../../lib/types';
   import Toggle from '../Toggle.svelte';
 
@@ -21,11 +21,64 @@
   async function load() {
     try { st = await api.terminal(); err = ''; } catch (e) { err = e instanceof Error ? e.message : String(e); }
   }
+  // One fetch at a time: a call during a fetch asks for one more run after it,
+  // so the newest answer wins and requests never pile up.
+  let inflight = false, again = false, loaded = $state(false);
   async function loadSessions() {
-    try { sessions = (await api.terminalSessions()).sessions; } catch { sessions = []; }
+    if (inflight) { again = true; return; }
+    inflight = true;
+    try { sessions = (await api.terminalSessions()).sessions; loaded = true; } catch { sessions = []; } finally { inflight = false; }
+    if (again) { again = false; loadSessions(); }
   }
   $effect(() => { load(); });
   $effect(() => { if (st?.enabled && st.available) loadSessions(); else sessions = []; });
+
+  // Keep the list current while nothing is open here: sessions detach and end
+  // on the server (a restart of the helper, another tab, another administrator).
+  // A tick is skipped while a fetch is running.
+  const POLL_MS = 5000;
+  const live = $derived(!!(st?.enabled && st.available) && phase !== 'open' && phase !== 'connecting');
+  let visible = $state(typeof document === 'undefined' || document.visibilityState === 'visible');
+  $effect(() => {
+    if (!live || !visible) return;
+    const t = setInterval(() => { if (!inflight) { loadSessions(); load(); } }, POLL_MS);
+    return () => clearInterval(t);
+  });
+  function onVisibility() {
+    visible = document.visibilityState === 'visible';
+    if (visible && live) { loadSessions(); load(); }
+  }
+  // The session of this tab survives a reload: its id is kept in sessionStorage
+  // (per tab) and reattached on load, once the old page has detached.
+  const saved = (): string => { try { return sessionStorage.getItem(SESSION_KEY) ?? ''; } catch { return ''; } };
+  const save = (id: string) => { try { if (id) sessionStorage.setItem(SESSION_KEY, id); else sessionStorage.removeItem(SESSION_KEY); } catch { /* no storage */ } };
+  let resumed = false, tries = 0;
+  $effect(() => {
+    if (resumed || !loaded || !st?.enabled || !st.available) return;
+    const id = saved(), a = resumeAction(id, sessions);
+    if (a === 'attach') { resumed = true; start(id); }
+    else if (a === 'none' || a === 'clear' || tries >= 3) { resumed = true; save(''); }
+    else {
+      // Still shown as open in a window: the old page may not be detached yet.
+      const t = setTimeout(() => { tries++; loadSessions(); }, 1000);
+      return () => clearTimeout(t);
+    }
+  });
+  // A new session has no id on the client yet: it is the one that appears as mine and open.
+  async function remember(before: string[], sock: WebSocket) {
+    for (const ms of [300, 1200, 3000]) {
+      await new Promise((r) => setTimeout(r, ms));
+      if (ws !== sock) return;
+      try { const id = newSessionId(before, (await api.terminalSessions()).sessions); if (id) { save(id); return; } } catch { /* try again */ }
+    }
+  }
+  // The server may mark the session detached just after the connection drops, so
+  // look again a little later; Reattach then shows up without waiting for a tick.
+  let late: ReturnType<typeof setTimeout>[] = [], gone = false;
+  function refreshSoon() {
+    late.forEach(clearTimeout);
+    late = [1500, 4000].map((ms) => setTimeout(() => { loadSessions(); load(); }, ms));
+  }
 
   async function toggle(on: boolean) {
     busy = true;
@@ -40,6 +93,7 @@
   // end: tell the server to end the session for good (Disconnect, closing the
   // page). Without it the session is only detached and keeps running.
   function stop(end = true) {
+    if (end) save('');
     const w = ws; ws = null;
     if (w) {
       w.onclose = null;
@@ -49,10 +103,12 @@
     cleanup();
     if (phase === 'open' || phase === 'connecting') { phase = 'idle'; note = ''; }
     loadSessions();
+    if (!gone) refreshSoon();
   }
-  // Leaving this page inside the panel only detaches; the session can be reattached.
-  onDestroy(() => stop(false));
-  function beforeUnload() { stop(true); }
+  // Leaving this page inside the panel, closing or reloading it only detaches; the
+  // session can be reattached (a reload in the same tab does it by itself).
+  onDestroy(() => { gone = true; late.forEach(clearTimeout); stop(false); });
+  function beforeUnload() { stop(false); }
 
   async function start(session?: string) {
     if (phase === 'connecting' || phase === 'open') return;
@@ -78,17 +134,23 @@
       const sock = new WebSocket(wsURL(location, t.ticket, term.rows, term.cols));
       sock.binaryType = 'arraybuffer';
       ws = sock;
-      sock.onopen = () => { phase = 'open'; term?.focus(); };
+      sock.onopen = () => {
+        phase = 'open'; term?.focus();
+        if (session) save(session); else remember(sessions.map((x) => x.id), sock);
+      };
       sock.onmessage = (ev) => { if (ev.data instanceof ArrayBuffer) term?.write(new Uint8Array(ev.data)); };
       sock.onclose = (ev) => {
         if (ws !== sock) return;
         ws = null;
+        // Any end reason except a lost connection means the session is gone.
+        if (ev.reason && ev.reason !== 'detach' && ev.reason !== 'error') save('');
         // Close code 1006 with no reason: the upgrade itself was refused.
         note = ev.reason ? endText(ev.reason) : phase === 'connecting' ? 'Could not open the terminal.' : 'Session closed.';
         phase = 'ended';
         cleanup();
         load();
         loadSessions();
+        refreshSoon();
       };
       term.onData((d) => { if (sock.readyState === WebSocket.OPEN) sock.send(enc.encode(d)); });
       term.onBinary((d) => { if (sock.readyState === WebSocket.OPEN) sock.send(Uint8Array.from(d, (c) => c.charCodeAt(0))); });
@@ -98,6 +160,7 @@
     } catch (e) {
       cleanup();
       phase = 'idle';
+      if (session) save('');
       toastError(e);
       load();
       loadSessions();
@@ -105,13 +168,14 @@
   }
 
   async function endSession(id: string) {
-    try { await api.endTerminalSession(id); toast('Session ended', 'info'); } catch (e) { toastError(e); }
+    try { await api.endTerminalSession(id); if (saved() === id) save(''); toast('Session ended', 'info'); } catch (e) { toastError(e); }
     loadSessions(); load();
   }
   const when = (t: number) => new Date(t * 1000).toLocaleString();
 </script>
 
 <svelte:window onbeforeunload={beforeUnload} />
+<svelte:document onvisibilitychange={onVisibility} />
 
 <section class="card space-y-3 p-4" aria-label="Terminal settings">
   <div class="flex items-center justify-between gap-3">
@@ -129,7 +193,7 @@
     <p class="text-sm text-muted">Not available: the helper on this system has no terminal support.</p>
   {:else}
     <p class="text-xs text-muted">Off by default. Closes after {st.idleMinutes} minutes without typing, at most {st.maxHours} hours, {st.maxSessions} sessions at a time ({st.sessions} open now). Turning it off ends open sessions.</p>
-    <p class="text-xs text-muted">If the page disconnects, the session keeps running for 2 minutes, and for as long as <code>apt</code> or <code>dpkg</code> is running in it, so an ASLCP update typed here finishes safely. Reattach from the list below, or just wait. Disconnect ends the session.</p>
+    <p class="text-xs text-muted">If the page disconnects, the session keeps running for 2 minutes, and for as long as <code>apt</code> or <code>dpkg</code> is running in it, so an ASLCP update typed here finishes safely. Closing or reloading the page only disconnects it too: a reload reattaches by itself, otherwise reattach from the list below, or just wait. The Disconnect button ends the session.</p>
   {/if}
 </section>
 
