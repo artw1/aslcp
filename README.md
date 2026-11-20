@@ -74,7 +74,7 @@ sudo aslcp admin reset-password <user>
 
 ### Web port
 
-ASLCP listens on TCP port 8080 by default. To pick another port when installing, set `ASLCP_PORT` (1-65535):
+ASLCP listens on TCP port 8080 by default. To pick another port when installing, set `ASLCP_PORT` (1024-65535; ASLCP runs without privileges, so lower ports are refused):
 
 ```sh
 curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_PORT=8181 sh

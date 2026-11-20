@@ -29,7 +29,7 @@ Firewall
   If firewalld is running, installing the package opens it: through the
   firewalld service "aslcp" for 8080, as a plain TCP port for any other port.
   Otherwise open the port yourself if you use another firewall.
-  To pick another port: run the installer again with ASLCP_PORT (it also opens
+  To pick another port (1024-65535): run the installer again with ASLCP_PORT (it also opens
   the port in firewalld):
       curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_PORT=8181 sh
   or edit "listen" and run  sudo systemctl restart aslcp , then open the port in
