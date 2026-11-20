@@ -175,7 +175,7 @@ func TestIsPublicIP(t *testing.T) {
 func TestExtractIdentity(t *testing.T) {
 	conf := "[1999]\ncallsign=N0CALL\nidrecording=|iN0CALL/R\nidtalkover=|iN0CALL,|cx\n[general]\n" +
 		"externip=198.51.100.7\nexternhost = node.example.net\nexternaddr=192.0.2.9:5060\nexternip=10.0.0.5\n" +
-		";callsign=W0OLD\ncall=N0CALL-L\ncallsign=not a call\n"
+		";callsign=N0OLD\ncall=N0CALL-L\ncallsign=not a call\n"
 	got := ExtractIdentity(conf)
 	if !reflect.DeepEqual(got.Callsigns, []string{"N0CALL"}) {
 		t.Errorf("callsigns %v", got.Callsigns)
