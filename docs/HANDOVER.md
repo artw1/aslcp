@@ -79,3 +79,5 @@ Released: 0.1.0, 0.1.1, 0.1.2, 0.2.0, 0.2.1, 0.2.2, 0.2.3, 0.2.4, 0.2.5 (verifie
 To try an idea on one node without a release: push it to a branch `try/<name>`. CI builds the debs and attaches them to the run as the artifact `debs-try-<name>-<version>` (kept 14 days); nothing goes to the apt repository or GitHub releases. Untagged builds are versioned `X.Y.Z+dev.N.g<sha>` (N commits after the last release tag `vX.Y.Z`), which sorts above X.Y.Z and below the next release, so the next real release installs over it. Install on the node with `sudo apt install ./aslcp_<version>_<arch>.deb`; go back with `sudo apt install --allow-downgrades aslcp=<release>`. If an experiment changes the database or config format, say so: going back may need care. Keep or drop: merge the branch to `main` (it then ships in the next release) or delete it.
 
 Parked and running experiments, with their status and how to resume: `docs/EXPERIMENTS.md`.
+
+Port 80 and replacing the ASL3 web apps (not decided, to revisit): `docs/PORT80.md`.
