@@ -100,6 +100,7 @@ A modern replacement for public Allmon3/Supermon pages. It is off by default. En
 
 Either of:
 
+- **System, Terminal** (administrators, off by default): a Linux login prompt in the browser, using xterm.js. Turn it on in that section, then *Connect* and log in with a Linux account name and password; no root shell is handed out. It closes after 15 minutes without typing, two sessions at most; the audit log records when it was used, never what was typed.
 - **System, Updates** in the web page (administrators): *Check now*, then *Update*. Links are not affected; the page reconnects by itself.
 - `sudo apt update && sudo apt upgrade`
 

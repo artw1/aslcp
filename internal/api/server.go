@@ -141,6 +141,9 @@ type Server struct {
 	monMu sync.RWMutex
 	mon   *rpt.Monitor
 
+	// term is the browser terminal: tickets, limits, open sessions.
+	term termState
+
 	dvs *dvSnapper // DVSwitch snapshot and its change events
 	// dvUndo is what the last private-node apply changed (for its rollback).
 	dvUndo   *dvPrivateUndo
@@ -409,7 +412,14 @@ func (s *Server) secure(next http.Handler) http.Handler {
 				frame = "*"
 			}
 		}
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors "+frame+"; base-uri 'self'; form-action 'self'")
+		// connect-src names this host's ws:// and wss:// explicitly: 'self' is
+		// not read as covering WebSocket by every browser (older Safari), and
+		// the terminal needs one. Nothing wider than this host is allowed.
+		connect := "connect-src 'self'"
+		if hh := cspHost(r.Host); hh != "" {
+			connect += " ws://" + hh + " wss://" + hh
+		}
+		h.Set("Content-Security-Policy", "default-src 'self'; "+connect+"; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors "+frame+"; base-uri 'self'; form-action 'self'")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		if frame == "'none'" {

@@ -310,3 +310,7 @@ export interface NetRoute { family: string; gateway: string; dev: string; metric
 export interface SysNetwork { available: boolean; interfaces: NetIface[]; gateways: NetRoute[]; dns: string[]; dnsSource: string }
 export interface AuditEntry { id: number; time: string; user: string; action: string; detail: string }
 export interface AuditPage { entries: AuditEntry[]; next: number | null }
+
+// System > Terminal (docs/API.md "Browser terminal"); admin only, off by default.
+export interface TerminalStatus { enabled: boolean; available: boolean; sessions: number; maxSessions: number; idleMinutes: number; maxHours: number }
+export interface TerminalTicket { ticket: string; expiresIn: number }

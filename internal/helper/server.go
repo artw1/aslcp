@@ -28,6 +28,9 @@ type Server struct {
 	// means never.
 	Idle   time.Duration
 	Logger *log.Logger
+	// StartTerminal starts a login session for terminal.open (nil: the op
+	// answers "terminal not available"). NewServer sets StartLogin.
+	StartTerminal StartPTYFunc
 
 	active atomic.Int32
 }
@@ -40,6 +43,8 @@ func NewServer(logger *log.Logger, extraUIDs ...uint32) *Server {
 		AllowedUIDs: func() []uint32 { return DefaultAllowedUIDs(extraUIDs...) },
 		Idle:        60 * time.Second,
 		Logger:      logger,
+
+		StartTerminal: StartLogin,
 	}
 }
 
@@ -147,8 +152,8 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 		fail("invalid request")
 		return
 	}
-	if req.Op != OpBackupRestore {
-		// Only backup-restore has more to say after the request. Anything
+	if req.Op != OpBackupRestore && req.Op != OpTerminalOpen {
+		// Only backup-restore and terminal.open have more to say after the request. Anything
 		// else left in the receive buffer (the encoder's trailing newline)
 		// would turn the close after our reply into a connection reset.
 		drainUnread(conn, dec.Buffered())
@@ -170,6 +175,11 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 		return
 	}
 
+	if req.Op == OpTerminalOpen {
+		// Frames follow the request on the same connection (terminal.go).
+		s.handleTerminal(ctx, conn, io.MultiReader(dec.Buffered(), conn), req, uid)
+		return
+	}
 	if isStreamOp(req.Op) {
 		// The archive of backup-restore follows the request; the decoder may
 		// already have buffered the first bytes of it. The client's JSON

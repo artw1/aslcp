@@ -18,6 +18,7 @@ export const sections: SystemSection[] = [
   { id: 'network', label: 'Network', load: () => import('./Network.svelte') },
   { id: 'logs', label: 'Logs & services', load: () => import('./LogsServices.svelte') },
   { id: 'audit', label: 'Audit log', load: () => import('./AuditLog.svelte') },
+  { id: 'terminal', label: 'Terminal', load: () => import('./Terminal.svelte') },
 ];
 
 export const defaultSection = sections[0].id;
