@@ -327,3 +327,5 @@ export interface WifiScan { networks: WifiAP[]; note?: string }
 // System > Terminal (docs/API.md "Browser terminal"); admin only, off by default.
 export interface TerminalStatus { enabled: boolean; available: boolean; sessions: number; maxSessions: number; idleMinutes: number; maxHours: number }
 export interface TerminalTicket { ticket: string; expiresIn: number }
+// One live terminal session (attached or detached); GET /system/terminal/sessions.
+export interface TerminalSessionInfo { id: string; owner: string; mine: boolean; started: number; attached: boolean; detachedSince?: number; linuxUser?: string }

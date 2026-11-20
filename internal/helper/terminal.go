@@ -9,126 +9,179 @@ import (
 	"net"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
-// Browser terminal (docs/PLAN-1.3.0.md section 8). The helper owns a pseudo
-// terminal and has systemd run login(1) on its slave in a transient unit
-// (terminal_unit.go), and relays framed bytes (terminal_frame.go) over the
-// connection that carried the terminal.open request. No shell is started by
-// ASLCP: login asks PAM to authenticate a Linux user, then drops to it.
+// Browser terminal (docs/PLAN-1.3.0.md section 8). A session is a term-host
+// process in its own transient unit (termhost.go) that owns the pseudo
+// terminal and runs login(1). The helper is only a relay: it starts the unit,
+// connects to term-host's socket and moves framed bytes (terminal_frame.go)
+// between that socket and the connection that carried the request. A helper
+// restart therefore only drops relays; the sessions keep running.
 
-// OpTerminalOpen opens a terminal session. After the JSON reply the
-// connection is a raw framed stream until either side closes it.
-const OpTerminalOpen = "terminal.open"
+// Terminal ops. terminal.open and terminal.attach switch the connection to a
+// framed stream after the JSON reply; terminal.list and terminal.end are
+// plain request and reply.
+const (
+	OpTerminalOpen   = "terminal.open"
+	OpTerminalAttach = "terminal.attach"
+	OpTerminalList   = "terminal.list"
+	OpTerminalEnd    = "terminal.end"
+)
 
-// TerminalRequest is the argument of terminal.open. Both sizes are optional
-// (zero: 24 rows, 80 columns) and bounded; nothing else is accepted, so no
-// client string reaches the command line or the environment of login.
+func isTerminalOp(op string) bool {
+	switch op {
+	case OpTerminalOpen, OpTerminalAttach, OpTerminalList, OpTerminalEnd:
+		return true
+	}
+	return false
+}
+
+// isTerminalStreamOp: the ops that keep the connection open for frames.
+func isTerminalStreamOp(op string) bool { return op == OpTerminalOpen || op == OpTerminalAttach }
+
+// TerminalRequest is the argument of the terminal ops. Sizes are optional
+// (zero: 24 rows, 80 columns) and bounded; ID names a session (attach, end);
+// Owner is the ASLCP user id the web server acts for; Ack lists ended records
+// to forget (list). Nothing else is accepted, so no client string reaches a
+// command line or an environment.
 type TerminalRequest struct {
-	Rows uint16 `json:"rows,omitempty"`
-	Cols uint16 `json:"cols,omitempty"`
+	Rows  uint16   `json:"rows,omitempty"`
+	Cols  uint16   `json:"cols,omitempty"`
+	Owner int64    `json:"owner,omitempty"`
+	ID    string   `json:"id,omitempty"`
+	Ack   []string `json:"ack,omitempty"`
 }
 
-// PTY is a started login session on a pseudo terminal.
-type PTY interface {
-	// Read returns what the session writes; it fails once the session has
-	// ended and its output is consumed.
-	io.ReadWriter
-	// Resize sets the window size (already validated).
-	Resize(rows, cols uint16) error
-	// LinuxUser returns the authenticated Linux user, or "" while unknown.
-	LinuxUser() string
-	// Done is closed when the session's unit has ended.
-	Done() <-chan struct{}
-	// Close ends the session: stops the session's unit (systemd kills every
-	// process of it) and closes the terminal. Safe to call more than once.
-	Close() error
-	// Release closes the terminal without stopping the unit. Used when the
-	// helper itself is shutting down: the kernel hangs the terminal up, but
-	// the helper kills nothing (see docs/DESIGN.md, the browser terminal).
-	Release() error
+// TerminalOpened is the reply of terminal.open and terminal.attach.
+type TerminalOpened struct {
+	OK bool   `json:"ok"`
+	ID string `json:"id"`
 }
-
-// StartPTYFunc starts a login session of the given (valid) size.
-type StartPTYFunc func(rows, cols uint16) (PTY, error)
 
 const (
 	// terminalWriteTimeout bounds one write towards the web server.
 	terminalWriteTimeout = 30 * time.Second
-	// terminalExitGrace is how long output may still drain after login exits
-	// before the terminal is closed (a background process can keep the slave
-	// open).
-	terminalExitGrace = 500 * time.Millisecond
-	terminalUserTries = 300
+	maxTerminalAck       = 64
 )
-
-// terminalUserPoll is how often the Linux user is looked up while unknown.
-const terminalUserPoll = time.Second
 
 func (s *Server) handleTerminal(ctx context.Context, conn net.Conn, in io.Reader, req Request, uid uint32) {
 	reply := func(v any) {
 		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		_ = json.NewEncoder(conn).Encode(v)
 	}
+	fail := func(msg string) { reply(errorResponse{Error: msg}) }
 	tr := req.Terminal
 	if tr == nil {
 		tr = &TerminalRequest{}
 	}
-	rows, cols := tr.Rows, tr.Cols
-	if (rows != 0 || cols != 0) && !ValidSize(rows, cols) {
+	if s.Term == nil {
+		fail("terminal not available")
+		return
+	}
+	if tr.Owner < 0 {
+		fail("invalid owner")
+		return
+	}
+	if (tr.Rows != 0 || tr.Cols != 0) && !ValidSize(tr.Rows, tr.Cols) {
 		s.logf("uid %d: %s: invalid size", uid, req.Op)
-		reply(errorResponse{Error: "invalid size"})
+		fail("invalid size")
 		return
 	}
-	rows, cols = ClampSize(rows, cols)
-	if s.StartTerminal == nil {
-		reply(errorResponse{Error: "terminal not available"})
+	rows, cols := ClampSize(tr.Rows, tr.Cols)
+	// Non-stream ops are never cut by the helper stopping.
+	octx := context.WithoutCancel(ctx)
+
+	switch req.Op {
+	case OpTerminalList:
+		if len(tr.Ack) > maxTerminalAck {
+			fail("invalid request")
+			return
+		}
+		s.Term.Ack(tr.Ack)
+		l, err := s.Term.List(octx)
+		if err != nil {
+			s.logf("uid %d: %s: error: %v", uid, req.Op, err)
+			fail(err.Error())
+			return
+		}
+		reply(l)
+		return
+	case OpTerminalEnd:
+		if !termIDRe.MatchString(tr.ID) {
+			fail("invalid session")
+			return
+		}
+		if err := s.Term.End(octx, tr.ID); err != nil {
+			s.logf("uid %d: %s: error: %v", uid, req.Op, err)
+			fail(err.Error())
+			return
+		}
+		s.logf("uid %d: terminal session ended on request", uid)
+		reply(OKResult{OK: true})
 		return
 	}
-	p, err := s.StartTerminal(rows, cols)
+
+	var (
+		id   string
+		host net.Conn
+		err  error
+		what = "started"
+	)
+	if req.Op == OpTerminalAttach {
+		id = tr.ID
+		what = "reattached"
+		host, err = s.Term.Attach(octx, id, tr.Owner, rows, cols)
+	} else {
+		id, host, err = s.Term.Open(octx, rows, cols, tr.Owner)
+	}
 	if err != nil {
 		s.logf("uid %d: %s: error: %v", uid, req.Op, err)
-		reply(errorResponse{Error: err.Error()})
+		fail(err.Error())
 		return
 	}
 	// Session start and end are logged, never what passes through.
-	s.logf("uid %d: %s started", uid, req.Op)
+	s.logf("uid %d: terminal session %s", uid, what)
 	started := time.Now()
 	// The request read set short deadlines; a session has none.
 	_ = conn.SetDeadline(time.Time{})
-	reply(OKResult{OK: true})
+	reply(TerminalOpened{OK: true, ID: id})
 	_ = conn.SetWriteDeadline(time.Time{})
-	relayTerminal(ctx, conn, in, p, terminalUserPoll)
-	s.logf("uid %d: %s ended after %s", uid, req.Op, time.Since(started).Round(time.Second))
+	ended := relayTerminal(ctx, conn, in, host, func() { _ = s.Term.End(context.WithoutCancel(ctx), id) })
+	s.logf("uid %d: terminal relay %s after %s", uid, ended, time.Since(started).Round(time.Second))
 }
 
-// relayTerminal moves frames between conn and the PTY until either side ends
-// or ctx is done, then closes both (stopping the session's unit unless the
-// helper itself is shutting down).
-func relayTerminal(ctx context.Context, conn net.Conn, in io.Reader, p PTY, userPoll time.Duration) {
-	in = &skipLeadingSpace{r: in} // the newline of the request; frame types are 0..2
+// relayTerminal moves frames between the client connection and term-host until
+// either side ends or ctx is done. A client that just goes away, and a
+// helper that is stopping, only close the term-host connection: the session
+// is detached and lives on. An end frame from the client calls stop (which
+// runs systemctl stop on the session's unit). It returns how the relay ended:
+// "detached", "ended" or "session over".
+func relayTerminal(ctx context.Context, client net.Conn, in io.Reader, host net.Conn, stop func()) string {
+	in = &skipLeadingSpace{r: in} // the newline of the request; frame types are 0..3
 	var wmu sync.Mutex
 	write := func(typ byte, b []byte) error {
 		wmu.Lock()
 		defer wmu.Unlock()
-		_ = conn.SetWriteDeadline(time.Now().Add(terminalWriteTimeout))
+		_ = client.SetWriteDeadline(time.Now().Add(terminalWriteTimeout))
 		if typ == FrameData {
-			return WriteData(conn, b)
+			return WriteData(client, b)
 		}
-		return WriteFrame(conn, typ, b)
+		return WriteFrame(client, typ, b)
 	}
 
-	stop := make(chan struct{})
+	done := make(chan struct{})
 	var once sync.Once
-	end := func() { once.Do(func() { close(stop) }) }
-	var wg sync.WaitGroup
+	finish := func() { once.Do(func() { close(done) }) }
+	var closing atomic.Bool
+	var mu sync.Mutex
+	result := "detached"
+	set := func(r string) { mu.Lock(); result = r; mu.Unlock() }
 
-	// Web server to PTY.
-	wg.Add(1)
+	// Client to term-host.
 	go func() {
-		defer wg.Done()
-		defer end()
+		defer finish()
 		for {
 			typ, payload, err := ReadFrame(in)
 			if err != nil {
@@ -136,7 +189,8 @@ func relayTerminal(ctx context.Context, conn net.Conn, in io.Reader, p PTY, user
 			}
 			switch typ {
 			case FrameData:
-				if _, err := p.Write(payload); err != nil {
+				if _, err := host.Write(framed(FrameData, payload)); err != nil {
+					set("session over")
 					return
 				}
 			case FrameResize:
@@ -145,103 +199,87 @@ func relayTerminal(ctx context.Context, conn net.Conn, in io.Reader, p PTY, user
 					return
 				}
 				rows, cols = ClampSize(rows, cols)
-				_ = p.Resize(rows, cols)
+				if err := WriteResize(host, rows, cols); err != nil {
+					set("session over")
+					return
+				}
+			case FrameEnd:
+				set("ended")
+				stop()
+				return
 			default:
 				return // FrameUser only flows towards the web server
 			}
 		}
 	}()
 
-	// PTY to web server.
-	wg.Add(1)
+	// Term-host to client.
 	go func() {
-		defer wg.Done()
-		defer end()
-		buf := make([]byte, 16<<10)
+		defer finish()
 		for {
-			n, err := p.Read(buf)
-			if n > 0 {
-				if werr := write(FrameData, buf[:n]); werr != nil {
-					return
-				}
-			}
+			typ, payload, err := ReadFrame(host)
 			if err != nil {
+				if !closing.Load() {
+					// term-host closed the connection: the session is over.
+					// Say so, so the client can tell it from a lost transport.
+					set("session over")
+					_ = write(FrameEnd, nil)
+				}
 				return
 			}
-		}
-	}()
-
-	// Linux user, once known.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		t := time.NewTicker(userPoll)
-		defer t.Stop()
-		for i := 0; i < terminalUserTries; i++ {
-			select {
-			case <-stop:
-				return
-			case <-t.C:
-			}
-			if u := p.LinuxUser(); u != "" {
-				_ = write(FrameUser, []byte(u))
+			if typ != FrameData && typ != FrameUser {
 				return
 			}
-		}
-	}()
-
-	// Login exited: let the output drain, then close the terminal.
-	go func() {
-		select {
-		case <-p.Done():
-			select {
-			case <-stop:
-			case <-time.After(terminalExitGrace):
+			if err := write(typ, payload); err != nil {
+				return
 			}
-			end()
-		case <-stop:
 		}
 	}()
 
 	select {
-	case <-stop:
+	case <-done:
 	case <-ctx.Done():
 	}
-	end()
-	if ctx.Err() != nil {
-		_ = p.Release() // the helper is stopping: hang up, do not kill
-	} else {
-		_ = p.Close() // stop the unit, close the terminal (unblocks the reader)
-	}
-	_ = conn.Close()
-	wg.Wait()
+	closing.Store(true)
+	_ = host.Close()
+	_ = client.Close()
+	mu.Lock()
+	defer mu.Unlock()
+	return result
+}
+
+// framed encodes one frame (a single Write per frame keeps frames whole).
+func framed(typ byte, payload []byte) []byte {
+	b := make([]byte, 3+len(payload))
+	b[0] = typ
+	b[1], b[2] = byte(len(payload)>>8), byte(len(payload))
+	copy(b[3:], payload)
+	return b
 }
 
 // errTerminalUnsupported is returned where there is no pseudo terminal.
 var errTerminalUnsupported = errors.New("terminal not available on this system")
 
-// sweepTerminalsAtStart returns the production SweepTerminals: on Linux it
-// stops the aslcp-term-* units of an earlier helper, apart from one that runs
-// apt or dpkg. Failures are only logged.
-func sweepTerminalsAtStart(logger *log.Logger) func(ctx context.Context) {
-	if runtime.GOOS != "linux" {
+// adoptTerminalsAtStart returns the production AdoptTerminals.
+func adoptTerminalsAtStart(logger *log.Logger, b TermBackend) func(ctx context.Context) {
+	if runtime.GOOS != "linux" || b == nil {
 		return nil
 	}
 	return func(ctx context.Context) {
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		stopped, left, err := SweepTermUnits(ctx, ExecRunner{}, nil)
+		adopted, stopped, err := b.Adopt(ctx)
 		if logger == nil {
 			return
 		}
-		if len(stopped) > 0 {
-			logger.Printf("stopped %d leftover terminal unit(s)", len(stopped))
+		if adopted > 0 {
+			logger.Printf("adopted %d running terminal session(s)", adopted)
 		}
-		if len(left) > 0 {
-			logger.Printf("left %d terminal unit(s) running apt or dpkg", len(left))
+		if stopped > 0 {
+			logger.Printf("stopped %d broken terminal unit(s) with no reachable session", stopped)
 		}
 		if err != nil {
-			logger.Printf("terminal unit sweep: %v", err)
+			logger.Printf("terminal adoption: %v", err)
 		}
 	}
 }

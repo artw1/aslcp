@@ -2,18 +2,31 @@ package helper
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 )
 
-// OpenTerminal implements the terminal part of the API's SystemHost for
-// --demo: a pretend login prompt that echoes what is typed and never lets
-// anyone in. No process is started and nothing on the machine is touched.
-func (d *DemoSystem) OpenTerminal(_ context.Context, rows, cols uint16) (io.ReadWriteCloser, error) {
+// The terminal part of the API's SystemHost for --demo: a pretend login
+// prompt that echoes what is typed and never lets anyone in. No process is
+// started and nothing on the machine is touched. There is nothing to detach
+// from, so the session list is always empty.
+
+func (d *DemoSystem) OpenTerminal(_ context.Context, rows, cols uint16, _ int64) (io.ReadWriteCloser, string, error) {
 	client, server := net.Pipe()
 	go demoLogin(server)
-	return client, nil
+	return client, "0000000000000000", nil
 }
+
+func (d *DemoSystem) AttachTerminal(context.Context, string, int64, uint16, uint16) (io.ReadWriteCloser, error) {
+	return nil, errors.New("no such session")
+}
+
+func (d *DemoSystem) ListTerminals(context.Context, []string) (TerminalList, error) {
+	return TerminalList{Sessions: []TerminalInfo{}}, nil
+}
+
+func (d *DemoSystem) EndTerminal(context.Context, string) error { return nil }
 
 func demoLogin(c net.Conn) {
 	defer c.Close()
@@ -24,6 +37,9 @@ func demoLogin(c net.Conn) {
 	for {
 		typ, p, err := ReadFrame(c)
 		if err != nil {
+			return
+		}
+		if typ == FrameEnd {
 			return
 		}
 		if typ != FrameData {

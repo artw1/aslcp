@@ -36,8 +36,8 @@ export function handleSystem(c: Ctx): boolean {
   const { m, p } = c;
   if (handleSvc(c)) return true;
   if (!p.startsWith('/system/') && p !== '/audit') return false;
-  const known = ['/system/diagnostics', '/system/diagnostics/bundle', '/system/host', '/system/timezones', '/system/poweroff', '/system/logs', '/system/services', '/system/network', '/system/terminal', '/system/terminal/ticket', '/audit'];
-  if (!known.includes(p)) return false;
+  const known = ['/system/diagnostics', '/system/diagnostics/bundle', '/system/host', '/system/timezones', '/system/poweroff', '/system/logs', '/system/services', '/system/network', '/system/terminal', '/system/terminal/ticket', '/system/terminal/sessions', '/audit'];
+  if (!known.includes(p) && !/^\/system\/terminal\/sessions\/[0-9a-f]{16}\/end$/.test(p)) return false;
   if (c.user?.role !== 'admin') { c.err(403, 'forbidden', 'forbidden'); return true; }
   const who = c.user.username;
   if (p === '/system/host' && m === 'GET') { c.json(200, status()); return true; }
@@ -60,6 +60,8 @@ export function handleSystem(c: Ctx): boolean {
     if (c.body.enabled !== term.enabled) note(who, 'system.terminal', { from: term.enabled, to: c.body.enabled }); term.enabled = c.body.enabled;
     c.json(200, termStatus()); return true;
   }
+  if (p === '/system/terminal/sessions' && m === 'GET') { c.json(200, { sessions: [] }); return true; }
+  if (p.startsWith('/system/terminal/sessions/') && m === 'POST') { c.err(404, 'no such session', 'not_found'); return true; }
   if (p === '/system/terminal/ticket' && m === 'POST') {
     if (!term.enabled) { c.err(403, 'the terminal is turned off', 'terminal_disabled'); return true; }
     c.json(200, { ticket: 'mock', expiresIn: 30 }); return true;

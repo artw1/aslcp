@@ -1,4 +1,4 @@
-import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVBMReq, DVSwitchRestartResult, DVDMRStatus, DVRestartScope, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, DVInfoInput, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage, WifiState, WifiScan, TerminalStatus, TerminalTicket, DiagPlan } from './types';
+import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVBMReq, DVSwitchRestartResult, DVDMRStatus, DVRestartScope, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, DVInfoInput, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage, WifiState, WifiScan, TerminalStatus, TerminalTicket, TerminalSessionInfo, DiagPlan } from './types';
 import type { SvcStatus, SvcSetResult, WebPortStatus } from './svcweb';
 
 export class ApiError extends Error {
@@ -172,7 +172,9 @@ export const api = {
   wifiHotspot: (enabled: boolean, delaySeconds = 0) => req<WifiState>('PUT', '/system/wifi/hotspot', { enabled, delaySeconds }),
   terminal: () => req<TerminalStatus>('GET', '/system/terminal'),
   setTerminal: (enabled: boolean) => req<TerminalStatus>('PUT', '/system/terminal', { enabled }),
-  terminalTicket: () => req<TerminalTicket>('POST', '/system/terminal/ticket'),
+  terminalTicket: (session?: string) => req<TerminalTicket>('POST', '/system/terminal/ticket', session ? { session } : undefined),
+  terminalSessions: () => req<{ sessions: TerminalSessionInfo[] }>('GET', '/system/terminal/sessions'),
+  endTerminalSession: (id: string) => req<{ ok: boolean }>('POST', `/system/terminal/sessions/${id}/end`),
   diagPlan: () => req<DiagPlan>('GET', '/system/diagnostics'),
   diagBundle: downloadDiagnostics,
   audit: (o: { before?: number; limit?: number; user?: string; action?: string } = {}) => req<AuditPage>('GET', `/audit?limit=${o.limit ?? 50}${o.before ? '&before=' + o.before : ''}${o.user ? '&user=' + q(o.user) : ''}${o.action ? '&action=' + q(o.action) : ''}`),

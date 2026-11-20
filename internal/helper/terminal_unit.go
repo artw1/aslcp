@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -33,7 +35,6 @@ const (
 
 var (
 	termIDRe   = regexp.MustCompile(`^[0-9a-f]{16}$`)
-	termPtsRe  = regexp.MustCompile(`^[0-9]{1,7}$`)
 	termUnitRe = regexp.MustCompile(`^aslcp-term-[0-9a-f]{16}\.service$`)
 )
 
@@ -49,58 +50,46 @@ func newTermID() (string, error) {
 // termUnit is the unit name of id; id must be valid.
 func termUnit(id string) string { return termUnitPrefix + id + termUnitSuffix }
 
-// utmpIdent is the four character utmp identifier for pts/N. systemd's
-// UtmpIdentifier is documented as four characters, so the last four of the
-// line name are used, as login(1) does ("pts/3" gives "ts/3").
-func utmpIdent(pts string) string {
-	line := "pts/" + pts
-	if len(line) > 4 {
-		line = line[len(line)-4:]
-	}
-	return line
-}
-
-// termEnvSetenv are the --setenv arguments: a fixed environment, nothing from
-// the client. login -p keeps it for the user's shell.
-var termEnvSetenv = []string{
-	"--setenv=TERM=xterm-256color",
-	"--setenv=LANG=C.UTF-8",
-	"--setenv=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-}
-
-// termUnitArgv is the systemd-run command line that starts login on the slave
-// /dev/pts/<pts>. An argument vector, no shell; id and pts are validated.
-// The unit has no sandbox properties: it is a plain login session, outside
-// the helper's cgroup and mount namespace.
+// termUnitArgv is the systemd-run command line that starts term-host as the
+// main process of the session's own unit. An argument vector, no shell; every
+// value is validated. The unit has no sandbox properties: it is a plain login
+// session, outside the helper's cgroup and mount namespace. term-host sets
+// the fixed environment of login itself, so nothing is passed with --setenv.
 //
-// --service-type=exec makes systemd-run return once login has been exec'd,
-// which is the moment the helper may close its slave descriptor. The default
-// KillMode (control-group) makes "systemctl stop" end every process of the
-// session; TimeoutStopSec bounds the SIGTERM grace.
-func termUnitArgv(id, pts, loginPath string) ([]string, error) {
+// There are no TTYPath or Utmp* properties: term-host opens the PTY and
+// starts login on it, and login(1) records the session in utmp and wtmp
+// itself (see docs/DESIGN.md), so `who` and `last` keep working.
+//
+// --service-type=exec makes systemd-run return once term-host has been
+// exec'd. The default KillMode (control-group) makes "systemctl stop" end
+// every process of the session, and cleans up whatever is left when term-host
+// exits; TimeoutStopSec bounds the SIGTERM grace.
+func termUnitArgv(id, self string, rows, cols uint16, owner int64) ([]string, error) {
 	if !termIDRe.MatchString(id) {
 		return nil, fmt.Errorf("invalid terminal id %q", id)
 	}
-	if !termPtsRe.MatchString(pts) {
-		return nil, fmt.Errorf("invalid pts number %q", pts)
+	if !strings.HasPrefix(self, "/") || strings.ContainsAny(self, " \t\n=") {
+		return nil, fmt.Errorf("invalid helper path %q", self)
 	}
-	if !strings.HasPrefix(loginPath, "/") || strings.ContainsAny(loginPath, " \t\n=") {
-		return nil, fmt.Errorf("invalid login path %q", loginPath)
+	if !ValidSize(rows, cols) {
+		return nil, errors.New("invalid size")
 	}
-	tty := "/dev/pts/" + pts
-	argv := []string{
+	if owner < 0 {
+		return nil, errors.New("invalid owner")
+	}
+	return []string{
 		"systemd-run", "--quiet",
 		"--unit=" + termUnitPrefix + id,
 		"--description=ASLCP web terminal",
 		"--service-type=exec", "--collect",
-		"--property=TTYPath=" + tty,
-		"--property=StandardInput=tty", "--property=StandardOutput=tty", "--property=StandardError=tty",
-		"--property=TTYReset=yes", "--property=TTYVHangup=yes",
-		"--property=UtmpIdentifier=" + utmpIdent(pts), "--property=UtmpMode=login",
 		"--property=TimeoutStopSec=5s",
-	}
-	argv = append(argv, termEnvSetenv...)
-	return append(argv, "--", loginPath, "-p"), nil
+		"--", self, "term-host",
+		"--id=" + id,
+		"--sock=" + filepath.Join(termDir, id+".sock"),
+		"--rows=" + strconv.Itoa(int(rows)),
+		"--cols=" + strconv.Itoa(int(cols)),
+		"--owner=" + strconv.FormatInt(owner, 10),
+	}, nil
 }
 
 // stopTermUnit stops the unit; systemd kills its whole cgroup. A unit that is
@@ -204,31 +193,5 @@ func listTermUnits(ctx context.Context, r Runner) ([]string, error) {
 	return units, nil
 }
 
-// SweepTermUnits runs when the helper starts, before it accepts a
-// connection. No relay can be attached to a unit of an earlier helper, so
-// such a unit is stopped, except one that runs apt or dpkg, which is left
-// alone (the sweep never ends a package manager run). busy reports that; a
-// nil busy means termUnitBusy. It returns the units it stopped and the ones
-// it left.
-func SweepTermUnits(ctx context.Context, r Runner, busy func(unit string) bool) (stopped, left []string, err error) {
-	if busy == nil {
-		busy = termUnitBusy
-	}
-	units, err := listTermUnits(ctx, r)
-	if err != nil {
-		return nil, nil, err
-	}
-	for _, u := range units {
-		if busy(u) {
-			left = append(left, u)
-			continue
-		}
-		id := strings.TrimSuffix(strings.TrimPrefix(u, termUnitPrefix), termUnitSuffix)
-		if e := stopTermUnit(r, id); e != nil {
-			err = e
-			continue
-		}
-		stopped = append(stopped, u)
-	}
-	return stopped, left, err
-}
+// isConnRefused reports ECONNREFUSED from a dial.
+func isConnRefused(err error) bool { return errors.Is(err, syscall.ECONNREFUSED) }

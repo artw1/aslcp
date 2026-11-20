@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/user"
+	"runtime"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -28,19 +29,23 @@ type Server struct {
 	// means never.
 	Idle   time.Duration
 	Logger *log.Logger
-	// StartTerminal starts a login session for terminal.open (nil: the op
-	// answers "terminal not available"). NewServer sets StartLogin.
-	StartTerminal StartPTYFunc
-	// SweepTerminals runs once when Serve starts, before the first
-	// connection is accepted (nil: nothing). NewServer sets it to stop the
-	// terminal units an earlier helper left (SweepTermUnits).
-	SweepTerminals func(ctx context.Context)
+	// Term holds the terminal sessions (nil: the terminal ops answer
+	// "terminal not available"). NewServer sets the production backend.
+	Term TermBackend
+	// AdoptTerminals runs once when Serve starts, before the first
+	// connection is accepted (nil: nothing). NewServer sets it to adopt the
+	// sessions of an earlier helper and stop broken units.
+	AdoptTerminals func(ctx context.Context)
 
 	active atomic.Int32
 }
 
 // NewServer returns a Server wired to the real system.
 func NewServer(logger *log.Logger, extraUIDs ...uint32) *Server {
+	var term TermBackend
+	if runtime.GOOS == "linux" {
+		term = newTermBackend(ExecRunner{})
+	}
 	return &Server{
 		Ops:         NewOps(),
 		Peer:        PeerUID,
@@ -48,8 +53,8 @@ func NewServer(logger *log.Logger, extraUIDs ...uint32) *Server {
 		Idle:        60 * time.Second,
 		Logger:      logger,
 
-		StartTerminal:  StartLogin,
-		SweepTerminals: sweepTerminalsAtStart(logger),
+		Term:           term,
+		AdoptTerminals: adoptTerminalsAtStart(logger, term),
 	}
 }
 
@@ -82,9 +87,10 @@ const maxRequest = 4096
 // Serve accepts connections on ln until ctx is done or the idle timeout
 // passes with no connection and no request in flight.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
-	// Before any connection: a unit started after this point is not a leftover.
-	if s.SweepTerminals != nil {
-		s.SweepTerminals(ctx)
+	// Before any connection: sessions of an earlier helper are adopted (they
+	// keep running; term-host enforces the grace period and the apt rule).
+	if s.AdoptTerminals != nil {
+		s.AdoptTerminals(ctx)
 	}
 	type deadliner interface{ SetDeadline(time.Time) error }
 	dl, _ := ln.(deadliner)
@@ -161,7 +167,7 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 		fail("invalid request")
 		return
 	}
-	if req.Op != OpBackupRestore && req.Op != OpTerminalOpen {
+	if req.Op != OpBackupRestore && !isTerminalStreamOp(req.Op) {
 		// Only backup-restore and terminal.open have more to say after the request. Anything
 		// else left in the receive buffer (the encoder's trailing newline)
 		// would turn the close after our reply into a connection reset.
@@ -184,8 +190,8 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	if req.Op == OpTerminalOpen {
-		// Frames follow the request on the same connection (terminal.go).
+	if isTerminalOp(req.Op) {
+		// Frames follow (open, attach) the request on the same connection (terminal.go).
 		s.handleTerminal(ctx, conn, io.MultiReader(dec.Buffered(), conn), req, uid)
 		return
 	}

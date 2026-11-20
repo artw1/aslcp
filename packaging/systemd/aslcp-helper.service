@@ -8,12 +8,13 @@ After=aslcp-helper.socket
 Type=simple
 # Runs as root, socket-activated; exits after 60 s without requests.
 ExecStart=/usr/libexec/aslcp/aslcp-helper
-# The browser terminal does not run login from this unit: the helper only owns
-# the PTY and has systemd start login in its own transient unit
-# (aslcp-term-<id>.service, no sandbox), so a user shell does not inherit this
-# unit's mount namespace. PrivateTmp and ProtectHome therefore stay on.
-# PrivateDevices and NoNewPrivileges are deliberately not set: the PTY must be
-# in the host's /dev/pts, where systemd (PID 1) can open it as the unit's tty.
+# Browser terminal sessions do not run from this unit: the helper starts each one
+# as its own transient unit (aslcp-term-<id>.service, running `aslcp-helper
+# term-host`, no sandbox) and only relays to it. A restart of this helper
+# therefore leaves sessions running (detached), and a user shell does not
+# inherit this unit's mount namespace, so PrivateTmp and ProtectHome stay on.
+# term-host's socket directory is /run/aslcp/term, which needs no
+# ReadWritePaths because this unit has no ProtectSystem.
 PrivateTmp=yes
 ProtectHome=yes
 ProtectKernelModules=yes

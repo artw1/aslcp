@@ -157,7 +157,7 @@ func (o *Ops) Handle(ctx context.Context, op string) (any, error) {
 func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 	op := req.Op
 	if req.Terminal != nil {
-		// terminal.open is served by Server.handleTerminal, never from here.
+		// the terminal ops are served by Server.handleTerminal, never from here.
 		return nil, errors.New("invalid request: unexpected terminal field")
 	}
 	if isSysOp(op) {

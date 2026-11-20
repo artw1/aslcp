@@ -2,6 +2,8 @@ package api_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -17,33 +19,56 @@ import (
 	"github.com/artw1/aslcp/internal/helper"
 )
 
-// termSys is a fake helper with terminal support: the "shell" echoes keyboard
-// input back prefixed with "echo:" and records resizes.
+// fakeTerm is one session of the fake helper.
+type fakeTerm struct {
+	id       string
+	owner    int64
+	started  int64
+	attached bool
+	ended    bool
+	srv      net.Conn // the current attachment, nil while detached
+}
+
+// termSys is a fake helper with terminal support. The "shell" echoes keyboard
+// input back prefixed with "echo:" and records resizes. Sessions live until an
+// explicit end (a FrameEnd or EndTerminal); a stream that just closes leaves
+// them detached, as the real helper does.
 type termSys struct {
 	*fakeSys
-	tmu     sync.Mutex
-	opened  int
-	sizes   []string
-	rows    uint16
-	cols    uint16
-	hangups chan struct{}
+	tmu      sync.Mutex
+	opened   int
+	nextID   int
+	sessions map[string]*fakeTerm
+	sizes    []string
+	rows     uint16
+	cols     uint16
+	acked    []string
+	ended    []helper.TerminalEnded
+	hangups  chan struct{} // one per session ended explicitly
 }
 
 func newTermSys() *termSys {
-	return &termSys{fakeSys: newFakeSys(), hangups: make(chan struct{}, 16)}
+	return &termSys{fakeSys: newFakeSys(), sessions: map[string]*fakeTerm{}, hangups: make(chan struct{}, 16)}
 }
 
-func (f *termSys) OpenTerminal(_ context.Context, rows, cols uint16) (io.ReadWriteCloser, error) {
+func (f *termSys) serve(t *fakeTerm, server net.Conn, replay bool) {
 	f.tmu.Lock()
-	f.opened++
-	f.rows, f.cols = rows, cols
+	t.attached, t.srv = true, server
 	f.tmu.Unlock()
-	client, server := net.Pipe()
 	go func() {
 		defer func() {
 			server.Close()
-			f.hangups <- struct{}{}
+			f.tmu.Lock()
+			if t.srv == server {
+				t.srv, t.attached = nil, false
+			}
+			f.tmu.Unlock()
 		}()
+		if replay {
+			if helper.WriteData(server, []byte("replay:"+t.id)) != nil {
+				return
+			}
+		}
 		if helper.WriteFrame(server, helper.FrameUser, []byte("alice")) != nil {
 			return
 		}
@@ -62,10 +87,119 @@ func (f *termSys) OpenTerminal(_ context.Context, rows, cols uint16) (io.ReadWri
 				f.tmu.Lock()
 				f.sizes = append(f.sizes, strconv.Itoa(int(r))+"x"+strconv.Itoa(int(c)))
 				f.tmu.Unlock()
+			case helper.FrameEnd:
+				f.finish(t)
+				return
 			}
 		}
 	}()
+}
+
+func (f *termSys) finish(t *fakeTerm) {
+	f.tmu.Lock()
+	if t.ended {
+		f.tmu.Unlock()
+		return
+	}
+	t.ended = true
+	delete(f.sessions, t.id)
+	srv := t.srv
+	f.tmu.Unlock()
+	if srv != nil {
+		srv.Close()
+	}
+	f.hangups <- struct{}{}
+}
+
+func (f *termSys) OpenTerminal(_ context.Context, rows, cols uint16, owner int64) (io.ReadWriteCloser, string, error) {
+	f.tmu.Lock()
+	f.opened++
+	f.nextID++
+	f.rows, f.cols = rows, cols
+	t := &fakeTerm{id: fmt.Sprintf("%016x", f.nextID), owner: owner, started: time.Now().Unix()}
+	f.sessions[t.id] = t
+	f.tmu.Unlock()
+	client, server := net.Pipe()
+	f.serve(t, server, false)
+	return client, t.id, nil
+}
+
+func (f *termSys) AttachTerminal(_ context.Context, id string, owner int64, rows, cols uint16) (io.ReadWriteCloser, error) {
+	f.tmu.Lock()
+	t := f.sessions[id]
+	switch {
+	case t == nil:
+		f.tmu.Unlock()
+		return nil, errors.New("no such session")
+	case t.owner != owner:
+		f.tmu.Unlock()
+		return nil, errors.New("not your session")
+	case t.attached:
+		f.tmu.Unlock()
+		return nil, errors.New("session is in use")
+	}
+	f.tmu.Unlock()
+	client, server := net.Pipe()
+	f.serve(t, server, true)
 	return client, nil
+}
+
+func (f *termSys) ListTerminals(_ context.Context, ack []string) (helper.TerminalList, error) {
+	f.tmu.Lock()
+	defer f.tmu.Unlock()
+	f.acked = append(f.acked, ack...)
+	l := helper.TerminalList{Sessions: []helper.TerminalInfo{}}
+	for _, t := range f.sessions {
+		l.Sessions = append(l.Sessions, helper.TerminalInfo{ID: t.id, Owner: t.owner, Started: t.started, Attached: t.attached,
+			DetachedSince: time.Now().Unix(), LinuxUser: "alice"})
+	}
+	for _, e := range f.ended {
+		skip := false
+		for _, a := range f.acked {
+			if a == e.ID {
+				skip = true
+			}
+		}
+		if !skip {
+			l.Ended = append(l.Ended, e)
+		}
+	}
+	return l, nil
+}
+
+func (f *termSys) EndTerminal(_ context.Context, id string) error {
+	f.tmu.Lock()
+	t := f.sessions[id]
+	f.tmu.Unlock()
+	if t == nil {
+		return errors.New("no such session")
+	}
+	f.finish(t)
+	return nil
+}
+
+func (f *termSys) isLive(id string) bool {
+	f.tmu.Lock()
+	defer f.tmu.Unlock()
+	return f.sessions[id] != nil
+}
+
+func (f *termSys) liveCount() int {
+	f.tmu.Lock()
+	defer f.tmu.Unlock()
+	return len(f.sessions)
+}
+
+func (f *termSys) detachedIDs() []string {
+	f.tmu.Lock()
+	defer f.tmu.Unlock()
+	var ids []string
+	for _, t := range f.sessions {
+		if !t.attached {
+			ids = append(ids, t.id)
+		}
+	}
+	return ids
 }
 
 func (f *termSys) sizeList() string {
@@ -96,6 +230,16 @@ func (e *env) ticket(role string) string {
 	}
 	if c := e.do(role, "POST", "/api/system/terminal/ticket", nil, &out); c != 200 || out.Ticket == "" || out.ExpiresIn != 30 {
 		e.t.Fatalf("ticket: %d %+v", c, out)
+	}
+	return out.Ticket
+}
+
+// ticket2 asks for a ticket to reattach to session id.
+func (e *env) ticket2(role, id string) string {
+	e.t.Helper()
+	var out struct{ Ticket string }
+	if c := e.do(role, "POST", "/api/system/terminal/ticket", map[string]any{"session": id}, &out); c != 200 || out.Ticket == "" {
+		e.t.Fatalf("reattach ticket: %d %+v", c, out)
 	}
 	return out.Ticket
 }
@@ -249,24 +393,218 @@ func TestTerminalRelayEndToEnd(t *testing.T) {
 		t.Errorf("invalid resizes got through: %s", got)
 	}
 
+	// A WebSocket that just closes is a transport loss: the session is
+	// detached and keeps running.
 	_ = c.Close(websocket.StatusNormalClosure, "")
-	select {
-	case <-fs.hangups:
-	case <-time.After(5 * time.Second):
-		t.Fatal("helper stream not closed after the WebSocket closed")
+	termWait(t, "detach audit", func() bool { return strings.Contains(e.auditActions(), "system.terminal.detach") })
+	if fs.liveCount() != 1 || len(fs.detachedIDs()) != 1 {
+		t.Fatalf("session not detached: live %d detached %v", fs.liveCount(), fs.detachedIDs())
 	}
-	termWait(t, "end audit", func() bool { return strings.Contains(e.auditActions(), "system.terminal.end") })
 	a := e.auditActions()
-	for _, w := range []string{"system.terminal.start", `"reason":"closed"`, `"linuxUser":"alice"`, `"seconds":`} {
+	for _, w := range []string{"system.terminal.start", `"linuxUser":"alice"`, `"seconds":`} {
 		if !strings.Contains(a, w) {
 			t.Errorf("audit lacks %q:\n%s", w, a)
 		}
 	}
-	if strings.Contains(a, "ls") && strings.Contains(a, "echo:") {
+	if strings.Contains(a, "system.terminal.end") {
+		t.Errorf("a lost transport was audited as an end:\n%s", a)
+	}
+	if strings.Contains(a, "echo:") || strings.Contains(a, "ls\r") {
 		t.Errorf("audit holds terminal data:\n%s", a)
 	}
-	if strings.Contains(a, "echo:") {
-		t.Errorf("audit holds terminal output:\n%s", a)
+}
+
+func TestTerminalExplicitEndOverWebSocket(t *testing.T) {
+	fs := newTermSys()
+	e := newEnv(t, opts{sysHost: fs})
+	e.termOn()
+	c, _, err := e.dialWS("admin", "?ticket="+e.ticket("admin"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+	termWait(t, "session up", func() bool { return e.termSessions() == 1 })
+	if err := c.Write(context.Background(), websocket.MessageText, []byte(`{"type":"end"}`)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-fs.hangups:
+	case <-time.After(5 * time.Second):
+		t.Fatal("explicit end did not stop the session")
+	}
+	drain(c)
+	termWait(t, "end audit", func() bool { return strings.Contains(e.auditActions(), "system.terminal.end") })
+	a := e.auditActions()
+	if !strings.Contains(a, `"reason":"closed"`) || strings.Contains(a, "system.terminal.detach") {
+		t.Errorf("audit:\n%s", a)
+	}
+	if fs.liveCount() != 0 {
+		t.Fatal("session still live after the end")
+	}
+}
+
+func TestTerminalReattach(t *testing.T) {
+	fs := newTermSys()
+	e := newEnv(t, opts{sysHost: fs})
+	e.termOn()
+	c, _, err := e.dialWS("admin", "?ticket="+e.ticket("admin"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	termWait(t, "session up", func() bool { return e.termSessions() == 1 })
+	c.CloseNow()
+	termWait(t, "detached", func() bool { return len(fs.detachedIDs()) == 1 })
+	id := fs.detachedIDs()[0]
+
+	// the list shows it, owner-only controls
+	var list struct{ Sessions []map[string]any }
+	if code := e.do("admin", "GET", "/api/system/terminal/sessions", nil, &list); code != 200 || len(list.Sessions) != 1 ||
+		list.Sessions[0]["id"] != id || list.Sessions[0]["mine"] != true || list.Sessions[0]["attached"] != false || list.Sessions[0]["owner"] != "admin" {
+		t.Fatalf("%d %+v", code, list)
+	}
+
+	// another administrator cannot take it over
+	if _, err := e.st.CreateUser("admin2", testHash("admin2"), "admin"); err != nil {
+		t.Fatal(err)
+	}
+	e.session("admin2")
+	var out struct{ Ticket string }
+	if code, ec := e.errCode("admin2", "POST", "/api/system/terminal/ticket", map[string]any{"session": id}); code != 403 || ec != "not_yours" {
+		t.Fatalf("other admin: %d %s", code, ec)
+	}
+	if code, ec := e.errCode("admin", "POST", "/api/system/terminal/ticket", map[string]any{"session": "00000000000000ff"}); code != 404 || ec != "not_found" {
+		t.Fatalf("unknown: %d %s", code, ec)
+	}
+	// even with a ticket for the owner, the other user's websocket cannot use it
+	if code := e.do("admin", "POST", "/api/system/terminal/ticket", map[string]any{"session": id}, &out); code != 200 {
+		t.Fatalf("own ticket: %d", code)
+	}
+	if _, resp, err := e.dialWS("admin2", "?ticket="+out.Ticket, ""); !refused(resp, err, 403) {
+		t.Fatalf("ticket used by another user: %v", err)
+	}
+
+	// the owner reattaches: replay first, then live
+	c, _, err = e.dialWS("admin", "?ticket="+e.ticket2("admin", id), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+	readText(t, c, "replay:"+id)
+	_ = c.Write(context.Background(), websocket.MessageBinary, []byte("pwd\r"))
+	readText(t, c, "echo:pwd\r")
+	if fs.openCount() != 1 {
+		t.Fatalf("reattach opened a new session (%d)", fs.openCount())
+	}
+	// while attached, a second ticket for it is refused
+	if code, ec := e.errCode("admin", "POST", "/api/system/terminal/ticket", map[string]any{"session": id}); code != 409 || ec != "session_in_use" {
+		t.Fatalf("in use: %d %s", code, ec)
+	}
+	a := e.auditActions()
+	if !strings.Contains(a, "system.terminal.reattach") {
+		t.Fatalf("no reattach audit:\n%s", a)
+	}
+}
+
+func TestTerminalSessionLimitCountsDetached(t *testing.T) {
+	fs := newTermSys()
+	e := newEnv(t, opts{sysHost: fs})
+	e.termOn()
+	for i := 0; i < 2; i++ {
+		c, _, err := e.dialWS("admin", "?ticket="+e.ticket("admin"), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := i + 1
+		termWait(t, "up", func() bool { return fs.liveCount() == n })
+		c.CloseNow()
+		termWait(t, "detached", func() bool { return len(fs.detachedIDs()) == n })
+	}
+	if code, ec := e.errCode("admin", "POST", "/api/system/terminal/ticket", nil); code != 429 || ec != "too_many_sessions" {
+		t.Fatalf("detached sessions are not counted: %d %s", code, ec)
+	}
+	// ending one frees a slot
+	id := fs.detachedIDs()[0]
+	if code := e.do("admin", "POST", "/api/system/terminal/sessions/"+id+"/end", nil, nil); code != 200 {
+		t.Fatalf("end: %d", code)
+	}
+	termWait(t, "slot", func() bool {
+		c, _ := e.errCode("admin", "POST", "/api/system/terminal/ticket", nil)
+		return c == 200
+	})
+	a := e.auditActions()
+	if !strings.Contains(a, `"reason":"admin-ended"`) {
+		t.Fatalf("admin end not audited:\n%s", a)
+	}
+}
+
+func TestTerminalAdminEndsAttachedAndRefusals(t *testing.T) {
+	fs := newTermSys()
+	e := newEnv(t, opts{sysHost: fs})
+	e.termOn()
+	c, _, err := e.dialWS("admin", "?ticket="+e.ticket("admin"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+	termWait(t, "up", func() bool { return fs.liveCount() == 1 })
+	l, _ := fs.ListTerminals(context.Background(), nil)
+	id := l.Sessions[0].ID
+	if code := e.do("op", "POST", "/api/system/terminal/sessions/"+id+"/end", nil, nil); code != 403 {
+		t.Fatalf("operator ended a session: %d", code)
+	}
+	if code := e.do("op", "GET", "/api/system/terminal/sessions", nil, nil); code != 403 {
+		t.Fatalf("operator listed sessions: %d", code)
+	}
+	if code := e.do("admin", "POST", "/api/system/terminal/sessions/..%2f..%2fx/end", nil, nil); code == 200 {
+		t.Fatal("bad id accepted")
+	}
+	if code := e.do("admin", "POST", "/api/system/terminal/sessions/00000000000000ff/end", nil, nil); code != 404 {
+		t.Fatalf("unknown id: %d", code)
+	}
+	if code := e.do("admin", "POST", "/api/system/terminal/sessions/"+id+"/end", nil, nil); code != 200 {
+		t.Fatalf("end: %d", code)
+	}
+	select {
+	case <-fs.hangups:
+	case <-time.After(5 * time.Second):
+		t.Fatal("attached session survived the admin end")
+	}
+	drain(c)
+	termWait(t, "audit", func() bool { return strings.Contains(e.auditActions(), `"reason":"admin-ended"`) })
+}
+
+// Sessions that ended on their own while detached are audited once, from the
+// helper's records.
+func TestTerminalReconcileAuditsHostEnds(t *testing.T) {
+	fs := newTermSys()
+	fs.ended = []helper.TerminalEnded{
+		{ID: "00000000000000aa", Owner: 1, Started: 100, Ended: 400, Reason: helper.EndGrace, Detached: true, LinuxUser: "alice"},
+		{ID: "00000000000000ab", Owner: 1, Started: 100, Ended: 400, Reason: helper.EndRequested, Detached: false},
+		{ID: "00000000000000ac", Owner: 1, Started: 100, Ended: 900, Reason: helper.EndAptFinished, Detached: true},
+	}
+	e := newEnv(t, opts{sysHost: fs})
+	e.termOn()
+	var list struct{ Sessions []any }
+	if code := e.do("admin", "GET", "/api/system/terminal/sessions", nil, &list); code != 200 {
+		t.Fatal(code)
+	}
+	a := e.auditActions()
+	if !strings.Contains(a, `"reason":"grace"`) || !strings.Contains(a, `"reason":"apt-finished"`) || strings.Contains(a, "requested") {
+		t.Fatalf("audit:\n%s", a)
+	}
+	if strings.Count(a, "system.terminal.end") != 2 {
+		t.Fatalf("audit:\n%s", a)
+	}
+	// acknowledged: a second pass adds nothing
+	e.do("admin", "GET", "/api/system/terminal/sessions", nil, &list)
+	if n := strings.Count(e.auditActions(), "system.terminal.end"); n != 2 {
+		t.Fatalf("audited twice: %d", n)
+	}
+	fs.tmu.Lock()
+	acked := len(fs.acked)
+	fs.tmu.Unlock()
+	if acked != 3 {
+		t.Fatalf("acked %d", acked)
 	}
 }
 
@@ -343,6 +681,8 @@ func TestTerminalSessionLimit(t *testing.T) {
 	if c, code := e.errCode("admin", "POST", "/api/system/terminal/ticket", nil); c != 429 || code != "too_many_sessions" {
 		t.Fatalf("third ticket: %d %s", c, code)
 	}
+	// a plain close only detaches (and still counts); an explicit end frees
+	_ = conns[0].Write(context.Background(), websocket.MessageText, []byte(`{"type":"end"}`))
 	conns[0].CloseNow()
 	termWait(t, "slot freed", func() bool {
 		c, _ := e.errCode("admin", "POST", "/api/system/terminal/ticket", nil)
