@@ -7,9 +7,11 @@ Release notes are taken from the section of the tag being released
 
 ### Added
 - **System, Terminal** for administrators: a Linux login prompt in the browser (xterm.js, loaded only when you open that section). It is off by default; an administrator turns it on in the same section. You log in with a Linux account name and password, and the shell runs as that account; no root shell is handed out.
-- A session closes after 15 minutes without typing, at 8 hours at the latest, when you log out, when you turn the terminal off, and when you press Disconnect or close the page. At most two sessions at a time (a detached session counts).
+- A session closes after 15 minutes without typing, at 8 hours at the latest, when you log out, when you turn the terminal off, or when you press Disconnect. Closing or reloading the page does not end it. At most two sessions at a time (a detached session counts).
 - The audit log records when a terminal session started, detached, reattached and ended (who, how long, which Linux account, why it ended: closed, idle, limit, disabled, logout, grace, apt-finished, admin-ended). What is typed or shown is never recorded.
 - A terminal session survives a restart of the helper or the web server and a page that disconnects. It is detached and keeps running for 2 minutes, and for as long as `apt`, `apt-get`, `aptitude`, `dpkg` or `unattended-upgrade` runs in it (at most 2 hours), so `apt upgrade` typed in the terminal finishes safely even though it restarts ASLCP. Your own detached sessions are listed in the Terminal section with Reattach (the recent output is replayed) and End; an administrator can end any session.
+- Reloading the page no longer ends the terminal session: it is detached, and the same tab reattaches on its own with the recent output. Closing the page detaches it too, and it ends after the 2 minute grace.
+- The list of open terminal sessions in the Terminal section now updates by itself every few seconds (and right after a disconnect), so Reattach appears without reloading the page.
 
 ### Changed
 - The terminal runs in its own systemd unit (`aslcp-term-<id>`), outside the helper's cgroup, so a terminal user sees the real `/home` and `/tmp` and `aslcp-helper.service` keeps `PrivateTmp=yes` and `ProtectHome=yes`. The unit's main process is `aslcp-helper term-host`, which owns the pseudo terminal, runs `login` and listens on a root-only socket under `/run/aslcp/term`; the helper only relays. When the helper starts it adopts the running sessions and stops only units that have no reachable session.

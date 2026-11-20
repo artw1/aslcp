@@ -2,6 +2,8 @@
 // is in docs/API.md: binary WebSocket messages are keyboard input going out
 // and program output coming in; the text messages are JSON: resize and end.
 
+import type { TerminalSessionInfo } from './types';
+
 export interface Loc { protocol: string; host: string }
 
 /** The WebSocket URL for a one-time ticket. */
@@ -19,9 +21,26 @@ export function resizeMsg(rows: number, cols: number): string {
   return JSON.stringify({ type: 'resize', rows: c(rows), cols: c(cols) });
 }
 
-/** The text message that ends the session for good (Disconnect, closing the page). */
+/** The text message that ends the session for good (the Disconnect button). */
 export function endMsg(): string {
   return JSON.stringify({ type: 'end' });
+}
+
+/** sessionStorage key (per tab) for the session to reattach to after a page reload. */
+export const SESSION_KEY = 'aslcp.term.session';
+
+/** The one session of mine that is open now and was not in the list before connecting; '' when unsure. */
+export function newSessionId(before: string[], list: TerminalSessionInfo[]): string {
+  const c = list.filter((s) => s.mine && s.attached && !before.includes(s.id));
+  return c.length === 1 ? c[0].id : '';
+}
+
+/** What to do on page load with the remembered session: reattach now, look again shortly (the old page may not be detached yet), forget it, or nothing. */
+export function resumeAction(saved: string, list: TerminalSessionInfo[]): 'none' | 'attach' | 'wait' | 'clear' {
+  if (!saved) return 'none';
+  const s = list.find((x) => x.id === saved);
+  if (!s || !s.mine) return 'clear';
+  return s.attached ? 'wait' : 'attach';
 }
 
 /** Why a session ended, in words (the close reason sent by the server). */
