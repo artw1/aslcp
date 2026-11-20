@@ -21,6 +21,7 @@ export const sections: SystemSection[] = [
   { id: 'asl-services', label: 'ASL services', title: 'ASL web services', load: () => import('./AslServices.svelte') },
   { id: 'web-port', label: 'Web port', title: 'Web port of ASLCP', load: () => import('./WebPort.svelte') },
   { id: 'audit', label: 'Audit log', load: () => import('./AuditLog.svelte') },
+  { id: 'terminal', label: 'Terminal', load: () => import('./Terminal.svelte') },
 ];
 
 export const defaultSection = sections[0].id;

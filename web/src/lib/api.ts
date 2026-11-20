@@ -1,4 +1,4 @@
-import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVBMReq, DVSwitchRestartResult, DVDMRStatus, DVRestartScope, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, DVInfoInput, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage, WifiState, WifiScan } from './types';
+import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVBMReq, DVSwitchRestartResult, DVDMRStatus, DVRestartScope, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, DVInfoInput, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage, WifiState, WifiScan, TerminalStatus, TerminalTicket } from './types';
 import type { SvcStatus, SvcSetResult, WebPortStatus } from './svcweb';
 
 export class ApiError extends Error {
@@ -156,6 +156,9 @@ export const api = {
   wifiForget: (id: string) => req<WifiState>('DELETE', `/system/wifi/networks/${q(id)}`),
   wifiOrder: (order: string[]) => req<WifiState>('PUT', '/system/wifi/order', { order }),
   wifiHotspot: (enabled: boolean, delaySeconds = 0) => req<WifiState>('PUT', '/system/wifi/hotspot', { enabled, delaySeconds }),
+  terminal: () => req<TerminalStatus>('GET', '/system/terminal'),
+  setTerminal: (enabled: boolean) => req<TerminalStatus>('PUT', '/system/terminal', { enabled }),
+  terminalTicket: () => req<TerminalTicket>('POST', '/system/terminal/ticket'),
   audit: (o: { before?: number; limit?: number; user?: string; action?: string } = {}) => req<AuditPage>('GET', `/audit?limit=${o.limit ?? 50}${o.before ? '&before=' + o.before : ''}${o.user ? '&user=' + q(o.user) : ''}${o.action ? '&action=' + q(o.action) : ''}`),
   restartAslcp: () => req<{ ok: boolean }>('POST', '/system/restart-aslcp'),
   dvswitch: () => req<DVSwitchStatus>('GET', '/dvswitch'),

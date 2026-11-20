@@ -11,13 +11,15 @@ const host = { hostname: 'node2001', prettyHostname: '', os: 'Debian GNU/Linux 1
 const audit: { id: number; time: string; user: string; action: string; detail: string }[] = [];
 function note(user: string, action: string, detail: object) { audit.push({ id: audit.length + 1, time: new Date().toISOString(), user, action, detail: JSON.stringify(detail) }); }
 for (let i = 0; i < 120; i++) audit.push({ id: audit.length + 1, time: new Date(Date.now() - (120 - i) * 3600e3).toISOString(), user: i % 3 ? 'admin' : 'op', action: i % 4 ? 'favorite.add' : 'config.apply', detail: JSON.stringify({ node: '2001', n: i }) });
+const term = { enabled: false };
+const termStatus = () => ({ enabled: term.enabled, available: true, sessions: 0, maxSessions: 2, idleMinutes: 15, maxHours: 8 });
 const status = () => { const d = new Date(); return { ...host, now: d.toISOString(), clock: d.toString() }; };
 
 export function handleSystem(c: Ctx): boolean {
   const { m, p } = c;
   if (handleSvc(c)) return true;
   if (!p.startsWith('/system/') && p !== '/audit') return false;
-  const known = ['/system/host', '/system/timezones', '/system/poweroff', '/system/logs', '/system/services', '/system/network', '/audit'];
+  const known = ['/system/host', '/system/timezones', '/system/poweroff', '/system/logs', '/system/services', '/system/network', '/system/terminal', '/system/terminal/ticket', '/audit'];
   if (!known.includes(p)) return false;
   if (c.user?.role !== 'admin') { c.err(403, 'forbidden', 'forbidden'); return true; }
   const who = c.user.username;
@@ -34,6 +36,16 @@ export function handleSystem(c: Ctx): boolean {
     }
     if (typeof b.ntp === 'boolean') { if (b.ntp !== host.ntp) note(who, 'system.ntp', { from: host.ntp, to: b.ntp }); host.ntp = b.ntp; host.ntpSynchronized = b.ntp; }
     c.json(200, status()); return true;
+  }
+  if (p === '/system/terminal' && m === 'GET') { c.json(200, termStatus()); return true; }
+  if (p === '/system/terminal' && m === 'PUT') {
+    if (typeof c.body?.enabled !== 'boolean') { c.err(400, 'nothing to change', 'bad_request'); return true; }
+    if (c.body.enabled !== term.enabled) note(who, 'system.terminal', { from: term.enabled, to: c.body.enabled }); term.enabled = c.body.enabled;
+    c.json(200, termStatus()); return true;
+  }
+  if (p === '/system/terminal/ticket' && m === 'POST') {
+    if (!term.enabled) { c.err(403, 'the terminal is turned off', 'terminal_disabled'); return true; }
+    c.json(200, { ticket: 'mock', expiresIn: 30 }); return true;
   }
   if (p === '/system/timezones') { c.json(200, { timezones: ZONES }); return true; }
   if (p === '/system/poweroff' && m === 'POST') { note(who, 'system.poweroff', {}); c.json(202, { ok: true }); return true; }

@@ -84,6 +84,8 @@ type Request struct {
 	DVSwitch *DVSwitchRequest `json:"dvswitch,omitempty"`
 	// Sys is accepted by the System tab ops only (sys.go).
 	Sys *SysRequest `json:"sys,omitempty"`
+	// Terminal is accepted by terminal.open only (terminal.go).
+	Terminal *TerminalRequest `json:"terminal,omitempty"`
 }
 
 // Status is the response of the update-* operations. Candidate and

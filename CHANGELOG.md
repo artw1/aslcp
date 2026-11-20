@@ -3,6 +3,16 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [1.3.3] - 2026-11-20
+
+### Added
+- **System, Terminal** for administrators: a Linux login prompt in the browser (xterm.js, loaded only when you open that section). It is off by default; an administrator turns it on in the same section. You log in with a Linux account name and password, and the shell runs as that account; no root shell is handed out.
+- A session closes after 15 minutes without typing, at 8 hours at the latest, when you log out, when you turn the terminal off, and when you close the page. At most two sessions at a time.
+- The audit log records when a terminal session started and ended (who, how long, which Linux account, why it ended). What is typed or shown is never recorded.
+
+### Changed
+- `aslcp-helper.service` no longer sets `PrivateTmp` and `ProtectHome`, so a terminal user sees the real `/home` and `/tmp`.
+
 ## [1.3.2] - 2026-11-20
 
 ### Added

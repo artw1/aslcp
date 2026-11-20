@@ -396,6 +396,9 @@ Each step is its own `try/*` branch and its own 1.3.x release. Each release is t
 | 2 | `try/system-services-port80` | **1.3.1** ASL services switch, move to port 80, purge record and `postrm.sh`. Status: built on `try/1.3.1`, not yet run on a real node. |
 | 3 | `try/1.3.2` | **1.3.2** WiFi manager, hotspot fallback, watchdog. Built, not yet tested on a node. |
 | 4 | `try/system-terminal` | **1.3.3** Terminal (WebSocket, xterm.js, helper PTY) |
+
+Status of step 4: built on `try/1.3.3` (version 1.3.3), not yet tested on a real node. `login` PAM behaviour, the user lookup for the audit record and Safari WebSocket under the CSP are in "Still open".
+
 | 5 | `try/system-diagnostics` | **1.3.4** Diagnostics bundle |
 
 Order reason: 1 is low risk and gives the shell the others plug into. 2 gives operators the main reason to turn Cockpit off, so 3 and 4 should land before people are told they can: WiFi and Terminal replace Cockpit's two fallbacks. Until 1.3.3 ships, the 1.3.1 caution box tells operators to keep Cockpit if they rely on its terminal or WiFi.
@@ -469,5 +472,7 @@ Added by 1.3.2 (built, to verify on a node with WiFi):
 - Watchdog timer timing (60 s after boot, every 30 s; hotspot opens about 3 minutes after boot).
 - Detection of "connected through the hotspot" by the request's local address `10.42.0.1`.
 - Default on versus the plan's section 9.4 wording (default off); 1.3.2 follows section 15 (on).
+
+Terminal (1.3.3), on a real node: `login -p` on the image (PAM stack, `pam_securetty` or a `/etc/securetty` that would refuse root, lastlog and motd output, `login` timeout of 60 seconds at the prompt); that `login -p` keeps the fixed `TERM` and `LANG` for the shell; the Linux user lookup for the audit record (a process of the session owned by a non-root uid, falling back to `/var/run/utmp`; some images may not write utmp for `login` on a pts); `/dev/ptmx` and `devpts` available to `aslcp-helper` under its unit hardening (`PrivateDevices`, `DevicePolicy`, `NoNewPrivileges` would break `login`); killing of the whole session on disconnect (sleep in the background, `su`, `tmux`); xterm.js rendering and paste on phones and Safari; idle and 8 hour limits; two browsers at once; an `Origin` from another site; behaviour behind a reverse proxy that does not forward WebSocket upgrades.
 
 Examples in this document use placeholders: callsign N0CALL, node 2001, hostname `node2001`, address `192.0.2.10`.

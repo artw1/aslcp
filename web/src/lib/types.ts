@@ -321,3 +321,7 @@ export interface WifiState {
   hotspot: WifiHotspot; networks: WifiNetwork[]; viaWifi: boolean; viaHotspot: boolean;
 }
 export interface WifiScan { networks: WifiAP[]; note?: string }
+
+// System > Terminal (docs/API.md "Browser terminal"); admin only, off by default.
+export interface TerminalStatus { enabled: boolean; available: boolean; sessions: number; maxSessions: number; idleMinutes: number; maxHours: number }
+export interface TerminalTicket { ticket: string; expiresIn: number }

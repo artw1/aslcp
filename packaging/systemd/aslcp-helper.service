@@ -8,8 +8,11 @@ After=aslcp-helper.socket
 Type=simple
 # Runs as root, socket-activated; exits after 60 s without requests.
 ExecStart=/usr/libexec/aslcp/aslcp-helper
-PrivateTmp=yes
-ProtectHome=yes
+# No PrivateTmp and no ProtectHome (1.3.3): the browser terminal starts login
+# from this unit, and a user shell inherits the unit's mount namespace; with
+# them the user would see an empty /home and a private /tmp. NoNewPrivileges
+# and PrivateDevices are deliberately not set either (login, su and sudo need
+# setuid, and the terminal needs /dev/ptmx).
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=yes

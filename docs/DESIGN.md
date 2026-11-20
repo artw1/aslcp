@@ -50,7 +50,7 @@ aslcp (Go, user: aslcp) ---- AMI :5038 ----> Asterisk / app_rpt
 |---|---|---|
 | Backend | Go, single static binary | Frontend embedded via `go:embed`. Target ~15-30 MB RSS (**To verify** on a Pi Zero 2 W). Trivial cross-compilation. |
 | Frontend | Svelte 5, Vite, TypeScript, Tailwind, shadcn-svelte | Mobile-first, theme switch. |
-| API | JSON REST plus Server-Sent Events (SSE) for live updates | Contract in `docs/API.md`. SSE is one-way, standard-library only, and proxy-friendly; commands go over REST. |
+| API | JSON REST plus Server-Sent Events (SSE) for live updates, and one WebSocket (the admin terminal, `github.com/coder/websocket`) | Contract in `docs/API.md`. SSE is one-way, standard-library only, and proxy-friendly; commands go over REST. The WebSocket carries only the browser terminal (section 3.4). |
 | Live data | AMI client in Go | Events bridged to SSE. |
 | Storage | SQLite via a pure-Go driver (e.g. `modernc.org/sqlite`) | Users, favorites, audit log, settings, config snapshot metadata. |
 
@@ -74,6 +74,7 @@ Allow/deny lists live in AstDB and are managed through AMI database actions (UI 
 - Local users, argon2id password hashes, server-side sessions with secure, HttpOnly, SameSite cookies.
 - Roles: `admin` (everything), `operator` (connect/disconnect, favorites, monitoring), `viewer` (read-only, no secrets).
 - CSRF protection on all state-changing requests (custom header plus Origin check).
+- WebSocket (terminal): a browser cannot send the CSRF header on a handshake, so the page POSTs (session cookie plus the custom header) for a one-time ticket (30 seconds, single use, tied to the user and the login session) and passes it as `?ticket=`. The upgrade also requires the cookie, the admin role and an `Origin` that matches the host (a missing one is refused). The CSP names the host's `ws://` and `wss://` in `connect-src`.
 - Login rate limiting.
 - Optional HTTPS: a self-signed certificate generated at install, or a user-supplied certificate.
 - Default port 8080, configurable, so ASLCP coexists with Allmon3 and Cockpit. With Apache off, the System tab can move ASLCP to port 80 (a systemd drop-in with `CAP_NET_BIND_SERVICE`, a 60 s revert timer if the new address is not opened) and the ASL services switch can stop and disable Cockpit, Apache and Allmon3 (never uninstall). The optional public status page is served on the same port without login (section 9.3).
@@ -89,6 +90,7 @@ The web process runs as the dedicated `aslcp` user, never root. A small separate
 | `systemctl restart` | Only `asterisk` and detected AMI-client services (e.g. `allmon3`). |
 | `nmcli` WiFi operations (1.3.2) | Typed arguments only (SSID 1 to 32 bytes, PSK 8 to 63 ASCII or 64 hex, connection ids checked against a fresh list). The password is written to a 0600 NetworkManager keyfile, never put in argv, logs or the audit log. |
 | `aslcp-helper wifi-watchdog` (1.3.2) | Root only, run by a systemd timer. Starts or stops the `aslcp-hotspot` connection. |
+| `terminal.open` | Starts `login -p` on a new PTY: fixed path, argv and environment; only the window size comes from the client (1..500). |
 
 #### WiFi hotspot watchdog (1.3.2)
 
@@ -97,6 +99,16 @@ The web process runs as the dedicated `aslcp` user, never root. A small separate
 - **On by default.** Plan section 9.4 says off and section 15 says on; we follow section 15, the later decision. An admin can turn it off, and the choice is stored in `/var/lib/aslcp-wifi/hotspot.json`.
 - **Open network.** There is no WiFi password; protection is the ASLCP login or the one-time setup code. Anyone in range can sniff the login, so the page warns while a visitor is connected through the hotspot (`GET /api/setup` returns `hotspot`).
 - **No NAT, no forwarding.** The profile uses NetworkManager `ipv4.method shared` only to get a DHCP server and the fixed address `10.42.0.1`; `shared` normally means NAT, so this is limited three ways: the profile is `never-default`, the hotspot is up only when the node has no uplink (so there is nothing to forward to), and the watchdog stops it when a network connects. If firewalld is present, a zone `aslcp-hotspot` (target DROP, only the ASLCP port, DHCP and DNS allowed, forwarding removed) is bound to the interface. **To verify** on a node: the exact firewalld commands, and that no forwarding or NAT rule remains. Without firewalld the hotspot is still offered and the page says it is not isolated.
+
+**The browser terminal (1.3.3).** `login` is the security boundary: the helper never starts a shell for the web user or for root, so a person still has to authenticate to PAM with a Linux account, and the shell runs as that account. The PTY lives in the helper (root). The unprivileged web server only relays bytes between the WebSocket and the helper.
+
+The relay channel is the helper socket itself. `terminal.open` is a normal request (one JSON request, one JSON reply); after an `{"ok":true}` reply the same unix-socket connection becomes a raw framed stream: 1 type byte, 2 bytes big-endian length, payload. Types: 0 data (both directions), 1 resize (rows and cols, two big-endian uint16, client to helper), 2 Linux user name (helper to client, once, for the audit record). The peer check (`SO_PEERCRED`, root or user `aslcp`) applies as for every operation. The web process holds no PTY, no file descriptor of the terminal and no ability to start anything else; if it is compromised, the attacker can only reach the login prompt, as anyone on the network could with SSH.
+
+Session life: closing either end (the WebSocket, or the helper connection) closes the PTY master, sends SIGHUP and then SIGKILL to the process group and to the processes of the login session found in `/proc` (a program that left the foreground group), and reaps `login`; nothing outlives the WebSocket. Idle timeout 15 minutes (keyboard input only), hard maximum 8 hours, 2 concurrent sessions, admin only, off by default (`terminal.enabled` in the store, enforced by the web server and re-checked every second while a session is open; turning it off ends open sessions). The server also re-validates the login session and the admin role every 5 seconds. The audit log records the start and the end (user, Linux user, duration, reason), never keystrokes or output, and neither the logs nor the code keep terminal bytes.
+
+Because a user shell inherits the helper unit's sandbox, `aslcp-helper.service` no longer sets `PrivateTmp` or `ProtectHome` (the user would otherwise see an empty `/home` and a private `/tmp`), and does not set `NoNewPrivileges` or `PrivateDevices` (`login`, `su` and `sudo` need setuid; the PTY needs `/dev/ptmx`). The web unit keeps its full sandbox.
+
+The PTY is plain Linux (`/dev/ptmx`, `TIOCSPTLCK`, `TIOCGPTN`, `TIOCSWINSZ` through `golang.org/x/sys/unix`), so the build stays `CGO_ENABLED=0` and works on armhf. On other platforms the operation answers "terminal not available". `--demo` mode has a pretend login that never lets anyone in.
 
 Invocation is via a systemd socket-activated service (preferred) or a polkit/sudoers rule with the same allowlist. The helper validates every request independently of the web process. The choice between the two mechanisms is a **To verify** item (see section 13).
 
