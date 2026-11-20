@@ -51,8 +51,8 @@ func (o *Ops) handleSys(ctx context.Context, req Request) (any, error) {
 	return h(o, ctx, sr)
 }
 
-// parseKV parses "Key=Value" lines (systemctl show, timedatectl show,
-// hostnamectl show). Lines without "=" are ignored; the last value wins.
+// parseKV parses "Key=Value" lines (systemctl show, timedatectl show).
+// Lines without "=" are ignored; the last value wins.
 func parseKV(text string) map[string]string {
 	m := map[string]string{}
 	for _, line := range strings.Split(text, "\n") {

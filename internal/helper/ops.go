@@ -54,6 +54,11 @@ type Ops struct {
 	AslcpConf  string    // default DefaultAslcpConf (restored; read for the web port)
 	ResolvConf string    // default DefaultResolvConf (net-status)
 	OSRelease  string    // default DefaultOSRelease
+	// Host info fallbacks of host-status (injectable for tests): the
+	// static hostname file, the kernel hostname and the PATH lookup.
+	HostnameFile string
+	GetHostname  func() (string, error)
+	LookPath     func(string) (string, error)
 	// TempDir is where an uploaded archive is staged during a restore
 	// (default /var/tmp).
 	TempDir string

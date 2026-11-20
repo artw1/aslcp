@@ -2,9 +2,11 @@ package helper
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -41,24 +43,31 @@ func init() {
 // HostStatus is the response of host-status. A tool that is not installed
 // (or systemd is not running) shows as an unavailable group, not an error.
 type HostStatus struct {
-	Hostname        string `json:"hostname"`
-	PrettyHostname  string `json:"prettyHostname"`
-	OS              string `json:"os"`
-	HostnameAvail   bool   `json:"hostnameAvailable"`
-	Timezone        string `json:"timezone"`
-	NTP             bool   `json:"ntp"`
-	NTPSynchronized bool   `json:"ntpSynchronized"`
-	CanNTP          bool   `json:"canNtp"`
-	LocalRTC        bool   `json:"localRtc"`
-	TimeAvail       bool   `json:"timeAvailable"`
-	Now             string `json:"now"`   // RFC 3339, UTC, the helper's clock
-	Clock           string `json:"clock"` // timedatectl's TimeUSec text
+	Hostname       string `json:"hostname"`
+	PrettyHostname string `json:"prettyHostname"`
+	OS             string `json:"os"`
+	HostnameAvail  bool   `json:"hostnameAvailable"` // a hostname was read, by hostnamectl or by the fallback
+	// HostnamectlAvail: hostnamectl works or is installed, so Set hostname can
+	// be used. HostnamectlMissing: it is not installed (not found).
+	HostnamectlAvail   bool   `json:"hostnamectlAvailable"`
+	HostnamectlMissing bool   `json:"hostnamectlMissing"`
+	Timezone           string `json:"timezone"`
+	NTP                bool   `json:"ntp"`
+	NTPSynchronized    bool   `json:"ntpSynchronized"`
+	CanNTP             bool   `json:"canNtp"`
+	LocalRTC           bool   `json:"localRtc"`
+	TimeAvail          bool   `json:"timeAvailable"`
+	Now                string `json:"now"`   // RFC 3339, UTC, the helper's clock
+	Clock              string `json:"clock"` // timedatectl's TimeUSec text
 }
 
 // TimezoneList is the response of host-timezones.
 type TimezoneList struct {
 	Timezones []string `json:"timezones"`
 }
+
+// DefaultHostnameFile holds the static hostname.
+const DefaultHostnameFile = "/etc/hostname"
 
 var hostnameRE = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
 
@@ -79,14 +88,54 @@ func ValidTimezoneSyntax(s string) bool {
 	return tzSyntaxRE.MatchString(s) && !strings.Contains(s, "..")
 }
 
-// parseHostnamectl reads the output of "hostnamectl show".
-func parseHostnamectl(text string) (hostname, pretty, osName string) {
-	m := parseKV(text)
-	hostname = m["Hostname"]
-	if hostname == "" {
-		hostname = m["StaticHostname"]
+// parseHostnamectlJSON reads the output of "hostnamectl --json=short"
+// (systemd 250 and later). Missing fields and nulls give empty strings.
+func parseHostnamectlJSON(text string) (hostname, pretty, osName string, err error) {
+	var v struct {
+		Hostname       *string `json:"Hostname"`
+		StaticHostname *string `json:"StaticHostname"`
+		PrettyHostname *string `json:"PrettyHostname"`
+		OSPrettyName   *string `json:"OperatingSystemPrettyName"`
 	}
-	return hostname, m["PrettyHostname"], m["OperatingSystemPrettyName"]
+	if err = json.Unmarshal([]byte(text), &v); err != nil {
+		return "", "", "", err
+	}
+	str := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return strings.TrimSpace(*p)
+	}
+	hostname = str(v.Hostname)
+	if hostname == "" {
+		hostname = str(v.StaticHostname)
+	}
+	return hostname, str(v.PrettyHostname), str(v.OSPrettyName), nil
+}
+
+// parseOSReleasePretty returns PRETTY_NAME from os-release content: quoted
+// (single or double) and unquoted values; comments and junk lines ignored.
+func parseOSReleasePretty(text string) string {
+	val := ""
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok || strings.TrimSpace(k) != "PRETTY_NAME" {
+			continue
+		}
+		v = strings.TrimSpace(v)
+		if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
+			v = v[1 : len(v)-1]
+			if line[strings.Index(line, "=")+1:][0] == '"' {
+				v = strings.NewReplacer(`\"`, `"`, `\\`, `\`).Replace(v)
+			}
+		}
+		val = v
+	}
+	return val
 }
 
 // parseTimedatectl reads the output of "timedatectl show".
@@ -100,18 +149,56 @@ func parseTimedatectl(text string, h *HostStatus) {
 	h.Clock = m["TimeUSec"]
 }
 
-// HostStatus reads hostname and time settings; it never fails.
+// HostStatus reads hostname and time settings; it never fails. The hostname
+// comes from "hostnamectl --json=short" (systemd 250 and later); when that
+// fails it falls back to the kernel hostname, /etc/hostname and os-release.
 func (o *Ops) HostStatus(ctx context.Context) HostStatus {
 	h := HostStatus{}
-	if out, code, err := o.Run.Run(ctx, "hostnamectl", "show"); err == nil && code == 0 {
-		h.Hostname, h.PrettyHostname, h.OS = parseHostnamectl(out)
-		h.HostnameAvail = h.Hostname != ""
-	}
-	if !h.HostnameAvail {
-		if n, err := os.Hostname(); err == nil {
-			h.Hostname = n
+	if out, code, err := o.Run.Run(ctx, "hostnamectl", "--json=short"); err == nil && code == 0 {
+		if name, pretty, osName, perr := parseHostnamectlJSON(out); perr == nil {
+			h.Hostname, h.PrettyHostname, h.OS = name, pretty, osName
+			h.HostnamectlAvail = true
 		}
 	}
+	if !h.HostnamectlAvail {
+		lp := o.LookPath
+		if lp == nil {
+			lp = exec.LookPath
+		}
+		if _, err := lp("hostnamectl"); err == nil {
+			h.HostnamectlAvail = true
+		} else {
+			h.HostnamectlMissing = true
+		}
+	}
+	if h.Hostname == "" {
+		gh := o.GetHostname
+		if gh == nil {
+			gh = os.Hostname
+		}
+		if n, err := gh(); err == nil {
+			h.Hostname = strings.TrimSpace(n)
+		}
+	}
+	if h.Hostname == "" {
+		if b, err := os.ReadFile(orDefault(o.HostnameFile, DefaultHostnameFile)); err == nil {
+			h.Hostname = strings.TrimSpace(strings.SplitN(string(b), "\n", 2)[0])
+		}
+	}
+	if h.OS == "" {
+		paths := []string{o.osRelease()}
+		if o.OSRelease == "" {
+			paths = append(paths, "/usr/lib/os-release")
+		}
+		for _, p := range paths {
+			if b, err := os.ReadFile(p); err == nil {
+				if h.OS = parseOSReleasePretty(string(b)); h.OS != "" {
+					break
+				}
+			}
+		}
+	}
+	h.HostnameAvail = h.Hostname != ""
 	if out, code, err := o.Run.Run(ctx, "timedatectl", "show"); err == nil && code == 0 {
 		parseTimedatectl(out, &h)
 		h.TimeAvail = true

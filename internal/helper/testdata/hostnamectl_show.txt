@@ -1,7 +1,0 @@
-Hostname=node2001
-StaticHostname=node2001
-PrettyHostname=
-Chassis=embedded
-KernelName=Linux
-KernelRelease=6.1.0-rpi8-rpi-v8
-OperatingSystemPrettyName=Debian GNU/Linux 12 (bookworm)
