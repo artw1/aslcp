@@ -188,6 +188,8 @@ export interface DVSwitchStatus {
   install: DVSwitchJob; uninstall: DVSwitchJob;
   /** The stfu package (BrandMeister through STFU; installed with DVSwitch, separately on older installs) and its install job. */
   stfu: DVSTFUStatus;
+  /** DVSwitch settings saved by a backup restore on a node without DVSwitch; applied when DVSwitch is installed. `backupDate` is UTC ("2026-11-20 08:15"), `files` the target paths (no content). */
+  restorePending: { pending: boolean; backupDate?: string; files: string[] };
 }
 export interface DVSTFUStatus { installed: boolean; version?: string; canInstall: boolean; job: DVSwitchJob }
 export interface DVSwitchJobs { install: DVSwitchJob; uninstall: DVSwitchJob }

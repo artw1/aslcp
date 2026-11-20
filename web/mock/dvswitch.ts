@@ -149,7 +149,7 @@ function status() {
     hostFiles: ['DMRIds.dat', 'YSFHosts.txt', 'P25Hosts.txt', 'NXDNHosts.txt'].map((name) => ({ name, present: installed, size: installed ? 4096 : 0 })), hostFilesOk: installed,
     marker: installed ? { version: 1, installedAt: new Date().toISOString(), wgetPreinstalled: false, packages: ['qemu-user-static', 'wget'] } : null,
     canInstall: !installed && !running, canUninstall: installed && !running,
-    uninstallPackages: installed ? [...PKGS, 'qemu-user-static'] : [], uninstallPaths: PATHS, uninstallUnits: UNITS, ...j,
+    uninstallPackages: installed ? [...PKGS, 'qemu-user-static'] : [], uninstallPaths: PATHS, uninstallUnits: UNITS, restorePending: { pending: false, files: [] }, ...j,
   };
 }
 
@@ -590,6 +590,7 @@ export function handleDVSwitch(c: DVCtx): boolean {
   if (c.m === 'GET' && c.p === '/dvswitch/setup') { progress(); c.json(200, setup()); return true; }
   if ((c.m === 'PUT' || c.m === 'DELETE') && c.p === '/dvswitch/brandmeister') return brandMeister(c, c.body ?? {});
   if (c.m === 'DELETE' && c.p === '/dvswitch/dmr-connection') return dmrClear(c);
+  if (c.m === 'DELETE' && c.p === '/dvswitch/restore-pending') { c.json(200, status()); return true; }
   if (c.m === 'POST' && c.p === '/dvswitch/stfu/install') {
     progress();
     const s = stfuStatus();

@@ -10,6 +10,12 @@
 # rewritten (an address part is kept), aslcp is restarted and the port is opened
 # in firewalld (if it is running). Without ASLCP_PORT the configured port is kept.
 # The installer warns when another program already uses the port.
+# DVSwitch: ASLCP_DVSWITCH=1 (or yes, true) also installs DVSwitch once ASLCP is
+# running, with "aslcp dvswitch install" (the same install as the DVSwitch page;
+# it takes a few minutes and follows the log). Any other non-empty value is
+# refused. If that install fails the installer warns and still finishes; run
+# "sudo aslcp dvswitch install" later to retry. It combines with ASLCP_PORT:
+#   curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DVSWITCH=1 ASLCP_PORT=9090 sh
 set -eu
 
 # Base URL of the apt repository (GitHub Pages of the public repo).
@@ -33,6 +39,14 @@ if [ -n "$PORT_WANT" ]; then
 		say "warning: ports below 1024 need a systemd override granting CAP_NET_BIND_SERVICE to aslcp.service; ASLCP will not start on $PORT_WANT without it"
 	fi
 fi
+
+# --- DVSwitch (ASLCP_DVSWITCH) ----------------------------------------------
+DV_WANT=0
+case "${ASLCP_DVSWITCH:-}" in
+"") ;;
+1 | [Yy][Ee][Ss] | [Tt][Rr][Uu][Ee]) DV_WANT=1 ;;
+*) die "ASLCP_DVSWITCH must be 1, yes or true (got '$ASLCP_DVSWITCH')" ;;
+esac
 
 # --- platform checks -------------------------------------------------------
 [ -r /etc/os-release ] || die "cannot read /etc/os-release; this installer supports Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS"
@@ -281,8 +295,33 @@ fw_open() {
 	fi
 }
 
+# dvswitch_install: run "aslcp dvswitch install" once the service is running.
+# Sets DV_RESULT for the closing lines; a failure only warns.
+DV_RESULT=
+dvswitch_install() {
+	say "installing DVSwitch (this takes a few minutes)"
+	n=0
+	if [ -d /run/systemd/system ]; then
+		while ! systemctl is-active --quiet aslcp 2>/dev/null && [ "$n" -lt "${ASLCP_WAIT:-10}" ]; do
+			sleep 1
+			n=$((n + 1))
+		done
+	fi
+	if aslcp dvswitch install --config "$CONF"; then
+		DV_RESULT="installed. Set it up on the DVSwitch page of the web UI."
+	else
+		DV_RESULT="NOT installed (see the messages above). ASLCP itself is installed; retry with: sudo aslcp dvswitch install"
+		say "warning: the DVSwitch install failed; continuing"
+	fi
+}
+
 [ -z "$PORT_WANT" ] || set_port "$PORT_WANT"
+# DVSwitch goes first so the setup link stays the last thing on the screen.
+[ "$DV_WANT" -eq 0 ] || dvswitch_install
 setup_admin
+if [ -n "$DV_RESULT" ]; then
+	printf '\nDVSwitch: %s\n' "$DV_RESULT"
+fi
 
 cat <<EOM
 

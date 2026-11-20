@@ -21,9 +21,9 @@ import (
 // manifest. Nothing is redacted. The history copies of the setup page
 // (/var/lib/aslcp-dvswitch-history) are not part of it.
 
-// DVRestoreNotInstalled is the step detail and the warning shown when the
-// target directory does not exist.
-const DVRestoreNotInstalled = "DVSwitch is not installed on this node: install DVSwitch, then restore this part again"
+// DVRestorePendingDetail is the step detail when DVSwitch is not installed
+// and the part was staged instead of written.
+const DVRestorePendingDetail = "DVSwitch is not installed: its settings were saved and will be applied when you install DVSwitch"
 
 const dvStepName = "Restore DVSwitch configuration"
 
@@ -159,40 +159,25 @@ func dvRestoreCurrent(p string) (fs.FileInfo, []byte, error) {
 	return fi2, data, nil
 }
 
+// dvItem is one file of the part: its relative path below /opt, the manifest
+// entry (owner, group, mode) and the content.
+type dvItem struct {
+	rel  string
+	e    backup.Entry
+	data []byte
+}
+
 // restoreDVSwitch writes the part's files. Without the target directory
-// nothing is written and the step says to install DVSwitch first (installed
-// false, no error). Every target is checked before the first write; each
-// replaced file gets a history copy, like a change on the setup page.
-func (o *Ops) restoreDVSwitch(ctx context.Context, sp *spool, m *backup.Manifest) (detail string, installed bool, err error) {
-	var ents []backup.Entry
+// (DVSwitch not installed) the files are not written to /opt: they are staged
+// in the root-only pending directory and applied when DVSwitch is installed
+// (installed false, no error). Every target is checked before the first
+// write; each replaced file gets a history copy, like a change on the setup
+// page. date is the backup's date, kept with a pending set.
+func (o *Ops) restoreDVSwitch(ctx context.Context, sp *spool, m *backup.Manifest, date string) (detail string, installed bool, err error) {
+	var items []dvItem
 	for _, rel := range backup.DVSwitchFiles {
-		if e := m.Find(backup.DVSwitchPath(rel)); e != nil {
-			ents = append(ents, *e)
-		}
-	}
-	if len(ents) == 0 {
-		return "", true, nil
-	}
-	if !o.dvInstalled() {
-		return DVRestoreNotInstalled, false, nil
-	}
-	if o.dvBusy(ctx) {
-		return "", true, ErrBusy
-	}
-	type job struct {
-		rel, dest string
-		e         backup.Entry
-		data      []byte
-		cur       fs.FileInfo
-		old       []byte
-	}
-	var jobs []job
-	var skipped []string
-	for _, e := range ents {
-		rel := strings.TrimPrefix(e.Path, backup.PathDVSwitchOpt+"/")
-		dest := filepath.Join(o.dvOptDir(), filepath.FromSlash(rel))
-		if fi, err := os.Stat(filepath.Dir(dest)); err != nil || !fi.IsDir() {
-			skipped = append(skipped, filepath.Dir(rel)+" is not installed")
+		e := m.Find(backup.DVSwitchPath(rel))
+		if e == nil {
 			continue
 		}
 		if e.Size > dvIniMaxSize {
@@ -202,11 +187,58 @@ func (o *Ops) restoreDVSwitch(ctx context.Context, sp *spool, m *backup.Manifest
 		if err != nil {
 			return "", true, err
 		}
+		items = append(items, dvItem{rel, *e, data})
+	}
+	if len(items) == 0 {
+		return "", true, nil
+	}
+	if !o.dvInstalled() {
+		if err := o.dvStagePending(items, date); err != nil {
+			return "", false, fmt.Errorf("cannot save the DVSwitch settings: %w", err)
+		}
+		return DVRestorePendingDetail, false, nil
+	}
+	if o.dvBusy(ctx) {
+		return "", true, ErrBusy
+	}
+	n, skipped, err := o.dvWriteItems(items)
+	if err != nil {
+		return "", true, err
+	}
+	detail = fmt.Sprintf("%d file(s) written", n)
+	if len(skipped) > 0 {
+		detail += "; skipped: " + strings.Join(dedupe(skipped), ", ")
+	}
+	return detail, true, nil
+}
+
+// dvWriteItems is the safe write path shared by the restore step and the
+// apply of a pending set: every target is checked before the first write
+// (a symlink or non-regular file refuses everything), a file whose own
+// directory is missing is skipped, each replaced file first gets a history
+// copy, then is replaced atomically with the owner, group and mode of the
+// entry. Identical files are left alone. It returns the number written and
+// the skipped notes.
+func (o *Ops) dvWriteItems(items []dvItem) (int, []string, error) {
+	type job struct {
+		dvItem
+		dest string
+		cur  fs.FileInfo
+		old  []byte
+	}
+	var jobs []job
+	var skipped []string
+	for _, it := range items {
+		dest := filepath.Join(o.dvOptDir(), filepath.FromSlash(it.rel))
+		if fi, err := os.Stat(filepath.Dir(dest)); err != nil || !fi.IsDir() {
+			skipped = append(skipped, filepath.Dir(it.rel)+" is not installed")
+			continue
+		}
 		cur, old, err := dvRestoreCurrent(dest)
 		if err != nil {
-			return "", true, fmt.Errorf("%s %w", rel, err)
+			return 0, nil, fmt.Errorf("%s %w", it.rel, err)
 		}
-		jobs = append(jobs, job{rel, dest, e, data, cur, old})
+		jobs = append(jobs, job{it, dest, cur, old})
 	}
 	n := 0
 	for _, j := range jobs {
@@ -215,25 +247,21 @@ func (o *Ops) restoreDVSwitch(ctx context.Context, sp *spool, m *backup.Manifest
 		}
 		if j.cur != nil {
 			if _, err := o.dvSaveHistory(dvBackupID(j.rel), j.old); err != nil {
-				return "", true, fmt.Errorf("history copy of %s: %w", j.rel, err)
+				return n, skipped, fmt.Errorf("history copy of %s: %w", j.rel, err)
 			}
 		}
 		parent, err := filepath.EvalSymlinks(filepath.Dir(j.dest))
 		if err != nil {
-			return "", true, err
+			return n, skipped, err
 		}
 		uid, gid := dvOwner(j.e, j.cur)
 		mode, _ := backup.ParseMode(j.e.Mode)
 		if err := atomicWrite(filepath.Join(parent, filepath.Base(j.dest)), parent, j.data, uid, gid, fs.FileMode(mode&0o777)); err != nil {
-			return "", true, fmt.Errorf("%s: %w", j.rel, err)
+			return n, skipped, fmt.Errorf("%s: %w", j.rel, err)
 		}
 		n++
 	}
-	detail = fmt.Sprintf("%d file(s) written", n)
-	if len(skipped) > 0 {
-		detail += "; skipped: " + strings.Join(dedupe(skipped), ", ")
-	}
-	return detail, true, nil
+	return n, skipped, nil
 }
 
 func dedupe(in []string) []string {

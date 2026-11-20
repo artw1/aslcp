@@ -44,6 +44,16 @@ The script adds the signed ASLCP apt repository, installs the `aslcp` package an
 
 Prefer to do it by hand? See the manual steps on <https://artw1.github.io/aslcp/>.
 
+### DVSwitch at install
+
+To install DVSwitch as well, set `ASLCP_DVSWITCH=1` (`yes` and `true` work too; any other value is refused). It combines with `ASLCP_PORT`:
+
+```sh
+curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DVSWITCH=1 ASLCP_PORT=9090 sh
+```
+
+Once ASLCP is running, the installer runs `aslcp dvswitch install`, the same install as the DVSwitch page, and shows its log. It takes a few minutes. If it fails, the installer warns and finishes anyway; retry with `sudo aslcp dvswitch install`. DVSwitch settings from a restored backup are applied at the end of that install.
+
 ### First login
 
 The installer ends by printing a one-time setup link (`http://<your-node>:8080/#/setup?code=...`, with your port if you chose another). Open it to create the administrator, or to restore a backup from an existing node. Lost the link? Run `sudo aslcp admin setup-code`, or create the admin in the terminal with `sudo aslcp admin create`. Then log in at `http://<your-node>:8080`. Forgot the password? Run:

@@ -48,8 +48,11 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "admin" {
 		os.Exit(adminMain(os.Args[2:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "dvswitch" {
+		os.Exit(dvswitchMain(os.Args[2:]))
+	}
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n  aslcp [options]            run the web server\n  aslcp admin <command>      manage accounts (create, reset-password, list); see: aslcp admin --help\n\nOptions:\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n  aslcp [options]            run the web server\n  aslcp admin <command>      manage accounts (create, reset-password, list); see: aslcp admin --help\n  aslcp dvswitch install     install DVSwitch (root); see: aslcp dvswitch --help\n\nOptions:\n")
 		flag.PrintDefaults()
 	}
 	cfgPath := flag.String("config", config.DefaultConfigPath, "path to aslcp.conf")

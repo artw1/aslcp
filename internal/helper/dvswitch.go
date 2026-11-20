@@ -190,6 +190,25 @@ type DVSwitchStatus struct {
 
 	// STFU is the optional BrandMeister client (the BM mode).
 	STFU DVSTFUStatus `json:"stfu"`
+
+	// RestorePending: DVSwitch settings saved by a backup restore, applied
+	// when DVSwitch is installed.
+	RestorePending DVRestorePending `json:"restorePending"`
+}
+
+// IsDVSwitchPackage reports whether name belongs to DVSwitch: the install
+// set, the hand-install metapackage or anything named dvswitch*. A backup
+// restore leaves these to the DVSwitch install.
+func IsDVSwitchPackage(name string) bool {
+	if strings.HasPrefix(name, "dvswitch") || name == dvServerPkg {
+		return true
+	}
+	for _, p := range DVSwitchPackages() {
+		if p == name && p != dvWget {
+			return true
+		}
+	}
+	return false
 }
 
 // ---- configuration defaults
@@ -244,6 +263,9 @@ func (o *Ops) dvInstallScript() string {
 		// the stfu package enables its unit: it stays off until the
 		// BrandMeister section is saved
 		"systemctl disable --now " + dvSTFUUnit + ".service || true",
+		// settings saved by a backup restore on a node without DVSwitch;
+		// the step never fails the job
+		self + " dvswitch-step " + StepRestoreApply,
 		self + " dvswitch-step install-check",
 		"echo 'dvswitch install finished'",
 	}, "\n")
@@ -535,7 +557,7 @@ func DVPlatform(codename, arch string) (bool, string) {
 // DVSwitchStatus reports everything the DVSwitch tab shows. Read-only, runs
 // no apt.
 func (o *Ops) DVSwitchStatus(ctx context.Context) (DVSwitchStatus, error) {
-	st := DVSwitchStatus{Packages: []DVSwitchPkg{}, Units: []DVSwitchUnit{}, HostFiles: []DVSwitchHostFile{}}
+	st := DVSwitchStatus{Packages: []DVSwitchPkg{}, Units: []DVSwitchUnit{}, HostFiles: []DVSwitchHostFile{}, RestorePending: DVRestorePending{Files: []string{}}}
 	names := append(DVSwitchPackages(), dvServerPkg)
 	inst, err := o.dpkgInstalled(ctx, names)
 	if err != nil {
@@ -610,6 +632,7 @@ func (o *Ops) DVSwitchStatus(ctx context.Context) (DVSwitchStatus, error) {
 	case st.Installed:
 		st.InstalledBy = "external"
 	}
+	st.RestorePending = o.dvPendingStatus()
 	st.Install, st.Uninstall = o.dvJobs(ctx)
 	st.STFU.Job = o.dvSTFUJob(ctx)
 	st.STFU.Version, st.STFU.Installed = inst[dvSTFUPkg], inst[dvSTFUPkg] != ""

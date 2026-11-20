@@ -208,7 +208,7 @@
         {#if preview.parts.history}Config history included.{/if}
         {#if preview.parts.allmon3} Allmon3 config included.{/if}
         {#if preview.parts.sounds} Custom sounds included.{/if}
-        {#if preview.parts.dvswitch} DVSwitch configuration included (written only if DVSwitch is installed).{/if}</p>
+        {#if preview.parts.dvswitch} DVSwitch configuration included (applied now if DVSwitch is installed, otherwise kept and applied when you install it).{/if}</p>
     </section>
 
     {#if preview.radio}

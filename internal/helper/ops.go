@@ -219,6 +219,8 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return o.DVSwitchInstall(ctx)
 	case OpDVSwitchUninstall:
 		return o.DVSwitchUninstall(ctx)
+	case OpDVSwitchRestoreDiscard:
+		return o.DVSwitchRestoreDiscard(ctx)
 	case OpFirewallStatus:
 		return o.FirewallStatus(ctx)
 	case OpFirewallOpen:

@@ -73,3 +73,29 @@ func TestAppRptCheck(t *testing.T) {
 		t.Error("NodeAnswers")
 	}
 }
+
+func TestPreviewDVSwitchPackagesNotListed(t *testing.T) {
+	m := &backup.Manifest{Format: 1, Packages: []backup.Package{
+		{Name: "dvswitch-base", Version: "1.7.0"}, {Name: "analog-bridge", Version: "1"}, {Name: "stfu", Version: "1"},
+		{Name: "supermon", Version: "1"}, {Name: "m17-gateway", Version: "1"}}}
+	plan := helper.RestoreResult{DVSwitchNotInstalled: true}
+	p := previewFor(m, plan)
+	if got := strings.Join(p.MissingPackages, " "); got != "m17-gateway supermon" {
+		t.Errorf("missing = %q", got)
+	}
+	if strings.Contains(p.InstallCommand, "dvswitch") || strings.Contains(p.InstallCommand, "stfu") {
+		t.Errorf("command = %q", p.InstallCommand)
+	}
+	msg, ok := hasWarning(p, "dvswitch_not_installed")
+	if !ok || !strings.Contains(msg, "applied automatically when you install DVSwitch from the DVSwitch page") {
+		t.Errorf("warning = %q %v", msg, ok)
+	}
+	for _, c := range p.Checklist {
+		if c.Item == "Other software" && strings.Contains(c.Value, "dvswitch") {
+			t.Errorf("checklist lists DVSwitch: %+v", c)
+		}
+	}
+	if _, ok := hasWarning(previewFor(m, helper.RestoreResult{}), "dvswitch_not_installed"); ok {
+		t.Error("warning although DVSwitch is installed")
+	}
+}

@@ -13,6 +13,12 @@ Release notes are taken from the section of the tag being released
 - `aslcp admin setup-code` shows the one-time setup code again (until an account exists).
 - Installer: `ASLCP_PORT=<1-65535>` picks the web port at install (for example `curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_PORT=9090 sh`). It sets `listen` in `/etc/aslcp/aslcp.conf` (an address part is kept), restarts ASLCP and opens the port in firewalld. A bad value is refused before anything is installed.
 - Installer: it warns, naming the program, when the web port is already in use, and says so when ASLCP did not start, instead of only showing the setup-code hint.
+- Installer: `ASLCP_DVSWITCH=1` (or `yes`, `true`) also installs DVSwitch once ASLCP is running, and can be combined with `ASLCP_PORT`. If the DVSwitch install fails the installer warns and still finishes.
+- `sudo aslcp dvswitch install` installs DVSwitch from the terminal (the same install as the DVSwitch page) and follows the install log until it ends.
+- Restoring a backup onto a node without DVSwitch keeps the backup's DVSwitch settings and applies them automatically when you install DVSwitch, so no second restore is needed. The DVSwitch page shows the pending settings with a Discard button (`DELETE /api/dvswitch/restore-pending`; the status carries `restorePending`).
+
+### Fixed
+- Restore preview: DVSwitch packages are no longer offered under "Packages to install" with a plain `apt install` command (DVSwitch is installed from the DVSwitch page) and no longer listed under "Other software".
 
 ## [1.2.2] - 2026-11-18
 

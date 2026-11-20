@@ -22,6 +22,9 @@ const (
 	StepInstallPlan   = "install-plan"
 	StepInstallCheck  = "install-check"
 	StepUninstallPlan = "uninstall-plan"
+	// StepRestoreApply applies the DVSwitch settings staged by a backup
+	// restore (backup_dv_pending.go). It never fails the install.
+	StepRestoreApply = "restore-apply"
 )
 
 // RunDVSwitchStep runs one step. A non-nil error makes the unit fail; its
@@ -34,6 +37,8 @@ func (o *Ops) RunDVSwitchStep(ctx context.Context, phase string, w io.Writer) er
 		return o.dvInstallCheck(w)
 	case StepUninstallPlan:
 		return o.dvUninstallPlan(ctx, w)
+	case StepRestoreApply:
+		return o.dvRestoreApply(ctx, w)
 	case StepPrivateRev:
 		return o.dvPrivateRevert(ctx, w)
 	case StepSTFUPlan:

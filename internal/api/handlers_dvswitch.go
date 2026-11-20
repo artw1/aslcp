@@ -17,6 +17,9 @@ type DVSwitch interface {
 	DVSwitchJob(ctx context.Context) (helper.DVSwitchJobs, error)
 	DVSwitchInstall(ctx context.Context) (helper.DVSwitchStatus, error)
 	DVSwitchUninstall(ctx context.Context) (helper.DVSwitchStatus, error)
+	// DVSwitchRestoreDiscard deletes the settings a backup restore saved for
+	// the install.
+	DVSwitchRestoreDiscard(ctx context.Context) (helper.DVSwitchStatus, error)
 	// Credentials and ini config (M4).
 	DVSwitchSetup(ctx context.Context) (helper.DVSwitchSetup, error)
 	DVSwitchInfo(ctx context.Context) (helper.DVSwitchInfo, error)
@@ -59,6 +62,7 @@ func (s *Server) dvswitchRoutes() {
 	m.HandleFunc("GET /api/dvswitch/job", s.authed(store.RoleAdmin, s.handleDVSwitchJob))
 	m.HandleFunc("POST /api/dvswitch/install", s.authed(store.RoleAdmin, s.handleDVSwitchInstall))
 	m.HandleFunc("POST /api/dvswitch/uninstall", s.authed(store.RoleAdmin, s.handleDVSwitchUninstall))
+	m.HandleFunc("DELETE /api/dvswitch/restore-pending", s.authed(store.RoleAdmin, s.handleDVSwitchRestoreDiscard))
 	// The lists are public reflector data: any operator may read them (M1).
 	m.HandleFunc("GET /api/dvswitch/lists", s.authed(store.RoleOperator, s.handleDVSwitchLists))
 	// The DMR login state holds no secret: operators may read it too.
@@ -149,6 +153,25 @@ func (s *Server) handleDVSwitchUninstall(w http.ResponseWriter, r *http.Request,
 		}
 		return st, err
 	})
+}
+
+// handleDVSwitchRestoreDiscard drops the DVSwitch settings saved by a backup
+// restore. Not a job: it replies 200 with the status.
+func (s *Server) handleDVSwitchRestoreDiscard(w http.ResponseWriter, r *http.Request, u store.User) {
+	if s.d.DVSwitch == nil {
+		s.dvswitchError(w, errDVUnavailable)
+		return
+	}
+	st, err := s.d.DVSwitch.DVSwitchRestoreDiscard(r.Context())
+	if err != nil {
+		s.audit(u, "dvswitch.restore_discard.refused", map[string]any{"error": err.Error()})
+		s.dvswitchError(w, err)
+		return
+	}
+	s.audit(u, "dvswitch.restore_discard", nil)
+	s.d.Logger.Printf("dvswitch.restore_discard by %s", u.Username)
+	s.dvs.invalidate()
+	writeJSON(w, http.StatusOK, st)
 }
 
 func (s *Server) dvswitchStart(w http.ResponseWriter, r *http.Request, u store.User, action string, f func(context.Context) (helper.DVSwitchStatus, error)) {

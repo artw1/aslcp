@@ -48,6 +48,9 @@ const (
 	OpDVSwitchJob       = "dvswitch-job"       // the two job states and logs (cheap)
 	OpDVSwitchInstall   = "dvswitch-install"   // key + source, then the install unit
 	OpDVSwitchUninstall = "dvswitch-uninstall" // the full uninstall unit (ASLCP-installed only)
+	// OpDVSwitchRestoreDiscard deletes the DVSwitch settings a backup restore
+	// saved for the install.
+	OpDVSwitchRestoreDiscard = "dvswitch-restore-discard"
 )
 
 // Update channels (the suite of the aslcp apt source).

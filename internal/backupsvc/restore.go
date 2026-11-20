@@ -359,7 +359,7 @@ func (s *Service) preview(m *backup.Manifest, plan helper.RestoreResult, insp st
 			fmt.Sprintf("%d file(s) were changed by you and ASL3 changed the default since: your version is restored and the new default is kept beside it as .dpkg-dist. Review them.", dist)})
 	}
 	if plan.DVSwitchNotInstalled {
-		p.Warnings = append(p.Warnings, Warning{"dvswitch_not_installed", helper.DVRestoreNotInstalled + ". The rest of the backup is restored as usual."})
+		p.Warnings = append(p.Warnings, Warning{"dvswitch_not_installed", "DVSwitch was set up on the old node; its settings are kept and applied automatically when you install DVSwitch from the DVSwitch page after the restore."})
 	}
 	if len(m.Skipped) > 0 {
 		p.Warnings = append(p.Warnings, Warning{"skipped_files",
@@ -372,7 +372,9 @@ func (s *Service) preview(m *backup.Manifest, plan helper.RestoreResult, insp st
 		have[pk.Name] = true
 	}
 	for _, pk := range m.Packages {
-		if !have[pk.Name] && backup.ValidPackageName(pk.Name) {
+		// DVSwitch is installed by ASLCP's own DVSwitch install, never by a
+		// plain apt command (its exact package set, no recommends).
+		if !have[pk.Name] && backup.ValidPackageName(pk.Name) && !helper.IsDVSwitchPackage(pk.Name) {
 			p.MissingPackages = append(p.MissingPackages, pk.Name)
 		}
 	}
@@ -406,7 +408,7 @@ func checklist(m *backup.Manifest, radio bool) []ChecklistItem {
 	other := "Anything installed outside the ASL3 packages (for example an M17 bridge and its service)"
 	var names []string
 	for _, pk := range m.Packages {
-		if strings.Contains(pk.Name, "m17") || strings.HasPrefix(pk.Name, "dvswitch") || strings.HasPrefix(pk.Name, "supermon") {
+		if strings.Contains(pk.Name, "m17") || strings.HasPrefix(pk.Name, "supermon") {
 			names = append(names, pk.Name)
 		}
 	}
