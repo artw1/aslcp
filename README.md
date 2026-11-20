@@ -48,10 +48,16 @@ Prefer to do it by hand? See the manual steps on <https://artw1.github.io/aslcp/
 
 ### DVSwitch at install
 
-To install DVSwitch as well, set `ASLCP_DVSWITCH=1` (`yes` and `true` work too; any other value is refused). It combines with `ASLCP_PORT`:
+To install DVSwitch as well, set `ASLCP_DVSWITCH=1` (`yes` and `true` work too; any other value is refused):
 
 ```sh
-curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DVSWITCH=1 ASLCP_PORT=9090 sh
+curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DVSWITCH=1 sh
+```
+
+It combines with `ASLCP_PORT`:
+
+```sh
+curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DVSWITCH=1 ASLCP_PORT=8181 sh
 ```
 
 Once ASLCP is running, the installer runs `aslcp dvswitch install`, the same install as the DVSwitch page, and shows its log. It takes a few minutes. If it fails, the installer warns and finishes anyway; retry with `sudo aslcp dvswitch install`. DVSwitch settings from a restored backup are applied at the end of that install.
@@ -71,10 +77,10 @@ sudo aslcp admin reset-password <user>
 ASLCP listens on TCP port 8080 by default. To pick another port when installing, set `ASLCP_PORT` (1-65535):
 
 ```sh
-curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_PORT=9090 sh
+curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_PORT=8181 sh
 ```
 
-The installer writes it to `listen` in `/etc/aslcp/aslcp.conf` (`listen = :9090`, or `listen = 192.0.2.10:9090` to bind one address), restarts ASLCP and warns if another program already uses the port. To change it later, rerun the installer the same way, or edit `listen` and run `sudo systemctl restart aslcp`. Ports below 1024 need a systemd override granting `CAP_NET_BIND_SERVICE`.
+The installer writes it to `listen` in `/etc/aslcp/aslcp.conf` (`listen = :8181`, or `listen = 192.0.2.10:8181` to bind one address), restarts ASLCP and warns if another program already uses the port. To change it later, rerun the installer the same way, or edit `listen` and run `sudo systemctl restart aslcp`. Ports below 1024 need a systemd override granting `CAP_NET_BIND_SERVICE`.
 
 ### Firewall
 
