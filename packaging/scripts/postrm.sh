@@ -74,6 +74,8 @@ purge)
 	# port 80 move state.
 	# /etc/asterisk and DVSwitch's own files are not touched.
 	rm -rf "$ROOT/var/lib/aslcp-config-history" "$ROOT/var/lib/aslcp-dvswitch" "$ROOT/var/lib/aslcp-dvswitch-history" "$ROOT/var/lib/aslcp-webport"
+	# The hotspot setting (WiFi networks saved in NetworkManager stay).
+	rm -rf "$ROOT/var/lib/aslcp-wifi"
 	rmdir "$ROOT/etc/aslcp" 2>/dev/null || true
 	if getent passwd aslcp >/dev/null 2>&1; then
 		deluser --system aslcp >/dev/null 2>&1 || true

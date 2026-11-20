@@ -1,0 +1,4 @@
+eth0:ethernet:connected:Wired connection 1
+wlan0:wifi:connected:ExampleNet
+p2p-dev-wlan0:wifi-p2p:disconnected:
+lo:loopback:unmanaged:

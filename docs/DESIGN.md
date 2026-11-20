@@ -87,6 +87,16 @@ The web process runs as the dedicated `aslcp` user, never root. A small separate
 | Write a file under `/etc/asterisk` | Atomic (temp file + rename in the same directory), preserving owner and mode. Path must resolve inside the allowed tree; no symlink escapes. |
 | `asterisk -rx <cmd>` | Command must match a fixed allowlist (reload variants, status queries). No shell, no free-form arguments. |
 | `systemctl restart` | Only `asterisk` and detected AMI-client services (e.g. `allmon3`). |
+| `nmcli` WiFi operations (1.3.2) | Typed arguments only (SSID 1 to 32 bytes, PSK 8 to 63 ASCII or 64 hex, connection ids checked against a fresh list). The password is written to a 0600 NetworkManager keyfile, never put in argv, logs or the audit log. |
+| `aslcp-helper wifi-watchdog` (1.3.2) | Root only, run by a systemd timer. Starts or stops the `aslcp-hotspot` connection. |
+
+#### WiFi hotspot watchdog (1.3.2)
+
+- **Why a separate watchdog.** The hotspot exists for the case where the node cannot reach any network, which includes a web server that has not started or has crashed. A goroutine inside `aslcp` would not run then. So the check is a oneshot `aslcp-wifi-watchdog.service` started every 30 seconds by a timer, running the helper binary's `wifi-watchdog` subcommand. The decision is a pure function (`WatchDecide`) of WiFi state, Ethernet link, time without a network and saved networks, and is unit tested. State is in `/run/aslcp/wifi-watchdog.json`; a file lock and an in-process mutex keep it from racing the web-driven ops.
+- **Rules.** Start after 3 minutes (30 to 3600 s, adjustable) with no active connection and no Ethernet link; stop as soon as a saved network connects. One radio cannot be an access point and a client at once, so while the hotspot is up with no clients, the watchdog stops it every 10 minutes to try the saved networks again.
+- **On by default.** Plan section 9.4 says off and section 15 says on; we follow section 15, the later decision. An admin can turn it off, and the choice is stored in `/var/lib/aslcp-wifi/hotspot.json`.
+- **Open network.** There is no WiFi password; protection is the ASLCP login or the one-time setup code. Anyone in range can sniff the login, so the page warns while a visitor is connected through the hotspot (`GET /api/setup` returns `hotspot`).
+- **No NAT, no forwarding.** The profile uses NetworkManager `ipv4.method shared` only to get a DHCP server and the fixed address `10.42.0.1`; `shared` normally means NAT, so this is limited three ways: the profile is `never-default`, the hotspot is up only when the node has no uplink (so there is nothing to forward to), and the watchdog stops it when a network connects. If firewalld is present, a zone `aslcp-hotspot` (target DROP, only the ASLCP port, DHCP and DNS allowed, forwarding removed) is bound to the interface. **To verify** on a node: the exact firewalld commands, and that no forwarding or NAT rule remains. Without firewalld the hotspot is still offered and the page says it is not isolated.
 
 Invocation is via a systemd socket-activated service (preferred) or a polkit/sudoers rule with the same allowlist. The helper validates every request independently of the web process. The choice between the two mechanisms is a **To verify** item (see section 13).
 

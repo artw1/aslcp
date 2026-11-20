@@ -3,6 +3,15 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [1.3.2] - 2026-11-20
+
+### Added
+- A **WiFi** section in the System tab (administrators): scan for networks, add one (with or without a password), remove one, change the order in which saved networks are tried, and connect now. A node without a WiFi device or without NetworkManager shows "not available".
+- A **setup hotspot**: when the node has had no network for 3 minutes and no Ethernet cable, it opens a WiFi network named `ASLCP-<hostname>` so you can reach the web page and fix the settings. It stops by itself when a saved network connects. Administrators can change the delay or turn it off in System, WiFi; the choice is kept.
+- A warning in the web page while you are connected through the hotspot: the network is open, so others nearby can see your login. Use it only to set up WiFi.
+- The WiFi section warns before you change the network you are using to reach ASLCP.
+- WiFi changes are recorded in the audit log. Passwords are never logged or recorded.
+
 ## [1.3.1] - 2026-11-20
 
 ### Added

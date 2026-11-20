@@ -34,7 +34,7 @@ const (
 // client except to select one of these. The DVSwitch units are the ones the
 // DVSwitch code already knows.
 func logUnits() []string {
-	units := []string{"asterisk", "aslcp", "aslcp-helper", "NetworkManager", "systemd-networkd"}
+	units := []string{"asterisk", "aslcp", "aslcp-helper", "NetworkManager", "systemd-networkd", "aslcp-wifi-watchdog"}
 	return append(units, dvUnits...)
 }
 

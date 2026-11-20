@@ -3,6 +3,7 @@
   import { router, navigate } from './lib/router.svelte';
   import { isSystemPath } from './lib/sysnav';
   import Header from './components/Header.svelte';
+  import HotspotBanner from './components/HotspotBanner.svelte';
   import Toasts from './components/Toasts.svelte';
   import RestartBanner from './components/RestartBanner.svelte';
   import Login from './components/Login.svelte';
@@ -20,6 +21,7 @@
   });
 </script>
 
+<HotspotBanner />
 {#if !app.ready}
   <div class="grid min-h-dvh place-items-center text-sm text-muted" role="status">Loading…</div>
 {:else if app.embed}

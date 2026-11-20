@@ -30,6 +30,8 @@ type SysRequest struct {
 	SvcFirewall bool   `json:"svcFirewall,omitempty"`
 	// web-port-set (sys_webport.go): one of the WebPortAction* constants.
 	WebPortAction string `json:"webPortAction,omitempty"`
+	// wifi-* (sys_wifi.go).
+	Wifi *WifiRequest `json:"wifi,omitempty"`
 }
 
 type sysHandler func(o *Ops, ctx context.Context, req *SysRequest) (any, error)

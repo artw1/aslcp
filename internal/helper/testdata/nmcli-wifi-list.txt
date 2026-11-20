@@ -1,0 +1,9 @@
+*:ExampleNet:82:6:WPA2
+:ExampleNet:55:11:WPA2
+:Example\:Colon:70:1:WPA2 WPA3
+:Back\\slash:60:3:WPA2
+:ExampleOpen:40:1:--
+::35:6:WPA2
+:Corp:30:44:WPA2 802.1X
+:Wpa3Only:28:36:WPA3
+garbage line

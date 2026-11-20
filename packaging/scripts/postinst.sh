@@ -67,6 +67,15 @@ prepare_services() {
 	if [ -n "$FIRST_INSTALL" ]; then
 		systemctl enable aslcp-helper.socket aslcp.service >/dev/null 2>&1 || true
 	fi
+	# The setup hotspot watchdog (it does nothing without NetworkManager and
+	# a WiFi device). Enabled on first install only, so an admin who disabled
+	# the timer keeps it off; started on every configure to run the new code.
+	if [ -n "$FIRST_INSTALL" ]; then
+		systemctl enable aslcp-wifi-watchdog.timer >/dev/null 2>&1 || true
+	fi
+	if systemctl is-enabled aslcp-wifi-watchdog.timer >/dev/null 2>&1; then
+		systemctl restart aslcp-wifi-watchdog.timer >/dev/null 2>&1 || true
+	fi
 	# Restart (not just start) so an upgrade runs the new helper binary.
 	systemctl stop aslcp-helper.service >/dev/null 2>&1 || true
 	systemctl restart aslcp-helper.socket || echo "aslcp: warning: could not start aslcp-helper.socket"

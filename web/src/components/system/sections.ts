@@ -16,6 +16,7 @@ export const sections: SystemSection[] = [
   { id: 'overview', label: 'Overview', title: 'Host and time', load: () => import('./Overview.svelte') },
   { id: 'updates', label: 'Updates', load: () => import('./Updates.svelte') },
   { id: 'network', label: 'Network', load: () => import('./Network.svelte') },
+  { id: 'wifi', label: 'WiFi', load: () => import('./Wifi.svelte') },
   { id: 'logs', label: 'Logs & services', load: () => import('./LogsServices.svelte') },
   { id: 'asl-services', label: 'ASL services', title: 'ASL web services', load: () => import('./AslServices.svelte') },
   { id: 'web-port', label: 'Web port', title: 'Web port of ASLCP', load: () => import('./WebPort.svelte') },
