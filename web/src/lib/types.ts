@@ -297,3 +297,35 @@ export interface DVLink { mode: DVLinkMode; localNode: string; linked: boolean; 
 /** `bmLoginPending`: BM was entered but STFU's login was not seen in time (the switch went ahead). `stfuStopFailed`: leaving BM, stfu could not be stopped. */
 export interface DVCmdReply { mode: string; switched: boolean; confirmed: boolean; left?: string; bmLoginPending?: boolean; stfuStopFailed?: boolean; snapshot: DVSnapshot }
 export interface DVFavorite { id: number; mode: DVTuneMode; value: string; name: string; sort: number }
+
+// System tab (docs/API.md "System"); all admin-only.
+export interface HostStatus { hostname: string; prettyHostname: string; os: string; hostnameAvailable: boolean; hostnamectlAvailable: boolean; hostnamectlMissing: boolean; timezone: string; ntp: boolean; ntpSynchronized: boolean; canNtp: boolean; localRtc: boolean; timeAvailable: boolean; now: string; clock: string }
+export interface HostPatch { hostname?: string; timezone?: string; ntp?: boolean }
+export interface SysLogs { unit: string; lines: number; since: string; text: string; truncated: boolean; available: boolean }
+export interface SysService { unit: string; description: string; active: string; sub: string; enabled: string; since: string }
+export interface SysServices { available: boolean; services: SysService[] }
+export interface NetAddr { family: string; addr: string; prefix: number; scope: string; dynamic: boolean }
+export interface NetIface { name: string; state: string; kind: string; mac: string; mtu: number; addrs: NetAddr[] }
+export interface NetRoute { family: string; gateway: string; dev: string; metric: number }
+export interface SysNetwork { available: boolean; interfaces: NetIface[]; gateways: NetRoute[]; dns: string[]; dnsSource: string }
+export interface DiagItem { name: string; desc: string }
+export interface DiagPlan { items: DiagItem[]; excluded: string[]; redacted: string[]; maxBytes: number; timeLimit: number; available: boolean; maskDefault: boolean }
+export interface AuditEntry { id: number; time: string; user: string; action: string; detail: string }
+export interface AuditPage { entries: AuditEntry[]; next: number | null }
+
+// WiFi manager of the System tab (docs/API.md "WiFi").
+export interface WifiDevice { name: string; type: string; state: string; connection: string; addrs: string[] }
+export interface WifiHotspot { enabled: boolean; delaySeconds: number; active: boolean; ssid: string; address: string; firewall: string }
+export interface WifiNetwork { id: string; name: string; ssid: string; priority: number; autoconnect: boolean; active: boolean; hidden: boolean; secured: boolean }
+export interface WifiAP { ssid: string; signal: number; channel: number; security: string; secured: boolean; supported: boolean; inUse: boolean; saved: boolean }
+export interface WifiState {
+  available: boolean; reason?: string; hasWifi: boolean; radio: string; devices: WifiDevice[]; active: string; ethernet: boolean;
+  hotspot: WifiHotspot; networks: WifiNetwork[]; viaWifi: boolean; viaHotspot: boolean;
+}
+export interface WifiScan { networks: WifiAP[]; note?: string }
+
+// System > Terminal (docs/API.md "Browser terminal"); admin only, off by default.
+export interface TerminalStatus { enabled: boolean; available: boolean; sessions: number; maxSessions: number; idleMinutes: number; maxHours: number }
+export interface TerminalTicket { ticket: string; expiresIn: number }
+// One live terminal session (attached or detached); GET /system/terminal/sessions.
+export interface TerminalSessionInfo { id: string; owner: string; mine: boolean; started: number; attached: boolean; detachedSince?: number; linuxUser?: string }

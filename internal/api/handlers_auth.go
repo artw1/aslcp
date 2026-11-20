@@ -17,7 +17,9 @@ func (s *Server) handleSetupGet(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]bool{"needed": need})
+	// hotspot: this request came in over the setup hotspot (the web UI warns
+	// that a login typed there can be read by others in range).
+	writeJSON(w, 200, map[string]bool{"needed": need, "hotspot": viaHotspot(r)})
 }
 
 func (s *Server) rateLimited(w http.ResponseWriter, err error) bool {

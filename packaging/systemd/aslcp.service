@@ -47,9 +47,10 @@ SystemCallFilter=@system-service
 SystemCallFilter=~@privileged
 # Fail a filtered call with EPERM instead of killing the service.
 SystemCallErrorNumber=EPERM
-# No capabilities. For a listen port below 1024 add an override with
-#   AmbientCapabilities=CAP_NET_BIND_SERVICE
-#   CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+# No capabilities. For a listen port below 1024 ASLCP needs the drop-in
+# aslcp.service.d/port80.conf (AmbientCapabilities and CapabilityBoundingSet
+# = CAP_NET_BIND_SERVICE). The System tab, Web port section, writes it when
+# you move ASLCP to port 80 and "apt purge aslcp" removes it.
 CapabilityBoundingSet=
 
 [Install]

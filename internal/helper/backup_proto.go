@@ -127,7 +127,9 @@ type RestoreResult struct {
 }
 
 // isStreamOp reports whether op carries a byte stream.
-func isStreamOp(op string) bool { return op == OpBackupCreate || op == OpBackupRestore }
+func isStreamOp(op string) bool {
+	return op == OpBackupCreate || op == OpBackupRestore || op == OpDiagCollect
+}
 
 // maxBackupHeader bounds the header line a client accepts.
 const maxBackupHeader = 64 << 20

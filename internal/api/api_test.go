@@ -165,6 +165,7 @@ type opts struct {
 	updates   *updates.Manager
 	updatesFn func(st *store.Store) *updates.Manager
 	power     api.Power
+	sysHost   api.SystemHost
 	dvswitch  api.DVSwitch
 	dvresume  api.DVResume
 	// dvInstalled and dvNode feed the DVSwitch snapshot; without dvInstalled
@@ -233,6 +234,7 @@ func newEnv(t *testing.T, o opts) *env {
 		deps.Updates = o.updatesFn(st)
 	}
 	deps.Power = o.power
+	deps.SysHost = o.sysHost
 	deps.DVSwitch = o.dvswitch
 	deps.DVResume = o.dvresume
 	deps.DVInstalled, deps.DVBridgeNode = o.dvInstalled, o.dvNode

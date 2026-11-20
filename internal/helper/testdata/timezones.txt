@@ -1,0 +1,5 @@
+Africa/Abidjan
+America/Chicago
+America/New_York
+Europe/London
+UTC

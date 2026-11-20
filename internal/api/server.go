@@ -46,6 +46,9 @@ type Deps struct {
 	// Power restarts the panel and reboots the machine through the helper
 	// (nil: 503 updates_unavailable).
 	Power Power
+	// SysHost is the helper behind the System tab: hostname and time, logs
+	// and services, network status (nil: 503 system_unavailable).
+	SysHost SystemHost
 	// DVSwitch reports, installs and removes DVSwitch (nil: 503
 	// dvswitch_unavailable).
 	DVSwitch DVSwitch
@@ -138,6 +141,9 @@ type Server struct {
 	monMu sync.RWMutex
 	mon   *rpt.Monitor
 
+	// term is the browser terminal: tickets, limits, open sessions.
+	term termState
+
 	dvs *dvSnapper // DVSwitch snapshot and its change events
 	// dvUndo is what the last private-node apply changed (for its rollback).
 	dvUndo   *dvPrivateUndo
@@ -207,6 +213,7 @@ func (s *Server) SetCommandGap(d time.Duration) { s.rpt.MinGap = d }
 func (s *Server) Run(ctx context.Context) {
 	go s.systemLoop(ctx)
 	go s.rec.Run(ctx)
+	go s.terminalLoop(ctx)
 	if s.d.FavStats != nil {
 		go s.d.FavStats.Run(ctx)
 	}
@@ -364,6 +371,7 @@ func (s *Server) routes() {
 	s.backupRoutes()
 	s.radioRoutes()
 	s.dvswitchRoutes()
+	s.systemRoutes()
 	m.HandleFunc("GET /api/updates", s.authed(store.RoleAdmin, s.handleUpdatesGet))
 	m.HandleFunc("POST /api/updates/check", s.authed(store.RoleAdmin, s.handleUpdatesCheck))
 	m.HandleFunc("POST /api/updates/apply", s.authed(store.RoleAdmin, s.handleUpdatesApply))
@@ -405,7 +413,14 @@ func (s *Server) secure(next http.Handler) http.Handler {
 				frame = "*"
 			}
 		}
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors "+frame+"; base-uri 'self'; form-action 'self'")
+		// connect-src names this host's ws:// and wss:// explicitly: 'self' is
+		// not read as covering WebSocket by every browser (older Safari), and
+		// the terminal needs one. Nothing wider than this host is allowed.
+		connect := "connect-src 'self'"
+		if hh := cspHost(r.Host); hh != "" {
+			connect += " ws://" + hh + " wss://" + hh
+		}
+		h.Set("Content-Security-Policy", "default-src 'self'; "+connect+"; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors "+frame+"; base-uri 'self'; form-action 'self'")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		if frame == "'none'" {

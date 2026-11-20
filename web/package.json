@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "node --experimental-strip-types --no-warnings --test src/lib/dvlist.test.ts src/lib/dmrlogin.test.ts src/lib/dvmsg.test.ts src/lib/dvstartup.test.ts src/lib/dvpanel.test.ts src/lib/dvbridge.test.ts src/lib/dvbm.test.ts"
+    "test": "node --experimental-strip-types --no-warnings --test src/lib/dvlist.test.ts src/lib/dmrlogin.test.ts src/lib/dvmsg.test.ts src/lib/dvstartup.test.ts src/lib/dvpanel.test.ts src/lib/dvbridge.test.ts src/lib/dvbm.test.ts src/lib/sysnav.test.ts src/lib/svcweb.test.ts src/lib/wifi.test.ts src/lib/termconn.test.ts src/components/system/sections.test.ts"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "7.3.1",
@@ -28,7 +28,9 @@
     "@codemirror/state": "6.7.6",
     "@codemirror/view": "6.43.15",
     "@lezer/highlight": "1.2.5",
-    "@lucide/svelte": "1.73.0"
+    "@lucide/svelte": "1.73.0",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0"
   },
   "private": true,
   "type": "module"

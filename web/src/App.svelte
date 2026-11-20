@@ -1,7 +1,9 @@
 <script lang="ts">
   import { app, isAdmin } from './lib/store.svelte';
   import { router, navigate } from './lib/router.svelte';
+  import { isSystemPath } from './lib/sysnav';
   import Header from './components/Header.svelte';
+  import HotspotBanner from './components/HotspotBanner.svelte';
   import Toasts from './components/Toasts.svelte';
   import RestartBanner from './components/RestartBanner.svelte';
   import Login from './components/Login.svelte';
@@ -19,6 +21,7 @@
   });
 </script>
 
+<HotspotBanner />
 {#if !app.ready}
   <div class="grid min-h-dvh place-items-center text-sm text-muted" role="status">Loading…</div>
 {:else if app.embed}
@@ -38,7 +41,7 @@
     {:else if router.path === '/settings'}<Settings />
     {:else if router.path === '/config' && isAdmin()}{#await import('./components/Config.svelte') then m}<m.default />{/await}
     {:else if router.path === '/backup' && isAdmin()}{#await import('./components/Backup.svelte') then m}<m.default />{/await}
-    {:else if router.path === '/updates' && isAdmin()}{#await import('./components/Updates.svelte') then m}<m.default />{/await}
+    {:else if isSystemPath(router.path) && isAdmin()}{#await import('./components/system/System.svelte') then m}<m.default />{/await}
     {:else if router.path === '/dvswitch' && isAdmin()}{#await import('./components/Dvswitch.svelte') then m}<m.default />{/await}
     {:else if router.path === '/tune' && isAdmin()}{#await import('./components/Tune.svelte') then m}<m.default />{/await}
     {:else}<Dashboard />{/if}

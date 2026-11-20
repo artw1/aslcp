@@ -52,7 +52,16 @@ type Ops struct {
 	SA818Conf  string    // default DefaultSA818Conf
 	AllmonDir  string    // default DefaultAllmonDir
 	AslcpConf  string    // default DefaultAslcpConf (restored; read for the web port)
+	ResolvConf string    // default DefaultResolvConf (net-status)
 	OSRelease  string    // default DefaultOSRelease
+	// Svc holds the paths and timing of the services switch and the port 80
+	// move (sys_svc.go, sys_webport.go); the zero value means the defaults.
+	Svc SvcPaths
+	// Host info fallbacks of host-status (injectable for tests): the
+	// static hostname file, the kernel hostname and the PATH lookup.
+	HostnameFile string
+	GetHostname  func() (string, error)
+	LookPath     func(string) (string, error)
 	// TempDir is where an uploaded archive is staged during a restore
 	// (default /var/tmp).
 	TempDir string
@@ -67,6 +76,9 @@ type Ops struct {
 
 	// RebootFile and RebootPkgsFile are the Debian reboot-required markers
 	// (defaults below); injectable for tests.
+	// Wifi holds the WiFi manager paths (sys_wifi.go); all optional.
+	Wifi WifiPaths
+
 	RebootFile     string
 	RebootPkgsFile string
 	// OSCheckTimeout bounds apt-get update of os-check (default 5 minutes).
@@ -144,6 +156,22 @@ func (o *Ops) Handle(ctx context.Context, op string) (any, error) {
 // accept the config field.
 func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 	op := req.Op
+	if req.Terminal != nil {
+		// the terminal ops are served by Server.handleTerminal, never from here.
+		return nil, errors.New("invalid request: unexpected terminal field")
+	}
+	if isSysOp(op) {
+		if req.Config != nil || req.DVSwitch != nil || req.Backup != nil || req.Restore != nil || req.Diag != nil {
+			return nil, errors.New("invalid request: unexpected field")
+		}
+		return o.handleSys(ctx, req)
+	}
+	if req.Sys != nil {
+		return nil, errors.New("invalid request: unexpected sys field")
+	}
+	if req.Diag != nil {
+		return nil, errors.New("invalid request: unexpected diag field")
+	}
 	if isConfigOp(op) {
 		return o.handleConfig(ctx, req)
 	}

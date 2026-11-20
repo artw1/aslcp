@@ -231,6 +231,44 @@ func TestAudit(t *testing.T) {
 	}
 }
 
+func TestAuditPage(t *testing.T) {
+	s := open(t)
+	for _, e := range [][2]string{{"admin", "system.hostname"}, {"op", "radio.save"}, {"admin", "system.reboot"}, {"admin", "config.apply"}, {"admin", "sys_tem%"}} {
+		if err := s.AddAudit(Audit{Username: e[0], Action: e[1]}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, _ := s.ListAuditPage(AuditFilter{})
+	if len(all) != 5 || all[0].Action != "sys_tem%" {
+		t.Fatalf("%+v", all)
+	}
+	// paging by id: no overlap, no gap, newest first
+	p1, _ := s.ListAuditPage(AuditFilter{Limit: 2})
+	p2, _ := s.ListAuditPage(AuditFilter{Limit: 2, BeforeID: p1[1].ID})
+	p3, _ := s.ListAuditPage(AuditFilter{Limit: 2, BeforeID: p2[1].ID})
+	if len(p1) != 2 || len(p2) != 2 || len(p3) != 1 || p1[1].ID <= p2[0].ID || p2[1].ID <= p3[0].ID {
+		t.Fatalf("%+v %+v %+v", p1, p2, p3)
+	}
+	// a new entry does not shift the next page
+	_ = s.AddAudit(Audit{Username: "admin", Action: "new"})
+	if q, _ := s.ListAuditPage(AuditFilter{Limit: 2, BeforeID: p1[1].ID}); q[0].ID != p2[0].ID {
+		t.Fatal("page shifted")
+	}
+	if l, _ := s.ListAuditPage(AuditFilter{User: "op"}); len(l) != 1 || l[0].Action != "radio.save" {
+		t.Fatalf("%+v", l)
+	}
+	if l, _ := s.ListAuditPage(AuditFilter{ActionPrefix: "system."}); len(l) != 2 {
+		t.Fatalf("%+v", l)
+	}
+	// wildcards in the prefix are literal
+	if l, _ := s.ListAuditPage(AuditFilter{ActionPrefix: "sys_"}); len(l) != 1 || l[0].Action != "sys_tem%" {
+		t.Fatalf("%+v", l)
+	}
+	if l, _ := s.ListAuditPage(AuditFilter{ActionPrefix: "%"}); len(l) != 0 {
+		t.Fatalf("%+v", l)
+	}
+}
+
 func TestSchedules(t *testing.T) {
 	s := open(t)
 	if v, _ := s.Version(); v < 4 {

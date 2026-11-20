@@ -1,0 +1,11 @@
+Global
+         Protocols: -LLMNR -mDNS -DNSOverTLS DNSSEC=no/unsupported
+  resolv.conf mode: stub
+
+Link 2 (eth0)
+    Current Scopes: DNS
+         Protocols: +DefaultRoute -LLMNR -mDNS -DNSOverTLS DNSSEC=no/unsupported
+Current DNS Server: 192.0.2.1
+       DNS Servers: 192.0.2.1 192.0.2.2
+                    192.0.2.3
+        DNS Domain: example.invalid

@@ -189,6 +189,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 
 	var upd *updates.Manager
 	var power api.Power
+	var sysHost api.SystemHost
 	var cfgHelper configsvc.Helper
 	var bkHelper backupsvc.Helper
 	var dvsw api.DVSwitch
@@ -229,6 +230,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 		upd.OS = updates.NewOS(dh, st)
 		upd.OS.FirstCheck, upd.OS.Tick = time.Second, time.Second
 		power = dh
+		sysHost = helper.NewDemoSystem()
 		ddv := helper.NewDemoDVSwitch()
 		ddv.Lists = ops
 		dvsw = ddv
@@ -249,6 +251,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 		upd.OS = updates.NewOS(hc, st)
 		upd.OS.Logger = logger
 		power = hc
+		sysHost = hc
 		dvsw = hc
 		dvInstalled = dvswitchInstalled
 		dvTrack = &dvswitch.Tracker{Src: hc, Store: st, Logger: logger, Installed: dvswitchInstalled}
@@ -301,7 +304,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 		RescanNodes:  func() { kick(rescan) },
 		Tuning:       tune,
 		ConfigEditor: cfgSvc,
-		Auth:         as, Store: st, AMI: proxy, Nodelist: nl, System: sys, Updates: upd, Power: power, DVSwitch: dvsw, DVResume: dvTrack, DVInstalled: dvInstalled, DVBridgeNode: dvBridgeNode(cfgHelper), Version: version,
+		Auth:         as, Store: st, AMI: proxy, Nodelist: nl, System: sys, Updates: upd, Power: power, SysHost: sysHost, DVSwitch: dvsw, DVResume: dvTrack, DVInstalled: dvInstalled, DVBridgeNode: dvBridgeNode(cfgHelper), Version: version,
 		UI: webui.Handler(), AllowedOrigins: origins, AllScanDirs: allscan.DefaultDirs, Logger: logger,
 		Log: ring, Config: cfg, ConfigPath: cfgPath, Firewall: firewall,
 		PublicDefaultEnabled: demoMode,

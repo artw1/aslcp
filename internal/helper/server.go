@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/user"
+	"runtime"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -28,18 +29,32 @@ type Server struct {
 	// means never.
 	Idle   time.Duration
 	Logger *log.Logger
+	// Term holds the terminal sessions (nil: the terminal ops answer
+	// "terminal not available"). NewServer sets the production backend.
+	Term TermBackend
+	// AdoptTerminals runs once when Serve starts, before the first
+	// connection is accepted (nil: nothing). NewServer sets it to adopt the
+	// sessions of an earlier helper and stop broken units.
+	AdoptTerminals func(ctx context.Context)
 
 	active atomic.Int32
 }
 
 // NewServer returns a Server wired to the real system.
 func NewServer(logger *log.Logger, extraUIDs ...uint32) *Server {
+	var term TermBackend
+	if runtime.GOOS == "linux" {
+		term = newTermBackend(ExecRunner{})
+	}
 	return &Server{
 		Ops:         NewOps(),
 		Peer:        PeerUID,
 		AllowedUIDs: func() []uint32 { return DefaultAllowedUIDs(extraUIDs...) },
 		Idle:        60 * time.Second,
 		Logger:      logger,
+
+		Term:           term,
+		AdoptTerminals: adoptTerminalsAtStart(logger, term),
 	}
 }
 
@@ -72,6 +87,11 @@ const maxRequest = 4096
 // Serve accepts connections on ln until ctx is done or the idle timeout
 // passes with no connection and no request in flight.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
+	// Before any connection: sessions of an earlier helper are adopted (they
+	// keep running; term-host enforces the grace period and the apt rule).
+	if s.AdoptTerminals != nil {
+		s.AdoptTerminals(ctx)
+	}
 	type deadliner interface{ SetDeadline(time.Time) error }
 	dl, _ := ln.(deadliner)
 	last := time.Now()
@@ -147,13 +167,13 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 		fail("invalid request")
 		return
 	}
-	if req.Op != OpBackupRestore {
-		// Only backup-restore has more to say after the request. Anything
+	if req.Op != OpBackupRestore && !isTerminalStreamOp(req.Op) {
+		// Only backup-restore and terminal.open have more to say after the request. Anything
 		// else left in the receive buffer (the encoder's trailing newline)
 		// would turn the close after our reply into a connection reset.
 		drainUnread(conn, dec.Buffered())
 	}
-	if !isConfigOp(req.Op) && dec.InputOffset() > maxRequest {
+	if !isConfigOp(req.Op) && req.Op != OpDiagCollect && dec.InputOffset() > maxRequest {
 		s.logf("request too large for op %s", safeOp(req.Op))
 		fail("invalid request")
 		return
@@ -170,6 +190,11 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 		return
 	}
 
+	if isTerminalOp(req.Op) {
+		// Frames follow (open, attach) the request on the same connection (terminal.go).
+		s.handleTerminal(ctx, conn, io.MultiReader(dec.Buffered(), conn), req, uid)
+		return
+	}
 	if isStreamOp(req.Op) {
 		// The archive of backup-restore follows the request; the decoder may
 		// already have buffered the first bytes of it. The client's JSON
@@ -263,6 +288,9 @@ func (s *skipLeadingSpace) Read(p []byte) (int, error) {
 }
 
 func knownOp(op string) bool {
+	if isSysOp(op) || op == OpDiagCollect {
+		return true
+	}
 	switch op {
 	case OpUpdateStatus, OpUpdateCheck, OpUpdateApply, OpOSCheck, OpOSStatus, OpOSApply, OpReboot, OpAslcpRestart, OpDVSwitchStatus, OpDVSwitchJob, OpDVSwitchInstall, OpDVSwitchUninstall, OpDVSwitchRestoreDiscard, OpDVSwitchSetup, OpDVSwitchInfo, OpDVSwitchDMRStatus, OpDVSwitchIdentity, OpDVSwitchCredentials, OpDVSwitchModes, OpDVSwitchStartup, OpDVSwitchRollback, OpDVSwitchRestart, OpDVSwitchLists, OpDVSwitchTune, OpDVSwitchUSRP, OpDVSwitchPrivate, OpDVSwitchBM, OpDVSwitchSTFUInstall, OpFirewallStatus, OpFirewallOpen, OpChannelStable, OpChannelBeta, OpAsteriskRestart, OpConfigList, OpConfigRead, OpConfigApply, OpConfigLog, OpConfigShow, OpConfigRestore, OpConfigRecord, OpBackupInfo, OpBackupCreate, OpBackupRestore:
 		return true
