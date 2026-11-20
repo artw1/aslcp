@@ -190,7 +190,9 @@ configure)
 	prepare_services
 	configure_firewalld
 	restart_app
-	if [ -z "$2" ]; then
+	# install.sh prints the setup link itself once everything (port, DVSwitch)
+	# is done, so it sets ASLCP_INSTALLER=1 to keep this one from showing early.
+	if [ -z "$2" ] && [ -z "${ASLCP_INSTALLER:-}" ]; then
 		first_install_message
 	fi
 	;;

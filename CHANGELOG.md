@@ -3,6 +3,11 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [1.2.7] - 2026-11-20
+
+### Changed
+- The one-line installer prints the setup link once, at the end. Before, the package printed it right after installing ASLCP as well, ahead of the port change and the DVSwitch install.
+
 ## [1.2.6] - 2026-11-20
 
 ### Changed
