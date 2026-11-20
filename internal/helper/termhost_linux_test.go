@@ -97,19 +97,29 @@ func (h *hostRun) attach(t *testing.T) net.Conn {
 // readUntil collects data frames until want appears.
 func readUntil(t *testing.T, c net.Conn, want string) string {
 	t.Helper()
+	got, err := readUntilErr(c, want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+// readUntilErr is readUntil for goroutines: it returns the error instead of
+// failing the test, which only the test goroutine may do.
+func readUntilErr(c net.Conn, want string) (string, error) {
 	var got bytes.Buffer
 	deadline := time.Now().Add(10 * time.Second)
 	for !strings.Contains(got.String(), want) {
 		_ = c.SetReadDeadline(deadline)
 		typ, p, err := ReadFrame(c)
 		if err != nil {
-			t.Fatalf("waiting for %q: %v (got %q)", want, err, got.String())
+			return got.String(), fmt.Errorf("waiting for %q: %v (got %q)", want, err, got.String())
 		}
 		if typ == FrameData {
 			got.Write(p)
 		}
 	}
-	return got.String()
+	return got.String(), nil
 }
 
 func (h *hostRun) info(t *testing.T) TerminalInfo {
@@ -506,6 +516,9 @@ func TestTermHostSurvivesVhangup(t *testing.T) {
 	if err != nil {
 		t.Skip("no python3")
 	}
+	if os.Geteuid() != 0 {
+		t.Skip("vhangup needs CAP_SYS_TTY_CONFIG (root)")
+	}
 	script := `import ctypes, os, signal, sys, time
 signal.signal(signal.SIGHUP, signal.SIG_IGN)
 tty = os.ttyname(0)
@@ -523,17 +536,27 @@ time.sleep(5)
 	})
 	c := h.attach(t)
 	defer c.Close()
-	// 77: vhangup is not permitted here (needs CAP_SYS_TTY_CONFIG)
-	done := make(chan struct{})
-	go func() { defer close(done); readUntil(t, c, "ok-after-vhangup") }()
+	readErr := make(chan error, 1)
+	go func() { _, err := readUntilErr(c, "ok-after-vhangup"); readErr <- err }()
 	select {
-	case <-done:
-	case <-h.done:
-		if rec, err := os.ReadFile(filepath.Join(h.dir, h.id+".ended.json")); err == nil && strings.Contains(string(rec), "status 77") {
-			t.Skip("vhangup not permitted")
+	case err := <-readErr:
+		if err == nil {
+			return
 		}
-		t.Fatalf("session ended: %s", sink.all())
+		t.Logf("read failed: %v", err)
+	case <-h.done:
 	}
+	// The session ended or the read failed. Status 77 means vhangup is not
+	// permitted here (needs CAP_SYS_TTY_CONFIG): skip.
+	select {
+	case <-h.done:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("session did not end: %s", sink.all())
+	}
+	if rec, err := os.ReadFile(filepath.Join(h.dir, h.id+".ended.json")); err == nil && strings.Contains(string(rec), "status 77") {
+		t.Skip("vhangup not permitted")
+	}
+	t.Fatalf("session ended: %s", sink.all())
 }
 
 // A child that fails at once: the end says why, with status, time and what it
