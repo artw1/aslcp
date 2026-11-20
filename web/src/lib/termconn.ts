@@ -26,6 +26,8 @@ export function endMsg(): string {
 
 /** Why a session ended, in words (the close reason sent by the server). */
 export function endText(reason: string): string {
+  // "start: <why>": the session could not be started, with the helper's reason.
+  if (reason.startsWith('start: ')) return 'Could not start the terminal: ' + reason.slice(7);
   switch (reason) {
     case 'idle': return 'Closed after 15 minutes without typing.';
     case 'limit': return 'Closed at the maximum session length.';

@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -422,6 +424,9 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request, u stor
 		}
 	}
 	if err != nil {
+		if target == "" && s.terminalStartFailed(w, r, err) {
+			return
+		}
 		s.systemError(w, err)
 		return
 	}
@@ -465,6 +470,38 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request, u stor
 	}
 	s.d.Logger.Printf("terminal session of %s ended (%s)", u.Username, reason)
 	s.audit(u, "system.terminal.end", map[string]any{"seconds": int(d / time.Second), "reason": reason, "linuxUser": linux, "ip": ip, "id": short})
+}
+
+// terminalStartFailed reports a failed start of a new session (not an
+// unavailable helper) to the page. A browser cannot read the body of a
+// refused WebSocket upgrade, so the upgrade is accepted and closed at once
+// with the reason in the close frame ("start: ..."), which the page shows. It
+// returns false when the error is of another kind, which systemError handles.
+func (s *Server) terminalStartFailed(w http.ResponseWriter, r *http.Request, err error) bool {
+	var ue *helper.UnavailableError
+	if errors.As(err, &ue) || errors.Is(err, helper.ErrBusy) {
+		return false
+	}
+	s.d.Logger.Printf("system: %v", err)
+	ws, aerr := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true, CompressionMode: websocket.CompressionDisabled})
+	if aerr != nil {
+		return true // Accept has answered
+	}
+	msg := err.Error()
+	if i := strings.Index(msg, "terminal not available: "); i >= 0 {
+		msg = msg[i+len("terminal not available: "):]
+	}
+	reason := "start: " + strings.Map(func(r rune) rune {
+		if r < 0x20 || r > 0x7e {
+			return -1
+		}
+		return r
+	}, msg)
+	if len(reason) > 120 { // a close reason is at most 123 bytes
+		reason = reason[:120]
+	}
+	_ = ws.Close(websocket.StatusInternalError, reason)
+	return true
 }
 
 // cleanLinuxUser accepts a plausible user name from the helper and nothing else.

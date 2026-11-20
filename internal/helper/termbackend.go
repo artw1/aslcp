@@ -120,12 +120,40 @@ func (b *termBackend) Open(ctx context.Context, rows, cols uint16, owner int64) 
 		if err == nil {
 			return id, c, nil
 		}
+		// A session that is already over (login exited at once) leaves its
+		// record; its reason is what the operator needs to see.
+		if why := b.startFailure(id); why != "" {
+			_ = stopTermUnit(b.run, id)
+			return "", nil, errors.New("terminal not available: the session did not start (" + why + ")")
+		}
 		if ctx.Err() != nil || time.Now().After(deadline) {
 			_ = stopTermUnit(b.run, id)
 			return "", nil, errors.New("terminal not available: the session did not start")
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// startFailure reads and removes the ended record of a session that never
+// came up and returns its short reason ("login exited with status 1 after
+// 0.2s: login: some error"), or "" when there is none. The record is removed
+// because the failure is reported to the caller directly.
+func (b *termBackend) startFailure(id string) string {
+	path := filepath.Join(b.dir, id+".ended.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var rec TerminalEnded
+	if json.Unmarshal(data, &rec) != nil || rec.ID != id {
+		return ""
+	}
+	_ = os.Remove(path)
+	why := rec.Detail
+	if why == "" {
+		why = "ended: " + rec.Reason
+	}
+	return why
 }
 
 func (b *termBackend) readInfo(id string) (TerminalInfo, error) {

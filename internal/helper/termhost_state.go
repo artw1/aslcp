@@ -41,7 +41,8 @@ const (
 	// EndStopped: systemd stopped the unit (systemctl stop, which is how the
 	// helper ends a session).
 	EndStopped = "stopped"
-	// EndExited: login or the shell exited by itself.
+	// EndExited: login (the session's child) exited by itself, by status or
+	// signal; the record's Detail says which.
 	EndExited = "exited"
 	// EndGrace: detached for the grace period (or the apt wait hit its cap).
 	EndGrace = "grace"
@@ -186,6 +187,9 @@ type TerminalEnded struct {
 	Reason    string `json:"reason"`
 	Detached  bool   `json:"detached"`
 	LinuxUser string `json:"linuxUser,omitempty"`
+	// Detail is the precise cause of an "exited" end, such as "login exited
+	// with status 1 after 0.2s: login: some error".
+	Detail string `json:"detail,omitempty"`
 }
 
 // TerminalList is the answer of terminal.list.
