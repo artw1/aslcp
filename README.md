@@ -12,6 +12,7 @@ ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly w
 - **Connect, disconnect, monitor and local monitor**, with permanent links and an optional "disconnect before connect" so you do not bridge two networks by accident.
 - **Favorites** with groups and ordering; import from AllScan.
 - **Node lookup** by number, callsign, description or location, using the AllStarLink node list.
+- **System, Diagnostics** (administrators): download one `.tar.gz` with versions, recent logs, network summary, disk and memory, service states and your config files, to ask for help. Secrets are replaced by `<redacted>`; a checkbox (on by default) also hides your callsign and public IP. Password files, private keys and the ASLCP database are never included. Read it before posting it publicly.
 - **System strip**: CPU temperature, load, uptime, Asterisk status and version, node statistics, restart Asterisk.
 - **Users and roles**: admin, operator and viewer, with rate-limited login and CSRF protection.
 - **Updates from the web page**: Settings shows the installed and available version with release notes and installs updates on request.

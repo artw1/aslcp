@@ -396,7 +396,7 @@ Each step is its own `try/*` branch and its own 1.3.x release. Each release is t
 | 2 | `try/system-services-port80` | **1.3.1** ASL services switch, move to port 80, purge record and `postrm.sh` |
 | 3 | `try/system-wifi` | **1.3.2** WiFi manager, hotspot fallback, watchdog |
 | 4 | `try/system-terminal` | **1.3.3** Terminal (WebSocket, xterm.js, helper PTY) |
-| 5 | `try/system-diagnostics` | **1.3.4** Diagnostics bundle |
+| 5 | `try/system-diagnostics` | **1.3.4** Diagnostics bundle (built on `try/1.3.4`; not yet tested on a node) |
 
 Order reason: 1 is low risk and gives the shell the others plug into. 2 gives operators the main reason to turn Cockpit off, so 3 and 4 should land before people are told they can: WiFi and Terminal replace Cockpit's two fallbacks. Until 1.3.3 ships, the 1.3.1 caution box tells operators to keep Cockpit if they rely on its terminal or WiFi.
 
@@ -444,6 +444,8 @@ Manual, on a Pi with WiFi (and one with only Ethernet, and one without NetworkMa
 5. **Defaults, not overridden (adjustable later):** terminal idle timeout 15 minutes; terminal admin only, never operators; no redirect listener on the old port after the move to port 80.
 
 ### Still open
+
+Diagnostics (1.3.4), to verify on a node: the `dpkg-query -W -f` output and the package patterns (`asl3*`, `asterisk*`, `allmon3`, `dvswitch*`, `aslcp*`); `ss -tulnH` and `nmcli device` output; which journal units exist; that `/run` is writable under the helper unit (`PrivateTmp`; `/var/tmp` is the fallback); the file paths of the DVSwitch and Allmon3 configs; masking of a public IP that is only behind NAT (it is found from `ip -j addr` and `externip`/`externaddr` keys; with neither, the address is not known and stays); and browser handling of a large download (the UI saves it as a blob).
 
 Only the **to verify** items, which stay where they are: WiFi and timezone tooling on the image, Cockpit module list, `cockpit-wifimanager` priority property, NetworkManager hotspot settings and firewalld zone (9.3), hotspot subnet, `chrony` or `systemd-timesyncd`, `resolvectl`, Safari WebSocket under the CSP.
 

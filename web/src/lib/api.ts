@@ -1,4 +1,4 @@
-import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVBMReq, DVSwitchRestartResult, DVDMRStatus, DVRestartScope, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, DVInfoInput, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage } from './types';
+import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVBMReq, DVSwitchRestartResult, DVDMRStatus, DVRestartScope, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, DVInfoInput, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage, DiagPlan } from './types';
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public body?: Record<string, unknown>) { super(message); }
@@ -43,12 +43,8 @@ const q = encodeURIComponent;
 /** Largest backup the server accepts (docs/BACKUP.md). */
 export const MAX_BACKUP_BYTES = 256 * 1024 * 1024;
 
-/** POST /api/backup: fetch as a blob and save it through an object URL, named by Content-Disposition. */
-async function downloadBackup(sel: BackupSelection): Promise<string> {
-  let res: Response;
-  try {
-    res = await fetch('/api/backup', { method: 'POST', credentials: 'same-origin', headers: { 'X-ASLCP': '1', 'Content-Type': 'application/json', Accept: 'application/gzip' }, body: JSON.stringify(sel) });
-  } catch { throw new ApiError(0, 'network', 'Cannot reach the server'); }
+/** Saves a successful download response through an object URL, named by Content-Disposition; an error response becomes an ApiError. */
+async function saveDownload(res: Response, fallback: string): Promise<string> {
   if (res.status === 401) onUnauthorized();
   if (!res.ok) {
     let code = 'error', msg = `${res.status} ${res.statusText}`;
@@ -56,13 +52,31 @@ async function downloadBackup(sel: BackupSelection): Promise<string> {
     throw new ApiError(res.status, code, msg);
   }
   const cd = res.headers.get('content-disposition') ?? '';
-  const name = /filename\*=UTF-8''([^;]+)/i.exec(cd)?.[1] ?? /filename="?([^";]+)"?/i.exec(cd)?.[1] ?? 'aslcp-backup.tar.gz';
+  const name = decodeURIComponent(/filename\*=UTF-8''([^;]+)/i.exec(cd)?.[1] ?? /filename="?([^";]+)"?/i.exec(cd)?.[1] ?? fallback);
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = decodeURIComponent(name); document.body.appendChild(a); a.click(); a.remove();
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
-  return decodeURIComponent(name);
+  return name;
+}
+
+/** POST /api/backup: fetch as a blob and save it through an object URL, named by Content-Disposition. */
+async function downloadBackup(sel: BackupSelection): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetch('/api/backup', { method: 'POST', credentials: 'same-origin', headers: { 'X-ASLCP': '1', 'Content-Type': 'application/json', Accept: 'application/gzip' }, body: JSON.stringify(sel) });
+  } catch { throw new ApiError(0, 'network', 'Cannot reach the server'); }
+  return saveDownload(res, 'aslcp-backup.tar.gz');
+}
+
+/** GET /api/system/diagnostics/bundle: the diagnostics .tar.gz, saved like a backup. */
+async function downloadDiagnostics(maskIdentity: boolean): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/system/diagnostics/bundle?mask=${maskIdentity ? 1 : 0}`, { credentials: 'same-origin', headers: { Accept: 'application/gzip' } });
+  } catch { throw new ApiError(0, 'network', 'Cannot reach the server'); }
+  return saveDownload(res, 'aslcp-diagnostics.tar.gz');
 }
 
 /** POST /api/restore/upload with progress (fetch cannot report upload progress). */
@@ -145,6 +159,8 @@ export const api = {
   sysLogs: (unit: string, lines: number, since: string) => req<SysLogs>('GET', `/system/logs?unit=${q(unit)}&lines=${lines}${since ? '&since=' + q(since) : ''}`),
   sysServices: () => req<SysServices>('GET', '/system/services'),
   sysNetwork: () => req<SysNetwork>('GET', '/system/network'),
+  diagPlan: () => req<DiagPlan>('GET', '/system/diagnostics'),
+  diagBundle: downloadDiagnostics,
   audit: (o: { before?: number; limit?: number; user?: string; action?: string } = {}) => req<AuditPage>('GET', `/audit?limit=${o.limit ?? 50}${o.before ? '&before=' + o.before : ''}${o.user ? '&user=' + q(o.user) : ''}${o.action ? '&action=' + q(o.action) : ''}`),
   restartAslcp: () => req<{ ok: boolean }>('POST', '/system/restart-aslcp'),
   dvswitch: () => req<DVSwitchStatus>('GET', '/dvswitch'),

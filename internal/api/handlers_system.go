@@ -29,6 +29,7 @@ func (s *Server) systemRoutes() {
 	s.systemHostRoutes()
 	s.systemLogsRoutes()
 	s.systemNetRoutes()
+	s.systemDiagRoutes()
 	s.auditRoutes()
 }
 

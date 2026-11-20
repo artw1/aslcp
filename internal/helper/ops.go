@@ -146,13 +146,16 @@ func (o *Ops) Handle(ctx context.Context, op string) (any, error) {
 func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 	op := req.Op
 	if isSysOp(op) {
-		if req.Config != nil || req.DVSwitch != nil || req.Backup != nil || req.Restore != nil {
+		if req.Config != nil || req.DVSwitch != nil || req.Backup != nil || req.Restore != nil || req.Diag != nil {
 			return nil, errors.New("invalid request: unexpected field")
 		}
 		return o.handleSys(ctx, req)
 	}
 	if req.Sys != nil {
 		return nil, errors.New("invalid request: unexpected sys field")
+	}
+	if req.Diag != nil {
+		return nil, errors.New("invalid request: unexpected diag field")
 	}
 	if isConfigOp(op) {
 		return o.handleConfig(ctx, req)

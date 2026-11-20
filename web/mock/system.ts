@@ -2,6 +2,7 @@
 type Ctx = {
   m: string; p: string; url: URL; body: any; user: { username: string; role: string } | undefined;
   json: (code: number, body?: unknown) => void; err: (code: number, msg: string, c: string) => void;
+  file: (name: string, text: string) => void;
 };
 
 const ZONES = ['America/Chicago', 'America/New_York', 'Europe/London', 'UTC'];
@@ -10,12 +11,28 @@ const host = { hostname: 'node2001', prettyHostname: '', os: 'Debian GNU/Linux 1
 const audit: { id: number; time: string; user: string; action: string; detail: string }[] = [];
 function note(user: string, action: string, detail: object) { audit.push({ id: audit.length + 1, time: new Date().toISOString(), user, action, detail: JSON.stringify(detail) }); }
 for (let i = 0; i < 120; i++) audit.push({ id: audit.length + 1, time: new Date(Date.now() - (120 - i) * 3600e3).toISOString(), user: i % 3 ? 'admin' : 'op', action: i % 4 ? 'favorite.add' : 'config.apply', detail: JSON.stringify({ node: '2001', n: i }) });
+const DIAG_PLAN = {
+  available: true, maskDefault: true, maxBytes: 12 << 20, timeLimit: 90,
+  items: [
+    { name: 'README.txt', desc: 'What was collected, what was redacted, and what could not be collected' },
+    { name: 'report.txt', desc: 'ASLCP status report: versions, nodes and links, AMI state, updates, recent ASLCP log' },
+    { name: 'versions.txt', desc: 'ASLCP, Asterisk, operating system, kernel, and package versions' },
+    { name: 'system.txt', desc: 'Uptime and load, memory, disk use' },
+    { name: 'services.txt', desc: 'State of the Asterisk, ASLCP, network, DVSwitch and ASL3 services, and listening ports' },
+    { name: 'network.txt', desc: 'Interfaces, addresses, default gateway, DNS servers (no WiFi passwords or saved networks)' },
+    { name: 'journal/<unit>.txt', desc: 'Last 500 journal lines of each allowed unit' },
+    { name: 'config/', desc: 'Asterisk config files, aslcp.conf, Allmon3 and DVSwitch ini files, with secret values replaced by <redacted>' },
+    { name: 'audit.txt', desc: 'The last 200 audit log entries' },
+  ],
+  excluded: ['/etc/shadow and every other password file', 'Private keys and certificates', 'The ASLCP database and session tokens', 'Saved WiFi networks', 'The Allmon3 user list'],
+  redacted: ['Asterisk, AMI, IAX and registration passwords', 'EchoLink and DVSwitch passwords', 'ASLCP secrets', 'WiFi pre-shared keys', 'Your node callsigns and public IP addresses (when masking is on)'],
+};
 const status = () => { const d = new Date(); return { ...host, now: d.toISOString(), clock: d.toString() }; };
 
 export function handleSystem(c: Ctx): boolean {
   const { m, p } = c;
   if (!p.startsWith('/system/') && p !== '/audit') return false;
-  const known = ['/system/host', '/system/timezones', '/system/poweroff', '/system/logs', '/system/services', '/system/network', '/audit'];
+  const known = ['/system/diagnostics', '/system/diagnostics/bundle', '/system/host', '/system/timezones', '/system/poweroff', '/system/logs', '/system/services', '/system/network', '/audit'];
   if (!known.includes(p)) return false;
   if (c.user?.role !== 'admin') { c.err(403, 'forbidden', 'forbidden'); return true; }
   const who = c.user.username;
@@ -32,6 +49,15 @@ export function handleSystem(c: Ctx): boolean {
     }
     if (typeof b.ntp === 'boolean') { if (b.ntp !== host.ntp) note(who, 'system.ntp', { from: host.ntp, to: b.ntp }); host.ntp = b.ntp; host.ntpSynchronized = b.ntp; }
     c.json(200, status()); return true;
+  }
+  if (p === '/system/diagnostics') { c.json(200, DIAG_PLAN); return true; }
+  if (p === '/system/diagnostics/bundle') {
+    const mask = c.url.searchParams.get('mask') ?? '1';
+    if (!['0', '1'].includes(mask)) { c.err(400, 'mask must be 0 or 1', 'bad_request'); return true; }
+    note(who, 'system.diagnostics.download', { maskIdentity: mask === '1' });
+    const d = new Date(), z = (n: number) => String(n).padStart(2, '0');
+    c.file(`aslcp-diagnostics-${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}.tar.gz`, `mock diagnostics bundle (not a real archive), identity ${mask === '1' ? 'masked' : 'not masked'}\n`);
+    return true;
   }
   if (p === '/system/timezones') { c.json(200, { timezones: ZONES }); return true; }
   if (p === '/system/poweroff' && m === 'POST') { note(who, 'system.poweroff', {}); c.json(202, { ok: true }); return true; }

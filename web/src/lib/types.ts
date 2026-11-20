@@ -308,5 +308,7 @@ export interface NetAddr { family: string; addr: string; prefix: number; scope: 
 export interface NetIface { name: string; state: string; kind: string; mac: string; mtu: number; addrs: NetAddr[] }
 export interface NetRoute { family: string; gateway: string; dev: string; metric: number }
 export interface SysNetwork { available: boolean; interfaces: NetIface[]; gateways: NetRoute[]; dns: string[]; dnsSource: string }
+export interface DiagItem { name: string; desc: string }
+export interface DiagPlan { items: DiagItem[]; excluded: string[]; redacted: string[]; maxBytes: number; timeLimit: number; available: boolean; maskDefault: boolean }
 export interface AuditEntry { id: number; time: string; user: string; action: string; detail: string }
 export interface AuditPage { entries: AuditEntry[]; next: number | null }
