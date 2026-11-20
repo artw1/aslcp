@@ -1,5 +1,5 @@
 {
   "version": "1.2.6",
-  "notes": "Merge pull request #11 from artw1/try/page-logo\n\nInstall page: control panel logo (1.2.6)",
+  "notes": "### Changed\n- The install page uses the control panel's logo.",
   "date": "2026-11-20"
 }
