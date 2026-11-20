@@ -81,7 +81,7 @@ Never present in any reply: passwords, tokens. The reply is built from an explic
 
 ### The ABInfo and PrivateTmp problem
 
-Analog_Bridge writes `/tmp/ABInfo_<port>.json` (neither bridge unit sets PrivateTmp). `aslcp.service` has `PrivateTmp=yes`, so it does not see it. `aslcp-helper.service` had it too, but 1.3.3 removed `PrivateTmp` and `ProtectHome` from the helper unit (the browser terminal needs the real `/home` and `/tmp`), so since 1.3.3 the helper sees the host `/tmp` directly; option A below keeps working either way.
+Analog_Bridge writes `/tmp/ABInfo_<port>.json` (neither bridge unit sets PrivateTmp). `aslcp.service` and `aslcp-helper.service` both have `PrivateTmp=yes`, so neither sees it.
 
 | Option | Trade-off |
 |---|---|
@@ -194,7 +194,7 @@ The demo uses its own temp dir and a fake in-memory ABInfo; it never touches rea
 ### Verify on a real node (tune and resume)
 
 1. Capture the real script and compare with ours: `sudo tcpdump -i lo -X udp and dst port <tlv.rx_port>` while running `dvswitch.sh mode P25` then `dvswitch.sh tune 10100`; the tag `0x05`, the commands (`rxport=30000`, `ambeMode=<MODE>`, `txport=<DVSwitch.ini RXPort>`, `rxport=<DVSwitch.ini TXPort>`, `info`; tune `txTg=<value>`) and their order match upstream `dvswitch.sh` (DVSwitch/MMDVM_Bridge master, `setMode`, `tune`, `remoteControlCommand`), checked 2026-11-18. They do not match its timing: upstream sends one command per process and, after each `rxport=`, waits 1 s and re-reads `tlv.rx_port` (`setTLVRxPort`); ASLCP follows the port as described under the formats above. Still to observe on a node: that a switch completes on one click in about 1 to 2 s, and that Analog_Bridge rewrites ABInfo after `info`.
-2. Does Analog_Bridge write ABInfo at start and refresh it after a TLV tune? Run `watch -n1 cat /tmp/ABInfo_<port>.json` (through `/proc/<pid>/root/tmp` if a unit ever sets PrivateTmp; since 1.3.3 the helper itself has none).
+2. Does Analog_Bridge write ABInfo at start and refresh it after a TLV tune? Run `watch -n1 cat /tmp/ABInfo_<port>.json` (inside the PrivateTmp of the helper: `/proc/<pid>/root/tmp`).
 3. Is 100 ms between datagrams and 400 ms settle enough (`confirmed: true`)?
 4. `systemctl show -p ActiveEnterTimestamp --timestamp=unix analog_bridge.service` prints `@<seconds>` on the node's systemd.
 5. Tune P25 10100, restart analog_bridge with the toggle on: the node returns to P25 10100 within about a minute; with the toggle off it returns to the startup values; reboot with the toggle on behaves like the restart.
@@ -958,7 +958,7 @@ The maintainer accepted the recommendations: "the recommendations are good, we c
 
 1. **Permanent link and manual disconnect.** Chosen: after a manual disconnect of the permanent bridge link, ASLCP pauses its maintenance until setup is saved or Asterisk restarts (matches the schedules manual-action behaviour). Not chosen: restoring the link within a minute.
 2. **Startup values.** Chosen (revised 2026-11-18): explicit editing only. The page has a startup mode choice and one card per mode; the "Use current" button was removed. What was last tuned is remembered by the tracker and can be resumed after a restart (toggle, off by default). ASLCP still does not write the ini on a tune.
-3. **Sandbox change if option A fails.** Chosen: fall back to option B (`PrivateTmp=no` on `aslcp-helper.service`, with the owner check on the file). Note: 1.3.3 already removed `PrivateTmp` from that unit, for the browser terminal. Option D only if B is also refused. Confirmed by the maintainer 2026-11-17.
+3. **Sandbox change if option A fails.** Chosen: fall back to option B (`PrivateTmp=no` on `aslcp-helper.service`, with the owner check on the file). Option D only if B is also refused. Confirmed by the maintainer 2026-11-17.
 4. **Installer trust.** Chosen: replicate the apt source and key steps as fixed helper content from the verified facts (Install, Upstream facts), with the pinned full fingerprint `6DDFC33CD5FC678659642DF572147EC1E788D4C3`, checked with Go stdlib. The upstream script is **not copied** (no licence header) and never run as root.
 5. **Backups.** Chosen: include the DVSwitch inis (BrandMeister/TGIF password) in the existing unencrypted backup like every other secret, with the warning. Not chosen: an opt-in part.
 6. **Unsupported platforms.** Chosen: hide Install and show a pointer for any host codename other than bookworm or trixie, or an arch outside the matrix.

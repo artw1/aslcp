@@ -7,33 +7,8 @@ import (
 )
 
 // Pure parsers used to find the Linux user of a terminal session. login runs
-// as the session leader of the PTY; after PAM it starts the user's shell in
-// the same session, and (when it is built to) records the user in utmp.
-
-// parseProcStat returns the pid, the session id and the state letter of
-// /proc/<pid>/stat. The command name is in parentheses and may itself contain
-// spaces and parentheses, so the fields are counted from the last ')'.
-func parseProcStat(text string) (pid, sid int, state byte, ok bool) {
-	i := strings.IndexByte(text, ' ')
-	j := strings.LastIndexByte(text, ')')
-	if i < 1 || j < i {
-		return 0, 0, 0, false
-	}
-	pid, err := strconv.Atoi(text[:i])
-	if err != nil {
-		return 0, 0, 0, false
-	}
-	// After the name: state ppid pgrp session ...
-	f := strings.Fields(text[j+1:])
-	if len(f) < 4 || len(f[0]) != 1 {
-		return 0, 0, 0, false
-	}
-	sid, err = strconv.Atoi(f[3])
-	if err != nil {
-		return 0, 0, 0, false
-	}
-	return pid, sid, f[0][0], true
-}
+// in the session's transient unit; after PAM it starts the user's shell in the
+// same cgroup, and (when it is built to) records the user in utmp.
 
 // parseProcUID returns the real uid of /proc/<pid>/status.
 func parseProcUID(text string) (uint32, bool) {

@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net"
+	"runtime"
 	"sync"
 	"time"
 )
 
-// Browser terminal (docs/PLAN-1.3.0.md section 8). The helper starts login(1)
-// on a pseudo terminal and relays framed bytes (terminal_frame.go) over the
+// Browser terminal (docs/PLAN-1.3.0.md section 8). The helper owns a pseudo
+// terminal and has systemd run login(1) on its slave in a transient unit
+// (terminal_unit.go), and relays framed bytes (terminal_frame.go) over the
 // connection that carried the terminal.open request. No shell is started by
 // ASLCP: login asks PAM to authenticate a Linux user, then drops to it.
 
@@ -36,12 +39,15 @@ type PTY interface {
 	Resize(rows, cols uint16) error
 	// LinuxUser returns the authenticated Linux user, or "" while unknown.
 	LinuxUser() string
-	// Done is closed when the login process has exited.
+	// Done is closed when the session's unit has ended.
 	Done() <-chan struct{}
-	// Close ends the session: closes the terminal, sends SIGHUP to the
-	// session's process group, then SIGKILL after a short grace, and reaps
-	// the child. Safe to call more than once.
+	// Close ends the session: stops the session's unit (systemd kills every
+	// process of it) and closes the terminal. Safe to call more than once.
 	Close() error
+	// Release closes the terminal without stopping the unit. Used when the
+	// helper itself is shutting down: the kernel hangs the terminal up, but
+	// the helper kills nothing (see docs/DESIGN.md, the browser terminal).
+	Release() error
 }
 
 // StartPTYFunc starts a login session of the given (valid) size.
@@ -98,7 +104,8 @@ func (s *Server) handleTerminal(ctx context.Context, conn net.Conn, in io.Reader
 }
 
 // relayTerminal moves frames between conn and the PTY until either side ends
-// or ctx is done, then closes both and reaps the child.
+// or ctx is done, then closes both (stopping the session's unit unless the
+// helper itself is shutting down).
 func relayTerminal(ctx context.Context, conn net.Conn, in io.Reader, p PTY, userPoll time.Duration) {
 	in = &skipLeadingSpace{r: in} // the newline of the request; frame types are 0..2
 	var wmu sync.Mutex
@@ -201,10 +208,40 @@ func relayTerminal(ctx context.Context, conn net.Conn, in io.Reader, p PTY, user
 	case <-ctx.Done():
 	}
 	end()
-	_ = p.Close() // closes the terminal (unblocks the reader), HUP, kill, reap
+	if ctx.Err() != nil {
+		_ = p.Release() // the helper is stopping: hang up, do not kill
+	} else {
+		_ = p.Close() // stop the unit, close the terminal (unblocks the reader)
+	}
 	_ = conn.Close()
 	wg.Wait()
 }
 
 // errTerminalUnsupported is returned where there is no pseudo terminal.
 var errTerminalUnsupported = errors.New("terminal not available on this system")
+
+// sweepTerminalsAtStart returns the production SweepTerminals: on Linux it
+// stops the aslcp-term-* units of an earlier helper, apart from one that runs
+// apt or dpkg. Failures are only logged.
+func sweepTerminalsAtStart(logger *log.Logger) func(ctx context.Context) {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+	return func(ctx context.Context) {
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		stopped, left, err := SweepTermUnits(ctx, ExecRunner{}, nil)
+		if logger == nil {
+			return
+		}
+		if len(stopped) > 0 {
+			logger.Printf("stopped %d leftover terminal unit(s)", len(stopped))
+		}
+		if len(left) > 0 {
+			logger.Printf("left %d terminal unit(s) running apt or dpkg", len(left))
+		}
+		if err != nil {
+			logger.Printf("terminal unit sweep: %v", err)
+		}
+	}
+}

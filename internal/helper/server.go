@@ -31,6 +31,10 @@ type Server struct {
 	// StartTerminal starts a login session for terminal.open (nil: the op
 	// answers "terminal not available"). NewServer sets StartLogin.
 	StartTerminal StartPTYFunc
+	// SweepTerminals runs once when Serve starts, before the first
+	// connection is accepted (nil: nothing). NewServer sets it to stop the
+	// terminal units an earlier helper left (SweepTermUnits).
+	SweepTerminals func(ctx context.Context)
 
 	active atomic.Int32
 }
@@ -44,7 +48,8 @@ func NewServer(logger *log.Logger, extraUIDs ...uint32) *Server {
 		Idle:        60 * time.Second,
 		Logger:      logger,
 
-		StartTerminal: StartLogin,
+		StartTerminal:  StartLogin,
+		SweepTerminals: sweepTerminalsAtStart(logger),
 	}
 }
 
@@ -77,6 +82,10 @@ const maxRequest = 4096
 // Serve accepts connections on ln until ctx is done or the idle timeout
 // passes with no connection and no request in flight.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
+	// Before any connection: a unit started after this point is not a leftover.
+	if s.SweepTerminals != nil {
+		s.SweepTerminals(ctx)
+	}
 	type deadliner interface{ SetDeadline(time.Time) error }
 	dl, _ := ln.(deadliner)
 	last := time.Now()
