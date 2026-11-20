@@ -1,5 +1,5 @@
 {
   "version": "1.2.7",
-  "notes": "Installer: print the setup link once, at the end\n\nThe package's postinst printed the setup link right after aslcp was\ninstalled, before the port change and the DVSwitch install, and\ninstall.sh printed it again at the end. install.sh now sets\nASLCP_INSTALLER=1 for the apt-get install and postinst skips its banner\nwhen it is set. A plain apt install still prints it.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01WyFLnHQojhM4Jvfwzs5euQ",
+  "notes": "### Changed\n- The one-line installer prints the setup link once, at the end. Before, the package printed it right after installing ASLCP as well, ahead of the port change and the DVSwitch install.",
   "date": "2026-11-20"
 }

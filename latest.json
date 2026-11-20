@@ -1,5 +1,5 @@
 {
-  "version": "1.2.6",
-  "notes": "### Changed\n- The install page uses the control panel's logo.",
+  "version": "1.2.7",
+  "notes": "### Changed\n- The one-line installer prints the setup link once, at the end. Before, the package printed it right after installing ASLCP as well, ahead of the port change and the DVSwitch install.",
   "date": "2026-11-20"
 }

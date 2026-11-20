@@ -84,48 +84,6 @@ Description: Web control panel for AllStarLink 3 nodes.
 
 Package: aslcp
 Architecture: amd64
-Version: 1.2.7
-Priority: optional
-Section: net
-Maintainer: ASLCP <noreply@users.noreply.github.com>
-Installed-Size: 24890
-Depends: systemd, adduser, git
-Recommends: asl3
-Filename: pool/beta/a/aslcp/aslcp_1.2.7_amd64.deb
-Size: 10062680
-MD5sum: fb740ef8f360838e49aa1c6dc56247bc
-SHA1: 0d36cca144dbc1e855055f64a8af257fd37c3252
-SHA256: 45f207e1f56f47feb9e2576ed2b82131a0a7c641a247b186dabdde21d66c223f
-SHA512: 0b197bf56502c7ab644420807b5395af607be068b2103c07817aa97f78f3337f288443821690ea21126bf8d36b4567ed9ac65708106c3427d0d844310f4659c8
-Homepage: https://artw1.github.io/aslcp/
-Description: Web control panel for AllStarLink 3 nodes.
- Connect and disconnect links, watch live node status and manage favorites
- from a browser. Runs as an unprivileged service next to Asterisk and talks
- to it over AMI. A small root helper performs package updates on request.
-
-Package: aslcp
-Architecture: amd64
-Version: 1.1.24
-Priority: optional
-Section: net
-Maintainer: ASLCP <noreply@users.noreply.github.com>
-Installed-Size: 20765
-Depends: systemd, adduser, git
-Recommends: asl3
-Filename: pool/main/a/aslcp/aslcp_1.1.24_amd64.deb
-Size: 8399062
-MD5sum: 48f65691ada157b48800291d4f791d94
-SHA1: 590936bddd9fc6042560541d076311aeb21318d7
-SHA256: 7432cee5aac6c607139c0a55b0e47ddaeef60181e7a7944ec53831543d02feee
-SHA512: b7fd236d9e4c792c62cf293d271f2e37d2de23fb15e9f00b1b043e564264c48e818c70bd37fe1d709a728a20a1d7069bd3098474b2d15b6ade097084b29d28d4
-Homepage: https://artw1.github.io/aslcp/
-Description: Web control panel for AllStarLink 3 nodes.
- Connect and disconnect links, watch live node status and manage favorites
- from a browser. Runs as an unprivileged service next to Asterisk and talks
- to it over AMI. A small root helper performs package updates on request.
-
-Package: aslcp
-Architecture: amd64
 Version: 1.2.2
 Priority: optional
 Section: net
@@ -202,6 +160,27 @@ MD5sum: dde349be614e6fdc6a027526ebb82562
 SHA1: d086335e773c87174b5ed570df8588528333b9e3
 SHA256: d0a86bafc87dfb2fb58188f6d8b8867e3a83604052fcb642cff2912a4160d643
 SHA512: 916790becf87e9084e7a3c2e85f1c4e9f5a8428fb6d36f4dadc8fb480edc4fcb31840644a7db0920f42ca0c0d75137c33d4d664951cea84cdea2b9c1e8b1afa1
+Homepage: https://artw1.github.io/aslcp/
+Description: Web control panel for AllStarLink 3 nodes.
+ Connect and disconnect links, watch live node status and manage favorites
+ from a browser. Runs as an unprivileged service next to Asterisk and talks
+ to it over AMI. A small root helper performs package updates on request.
+
+Package: aslcp
+Architecture: amd64
+Version: 1.2.7
+Priority: optional
+Section: net
+Maintainer: ASLCP <noreply@users.noreply.github.com>
+Installed-Size: 24890
+Depends: systemd, adduser, git
+Recommends: asl3
+Filename: pool/main/a/aslcp/aslcp_1.2.7_amd64.deb
+Size: 10062680
+MD5sum: fb740ef8f360838e49aa1c6dc56247bc
+SHA1: 0d36cca144dbc1e855055f64a8af257fd37c3252
+SHA256: 45f207e1f56f47feb9e2576ed2b82131a0a7c641a247b186dabdde21d66c223f
+SHA512: 0b197bf56502c7ab644420807b5395af607be068b2103c07817aa97f78f3337f288443821690ea21126bf8d36b4567ed9ac65708106c3427d0d844310f4659c8
 Homepage: https://artw1.github.io/aslcp/
 Description: Web control panel for AllStarLink 3 nodes.
  Connect and disconnect links, watch live node status and manage favorites
