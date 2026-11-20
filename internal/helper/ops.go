@@ -448,8 +448,8 @@ var ErrBusy = errors.New("an update is already running")
 // sends reaches it. One unit does the (scoped) index refresh and the install,
 // so the first apt run is not paid twice. Quiet, no recommends, no changelog
 // reader (APT_LISTCHANGES_FRONTEND=none is set in the unit environment).
-const upgradeScript = "apt-get update -o Dir::Etc::sourcelist=sources.list.d/aslcp.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 -q && " +
-	"apt-get install -y -q --only-upgrade --no-install-recommends -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0 aslcp"
+const upgradeScript = "apt-get update -o DPkg::Lock::Timeout=600 -o Dir::Etc::sourcelist=sources.list.d/aslcp.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 -q && " +
+	"apt-get install -y -q -o DPkg::Lock::Timeout=600 --only-upgrade --no-install-recommends -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0 aslcp"
 
 // upgradeArgv is the systemd-run command line of update-apply.
 func upgradeArgv() []string {

@@ -263,8 +263,8 @@ func TestUpdateApplyAndConcurrentRefusal(t *testing.T) {
 		t.Fatal("systemd-run not called")
 	}
 	want := "systemd-run --no-block --unit=aslcp-upgrade --collect --property=Type=oneshot --setenv=DEBIAN_FRONTEND=noninteractive --setenv=APT_LISTCHANGES_FRONTEND=none /bin/sh -c " +
-		"apt-get update -o Dir::Etc::sourcelist=sources.list.d/aslcp.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 -q && " +
-		"apt-get install -y -q --only-upgrade --no-install-recommends -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0 aslcp"
+		"apt-get update -o DPkg::Lock::Timeout=600 -o Dir::Etc::sourcelist=sources.list.d/aslcp.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 -q && " +
+		"apt-get install -y -q -o DPkg::Lock::Timeout=600 --only-upgrade --no-install-recommends -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0 aslcp"
 	if f.called(want) != 1 || f.called("systemd-run") != 1 {
 		t.Fatalf("calls: %v", f.calls)
 	}

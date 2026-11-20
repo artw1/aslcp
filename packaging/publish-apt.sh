@@ -360,6 +360,7 @@ cat >index.html <<EOH
 <p><a href="https://github.com/artw1/aslcp">Documentation, screenshots and bug reports on GitHub</a></p>
 <h2>Install</h2>
 <pre><code>curl -fsSL $APT_URL/install.sh | sudo sh</code></pre>
+<p>On a freshly flashed ASL3 card, wait for the first-boot setup and its reboot (20-30 minutes) before installing. The installer checks this and tells you if it is not done yet.</p>
 <p>The installer prints a one-time setup link at the end. Open it to create the administrator or to restore a backup from an existing node. <code>sudo aslcp admin setup-code</code> shows the code again.</p>
 <h2>Web port</h2>
 <p>The web interface listens on port <strong>8080</strong> by default. To pick another port, set <code>ASLCP_PORT</code> (1-65535) with the install command:</p>

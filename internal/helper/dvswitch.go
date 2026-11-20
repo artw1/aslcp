@@ -256,10 +256,10 @@ func (o *Ops) dvInstallScript() string {
 	return strings.Join([]string{
 		"set -e",
 		"rm -f /var/lib/apt/lists/dvswitch.org*",
-		"apt-get update -q --allow-releaseinfo-change",
+		"apt-get update -q -o DPkg::Lock::Timeout=600 --allow-releaseinfo-change",
 		"apt-get -s -q install --no-install-recommends " + dvInstallPackages + " > " + sim + " || { cat " + sim + "; exit 1; }",
 		self + " dvswitch-step install-plan",
-		"apt-get install -y -q --no-install-recommends " + apt + " " + dvInstallPackages,
+		"apt-get install -y -q -o DPkg::Lock::Timeout=600 --no-install-recommends " + apt + " " + dvInstallPackages,
 		// the stfu package enables its unit: it stays off until the
 		// BrandMeister section is saved
 		"systemctl disable --now " + dvSTFUUnit + ".service || true",
@@ -283,7 +283,7 @@ func (o *Ops) dvUninstallScript() string {
 	}
 	b = append(b,
 		"if [ -s "+purge+" ]; then",
-		"  apt-get purge -y -q -o Dpkg::Use-Pty=0 $(cat "+purge+")",
+		"  apt-get purge -y -q -o DPkg::Lock::Timeout=600 -o Dpkg::Use-Pty=0 $(cat "+purge+")",
 		"fi",
 		"rm -f -- "+shQuote(o.dvSourceList())+" "+shQuote(o.dvKeyring()),
 		"rm -f /var/lib/apt/lists/dvswitch.org*",
@@ -291,7 +291,7 @@ func (o *Ops) dvUninstallScript() string {
 		"rm -f -- "+shQuote(o.dvSTFUDropinPath()),
 		"rmdir -- "+shQuote(filepath.Dir(o.dvSTFUDropinPath()))+" 2>/dev/null || true",
 		"systemctl daemon-reload || true",
-		"apt-get update -q --allow-releaseinfo-change || echo 'warning: apt-get update failed'",
+		"apt-get update -q -o DPkg::Lock::Timeout=600 --allow-releaseinfo-change || echo 'warning: apt-get update failed'",
 	)
 	for _, d := range dvUninstallDirs {
 		b = append(b, "rm -rf -- "+shQuote(d))

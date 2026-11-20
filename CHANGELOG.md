@@ -6,6 +6,8 @@ Release notes are taken from the section of the tag being released
 ## [1.2.3] - 2026-11-20
 
 ### Changed
+- Installer: it refuses to run (and changes nothing) while ASL3 is still finishing its first-boot setup or while another package manager is running, instead of failing on the dpkg lock or being cut off by the first-boot reboot. It tells you to wait and run it again; a pending reboot only produces a warning.
+- Package operations (install and update of ASLCP, DVSwitch and STFU, OS upgrade) wait up to 10 minutes for the apt lock instead of failing.
 - The firewalld rule and the setup link in the install messages follow the configured port: the `aslcp` firewalld service for 8080, a plain TCP port for any other port. The firewall status in the diagnostics report shows whether the configured port is open (runtime or permanent configuration).
 - Installer: it no longer asks for the administrator account in the terminal. It prints a one-time setup link instead, which opens the first-run page where you can create the administrator or restore a backup from an existing node.
 

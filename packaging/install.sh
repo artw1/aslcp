@@ -16,6 +16,14 @@
 # refused. If that install fails the installer warns and still finishes; run
 # "sudo aslcp dvswitch install" later to retry. It combines with ASLCP_PORT:
 #   curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DVSWITCH=1 ASLCP_PORT=9090 sh
+# Pre-flight: before anything is changed the installer refuses to run while
+# ASL3 is still finishing its first-boot setup (systemd still starting, or
+# asl3-boot-oneshot.service / resize2fs_once.service running) or while another
+# package manager (apt, apt-get, dpkg, unattended-upgrades, aptitude) runs or
+# holds the dpkg lock: a fresh ASL3 image installs updates and reboots by
+# itself, which would cut an install in half. Wait 20-30 minutes after the
+# first boot and run it again. ASLCP_SKIP_PREFLIGHT=1 skips this check. A
+# pending reboot (/var/run/reboot-required) only produces a warning.
 set -eu
 
 # Base URL of the apt repository (GitHub Pages of the public repo).
@@ -47,6 +55,62 @@ case "${ASLCP_DVSWITCH:-}" in
 1 | [Yy][Ee][Ss] | [Tt][Rr][Uu][Ee]) DV_WANT=1 ;;
 *) die "ASLCP_DVSWITCH must be 1, yes or true (got '$ASLCP_DVSWITCH')" ;;
 esac
+
+# --- pre-flight: first-boot setup / other package managers ------------------
+# preflight_busy: prints what is busy (one line) and succeeds, or fails when
+# nothing is. Read-only; changes nothing.
+preflight_busy() {
+	if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+		st=$(systemctl is-system-running 2>/dev/null || true)
+		if [ "$st" = starting ]; then
+			printf '%s\n' "the system is still starting up (systemctl is-system-running: starting)"
+			return 0
+		fi
+		for u in asl3-boot-oneshot.service resize2fs_once.service; do
+			st=$(systemctl is-active "$u" 2>/dev/null || true)
+			if [ "$st" = activating ]; then
+				printf '%s\n' "$u"
+				return 0
+			fi
+		done
+	fi
+	for n in apt apt-get dpkg unattended-upgrade unattended-upgrades aptitude; do
+		if command -v pgrep >/dev/null 2>&1; then
+			pids=$(pgrep -x "$n" 2>/dev/null | tr '\n' ' ' || true)
+		elif command -v pidof >/dev/null 2>&1; then
+			pids=$(pidof "$n" 2>/dev/null || true)
+		else
+			pids=
+		fi
+		pids=${pids%"${pids##*[! ]}"}
+		if [ -n "$pids" ]; then
+			printf '%s\n' "$n (pid ${pids%% *})"
+			return 0
+		fi
+	done
+	if command -v fuser >/dev/null 2>&1; then
+		for f in /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock; do
+			if [ -e "$f" ] && fuser "$f" >/dev/null 2>&1; then
+				printf '%s\n' "the dpkg lock $f is held"
+				return 0
+			fi
+		done
+	fi
+	return 1
+}
+
+if [ "${ASLCP_SKIP_PREFLIGHT:-}" != 1 ]; then
+	if busy=$(preflight_busy); then
+		hint=
+		case "$busy" in
+		*"pid "* | *"dpkg lock"*) hint=" If you have an apt prompt open in another terminal, finish it first." ;;
+		esac
+		die "ASL3 is still finishing its first-boot setup or another package manager is running ($busy). It installs updates and may reboot the node. Wait until it is done (usually 20-30 minutes after the first boot), then run this installer again.$hint (To skip this check: ASLCP_SKIP_PREFLIGHT=1.)"
+	fi
+fi
+if [ -e /var/run/reboot-required ]; then
+	say "warning: a reboot is pending (updates were installed); reboot first if anything misbehaves"
+fi
 
 # --- platform checks -------------------------------------------------------
 [ -r /etc/os-release ] || die "cannot read /etc/os-release; this installer supports Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS"
@@ -110,14 +174,14 @@ fi
 
 # --- install ---------------------------------------------------------------
 say "updating package lists (aslcp source only)"
-apt-get update \
+apt-get update -o DPkg::Lock::Timeout=600 \
 	-o Dir::Etc::sourcelist=sources.list.d/aslcp.list \
 	-o Dir::Etc::sourceparts=- \
 	-o APT::Get::List-Cleanup=0
 say "installing aslcp"
 # --force-confold: keep the edited /etc/aslcp/aslcp.conf (for example a changed
 # port) if a later package ships a different default, instead of prompting.
-DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confold aslcp
+DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold aslcp
 
 # --- first-run setup link ---------------------------------------------------
 # ---8<--- admin-setup (exercised by a local test harness; keep self-contained)
