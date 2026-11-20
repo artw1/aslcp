@@ -169,7 +169,7 @@ cd web && npm run dev:mock   # UI dev server with a mock API
 
 Layout: `cmd/` (binaries), `internal/` (packages: `astconf`, `ami`, `rpt`, `api`, `auth`, `store`, `updates`, `helper`, ...), `web/` (UI), `packaging/` (nfpm config, systemd units, `install.sh`, `publish-apt.sh`), `docs/` (design, API and handover notes), `tools/`.
 
-Read [docs/HANDOVER.md](docs/HANDOVER.md) first, then [docs/DESIGN.md](docs/DESIGN.md) and [docs/API.md](docs/API.md).
+Read [docs/HANDOVER.md](docs/HANDOVER.md) first, then [docs/DESIGN.md](docs/DESIGN.md) and [docs/API.md](docs/API.md). Planned work: [docs/PLAN-dev-builds.md](docs/PLAN-dev-builds.md) (developer builds, deferred).
 
 ### Releasing
 

@@ -1,5 +1,7 @@
 # ASLCP 1.3.0 plan: System tab
 
+Note: 1.3.0 to 1.3.4 ship together as 1.3.4. The per-version wording below is kept as written during development.
+
 Status: **draft**. Sections 4 and 5 are built in 1.3.0; section 9 (WiFi manager, hotspot, watchdog) is built in 1.3.2 on `try/1.3.2` and not yet tested on a node; nothing else here is built. Items marked **to verify** came from search snippets or memory and must be checked on a real ASL3 node.
 
 This plan supersedes `docs/PORT80.md`. Its useful parts are folded in below (sections 6 and 7).
