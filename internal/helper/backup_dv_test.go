@@ -60,6 +60,7 @@ func TestBackupDVSwitchRoundTripKeepsSecretsAndHistory(t *testing.T) {
 	dst.put("opt/Analog_Bridge/Analog_Bridge.ini", dvBkOld, 0o644)
 	dst.put("opt/MMDVM_Bridge/MMDVM_Bridge.ini", dvBkOldM, 0o600)
 	dst.put("opt/Analog_Bridge/untouched.txt", "keep\n", 0o644)
+	dst.fake.rules["systemctl restart"] = resp{}
 	res, err := restoreInto(t, dst, arc, RestoreRequest{})
 	if err != nil || !res.OK {
 		t.Fatalf("%+v %v", res, err)
@@ -86,8 +87,13 @@ func TestBackupDVSwitchRoundTripKeepsSecretsAndHistory(t *testing.T) {
 			step = &res.Steps[i]
 		}
 	}
-	if step == nil || !step.OK || !strings.Contains(step.Detail, "skipped") {
+	if step == nil || !step.OK || !strings.Contains(step.Detail, "skipped") || !strings.Contains(step.Detail, "DVSwitch services started") {
 		t.Fatalf("step = %+v", step)
+	}
+	// the installed bridges are started: a node installed with DVSwitch
+	// has them stopped until set up
+	if dst.fake.called("systemctl restart analog_bridge.service mmdvm_bridge.service") != 1 {
+		t.Errorf("services not started: %v", dst.fake.calls)
 	}
 	// history copies of the replaced files, the old content
 	names := dst.o.dvHistoryNames(DVFileAnalogBridge)
@@ -156,7 +162,7 @@ func TestBackupDVSwitchRestoreNotInstalled(t *testing.T) {
 	}
 
 	// a second restore replaces the set
-	dst.o.dvStagePending([]dvItem{{rel: "Analog_Bridge/Analog_Bridge.ini", e: backup.Entry{Owner: "root", Group: "root", Mode: "0644"}, data: []byte(dvBkAB)}}, "2026-01-01 00:00")
+	dst.o.dvStagePending([]dvItem{{rel: "Analog_Bridge/Analog_Bridge.ini", e: backup.Entry{Owner: "root", Group: "root", Mode: "0644"}, data: []byte(dvBkAB)}}, "2026-01-01 00:00", nil)
 	if ps := dst.o.dvPendingStatus(); len(ps.Files) != 1 || ps.BackupDate != "2026-01-01 00:00" {
 		t.Errorf("replaced set = %+v", ps)
 	}
@@ -218,10 +224,10 @@ func TestDVSwitchPendingApplyOnInstall(t *testing.T) {
 func TestDVSwitchPendingDiscardAndInvalid(t *testing.T) {
 	n := newBkNode(t, "1.0", nil)
 	items := []dvItem{{rel: "Analog_Bridge/Analog_Bridge.ini", e: backup.Entry{Owner: "root", Group: "root", Mode: "0644"}, data: []byte(dvBkAB)}}
-	if err := n.o.dvStagePending(items, "2026-11-20 08:15"); err != nil {
+	if err := n.o.dvStagePending(items, "2026-11-20 08:15", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := n.o.dvStagePending([]dvItem{{rel: "../etc/passwd", data: []byte("x")}}, "d"); err == nil {
+	if err := n.o.dvStagePending([]dvItem{{rel: "../etc/passwd", data: []byte("x")}}, "d", nil); err == nil {
 		t.Error("a path outside the allowlist was staged")
 	}
 	if !n.o.dvPendingStatus().Pending {
@@ -237,7 +243,7 @@ func TestDVSwitchPendingDiscardAndInvalid(t *testing.T) {
 		t.Error("discard left the set")
 	}
 	// a manifest naming a file outside the allowlist is dropped, never applied
-	n.o.dvStagePending(items, "d")
+	n.o.dvStagePending(items, "d", nil)
 	os.WriteFile(filepath.Join(n.o.dvPendingDir(), dvPendingManifest), []byte(`{"version":1,"backupDate":"d","files":[{"rel":"../../etc/passwd","owner":"root","group":"root","mode":"0644"}]}`), 0o600)
 	n.put("opt/Analog_Bridge/x", "", 0o644)
 	var w bytes.Buffer

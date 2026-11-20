@@ -18,7 +18,8 @@ import (
 
 // The DVSwitch backup part (docs/BACKUP.md): the allowlisted ini files and
 // dvsm.macro, stored as dvswitch/opt/<rel> with owner, group and mode in the
-// manifest. Nothing is redacted. The history copies of the setup page
+// manifest, and the record of the private bridge node (backup_dv_private.go,
+// dvswitch/state/privatenode.json). Nothing is redacted. The history copies of the setup page
 // (/var/lib/aslcp-dvswitch-history) are not part of it.
 
 // DVRestorePendingDetail is the step detail when DVSwitch is not installed
@@ -57,6 +58,9 @@ func (o *Ops) dvPartInfo() BackupPartInfo {
 			p.Size += fi.Size()
 		}
 	}
+	if fi, err := os.Lstat(o.dvPrivatePath()); err == nil && fi.Mode().IsRegular() && fi.Size() <= dvPrivateMax {
+		p.Size += fi.Size()
+	}
 	return p
 }
 
@@ -91,10 +95,18 @@ func (o *Ops) collectDVSwitch(c *collector) (bool, error) {
 		}
 		added = true
 	}
+	if ok, err := o.collectDVPrivate(c); err != nil {
+		return added, err
+	} else if ok {
+		added = true
+	}
 	return added, nil
 }
 
 func dvHasFiles(m *backup.Manifest) bool {
+	if m.Find(backup.PathDVSwitchPrivate) != nil {
+		return true
+	}
 	for _, rel := range backup.DVSwitchFiles {
 		if m.Find(backup.DVSwitchPath(rel)) != nil {
 			return true
@@ -189,14 +201,22 @@ func (o *Ops) restoreDVSwitch(ctx context.Context, sp *spool, m *backup.Manifest
 		}
 		items = append(items, dvItem{rel, *e, data})
 	}
-	if len(items) == 0 {
-		return "", true, nil
+	// The bridge node record (dvswitch/state/privatenode.json): kept only when
+	// the restored rpt.conf, written by the Asterisk step before this one,
+	// has the node's stanza. Older backups have none.
+	priv, privNode, privNote := o.dvRestoredPrivate(sp, m)
+	if len(items) == 0 && (len(priv) == 0 || !o.dvInstalled()) {
+		return privNote, true, nil
 	}
 	if !o.dvInstalled() {
-		if err := o.dvStagePending(items, date); err != nil {
+		if err := o.dvStagePending(items, date, priv); err != nil {
 			return "", false, fmt.Errorf("cannot save the DVSwitch settings: %w", err)
 		}
-		return DVRestorePendingDetail, false, nil
+		detail = DVRestorePendingDetail
+		if len(priv) > 0 {
+			detail += "; the bridge node record is saved too"
+		}
+		return joinNote(detail, privNote), false, nil
 	}
 	if o.dvBusy(ctx) {
 		return "", true, ErrBusy
@@ -208,6 +228,23 @@ func (o *Ops) restoreDVSwitch(ctx context.Context, sp *spool, m *backup.Manifest
 	detail = fmt.Sprintf("%d file(s) written", n)
 	if len(skipped) > 0 {
 		detail += "; skipped: " + strings.Join(dedupe(skipped), ", ")
+	}
+	if len(priv) > 0 {
+		if err := o.dvWritePrivate(priv); err != nil {
+			privNote = "the bridge node record could not be restored: " + err.Error()
+		} else {
+			detail += "; bridge node " + privNode + " is managed by ASLCP again"
+		}
+	}
+	detail = joinNote(detail, privNote)
+	if n > 0 {
+		// A node installed with DVSwitch has the services stopped until
+		// set up; the restored settings are the set-up.
+		if err := o.dvStartRestored(ctx); err != nil {
+			detail += "; starting the DVSwitch services failed: " + err.Error()
+		} else {
+			detail += "; DVSwitch services started"
+		}
 	}
 	return detail, true, nil
 }
@@ -262,6 +299,17 @@ func (o *Ops) dvWriteItems(items []dvItem) (int, []string, error) {
 		n++
 	}
 	return n, skipped, nil
+}
+
+// joinNote appends note to a step detail.
+func joinNote(detail, note string) string {
+	if note == "" {
+		return detail
+	}
+	if detail == "" {
+		return note
+	}
+	return detail + "; " + note
 }
 
 func dedupe(in []string) []string {

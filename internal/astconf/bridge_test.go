@@ -198,3 +198,35 @@ func TestRevertBridgeNodeGoneVersusEdited(t *testing.T) {
 		t.Fatalf("%v %+v", rs, ps)
 	}
 }
+
+func TestExistingBridgeNode(t *testing.T) {
+	rpt := "[1999]\nrxchannel = USRP/127.0.0.1:34001:32001\n\n[nodes]\n1999 = radio@127.0.0.1/1999,NONE\n"
+	st, line, ok := ExistingBridgeNode([]byte(rpt), "1999")
+	if !ok || !strings.Contains(st, "[1999]") || line != "1999 = radio@127.0.0.1/1999,NONE" {
+		t.Fatalf("%q %q %v", st, line, ok)
+	}
+	if _, line, ok := ExistingBridgeNode([]byte("[1999]\nrxchannel = x\n"), "1999"); !ok || line != "" {
+		t.Fatalf("no nodes section: %q %v", line, ok)
+	}
+	for _, bad := range []string{"[1998]\na = b\n", "[1999](!)\na = b\n", "[1999]\na = b\n[1999]\nc = d\n"} {
+		if _, _, ok := ExistingBridgeNode([]byte(bad), "1999"); ok {
+			t.Errorf("accepted %q", bad)
+		}
+	}
+	if !HasNodeStanza([]byte(rpt), "1999") || HasNodeStanza([]byte(rpt), "1998") || HasNodeStanza([]byte("[1999](!)\n"), "1999") {
+		t.Error("HasNodeStanza")
+	}
+}
+
+func TestModuleState(t *testing.T) {
+	for in, want := range map[string]string{
+		"[modules]\nautoload = yes\nnoload = chan_usrp.so\n": ModNoload,
+		"[modules]\nautoload = yes\nload = chan_usrp.so\n":   ModExplicit,
+		"[modules]\nautoload = yes\n":                        ModAuto,
+		"[modules]\nautoload = no\n":                         ModOff,
+	} {
+		if got, err := ModuleState([]byte(in), "chan_usrp.so"); err != nil || got != want {
+			t.Errorf("%q: %q %v, want %q", in, got, err, want)
+		}
+	}
+}

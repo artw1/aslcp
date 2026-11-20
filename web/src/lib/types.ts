@@ -199,7 +199,7 @@ export interface DVFileView { id: string; present: boolean; writable: boolean; s
 export interface DVSwitchInfo { found: boolean; version: string; mode: string; tg: string; slot: string; colorCode: string; tune: string; mute: string; gatewayId: string; repeaterId: string; updated: string }
 /** The "Bridge node" part of GET /api/dvswitch/setup. `suggested` is the first free node of 1900-1997. */
 export interface DVBridgeSetup {
-  node: string; owned: boolean; suggested: string; used: string[]; localNodes: string[];
+  node: string; owned: boolean; /** Found but not added by ASLCP, and it looks exactly like the node ASLCP adds: "Manage this bridge node with ASLCP" works. */ adoptable?: boolean; suggested: string; used: string[]; localNodes: string[];
   rxPort: number; txPort: number; link: { mode: DVLinkMode; localNode: string; bridge: string; exclusive: boolean }; paused: boolean;
   /** Display name of the bridge node (the default when none was saved). */
   name?: string;

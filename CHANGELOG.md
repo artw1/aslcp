@@ -3,6 +3,17 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [1.2.4] - 2026-11-20
+
+### Fixed
+- Restoring a backup onto a new node no longer leaves the DVSwitch bridge node as "not added by ASLCP". New backups carry ASLCP's record of the bridge node, so after a restore you can still change its number, remove it, and have the uninstall take it out. For a backup made before this version, or a bridge node made by hand, the DVSwitch page offers "Manage this bridge node with ASLCP". Older ASLCP versions cannot restore a backup made with this version.
+- Restoring a backup no longer changes the web port: the node keeps the port it was installed with (`listen` in `/etc/aslcp/aslcp.conf`). Before, a backup from a node on another port moved ASLCP to that port and the page stayed on "ASLCP is restarting…".
+- Restoring a backup onto a node installed with DVSwitch (`ASLCP_DVSWITCH=1`) now starts the DVSwitch services with the restored settings. Before, they stayed stopped until you opened the setup page or pressed Start.
+- `apt purge aslcp` also deletes the config history (`/var/lib/aslcp-config-history`) and ASLCP's DVSwitch state (`/var/lib/aslcp-dvswitch`, `/var/lib/aslcp-dvswitch-history`, which hold copies of the DVSwitch passwords). `apt remove` keeps them as before.
+
+### Added
+- `POST /api/dvswitch/private-node/adopt` (admin): ASLCP takes over a bridge node that looks exactly like the one it adds but has no record. It changes no file and restarts nothing (docs/DVSWITCH.md).
+
 ## [1.2.3] - 2026-11-20
 
 ### Changed

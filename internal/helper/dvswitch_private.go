@@ -96,6 +96,9 @@ func validDVPort(p int) bool { return p >= 1024 && p <= 65535 }
 
 func (o *Ops) dvPrivatePath() string { return filepath.Join(o.dvStateDir(), dvPrivateFile) }
 
+// dvPrivateMax is the largest record file read (the real one is under 2 KiB).
+const dvPrivateMax = 64 << 10
+
 // ReadDVPrivate reads the record, nil when there is none.
 func ReadDVPrivate(path string) (*DVPrivateRecord, error) {
 	f, err := os.Open(path)
@@ -106,10 +109,16 @@ func ReadDVPrivate(path string) (*DVPrivateRecord, error) {
 		return nil, err
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, 64<<10))
+	data, err := io.ReadAll(io.LimitReader(f, dvPrivateMax))
 	if err != nil {
 		return nil, err
 	}
+	return parseDVPrivate(data)
+}
+
+// parseDVPrivate parses a record strictly: one JSON object, no unknown
+// fields, version 1.
+func parseDVPrivate(data []byte) (*DVPrivateRecord, error) {
 	var r DVPrivateRecord
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()

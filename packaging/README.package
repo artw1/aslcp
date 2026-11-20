@@ -47,4 +47,6 @@ Reporting bugs
 
 Removal
   apt remove aslcp   keeps /var/lib/aslcp (users, favorites) and the user
-  apt purge aslcp    deletes them
+  apt purge aslcp    deletes them, the config history (/var/lib/aslcp-config-history)
+                     and the DVSwitch state (/var/lib/aslcp-dvswitch,
+                     /var/lib/aslcp-dvswitch-history); /etc/asterisk and DVSwitch stay

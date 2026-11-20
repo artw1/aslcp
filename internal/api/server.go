@@ -142,6 +142,8 @@ type Server struct {
 	// dvUndo is what the last private-node apply changed (for its rollback).
 	dvUndo   *dvPrivateUndo
 	dvUndoMu sync.Mutex
+	// dvAdoptMu serializes the take-over of a bridge node.
+	dvAdoptMu sync.Mutex
 
 	stop     chan struct{}
 	stopOnce sync.Once

@@ -172,6 +172,7 @@ export const api = {
   dvswitchPrivateApply: (b: DVPrivateReq) => req<DVApplyResult>('PUT', '/dvswitch/private-node', { ...b, dryRun: false }),
   dvswitchPrivateRemovePlan: (base?: Record<string, string>) => req<DVPlan>('DELETE', '/dvswitch/private-node', { dryRun: true, base }),
   dvswitchPrivateRemove: (b: { restart: boolean; base?: Record<string, string> }) => req<DVApplyResult>('DELETE', '/dvswitch/private-node', { ...b, dryRun: false }),
+  dvswitchPrivateAdopt: () => req<{ adopted: boolean; node: string }>('POST', '/dvswitch/private-node/adopt', {}),
   dvswitchPrivateRollback: () => req<DVRollbackResult>('POST', '/dvswitch/private-node/rollback', {}),
   dvswitchRollback: (file: string, base?: Record<string, string>) => req<DVSwitchSetup>('POST', '/dvswitch/rollback', { file, base }),
   setUpdateChannel: (channel: 'stable' | 'beta') => req<UpdateInfo>('PUT', '/updates/channel', { channel }),

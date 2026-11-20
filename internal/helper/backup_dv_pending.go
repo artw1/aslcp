@@ -48,6 +48,9 @@ type dvPendingMeta struct {
 	Version    int             `json:"version"`
 	BackupDate string          `json:"backupDate"`
 	Files      []dvPendingFile `json:"files"`
+	// Private: the record of the private bridge node is staged too (file
+	// privatenode.json). Optional: sets staged before it existed lack it.
+	Private bool `json:"private,omitempty"`
 }
 
 func (o *Ops) dvPendingDir() string { return filepath.Join(o.dvStateDir(), dvPendingDirName) }
@@ -65,9 +68,23 @@ func dvAllowedRel(rel string) bool {
 	return false
 }
 
-// dvStagePending replaces any pending set with items: a new 0700 directory,
+// writeNew creates path (0600, exclusively, no symlink following) with data.
+func writeNew(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return err
+	}
+	_, werr := f.Write(data)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	return werr
+}
+
+// dvStagePending replaces any pending set with items and, when private is not
+// empty, the (already validated) bridge node record: a new 0700 directory,
 // files 0600, then a rename into place.
-func (o *Ops) dvStagePending(items []dvItem, date string) error {
+func (o *Ops) dvStagePending(items []dvItem, date string, private []byte) error {
 	base := o.dvStateDir()
 	if err := os.MkdirAll(base, 0o700); err != nil {
 		return err
@@ -90,18 +107,16 @@ func (o *Ops) dvStagePending(items []dvItem, date string) error {
 		if !dvAllowedRel(it.rel) || len(it.data) > dvIniMaxSize {
 			return fmt.Errorf("%s is not a DVSwitch part file", it.rel)
 		}
-		f, err := os.OpenFile(filepath.Join(tmp, dvPendingName(it.rel)), os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
-		if err != nil {
+		if err := writeNew(filepath.Join(tmp, dvPendingName(it.rel)), it.data); err != nil {
 			return err
 		}
-		_, werr := f.Write(it.data)
-		if cerr := f.Close(); werr == nil {
-			werr = cerr
-		}
-		if werr != nil {
-			return werr
-		}
 		meta.Files = append(meta.Files, dvPendingFile{Rel: it.rel, Owner: it.e.Owner, Group: it.e.Group, Mode: it.e.Mode, Size: int64(len(it.data))})
+	}
+	if len(private) > 0 {
+		if err := dvStagePrivate(tmp, private); err != nil {
+			return err
+		}
+		meta.Private = true
 	}
 	raw, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
@@ -246,30 +261,45 @@ func (o *Ops) dvRestoreApply(ctx context.Context, w io.Writer) error {
 	for _, s := range dedupe(skipped) {
 		fmt.Fprintf(w, "skipped: %s\n", s)
 	}
+	if m.Private {
+		if node, err := o.dvApplyPendingPrivate(); err != nil {
+			fmt.Fprintf(w, "warning: the bridge node record from your backup was not restored: %v\n", err)
+		} else {
+			fmt.Fprintf(w, "bridge node %s is managed by ASLCP again\n", node)
+		}
+	}
 	if err := os.RemoveAll(o.dvPendingDir()); err != nil {
 		fmt.Fprintf(w, "warning: cannot remove the saved settings: %v\n", err)
 	}
 	if n > 0 {
-		// Start (or restart) the bridges and gateways that are installed: a
-		// fresh install leaves them stopped until the setup page saves, and
-		// these settings need no saving. stfu stays on demand.
-		loaded := map[string]bool{}
-		for _, u := range o.dvUnitStates(ctx) {
-			if u.Loaded {
-				loaded[u.Name] = true
-			}
-		}
-		argv := []string{"systemctl", "restart"}
-		for _, u := range dvRestoreRestartUnits {
-			if len(loaded) == 0 || loaded[u] {
-				argv = append(argv, u+".service")
-			}
-		}
-		if out, code, err := o.Run.Run(ctx, argv...); err != nil || code != 0 {
-			fmt.Fprintf(w, "warning: starting the DVSwitch services failed: %s\n", strings.TrimSpace(LastLines(out, 2)+" "+errOr(err)))
+		if err := o.dvStartRestored(ctx); err != nil {
+			fmt.Fprintf(w, "warning: starting the DVSwitch services failed: %v\n", err)
 		} else {
 			fmt.Fprintln(w, "DVSwitch services started")
 		}
+	}
+	return nil
+}
+
+// dvStartRestored starts (or restarts) the installed bridges and gateways
+// after restored settings were written: a fresh install leaves them stopped
+// until the setup page saves, and restored settings need no saving. Running
+// units are restarted so they read the new files. stfu stays on demand.
+func (o *Ops) dvStartRestored(ctx context.Context) error {
+	loaded := map[string]bool{}
+	for _, u := range o.dvUnitStates(ctx) {
+		if u.Loaded {
+			loaded[u.Name] = true
+		}
+	}
+	argv := []string{"systemctl", "restart"}
+	for _, u := range dvRestoreRestartUnits {
+		if len(loaded) == 0 || loaded[u] {
+			argv = append(argv, u+".service")
+		}
+	}
+	if out, code, err := o.Run.Run(ctx, argv...); err != nil || code != 0 {
+		return fmt.Errorf("%s", strings.TrimSpace(LastLines(out, 2)+" "+errOr(err)))
 	}
 	return nil
 }

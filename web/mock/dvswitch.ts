@@ -20,7 +20,7 @@ function progress() {
   let cur;
   const at = Math.floor(job.at / 1000);
   if (job.old) cur = { job: 'failed', log: LOG.install.slice(0, 3).join('\n'), at };
-  else if (el >= DURATION) { installed = job.kind === 'install'; cur = { job: 'succeeded', log: lines.join('\n'), at: Math.floor((job.at + DURATION) / 1000) }; }
+  else if (el >= DURATION) { if (job.kind === 'install' && !installed) foundAfterRestore(); installed = job.kind === 'install'; cur = { job: 'succeeded', log: lines.join('\n'), at: Math.floor((job.at + DURATION) / 1000) }; }
   else cur = { job: 'running', log: lines.slice(0, Math.floor((el / DURATION) * lines.length)).join('\n'), at };
   return job.kind === 'install' ? { install: cur, uninstall: idle } : { install: idle, uninstall: cur };
 }
@@ -260,13 +260,21 @@ function write(c: DVCtx, body: Body): boolean {
 // Private bridge node (PUT /dvswitch/private-node). Starts without one so "No bridge node yet" and the
 // suggestion can be seen. Local nodes of the mock: 2001. Nothing here touches a real Asterisk.
 const LOCALS = ['2001'];
-const pb = { name: '', node: '', owned: false, rxPort: 34001, txPort: 32001, mode: 'ondemand', local: '', paused: false, linked: false, exclusive: true };
+const pb = { name: '', node: '', owned: false, rxPort: 34001, txPort: 32001, mode: 'ondemand', local: '', paused: false, linked: false, exclusive: true, adopt: false };
 // the stock [USRP] ports that a removal puts back (the mock never recorded others)
 const STOCK = { rx: 31001, tx: 31001 };
 let pbUndo: { node: string; owned: boolean; rxPort: number; txPort: number; mode: string; local: string } | null = null;
 const NODE_NAME = 'DVSwitch linked node';
+// The first install of a mock session finds a bridge node 1900 in rpt.conf that has no ASLCP record, like a
+// restore of a backup from before 1.2.4: "Manage this bridge node with ASLCP" is offered. Later installs start clean.
+let foundOnce = true;
+function foundAfterRestore() {
+  if (!foundOnce || pb.node) return;
+  foundOnce = false;
+  Object.assign(pb, { node: '1900', owned: false, adopt: true, rxPort: 34001, txPort: 32001 });
+}
 const bridgeSetup = () => ({
-  node: pb.node, owned: pb.owned, suggested: pb.node ? '' : '1900', used: [...LOCALS, ...(pb.node ? [pb.node] : [])], localNodes: LOCALS,
+  node: pb.node, owned: pb.owned, adoptable: !!pb.node && !pb.owned && pb.adopt, suggested: pb.node ? '' : '1900', used: [...LOCALS, ...(pb.node ? [pb.node] : [])], localNodes: LOCALS,
   rxPort: pb.rxPort, txPort: pb.txPort, link: { mode: pb.mode, localNode: pb.local, bridge: pb.node, exclusive: pb.exclusive }, paused: pb.paused, name: pb.name || NODE_NAME,
 });
 const linkView = () => ({ mode: pb.mode, localNode: pb.local, linked: !!pb.node && (pb.mode === 'permanent' ? !pb.paused : pb.linked), paused: pb.paused, exclusive: pb.exclusive });
@@ -572,6 +580,18 @@ export function handleDVSwitch(c: DVCtx): boolean {
     return true;
   }
   if (panelHandler(c)) return true;
+  if (c.p === '/dvswitch/private-node/adopt' && c.m === 'POST') {
+    if (c.user.role !== 'admin') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
+    progress();
+    if (!installed) { c.err(409, 'not_installed: DVSwitch is not installed (its ini files are missing)', 'not_installed'); return true; }
+    if (pb.owned) { c.err(409, `already_managed: ASLCP already manages the bridge node ${pb.node}`, 'already_managed'); return true; }
+    if (!pb.node) { c.err(409, 'no_bridge_node: there is no bridge node in rpt.conf to take over', 'no_bridge_node'); return true; }
+    if (!pb.adopt) { c.err(409, `not_adoptable: node ${pb.node} does not look like the node ASLCP adds`, 'not_adoptable'); return true; }
+    pb.owned = true; pb.adopt = false;
+    c.json(200, { adopted: true, node: pb.node, chanUsrpWas: 'noload', usrpRestoredToStock: true });
+    c.push?.('dvswitch', snapshot());
+    return true;
+  }
   if (c.p === '/dvswitch/private-node' || c.p === '/dvswitch/private-node/rollback') {
     if (c.user.role !== 'admin') { c.err(403, 'insufficient permissions', 'forbidden'); return true; }
     if (c.m === 'PUT' && c.p === '/dvswitch/private-node') return privateNode(c, c.body ?? {});
