@@ -8,7 +8,7 @@ type Ctx = {
 
 const ZONES = ['America/Chicago', 'America/New_York', 'Europe/London', 'UTC'];
 const UNITS = ['asterisk', 'aslcp', 'aslcp-helper', 'NetworkManager', 'systemd-networkd'];
-const host = { hostname: 'node2001', prettyHostname: '', os: 'Debian GNU/Linux 12 (bookworm)', hostnameAvailable: true, timezone: 'America/Chicago', ntp: true, ntpSynchronized: true, canNtp: true, localRtc: false, timeAvailable: true, now: '', clock: '' };
+const host = { hostname: 'node2001', prettyHostname: '', os: 'Debian GNU/Linux 12 (bookworm)', hostnameAvailable: true, hostnamectlAvailable: true, hostnamectlMissing: false, timezone: 'America/Chicago', ntp: true, ntpSynchronized: true, canNtp: true, localRtc: false, timeAvailable: true, now: '', clock: '' };
 const audit: { id: number; time: string; user: string; action: string; detail: string }[] = [];
 function note(user: string, action: string, detail: object) { audit.push({ id: audit.length + 1, time: new Date().toISOString(), user, action, detail: JSON.stringify(detail) }); }
 for (let i = 0; i < 120; i++) audit.push({ id: audit.length + 1, time: new Date(Date.now() - (120 - i) * 3600e3).toISOString(), user: i % 3 ? 'admin' : 'op', action: i % 4 ? 'favorite.add' : 'config.apply', detail: JSON.stringify({ node: '2001', n: i }) });

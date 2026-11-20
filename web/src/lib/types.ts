@@ -299,7 +299,7 @@ export interface DVCmdReply { mode: string; switched: boolean; confirmed: boolea
 export interface DVFavorite { id: number; mode: DVTuneMode; value: string; name: string; sort: number }
 
 // System tab (docs/API.md "System"); all admin-only.
-export interface HostStatus { hostname: string; prettyHostname: string; os: string; hostnameAvailable: boolean; timezone: string; ntp: boolean; ntpSynchronized: boolean; canNtp: boolean; localRtc: boolean; timeAvailable: boolean; now: string; clock: string }
+export interface HostStatus { hostname: string; prettyHostname: string; os: string; hostnameAvailable: boolean; hostnamectlAvailable: boolean; hostnamectlMissing: boolean; timezone: string; ntp: boolean; ntpSynchronized: boolean; canNtp: boolean; localRtc: boolean; timeAvailable: boolean; now: string; clock: string }
 export interface HostPatch { hostname?: string; timezone?: string; ntp?: boolean }
 export interface SysLogs { unit: string; lines: number; since: string; text: string; truncated: boolean; available: boolean }
 export interface SysService { unit: string; description: string; active: string; sub: string; enabled: string; since: string }

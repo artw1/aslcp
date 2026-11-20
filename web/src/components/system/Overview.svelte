@@ -47,16 +47,26 @@
     <section class="card space-y-3 p-4" aria-label="Hostname">
       <h3 class="text-base font-semibold">Hostname</h3>
       {#if !host.hostnameAvailable}
-        <p class="text-sm text-muted">Not available: hostnamectl is missing on this system.</p>
+        <p class="text-sm text-muted">
+          {host.hostnamectlMissing ? 'Not available: hostnamectl is missing on this system.' : 'Not available: the hostname could not be read.'}
+        </p>
       {:else}
         <div>
           <label class="label" for="sys-host">Hostname</label>
-          <div class="flex gap-2">
-            <input id="sys-host" class="input" bind:value={name} maxlength="63" autocomplete="off" spellcheck="false" aria-invalid={!nameOk} />
-            <button class="btn btn-primary" disabled={busy || !nameOk || !nameChanged} onclick={() => (askName = true)}>Change</button>
-          </div>
-          <p class="mt-1 text-xs {nameOk ? 'text-muted' : 'text-danger'}">Letters, digits and hyphens; up to 63 characters; not starting or ending with a hyphen.</p>
+          {#if host.hostnamectlAvailable}
+            <div class="flex gap-2">
+              <input id="sys-host" class="input" bind:value={name} maxlength="63" autocomplete="off" spellcheck="false" aria-invalid={!nameOk} />
+              <button class="btn btn-primary" disabled={busy || !nameOk || !nameChanged} onclick={() => (askName = true)}>Change</button>
+            </div>
+            <p class="mt-1 text-xs {nameOk ? 'text-muted' : 'text-danger'}">Letters, digits and hyphens; up to 63 characters; not starting or ending with a hyphen.</p>
+          {:else}
+            <input id="sys-host" class="input" value={host.hostname} readonly />
+            <p class="mt-1 text-xs text-muted">
+              {host.hostnamectlMissing ? 'Changing it is not available: hostnamectl is missing on this system.' : 'Changing it is not available: hostnamectl is not usable on this system.'}
+            </p>
+          {/if}
         </div>
+        {#if host.prettyHostname}<p class="text-xs text-muted">{host.prettyHostname}</p>{/if}
         {#if host.os}<p class="text-xs text-muted">{host.os}</p>{/if}
       {/if}
     </section>

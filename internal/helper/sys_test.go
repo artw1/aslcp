@@ -2,6 +2,7 @@ package helper
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -16,9 +17,32 @@ func sysOpsWith(r map[string]resp) (*Ops, *fakeRunner) {
 }
 
 func TestParseHostAndTime(t *testing.T) {
-	h, p, os := parseHostnamectl(fixture(t, "hostnamectl_show.txt"))
-	if h != "node2001" || p != "" || os != "Debian GNU/Linux 12 (bookworm)" {
-		t.Fatalf("%q %q %q", h, p, os)
+	h, p, os, err := parseHostnamectlJSON(fixture(t, "hostnamectl_json.txt"))
+	if err != nil || h != "node2001" || p != "" || os != "Debian GNU/Linux 12 (bookworm)" {
+		t.Fatalf("%q %q %q %v", h, p, os, err)
+	}
+	// missing fields, nulls, static name only, pretty name
+	h, p, os, err = parseHostnamectlJSON(`{"Hostname":null,"StaticHostname":"node2001","PrettyHostname":"Node 2001"}`)
+	if err != nil || h != "node2001" || p != "Node 2001" || os != "" {
+		t.Fatalf("%q %q %q %v", h, p, os, err)
+	}
+	if _, _, _, err = parseHostnamectlJSON("Hostname=node2001\n"); err == nil {
+		t.Fatal("non-JSON accepted")
+	}
+	for in, want := range map[string]string{
+		"PRETTY_NAME=\"Debian GNU/Linux 12 (bookworm)\"\n": "Debian GNU/Linux 12 (bookworm)",
+		"# c\nNAME=x\nPRETTY_NAME='Raspbian 12'\n":         "Raspbian 12",
+		"PRETTY_NAME=Debian\r\n":                           "Debian",
+		"NAME=x\nJUNK\n":                                   "",
+		"PRETTY_NAME=\"A \\\"q\\\" B\"\n":                  `A "q" B`,
+		"#PRETTY_NAME=no\n":                                "",
+	} {
+		if got := parseOSReleasePretty(in); got != want {
+			t.Errorf("%q: got %q want %q", in, got, want)
+		}
+	}
+	if got := parseOSReleasePretty(fixture(t, "os-release.txt")); got != "Debian GNU/Linux 12 (bookworm)" {
+		t.Fatal(got)
 	}
 	var st HostStatus
 	parseTimedatectl(fixture(t, "timedatectl_show.txt"), &st)
@@ -31,19 +55,48 @@ func TestParseHostAndTime(t *testing.T) {
 	}
 }
 
+func hostOps(rules map[string]resp, found bool) *Ops {
+	o, _ := sysOpsWith(rules)
+	o.OSRelease = filepath.Join("testdata", "os-release.txt")
+	o.HostnameFile = filepath.Join("testdata", "no-such-hostname")
+	o.GetHostname = func() (string, error) { return "node2001", nil }
+	o.LookPath = func(string) (string, error) {
+		if !found {
+			return "", errors.New("not found")
+		}
+		return "/usr/bin/hostnamectl", nil
+	}
+	return o
+}
+
 func TestHostStatus(t *testing.T) {
-	o, _ := sysOpsWith(map[string]resp{
-		"hostnamectl show": {out: fixture(t, "hostnamectl_show.txt")},
-		"timedatectl show": {out: fixture(t, "timedatectl_show.txt")},
-	})
-	h := o.HostStatus(context.Background())
-	if !h.HostnameAvail || !h.TimeAvail || h.Hostname != "node2001" || h.Now != "2026-11-20T15:15:02Z" {
+	ctx := context.Background()
+	// JSON path
+	o := hostOps(map[string]resp{
+		"hostnamectl --json=short": {out: fixture(t, "hostnamectl_json.txt")},
+		"timedatectl show":         {out: fixture(t, "timedatectl_show.txt")},
+	}, true)
+	o.GetHostname = func() (string, error) { return "", errors.New("must not be used") }
+	h := o.HostStatus(ctx)
+	if !h.HostnameAvail || !h.HostnamectlAvail || h.HostnamectlMissing || !h.TimeAvail || h.Hostname != "node2001" || h.OS != "Debian GNU/Linux 12 (bookworm)" || h.Now != "2026-11-20T15:15:02Z" {
 		t.Fatalf("%+v", h)
 	}
-	// tools missing: not an error, groups report unavailable
-	o2, _ := sysOpsWith(map[string]resp{})
-	h = o2.HostStatus(context.Background())
-	if h.HostnameAvail || h.TimeAvail || h.Hostname == "" {
+	// JSON fails (old systemd): fallback, hostnamectl still usable
+	o = hostOps(map[string]resp{"hostnamectl --json=short": {out: "Unknown option\n", code: 1}}, true)
+	h = o.HostStatus(ctx)
+	if !h.HostnameAvail || !h.HostnamectlAvail || h.HostnamectlMissing || h.Hostname != "node2001" || h.OS != "Debian GNU/Linux 12 (bookworm)" || h.TimeAvail {
+		t.Fatalf("%+v", h)
+	}
+	// tool missing: the hostname is still shown, Set hostname is not usable
+	o = hostOps(map[string]resp{}, false)
+	h = o.HostStatus(ctx)
+	if !h.HostnameAvail || h.HostnamectlAvail || !h.HostnamectlMissing || h.Hostname != "node2001" || h.TimeAvail {
+		t.Fatalf("%+v", h)
+	}
+	// nothing readable at all
+	o.GetHostname = func() (string, error) { return "", errors.New("x") }
+	o.OSRelease = filepath.Join("testdata", "no-such-os-release")
+	if h = o.HostStatus(ctx); h.HostnameAvail || h.Hostname != "" || h.OS != "" {
 		t.Fatalf("%+v", h)
 	}
 }
@@ -284,7 +337,7 @@ func TestNetStatus(t *testing.T) {
 }
 
 func TestSysOpsDispatch(t *testing.T) {
-	o, _ := sysOpsWith(map[string]resp{"hostnamectl show": {out: fixture(t, "hostnamectl_show.txt")}, "timedatectl show": {out: fixture(t, "timedatectl_show.txt")}})
+	o, _ := sysOpsWith(map[string]resp{"hostnamectl --json=short": {out: fixture(t, "hostnamectl_json.txt")}, "timedatectl show": {out: fixture(t, "timedatectl_show.txt")}})
 	ctx := context.Background()
 	if _, err := o.HandleRequest(ctx, Request{Op: OpHostStatus}); err != nil {
 		t.Fatal(err)

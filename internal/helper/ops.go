@@ -57,6 +57,11 @@ type Ops struct {
 	// Svc holds the paths and timing of the services switch and the port 80
 	// move (sys_svc.go, sys_webport.go); the zero value means the defaults.
 	Svc SvcPaths
+	// Host info fallbacks of host-status (injectable for tests): the
+	// static hostname file, the kernel hostname and the PATH lookup.
+	HostnameFile string
+	GetHostname  func() (string, error)
+	LookPath     func(string) (string, error)
 	// TempDir is where an uploaded archive is staged during a restore
 	// (default /var/tmp).
 	TempDir string

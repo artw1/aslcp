@@ -19,7 +19,7 @@ type DemoSystem struct {
 
 // NewDemoSystem returns a simulated System helper.
 func NewDemoSystem() *DemoSystem {
-	return &DemoSystem{host: HostStatus{Hostname: "node2001", PrettyHostname: "", OS: "Debian GNU/Linux 12 (bookworm)", HostnameAvail: true,
+	return &DemoSystem{host: HostStatus{Hostname: "node2001", PrettyHostname: "", OS: "Debian GNU/Linux 12 (bookworm)", HostnameAvail: true, HostnamectlAvail: true,
 		Timezone: "America/Chicago", NTP: true, NTPSynchronized: true, CanNTP: true, TimeAvail: true}}
 }
 
