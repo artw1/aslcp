@@ -51,9 +51,10 @@ What each tool does, and where ASLCP stands. "ASLCP today" was checked against `
 
 To verify on a real node, from search snippets only:
 
-- The Allmon3 daemon port, and whether Allmon3 depends on `apache2` (the plan assumes the web UI does, the daemon does not).
 - ASL3 documentation's WiFi and timezone instructions (we assume NetworkManager and `timedatectl`).
 - The exact module list in the Cockpit install on the Pi image.
+
+**Verified** on a real ASL3 node (`apt-cache depends allmon3` and Allmon3's config files): allmon3 does not depend on `apache2`. It only Recommends `apache2` (or any httpd, such as nginx). Its hard dependencies are python3, python3-aiohttp, python3-aiohttp-session, python3-websockets, python3-argon2 and adduser. The daemon serves its own web UI on HTTP_PORT 16080 and websockets from WS_PORT_START 16700 upward (one per node), set in `/etc/allmon3/web.ini`, on all addresses by default. Apache only proxies `/allmon3/master/` to it (`/etc/apache2/conf-available/allmon3.conf`). Allmon3 talks to the Asterisk manager (AMI, port 5038) per `/etc/allmon3/allmon3.ini`.
 
 ## 4. System tab layout
 
@@ -123,8 +124,8 @@ Turn off, or back on, three ASL3 web services:
 | Service | Unit | What listens | Notes |
 |---|---|---|---|
 | Cockpit | `cockpit.socket` | TCP 9090 | `cockpit.service` is static and starts only through the socket. Stop both when turning off. |
-| Apache | `apache2` | TCP 80 and 443 | ASL3 landing page, and the front end for Allmon3, so Allmon3's web UI goes too. |
-| Allmon3 | `allmon3` | its own daemon port (**to verify**) | Separate switch. The daemon, not the web UI. |
+| Apache | `apache2` | TCP 80 and 443 | ASL3 landing page, and the `/allmon3/master/` proxy path. Allmon3 still answers on its own ports (see 6.4). |
+| Allmon3 | `allmon3` | 16080 (web) and 16700+ (websockets), all addresses by default | Separate switch. The daemon serves its own web UI. |
 
 Only `systemctl disable --now` and `enable --now`. Never `apt remove` or `purge`: the ASL3 Pi appliance meta-package (`asl3-pi-appliance`) depends on Cockpit and Allmon3, and removing them would remove the meta-package and leave the node different from the standard image. Disabled is the same for security and undoes in one click.
 
@@ -149,10 +150,10 @@ Top of the section: "ASLCP covers much of what these provide in one place. Turn 
 A caution box, shown before the confirm and listing what is lost per service:
 
 - **Cockpit:** your fallback terminal, logs and WiFi settings if ASLCP ever breaks. Make sure SSH works first.
-- **Apache:** the ASL3 landing page, Allmon3's web UI, and anything else served on ports 80 and 443. Allmon3 may be behind a public link or used by other people.
-- **Allmon3:** its monitoring daemon. Other people may use it.
+- **Apache:** the ASL3 landing page, the `/allmon3/master/` proxy path, and anything else served on ports 80 and 443. Allmon3 itself stays reachable on 16080 and 16700+ (see 6.4).
+- **Allmon3:** its monitoring daemon and web UI on 16080 and 16700+. Other people may use it, and may use it through a public link.
 
-After a change the section shows, per service, the unit state (running, off) and the listening ports read from `ss -tlnH`, so the operator sees that 80 or 9090 is really closed. The change is audited.
+After a change the section shows, per service, the unit state (running, off) and the listening ports read from `ss -tlnH` (80 and 443 for Apache, 9090 for Cockpit, 16080 and 16700+ for Allmon3), so the operator sees that they are really closed. The change is audited.
 
 ### 6.4 Rules
 
@@ -160,6 +161,8 @@ After a change the section shows, per service, the unit state (running, off) and
 - Opt-in only, each service on its own switch, each change confirmed.
 - Apache cannot be turned back on while ASLCP holds port 80: see 7.4.
 - Firewall: after Cockpit or Apache goes off, offer (not force) to close `cockpit` and `http`/`https` in firewalld. Turning a service back on offers to reopen. Uses the same mechanism as `firewall-open`.
+- **Apache off does not close Allmon3.** The allmon3 daemon answers directly on 16080 and 16700+ on every address. So when Apache is turned off and Allmon3 is still on, the UI must say so: "Apache is off, but Allmon3 still answers directly on ports 16080 and 16700+ on all addresses." When the operator turns Apache off, offer to turn Allmon3 off too, as a separate checkbox, checked by default.
+- The post-change port check (6.3) must include 16080 and 16700+ for Allmon3, not only 80 and 443.
 
 ### 6.5 Record of disabled units and purge
 
@@ -442,6 +445,6 @@ Manual, on a Pi with WiFi (and one with only Ethernet, and one without NetworkMa
 
 ### Still open
 
-Only the **to verify** items, which stay where they are: Allmon3 daemon port and Apache dependency, WiFi and timezone tooling on the image, Cockpit module list, `cockpit-wifimanager` priority property, NetworkManager hotspot settings and firewalld zone (9.3), hotspot subnet, `chrony` or `systemd-timesyncd`, `resolvectl`, Safari WebSocket under the CSP.
+Only the **to verify** items, which stay where they are: WiFi and timezone tooling on the image, Cockpit module list, `cockpit-wifimanager` priority property, NetworkManager hotspot settings and firewalld zone (9.3), hotspot subnet, `chrony` or `systemd-timesyncd`, `resolvectl`, Safari WebSocket under the CSP.
 
 Examples in this document use placeholders: callsign N0CALL, node 2001, hostname `node2001`, address `192.0.2.10`.
