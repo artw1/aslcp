@@ -320,7 +320,7 @@ A small systemd service plus timer, shipped in the helper package, **not** insid
 
 - `aslcp-wifi-watchdog.service` (oneshot) runs `aslcp-helper wifi-watchdog`, a subcommand of the helper binary, as root. `aslcp-wifi-watchdog.timer` runs it every 30 seconds after boot.
 - It reads state with the same `nmcli` calls as `wifi-status`, keeps its "no link since" timestamp in `/run/aslcp/wifi-watchdog.json`, and starts or stops the hotspot connection.
-- It does nothing if NetworkManager is absent, if WiFi is not in use, or if the feature is off. The feature is off by default; an admin turns it on in the WiFi section.
+- It does nothing if NetworkManager is absent, if WiFi is not in use, or if the feature is off. The feature is on by default; an admin can turn it off in the WiFi section, as decided in section 15.
 - It logs to the journal (`aslcp-wifi-watchdog`) so the Logs section can show it.
 - The hotspot connection profile is created by the helper when the feature is turned on, and removed when it is turned off.
 
