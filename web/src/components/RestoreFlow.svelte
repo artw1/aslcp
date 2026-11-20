@@ -120,7 +120,7 @@
   }
   const finishSteps = $derived(result?.steps ?? steps);
   const checklist = $derived(result?.checklist ?? preview?.checklist ?? []);
-  function login() { location.hash = '#/'; location.reload(); }
+  function login() { location.hash = '#/login'; location.reload(); }
 
   async function copyCmd() {
     try { await navigator.clipboard.writeText(preview?.installCommand ?? ''); copied = true; setTimeout(() => (copied = false), 2000); } catch { toast('Copy failed; select the command and copy it by hand.', 'error'); }

@@ -20,6 +20,7 @@ Release notes are taken from the section of the tag being released
 - Restoring a backup onto a node without DVSwitch keeps the backup's DVSwitch settings and applies them automatically when you install DVSwitch, then starts the DVSwitch services, so no second restore is needed. The DVSwitch page shows the pending settings with a Discard button (`DELETE /api/dvswitch/restore-pending`; the status carries `restorePending`).
 
 ### Fixed
+- First-run restore: the "Log in" button after a restore opens the login form instead of the public page.
 - DVSwitch: an uninstall (or an install) that finished successfully could show as failed on the DVSwitch page.
 - Restore preview: DVSwitch packages are no longer offered under "Packages to install" with a plain `apt install` command (DVSwitch is installed from the DVSwitch page) and no longer listed under "Other software".
 
@@ -41,6 +42,7 @@ Release notes are taken from the section of the tag being released
 - STFU runs as root and writes the BrandMeister password to its log when it starts. ASLCP drops every log line that mentions a password before it reads the log, and keeps `/var/log/dvswitch/STFU.log` and its rotated copies readable by root only: the permissions now persist across log rotation (a systemd drop-in gives STFU `UMask=0077`; it is removed when you clear the BrandMeister connection or uninstall DVSwitch).
 
 ### Fixed
+- First-run restore: the "Log in" button after a restore opens the login form instead of the public page.
 - DVSwitch: switching to a mode with no remembered target could show the previous mode's value as a talkgroup (a YSF reflector showed as "DMR TG 76"). The new mode is now tuned to its own "disconnected" value, and the panel never shows another mode's value as a talkgroup.
 
 ## [1.2.1] - 2026-11-18
@@ -56,6 +58,7 @@ Release notes are taken from the section of the tag being released
 - DVSwitch panel: "Link node" is now a green button and "Unlink node" a red one.
 
 ### Fixed
+- First-run restore: the "Log in" button after a restore opens the login form instead of the public page.
 - DVSwitch: after disconnecting a mode's target (for example DMR from its talkgroup), switching to another mode and back reconnected the old target. A disconnect is now remembered; a new tune is remembered as before.
 
 ## [1.2.0] - 2026-11-18
@@ -81,6 +84,7 @@ Release notes are taken from the section of the tag being released
 - A DVSwitch install or uninstall counts as an apt job: system and ASLCP updates are refused while one runs, and the other way round.
 
 ### Fixed
+- First-run restore: the "Log in" button after a restore opens the login form instead of the public page.
 - Restart Asterisk: when the connection to Asterisk drops right after the restart command (an idle Asterisk restarts at once without replying), the panel now reports success instead of an error.
 - Node status and the dashboard showed a node twice when Asterisk listed it twice (for example while reconnecting); each node now appears once, and an established link wins over a connecting one.
 - Backup, restore and other panel actions could lose their reply with a "connection reset" error in rare cases; the helper now drains unread request bytes before closing.
@@ -92,16 +96,19 @@ Release notes are taken from the section of the tag being released
 - API: `PUT /api/schedules/settings` (`manualAction`); the schedules snapshot gains `manualAction`, `resumeAt` and `lastCancel`.
 
 ### Fixed
+- First-run restore: the "Log in" button after a restore opens the login form instead of the public page.
 - Schedules: saving a schedule that overlaps another one on the same node is now refused when one of the two has "disconnect others first" on (both connects, both enabled). Before, a new exclusive schedule saved while another window was running connected at once and dropped the running link. The dialog shows the clash (for example `overlaps "Tuesday net" (Tue 19:00–20:30) on node 2006`) and disables Save; switching a schedule on shows the same message when it would clash. API: `409 schedule_conflict`. Schedules saved earlier are left alone.
 
 ## [1.1.23] - 2026-11-17
 
 ### Fixed
+- First-run restore: the "Log in" button after a restore opens the login form instead of the public page.
 - Favorites scan showed a node that was transmitting continuously green (active) instead of red (keyed), because the stats service publishes a new report only about every 30 s; linked favorites now also turn red immediately from the local link, and a node that stops reporting no longer stays red.
 
 ## [1.1.22] - 2026-11-17
 
 ### Fixed
+- First-run restore: the "Log in" button after a restore opens the login form instead of the public page.
 - Updates tab: the System packages list missed packages whose line in apt's simulated upgrade ends with an extra `[]` (seen with Raspberry Pi mesa updates), so it could show fewer packages than `apt list --upgradable`.
 
 ## [1.1.21] - 2026-11-17
@@ -130,6 +137,7 @@ Release notes are taken from the section of the tag being released
 ## [1.1.18] - 2026-11-17
 
 ### Fixed
+- First-run restore: the "Log in" button after a restore opens the login form instead of the public page.
 - Restart ASLCP (and Reboot) no longer leave the "Restarting…" banner spinning. The page reloads as soon as the restarted panel answers, even when the panel is back before the restart request returns (the server now reports a per-process instance id in the `X-ASLCP-Instance` header and the SSE `hello` event). A panel that has not restarted after 60 seconds gives an error instead of spinning.
 
 ## [1.1.17] - 2026-11-16
@@ -193,6 +201,7 @@ Release notes are taken from the section of the tag being released
 ## [1.1.12] - 2026-11-16
 
 ### Fixed
+- First-run restore: the "Log in" button after a restore opens the login form instead of the public page.
 - Favorites scan: one bad node no longer pauses the whole scan. On hardware the journal showed only `favstats: request failed (error), pausing 15s`. Responses are now decoded tolerantly (every field may be a string, number, bool or null, `links` an array of strings or numbers, `node` an object, null, array or missing; a field of the wrong type is left zero) and large unneeded parts such as `linkedNodes` are skipped token by token without being buffered. The size cap is 4 MB (was 512 KB) and an oversized response is reported as such instead of as a decode error.
 - Offline and unknown nodes (the service answers 200 with `"stats":null`, an empty body, `null`, `{}`, an error object or an HTML page) no longer pause the scan or log an error: the node shows no values, is asked again after 10 minutes and goes to the back of the queue. Only the per-request line (`[favstats] log = true`, `status=200-nodata`) mentions it.
 - Favorites scan: a node counts as Active (green) only while the service has live data for it. The registration record says "Active" even for offline nodes; `stats.data.time` older than 15 minutes also means offline, and so does WebTransceiver.
@@ -209,6 +218,7 @@ Release notes are taken from the section of the tag being released
 - `[favstats] log = true` (default false) writes one journal line per stats request (node, status, duration, rate, tokens, Retry-After) and each rate change, to diagnose rate limiting. No response data is logged.
 
 ### Fixed
+- First-run restore: the "Log in" button after a restore opens the login form instead of the public page.
 - Favorites scan: a 429 answer no longer counts as a sample; the last values and the "updated" time stay.
 
 ## [1.1.10] - 2026-11-16
@@ -219,6 +229,7 @@ Release notes are taken from the section of the tag being released
 ## [1.1.9] - 2026-11-16
 
 ### Fixed
+- First-run restore: the "Log in" button after a restore opens the login form instead of the public page.
 - The dashboard picks up nodes added to or removed from `rpt.conf` without restarting aslcp. The local node list is re-read when the Asterisk connection comes back, shortly after a reload or restart the panel triggers (config apply or restore with reload, Asterisk restart), and every 5 minutes. A removed node's row disappears from the dashboard and the public view; an added node appears and is polled at once.
 - A stale node shows the actual reason (for example the node poll error) instead of always "AMI disconnected".
 
@@ -231,6 +242,7 @@ Release notes are taken from the section of the tag being released
 ## [1.1.7] - 2026-11-16
 
 ### Fixed
+- First-run restore: the "Log in" button after a restore opens the login form instead of the public page.
 - Audio Tuning: the TX test tone was always refused with "the channel SimpleUSB/<dev> is not up". The pre-flight check expected a `-<suffix>` on the channel name, but chan_simpleusb names its channel `SimpleUSB/<dev>` with none.
 
 ## [1.1.6] - 2026-11-16
