@@ -117,23 +117,6 @@ func TestSizes(t *testing.T) {
 	}
 }
 
-func TestParseProcStat(t *testing.T) {
-	// the name may hold spaces and parentheses
-	pid, sid, st, ok := parseProcStat("812 (tmux: (server) x) S 1 812 812 0 -1 4194560 100")
-	if !ok || pid != 812 || sid != 812 || st != 'S' {
-		t.Fatalf("%d %d %c %v", pid, sid, st, ok)
-	}
-	pid, sid, st, ok = parseProcStat("1999 (bash) S 1998 1999 4242 34816 1999 4194304")
-	if !ok || pid != 1999 || sid != 4242 {
-		t.Fatalf("%d %d %v", pid, sid, ok)
-	}
-	for _, bad := range []string{"", "x (a) S 1", "5 (a)", "5 a S 1 2 3 4"} {
-		if _, _, _, ok := parseProcStat(bad); ok {
-			t.Errorf("accepted %q", bad)
-		}
-	}
-}
-
 func TestParseProcUID(t *testing.T) {
 	st := "Name:\tbash\nUmask:\t0022\nState:\tS (sleeping)\nUid:\t1001\t1001\t1001\t1001\nGid:\t1001\t1001\t1001\t1001\n"
 	if uid, ok := parseProcUID(st); !ok || uid != 1001 {
@@ -178,13 +161,14 @@ type fakePTY struct {
 	sizes      [][2]uint16
 	user       string
 	closed     chan struct{}
+	released   chan struct{}
 	exited     chan struct{}
 	once       sync.Once
 }
 
 func newFakePTY(t *testing.T) *fakePTY {
 	t.Helper()
-	f := &fakePTY{closed: make(chan struct{}), exited: make(chan struct{})}
+	f := &fakePTY{closed: make(chan struct{}), released: make(chan struct{}), exited: make(chan struct{})}
 	var err error
 	if f.outR, f.outW, err = os.Pipe(); err != nil {
 		t.Fatal(err)
@@ -208,6 +192,14 @@ func (f *fakePTY) LinuxUser() string { f.mu.Lock(); defer f.mu.Unlock(); return 
 func (f *fakePTY) Close() error {
 	f.once.Do(func() {
 		close(f.closed)
+		f.outR.Close()
+		f.inW.Close()
+	})
+	return nil
+}
+func (f *fakePTY) Release() error {
+	f.once.Do(func() {
+		close(f.released)
 		f.outR.Close()
 		f.inW.Close()
 	})
@@ -331,7 +323,14 @@ func TestRelayContextCancel(t *testing.T) {
 	go func() { defer close(done); relayTerminal(ctx, a, a, p, time.Hour) }()
 	cancel()
 	waitClosed(t, done, "relay ignored the context")
-	<-p.closed
+	// The helper is stopping: the terminal is released, the unit not stopped.
+	select {
+	case <-p.released:
+	case <-p.closed:
+		t.Fatal("Close (stop the unit) called while the helper was shutting down")
+	case <-time.After(5 * time.Second):
+		t.Fatal("terminal not released")
+	}
 }
 
 func TestRelayUserFrame(t *testing.T) {

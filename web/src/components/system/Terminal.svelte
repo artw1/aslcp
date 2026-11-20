@@ -105,6 +105,7 @@
     <p class="text-sm text-muted">Not available: the helper on this system has no terminal support.</p>
   {:else}
     <p class="text-xs text-muted">Off by default. Closes after {st.idleMinutes} minutes without typing, at most {st.maxHours} hours, {st.maxSessions} sessions at a time ({st.sessions} open now). Turning it off ends open sessions.</p>
+    <p class="text-xs text-muted">Updating ASLCP from this terminal ends the session; use the Updates page or run it with <code>systemd-run</code> or <code>tmux</code>.</p>
   {/if}
 </section>
 

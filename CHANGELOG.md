@@ -11,7 +11,8 @@ Release notes are taken from the section of the tag being released
 - The audit log records when a terminal session started and ended (who, how long, which Linux account, why it ended). What is typed or shown is never recorded.
 
 ### Changed
-- `aslcp-helper.service` no longer sets `PrivateTmp` and `ProtectHome`, so a terminal user sees the real `/home` and `/tmp`.
+- The terminal's `login` runs in its own systemd unit (`aslcp-term-<id>`), outside the helper's cgroup, so a terminal user sees the real `/home` and `/tmp` and `aslcp-helper.service` keeps `PrivateTmp=yes` and `ProtectHome=yes`. Closing a session stops its unit, and the helper stops leftover terminal units when it starts (not one that is running apt or dpkg).
+- Updating ASLCP from the terminal ends the session (the terminal is hung up when the helper restarts, and closed when the web server restarts); use the Updates page, or run the update with `systemd-run` or `tmux`.
 
 ## [1.3.0] - 2026-11-20
 
