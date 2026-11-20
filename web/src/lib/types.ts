@@ -310,3 +310,14 @@ export interface NetRoute { family: string; gateway: string; dev: string; metric
 export interface SysNetwork { available: boolean; interfaces: NetIface[]; gateways: NetRoute[]; dns: string[]; dnsSource: string }
 export interface AuditEntry { id: number; time: string; user: string; action: string; detail: string }
 export interface AuditPage { entries: AuditEntry[]; next: number | null }
+
+// WiFi manager of the System tab (docs/API.md "WiFi").
+export interface WifiDevice { name: string; type: string; state: string; connection: string; addrs: string[] }
+export interface WifiHotspot { enabled: boolean; delaySeconds: number; active: boolean; ssid: string; address: string; firewall: string }
+export interface WifiNetwork { id: string; name: string; ssid: string; priority: number; autoconnect: boolean; active: boolean; hidden: boolean; secured: boolean }
+export interface WifiAP { ssid: string; signal: number; channel: number; security: string; secured: boolean; supported: boolean; inUse: boolean; saved: boolean }
+export interface WifiState {
+  available: boolean; reason?: string; hasWifi: boolean; radio: string; devices: WifiDevice[]; active: string; ethernet: boolean;
+  hotspot: WifiHotspot; networks: WifiNetwork[]; viaWifi: boolean; viaHotspot: boolean;
+}
+export interface WifiScan { networks: WifiAP[]; note?: string }

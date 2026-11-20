@@ -18,6 +18,8 @@ purge)
 	# settings and the DVSwitch ini history (both hold passwords).
 	# /etc/asterisk and DVSwitch's own files are not touched.
 	rm -rf /var/lib/aslcp-config-history /var/lib/aslcp-dvswitch /var/lib/aslcp-dvswitch-history
+	# The hotspot setting (WiFi networks saved in NetworkManager stay).
+	rm -rf /var/lib/aslcp-wifi
 	rmdir /etc/aslcp 2>/dev/null || true
 	if getent passwd aslcp >/dev/null 2>&1; then
 		deluser --system aslcp >/dev/null 2>&1 || true

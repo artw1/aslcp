@@ -17,12 +17,13 @@ import (
 // SysRequest is the argument of the System tab ops. Every op reads only the
 // fields it documents and ignores the rest.
 type SysRequest struct {
-	Hostname string `json:"hostname,omitempty"` // host-set-hostname
-	Timezone string `json:"timezone,omitempty"` // host-set-timezone
-	NTP      *bool  `json:"ntp,omitempty"`      // host-set-ntp
-	Unit     string `json:"unit,omitempty"`     // logs-read
-	Lines    int    `json:"lines,omitempty"`    // logs-read
-	Since    string `json:"since,omitempty"`    // logs-read
+	Hostname string       `json:"hostname,omitempty"` // host-set-hostname
+	Timezone string       `json:"timezone,omitempty"` // host-set-timezone
+	NTP      *bool        `json:"ntp,omitempty"`      // host-set-ntp
+	Unit     string       `json:"unit,omitempty"`     // logs-read
+	Lines    int          `json:"lines,omitempty"`    // logs-read
+	Since    string       `json:"since,omitempty"`    // logs-read
+	Wifi     *WifiRequest `json:"wifi,omitempty"`     // wifi-*
 }
 
 type sysHandler func(o *Ops, ctx context.Context, req *SysRequest) (any, error)

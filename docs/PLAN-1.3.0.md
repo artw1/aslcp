@@ -1,6 +1,6 @@
 # ASLCP 1.3.0 plan: System tab
 
-Status: **draft**. Sections 4 and 5 are built in 1.3.0; nothing else here is built. Items marked **to verify** came from search snippets or memory and must be checked on a real ASL3 node.
+Status: **draft**. Sections 4 and 5 are built in 1.3.0; section 9 (WiFi manager, hotspot, watchdog) is built in 1.3.2 on `try/1.3.2` and not yet tested on a node; nothing else here is built. Items marked **to verify** came from search snippets or memory and must be checked on a real ASL3 node.
 
 This plan supersedes `docs/PORT80.md`. Its useful parts are folded in below (sections 6 and 7).
 
@@ -394,7 +394,7 @@ Each step is its own `try/*` branch and its own 1.3.x release. Each release is t
 |---|---|---|
 | 1 | `try/system-tab` | **1.3.0** System tab shell, Updates move and redirect, hostname and time, logs and services, network status, audit viewer |
 | 2 | `try/system-services-port80` | **1.3.1** ASL services switch, move to port 80, purge record and `postrm.sh` |
-| 3 | `try/system-wifi` | **1.3.2** WiFi manager, hotspot fallback, watchdog |
+| 3 | `try/1.3.2` | **1.3.2** WiFi manager, hotspot fallback, watchdog. Built, not yet tested on a node. |
 | 4 | `try/system-terminal` | **1.3.3** Terminal (WebSocket, xterm.js, helper PTY) |
 | 5 | `try/system-diagnostics` | **1.3.4** Diagnostics bundle |
 
@@ -446,5 +446,18 @@ Manual, on a Pi with WiFi (and one with only Ethernet, and one without NetworkMa
 ### Still open
 
 Only the **to verify** items, which stay where they are: WiFi and timezone tooling on the image, Cockpit module list, `cockpit-wifimanager` priority property, NetworkManager hotspot settings and firewalld zone (9.3), hotspot subnet, `chrony` or `systemd-timesyncd`, `resolvectl`, Safari WebSocket under the CSP.
+
+
+Added by 1.3.2 (built, to verify on a node with WiFi):
+
+- `nmcli -t` field order and escaping on the image, and the scan flags (`device wifi list --rescan yes`).
+- Writing the keyfile (0600) into the NetworkManager directory and `nmcli connection load`, then `connection up uuid`.
+- Hotspot profile settings (`802-11-wireless.band bg`, `ipv4.method shared` with the fixed address `10.42.0.1/24`, `never-default`) and that the Pi radio supports AP mode.
+- firewalld zone `aslcp-hotspot` commands (target DROP, `--remove-forward`, allowed port, dhcp, dns) and that a hotspot client reaches only ASLCP. Marked "to verify" in the UI and in DESIGN.md.
+- That `shared` mode does not forward or NAT anything usable, since the hotspot is up only when there is no uplink.
+- Client counting with `ip neigh`, and the radio hand-back (`nmcli device connect`) when a hotspot with no clients retries saved networks every 10 minutes.
+- Watchdog timer timing (60 s after boot, every 30 s; hotspot opens about 3 minutes after boot).
+- Detection of "connected through the hotspot" by the request's local address `10.42.0.1`.
+- Default on versus the plan's section 9.4 wording (default off); 1.3.2 follows section 15 (on).
 
 Examples in this document use placeholders: callsign N0CALL, node 2001, hostname `node2001`, address `192.0.2.10`.

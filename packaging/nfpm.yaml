@@ -52,6 +52,14 @@ contents:
     dst: /lib/systemd/system/aslcp-helper.service
     file_info:
       mode: 0644
+  - src: packaging/systemd/aslcp-wifi-watchdog.service
+    dst: /lib/systemd/system/aslcp-wifi-watchdog.service
+    file_info:
+      mode: 0644
+  - src: packaging/systemd/aslcp-wifi-watchdog.timer
+    dst: /lib/systemd/system/aslcp-wifi-watchdog.timer
+    file_info:
+      mode: 0644
   - src: packaging/firewalld/aslcp.xml
     dst: /usr/lib/firewalld/services/aslcp.xml
     file_info:

@@ -68,6 +68,9 @@ type Ops struct {
 
 	// RebootFile and RebootPkgsFile are the Debian reboot-required markers
 	// (defaults below); injectable for tests.
+	// Wifi holds the WiFi manager paths (sys_wifi.go); all optional.
+	Wifi WifiPaths
+
 	RebootFile     string
 	RebootPkgsFile string
 	// OSCheckTimeout bounds apt-get update of os-check (default 5 minutes).

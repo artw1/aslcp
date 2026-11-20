@@ -1,4 +1,4 @@
-import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVBMReq, DVSwitchRestartResult, DVDMRStatus, DVRestartScope, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, DVInfoInput, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage } from './types';
+import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVBMReq, DVSwitchRestartResult, DVDMRStatus, DVRestartScope, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, DVInfoInput, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage, WifiState, WifiScan } from './types';
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public body?: Record<string, unknown>) { super(message); }
@@ -89,7 +89,7 @@ function restoreUpload(file: File, auth: { password?: string; code?: string }, o
   });
 }
 export const api = {
-  setupNeeded: () => req<{ needed: boolean }>('GET', '/setup', undefined, { noAuthRedirect: true }),
+  setupNeeded: () => req<{ needed: boolean; hotspot?: boolean }>('GET', '/setup', undefined, { noAuthRedirect: true }),
   setup: (code: string, username: string, password: string) => req<void>('POST', '/setup', { code, username, password }, { noAuthRedirect: true }),
   login: (username: string, password: string) => req<User>('POST', '/login', { username, password }, { noAuthRedirect: true }),
   logout: () => req<void>('POST', '/logout', undefined, { noAuthRedirect: true }),
@@ -145,6 +145,12 @@ export const api = {
   sysLogs: (unit: string, lines: number, since: string) => req<SysLogs>('GET', `/system/logs?unit=${q(unit)}&lines=${lines}${since ? '&since=' + q(since) : ''}`),
   sysServices: () => req<SysServices>('GET', '/system/services'),
   sysNetwork: () => req<SysNetwork>('GET', '/system/network'),
+  wifi: () => req<WifiState>('GET', '/system/wifi'),
+  wifiScan: () => req<WifiScan>('POST', '/system/wifi/scan'),
+  wifiAdd: (ssid: string, password: string, hidden: boolean) => req<{ wifi: WifiState }>('POST', '/system/wifi/networks', { ssid, password, hidden }),
+  wifiForget: (id: string) => req<WifiState>('DELETE', `/system/wifi/networks/${q(id)}`),
+  wifiOrder: (order: string[]) => req<WifiState>('PUT', '/system/wifi/order', { order }),
+  wifiHotspot: (enabled: boolean, delaySeconds = 0) => req<WifiState>('PUT', '/system/wifi/hotspot', { enabled, delaySeconds }),
   audit: (o: { before?: number; limit?: number; user?: string; action?: string } = {}) => req<AuditPage>('GET', `/audit?limit=${o.limit ?? 50}${o.before ? '&before=' + o.before : ''}${o.user ? '&user=' + q(o.user) : ''}${o.action ? '&action=' + q(o.action) : ''}`),
   restartAslcp: () => req<{ ok: boolean }>('POST', '/system/restart-aslcp'),
   dvswitch: () => req<DVSwitchStatus>('GET', '/dvswitch'),

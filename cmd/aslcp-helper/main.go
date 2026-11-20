@@ -36,6 +36,21 @@ func main() {
 	if len(os.Args) == 3 && os.Args[1] == "dvswitch-step" {
 		os.Exit(runStep(os.Args[2]))
 	}
+	// One pass of the setup-hotspot watchdog, run by aslcp-wifi-watchdog.timer
+	// (docs/DESIGN.md); it needs no running web server.
+	if len(os.Args) == 2 && os.Args[1] == "wifi-watchdog" {
+		if os.Geteuid() != 0 {
+			fmt.Fprintln(os.Stderr, "wifi-watchdog must run as root")
+			os.Exit(1)
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		if err := helper.NewOps().RunWifiWatchdog(ctx, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "wifi-watchdog:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	listen := flag.String("listen", "", "listen on this unix socket path instead of using systemd socket activation (testing)")
 	var allow uidList
 	flag.Var(&allow, "allow-uid", "additionally allow this uid (testing; repeatable)")

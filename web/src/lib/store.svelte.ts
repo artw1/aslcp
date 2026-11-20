@@ -20,6 +20,8 @@ export const app = $state<{
   restarting: { kind: 'aslcp' | 'reboot'; since: number } | null;
   /** The public status view is on (admin setting); the app is the chrome-less /embed view. */
   publicEnabled: boolean; embed: boolean;
+  /** This page was opened over the setup hotspot (GET /api/setup): a login typed here is not encrypted. */
+  hotspot: boolean;
   /** SimpleUSB devices (admins only); the Audio Tuning tab shows only when there is one. */
   tune: { loaded: boolean; devices: TuneDevice[]; reason: string };
   /** Favorites activity scan: switch, state and the latest values per node. */
@@ -29,7 +31,7 @@ export const app = $state<{
   conn: 'offline', stateAt: Date.now(), version: '', selectedNode: '', haveNodes: false, haveFavorites: false, updating: null,
   updates: { aslcp: false, aslcpVersion: '', os: 0, security: 0, reboot: false }, restarting: null,
   favstats: { enabled: false, rate: 20, effRate: 20, backoff: false, backoffReason: '', retryAt: null, updated: null, stats: {}, checking: '', next: '', nextAt: null, checked: 0, total: null, checkedAt: {} },
-  tune: { loaded: false, devices: [], reason: '' }, publicEnabled: false, embed: location.pathname === '/embed' || location.pathname === '/embed/',
+  tune: { loaded: false, devices: [], reason: '' }, publicEnabled: false, hotspot: false, embed: location.pathname === '/embed' || location.pathname === '/embed/',
 });
 
 /** Ticking clock (ms) so durations advance between updates. */
@@ -207,6 +209,7 @@ export async function boot() {
   try {
     const s = await api.setupNeeded();
     app.setupNeeded = s.needed;
+    app.hotspot = !!s.hotspot;
     if (s.needed) { navigate('/setup'); app.ready = true; return; }
   } catch { /* backend down: fall through to login */ }
   // The info call says whether a session exists, so visitors never trigger a 401.
