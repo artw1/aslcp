@@ -211,7 +211,7 @@ func (o *Ops) DVSwitchRestoreDiscard(ctx context.Context) (DVSwitchStatus, error
 
 // dvRestoreApply is the install unit's step: it applies the pending set with
 // the safe write path of the restore, logs file names (never contents) to w,
-// deletes the pending directory and restarts the services that run. It never
+// deletes the pending directory and starts the DVSwitch services. It never
 // fails the install: problems are warnings and the set stays for a look.
 func (o *Ops) dvRestoreApply(ctx context.Context, w io.Writer) error {
 	m, err := o.dvReadPendingMeta()
@@ -250,20 +250,30 @@ func (o *Ops) dvRestoreApply(ctx context.Context, w io.Writer) error {
 		fmt.Fprintf(w, "warning: cannot remove the saved settings: %v\n", err)
 	}
 	if n > 0 {
-		// try-restart: only units that run; stfu stays as the install left it
-		argv := []string{"systemctl", "try-restart"}
+		// Start (or restart) the bridges and gateways that are installed: a
+		// fresh install leaves them stopped until the setup page saves, and
+		// these settings need no saving. stfu stays on demand.
+		loaded := map[string]bool{}
+		for _, u := range o.dvUnitStates(ctx) {
+			if u.Loaded {
+				loaded[u.Name] = true
+			}
+		}
+		argv := []string{"systemctl", "restart"}
 		for _, u := range dvRestoreRestartUnits {
-			argv = append(argv, u+".service")
+			if len(loaded) == 0 || loaded[u] {
+				argv = append(argv, u+".service")
+			}
 		}
 		if out, code, err := o.Run.Run(ctx, argv...); err != nil || code != 0 {
-			fmt.Fprintf(w, "warning: restarting the DVSwitch services failed: %s\n", strings.TrimSpace(LastLines(out, 2)+" "+errOr(err)))
+			fmt.Fprintf(w, "warning: starting the DVSwitch services failed: %s\n", strings.TrimSpace(LastLines(out, 2)+" "+errOr(err)))
 		} else {
-			fmt.Fprintln(w, "DVSwitch services restarted")
+			fmt.Fprintln(w, "DVSwitch services started")
 		}
 	}
 	return nil
 }
 
-// dvRestoreRestartUnits are restarted after an apply (all but stfu, which the
-// install leaves disabled until the BrandMeister section is saved).
+// dvRestoreRestartUnits are started after an apply (all but stfu, which runs
+// on demand while the panel is in BrandMeister mode).
 var dvRestoreRestartUnits = []string{"analog_bridge", "mmdvm_bridge", "ysfgateway", "p25gateway", "nxdngateway"}

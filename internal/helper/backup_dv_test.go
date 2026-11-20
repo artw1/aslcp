@@ -172,7 +172,7 @@ func TestDVSwitchPendingApplyOnInstall(t *testing.T) {
 	}
 	// no DVSwitch yet: the apply step does nothing and keeps the set
 	var w bytes.Buffer
-	dst.fake.rules["systemctl try-restart"] = resp{}
+	dst.fake.rules["systemctl restart"] = resp{}
 	if err := dst.o.RunDVSwitchStep(context.Background(), StepRestoreApply, &w); err != nil || !strings.Contains(w.String(), "not installed") {
 		t.Fatalf("%v %q", err, w.String())
 	}
@@ -205,7 +205,7 @@ func TestDVSwitchPendingApplyOnInstall(t *testing.T) {
 	if dst.o.dvPendingStatus().Pending {
 		t.Error("pending set not deleted")
 	}
-	if dst.fake.called("systemctl try-restart analog_bridge.service mmdvm_bridge.service") != 1 {
+	if dst.fake.called("systemctl restart analog_bridge.service mmdvm_bridge.service") != 1 {
 		t.Errorf("calls = %v", dst.fake.calls)
 	}
 	// nothing pending: silent no-op
