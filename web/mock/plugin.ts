@@ -6,6 +6,7 @@ import { handleBackup, downUntil } from './backup.ts';
 import { handleRadio } from './radio.ts';
 import { dvNodeLink, handleDVSwitch } from './dvswitch.ts';
 import { createSchedules } from './schedules.ts';
+import { handleSystem } from './system.ts';
 
 type Info = { node: string; callsign: string; description: string; location: string };
 const calls = ['N0AAA', 'N0AAB', 'N0AAC', 'N0AAD', 'N0AAE', 'N0AAF', 'N0AAG', 'N0AAH', 'N0AAJ', 'N0AAK', 'N0AAL', 'N0AAM', 'N0AAN', 'N0AAP', 'N0AAQ', 'N0AAR', 'N0AAS', 'N0AAT', 'N0AAU', 'N0AAV'];
@@ -239,6 +240,7 @@ export function mockApi(): Plugin {
         const forbid = () => err(res, 403, 'forbidden', 'forbidden');
         let mm: RegExpExecArray | null;
         if (handleRadio({ m, p, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }), links: (n) => locals[n]?.links.map((l) => l.node) ?? [] })) return;
+        if (handleSystem({ m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleDVSwitch({ push: (ev, d) => broadcast(ev, () => d), m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleConfig({ m, p, body, url, user, json: (c, b) => json(res, c, b), err: (c, msg, code, extra) => json(res, c, { error: msg, code, ...extra }) })) return;
 

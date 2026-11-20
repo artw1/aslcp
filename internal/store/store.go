@@ -754,10 +754,46 @@ func (s *Store) AddAudit(a Audit) error {
 
 // ListAudit returns the newest entries first (limit capped at 1000).
 func (s *Store) ListAudit(limit int) ([]Audit, error) {
-	if limit <= 0 || limit > 1000 {
-		limit = 1000
+	return s.ListAuditPage(AuditFilter{Limit: limit})
+}
+
+// AuditFilter selects a page of the audit log. Zero values select nothing:
+// BeforeID 0 starts at the newest entry, User and ActionPrefix "" match all.
+type AuditFilter struct {
+	Limit        int    // capped at 1000 (0: 1000)
+	BeforeID     int64  // only entries with a smaller id (paging)
+	User         string // exact username
+	ActionPrefix string // literal prefix of the action, e.g. "system."
+}
+
+// likeEscape escapes the LIKE wildcards of s (escape character '\').
+func likeEscape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
+
+// ListAuditPage returns the newest entries first that match f. Paging is by
+// id, so entries added meanwhile do not shift the pages.
+func (s *Store) ListAuditPage(f AuditFilter) ([]Audit, error) {
+	if f.Limit <= 0 || f.Limit > 1000 {
+		f.Limit = 1000
 	}
-	rows, err := s.db.Query(`SELECT id,ts,username,action,detail FROM audit ORDER BY id DESC LIMIT ?`, limit)
+	q := `SELECT id,ts,username,action,detail FROM audit WHERE 1=1`
+	var args []any
+	if f.BeforeID > 0 {
+		q += ` AND id < ?`
+		args = append(args, f.BeforeID)
+	}
+	if f.User != "" {
+		q += ` AND username = ?`
+		args = append(args, f.User)
+	}
+	if f.ActionPrefix != "" {
+		q += ` AND action LIKE ? ESCAPE '\'`
+		args = append(args, likeEscape(f.ActionPrefix)+"%")
+	}
+	q += ` ORDER BY id DESC LIMIT ?`
+	args = append(args, f.Limit)
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}

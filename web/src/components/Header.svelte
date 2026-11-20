@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app, logout, isAdmin } from '../lib/store.svelte';
   import { router, navigate } from '../lib/router.svelte';
+  import { isSystemPath } from '../lib/sysnav';
   import { theme, cycleTheme } from '../lib/theme.svelte';
   import Radio from '@lucide/svelte/icons/radio-tower';
   import Sun from '@lucide/svelte/icons/sun';
@@ -11,7 +12,7 @@
   import User from '@lucide/svelte/icons/user';
   import LogOut from '@lucide/svelte/icons/log-out';
 
-  const nav = $derived([['/', 'Dashboard'], ['/schedules', 'Schedules'], ['/lookup', 'Lookup'], ...(isAdmin() ? [['/config', 'Config']] : []), ...(isAdmin() && app.tune.devices.length ? [['/tune', 'Audio Tuning']] : []), ...(isAdmin() ? [['/dvswitch', 'DVSwitch']] : []), ['/settings', 'Settings'], ...(isAdmin() ? [['/backup', 'Backup'], ['/updates', 'Updates']] : [])] as [string, string][]);
+  const nav = $derived([['/', 'Dashboard'], ['/schedules', 'Schedules'], ['/lookup', 'Lookup'], ...(isAdmin() ? [['/config', 'Config']] : []), ...(isAdmin() && app.tune.devices.length ? [['/tune', 'Audio Tuning']] : []), ...(isAdmin() ? [['/dvswitch', 'DVSwitch']] : []), ['/settings', 'Settings'], ...(isAdmin() ? [['/backup', 'Backup'], ['/system', 'System']] : [])] as [string, string][]);
   // Admin only: counts only (SSE "updates"); security updates or a reboot use the warn colour.
   const updCount = $derived((app.updates.aslcp || (app.system?.updateAvailable ?? false) ? 1 : 0) + app.updates.os);
   const updWarn = $derived(app.updates.security > 0 || app.updates.reboot);
@@ -29,13 +30,14 @@
     <a href="#/" class="flex items-center gap-1.5 font-bold tracking-tight"><Radio size={18} class="text-accent" /><span class="text-base">ASLCP</span></a>
     <nav class="order-last flex w-full items-center gap-0.5 sm:order-none sm:w-auto" aria-label="Main">
       {#each nav as [path, label]}
-        <a href={'#' + path} aria-current={router.path === path ? 'page' : undefined}
-          class="rounded px-2 py-1 text-[13px] font-medium {router.path === path ? 'bg-surface-2 text-fg' : 'text-muted hover:text-fg'}">{label}{#if path === '/updates' && (updCount > 0 || app.updates.reboot)}<span class="ml-1 inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-4 text-black {updWarn ? 'bg-warn' : 'bg-accent'}" aria-label={updTitle}>{updCount > 0 ? updCount : '!'}</span>{/if}</a>
+        {@const here = path === '/system' ? isSystemPath(router.path) : router.path === path}
+        <a href={'#' + path} aria-current={here ? 'page' : undefined}
+          class="rounded px-2 py-1 text-[13px] font-medium {here ? 'bg-surface-2 text-fg' : 'text-muted hover:text-fg'}">{label}{#if path === '/system' && (updCount > 0 || app.updates.reboot)}<span class="ml-1 inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-4 text-black {updWarn ? 'bg-warn' : 'bg-accent'}" aria-label={updTitle}>{updCount > 0 ? updCount : '!'}</span>{/if}</a>
       {/each}
     </nav>
     <div class="ml-auto flex items-center gap-1.5">
       {#if isAdmin() && (updCount > 0 || app.updates.reboot) && !app.updating}
-        <a href="#/updates" class="badge {updWarn ? 'text-warn' : 'text-accent'}" title={updTitle}>{app.updates.reboot && updCount === 0 ? 'Reboot needed' : `${updCount} update${updCount === 1 ? '' : 's'}`}</a>
+        <a href="#/system/updates" class="badge {updWarn ? 'text-warn' : 'text-accent'}" title={updTitle}>{app.updates.reboot && updCount === 0 ? 'Reboot needed' : `${updCount} update${updCount === 1 ? '' : 's'}`}</a>
       {/if}
       <span class="badge {app.conn === 'live' ? 'text-ok' : 'text-warn'}" role="status" aria-label="Connection: {connLabel}">
         {#if app.conn === 'live'}<Wifi size={13} />{:else}<WifiOff size={13} />{/if}{connLabel}

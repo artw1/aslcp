@@ -1,0 +1,23 @@
+Id=asterisk.service
+Description=Asterisk PBX and telephony daemon
+LoadState=loaded
+ActiveState=active
+SubState=running
+UnitFileState=enabled
+ActiveEnterTimestamp=Fri 2026-11-20 08:00:01 CST
+
+Id=mmdvm_bridge.service
+Description=
+LoadState=not-found
+ActiveState=inactive
+SubState=dead
+UnitFileState=
+ActiveEnterTimestamp=
+
+Id=cockpit.socket
+Description=Cockpit Web Service Socket
+LoadState=loaded
+ActiveState=inactive
+SubState=dead
+UnitFileState=disabled
+ActiveEnterTimestamp=

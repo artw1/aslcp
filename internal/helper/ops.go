@@ -52,6 +52,7 @@ type Ops struct {
 	SA818Conf  string    // default DefaultSA818Conf
 	AllmonDir  string    // default DefaultAllmonDir
 	AslcpConf  string    // default DefaultAslcpConf (restored; read for the web port)
+	ResolvConf string    // default DefaultResolvConf (net-status)
 	OSRelease  string    // default DefaultOSRelease
 	// TempDir is where an uploaded archive is staged during a restore
 	// (default /var/tmp).
@@ -144,6 +145,15 @@ func (o *Ops) Handle(ctx context.Context, op string) (any, error) {
 // accept the config field.
 func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 	op := req.Op
+	if isSysOp(op) {
+		if req.Config != nil || req.DVSwitch != nil || req.Backup != nil || req.Restore != nil {
+			return nil, errors.New("invalid request: unexpected field")
+		}
+		return o.handleSys(ctx, req)
+	}
+	if req.Sys != nil {
+		return nil, errors.New("invalid request: unexpected sys field")
+	}
 	if isConfigOp(op) {
 		return o.handleConfig(ctx, req)
 	}

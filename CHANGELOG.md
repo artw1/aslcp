@@ -3,6 +3,19 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [1.3.0] - 2026-11-20
+
+### Added
+- A **System** tab for administrators, with a list of sections on the left (a menu on phones): Overview, Updates, Network, Logs and services, and Audit log.
+- Overview shows and changes the hostname (asks for confirmation), the time zone and network time (NTP), and has Reboot and Shut down buttons with confirmation. A tool that is missing on the node shows "not available".
+- Network shows interfaces, addresses, the default gateway and DNS servers (read only).
+- Logs and services shows the state of the Asterisk, ASLCP, network and DVSwitch services and the recent log lines of each, 50 to 1000 lines, optionally limited to the last hour, day or boot.
+- Audit log lists who did what, newest first, with filters by user and action. Hostname, time zone, NTP and shut down changes are now recorded in it (reboot already was).
+
+### Changed
+- Updates moved into the System tab. Old `#/updates` links still work.
+- Reboot moved from the footer to System, Overview.
+
 ## [1.2.7] - 2026-11-20
 
 ### Changed

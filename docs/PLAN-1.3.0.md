@@ -1,6 +1,6 @@
 # ASLCP 1.3.0 plan: System tab
 
-Status: **draft**. Nothing here is built. Items marked **to verify** came from search snippets or memory and must be checked on a real ASL3 node.
+Status: **draft**. Sections 4 and 5 are built in 1.3.0; nothing else here is built. Items marked **to verify** came from search snippets or memory and must be checked on a real ASL3 node.
 
 This plan supersedes `docs/PORT80.md`. Its useful parts are folded in below (sections 6 and 7).
 

@@ -100,7 +100,7 @@ A modern replacement for public Allmon3/Supermon pages. It is off by default. En
 
 Either of:
 
-- **Settings, Updates** in the web page (administrators): *Check now*, then *Update*. Links are not affected; the page reconnects by itself.
+- **System, Updates** in the web page (administrators): *Check now*, then *Update*. Links are not affected; the page reconnects by itself.
 - `sudo apt update && sudo apt upgrade`
 
 ## Uninstall

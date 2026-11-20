@@ -82,6 +82,8 @@ type Request struct {
 	Restore *RestoreRequest `json:"restore,omitempty"`
 	// DVSwitch is accepted by the dvswitch config ops only (dvswitch_cfg.go).
 	DVSwitch *DVSwitchRequest `json:"dvswitch,omitempty"`
+	// Sys is accepted by the System tab ops only (sys.go).
+	Sys *SysRequest `json:"sys,omitempty"`
 }
 
 // Status is the response of the update-* operations. Candidate and

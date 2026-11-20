@@ -1,12 +1,12 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { api, lostConnection } from '../lib/api';
-  import { app, awaitRestart } from '../lib/store.svelte';
-  import { toast, toastError } from '../lib/toast.svelte';
-  import type { UpdateInfo } from '../lib/types';
-  import { parseNotes, fmtAgoLong } from '../lib/util';
-  import Confirm from './Confirm.svelte';
-  import Dialog from './Dialog.svelte';
+  import { api, lostConnection } from '../../lib/api';
+  import { app, awaitRestart } from '../../lib/store.svelte';
+  import { toast, toastError } from '../../lib/toast.svelte';
+  import type { UpdateInfo } from '../../lib/types';
+  import { parseNotes, fmtAgoLong } from '../../lib/util';
+  import Confirm from '../Confirm.svelte';
+  import Dialog from '../Dialog.svelte';
   import Refresh from '@lucide/svelte/icons/refresh-cw';
   import Download from '@lucide/svelte/icons/download';
   import Power from '@lucide/svelte/icons/power';
@@ -129,7 +129,6 @@
   $effect(() => { app.updates.os; app.updates.security; app.updates.reboot; app.updates.aslcp; untrack(() => { loadUpd(); }); });
 </script>
 <div class="space-y-4">
-  <h1 class="text-xl font-bold tracking-tight">Updates</h1>
   <div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
   <section class="card space-y-3 p-4" aria-label="ASLCP">
     <h2 class="text-base font-semibold">ASLCP</h2>
