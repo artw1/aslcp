@@ -63,6 +63,27 @@ Description: Web control panel for AllStarLink 3 nodes.
 
 Package: aslcp
 Architecture: amd64
+Version: 1.2.5
+Priority: optional
+Section: net
+Maintainer: ASLCP <noreply@users.noreply.github.com>
+Installed-Size: 24890
+Depends: systemd, adduser, git
+Recommends: asl3
+Filename: pool/beta/a/aslcp/aslcp_1.2.5_amd64.deb
+Size: 10062602
+MD5sum: 42b69c968fa69220724fb1d61a5c0fed
+SHA1: adceee917bd95ca9d007de1e7aaa0b9fba2a0c65
+SHA256: 94c7158d7ed670d0f48acbfb3c381b73fe222865c840f6c27b76c9ad4008cadf
+SHA512: 10b085777e29157aba3980027f95e15251ca6a20f34f7ceaa2d1b72bd51773469be84aed28586b461a98a3b662cbe711e1cb46d9cbd8c8741feb20c4d58636b9
+Homepage: https://artw1.github.io/aslcp/
+Description: Web control panel for AllStarLink 3 nodes.
+ Connect and disconnect links, watch live node status and manage favorites
+ from a browser. Runs as an unprivileged service next to Asterisk and talks
+ to it over AMI. A small root helper performs package updates on request.
+
+Package: aslcp
+Architecture: amd64
 Version: 1.1.23
 Priority: optional
 Section: net
