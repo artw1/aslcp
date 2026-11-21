@@ -3,6 +3,11 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [1.3.9] - 2026-11-21
+
+### Fixed
+- Now Calling no longer shows DVSwitch traffic while the DVSwitch node is not linked to a local node.
+
 ## [1.3.8] - 2026-11-21
 
 ### Fixed

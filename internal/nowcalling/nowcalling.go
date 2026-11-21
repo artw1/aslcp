@@ -23,8 +23,9 @@ const (
 	// MinDuration: shorter AllStar keyups are glitches, not recorded (the
 	// same limit as the activity recorder).
 	MinDuration = 500 * time.Millisecond
-	// noBridgeGrace is how long a DVSwitch call without an end line counts as
-	// talking when the bridge link's keyed state is not known at all.
+	// noBridgeGrace is how long a DVSwitch call without an end line may wait
+	// for the bridge link to key (the log line can come first) before it is
+	// recorded as a finished call of unknown length.
 	noBridgeGrace = 6 * time.Second
 	// maxOpen is how long a DVSwitch call without an end line may stay
 	// "talking" on the bridge link's keyed state alone.
@@ -37,9 +38,6 @@ const (
 	dvHangover = 5 * time.Second
 	// bridgeLag is how long an STFU call may wait for the bridge link to key.
 	bridgeLag = 5 * time.Second
-	// dmrMax is the longest an STFU call without an end line counts as talking
-	// when the bridge link is not known (the DMR time-out is a few minutes).
-	dmrMax = 4 * time.Minute
 	// maxSinceKey bounds the "keyed for" age of a link taken as the start.
 	maxSinceKey = 2 * time.Hour
 )
@@ -143,11 +141,15 @@ type Tracker struct {
 	dv      *Call            // active DVSwitch call
 	dvDown  time.Time        // when the bridge link first unkeyed under dv (zero: keyed)
 	dvDone  map[string]bool  // DVSwitch calls already finished
-	talks   []Talk
-	bridge  map[string]bool // local node -> bridge link keyed
-	bridgeK bool            // the bridge link is known (any local node saw it)
-	recent  []Call
-	key     string
+	talks   []Talk           // as the helper read them
+	eff     []Talk           // talks that count: started while the bridge was linked
+	bridge  map[string]bool  // local node -> bridge link keyed
+	bridgeK bool             // the bridge node is linked to at least one local node (not stale)
+	// linkedSince is when bridgeK last became true (zero while unlinked).
+	// Talks that started before it are never shown or recorded.
+	linkedSince time.Time
+	recent      []Call
+	key         string
 }
 
 // New returns a Tracker.
@@ -280,22 +282,52 @@ func talkID(k Talk) string {
 }
 
 // syncDV decides whether the newest DVSwitch call is talking (caller holds
-// mu). With an end line the call ends there. Without one (YSF, DMR through
-// MMDVM_Bridge) it lasts as long as the bridge link is keyed; with no bridge
-// link information it counts for noBridgeGrace.
+// mu). DVSwitch calls only count while the bridge node is linked to a local
+// node: while unlinked nothing is current or recorded, and a call open when
+// the link drops ends at that moment like a finished call. Talks that started
+// before the link came up are ignored (the logs are re-read on every poll).
+// With an end line the call ends there. Without one (YSF, DMR through
+// MMDVM_Bridge) it lasts as long as the bridge link is keyed.
 func (t *Tracker) syncDV(now time.Time) {
+	if !t.bridgeK {
+		t.linkedSince = time.Time{}
+		if c := t.dv; c != nil {
+			end := now
+			for _, k := range t.eff {
+				if talkID(k) == c.ID && !k.End.IsZero() && k.End.Before(end) {
+					end = k.End
+				}
+			}
+			t.dv = nil
+			t.dvDown = time.Time{}
+			t.dvDone[c.ID] = true
+			t.finish(c, end, true)
+		}
+		t.eff = nil
+		return
+	}
+	if t.linkedSince.IsZero() {
+		t.linkedSince = now
+	}
+	t.eff = nil
+	for _, k := range t.talks {
+		if !k.Start.Before(t.linkedSince) {
+			t.eff = append(t.eff, k)
+		}
+	}
+	talks := t.eff
 	bridgeKeyed := false
 	for _, k := range t.bridge {
 		bridgeKeyed = bridgeKeyed || k
 	}
 	// calls not seen before that already ended: history (a restart, or a call
 	// shorter than a poll), recorded oldest first.
-	for i, k := range t.talks {
+	for i, k := range talks {
 		id := talkID(k)
 		if t.dvDone[id] || (t.dv != nil && t.dv.ID == id) {
 			continue
 		}
-		newest := i == len(t.talks)-1
+		newest := i == len(talks)-1
 		over := !k.End.IsZero()
 		if !over && newest {
 			continue // may be talking: handled below
@@ -315,8 +347,8 @@ func (t *Tracker) syncDV(now time.Time) {
 	if t.dv != nil {
 		// a newer call replaces the open one
 		var latest *Talk
-		if n := len(t.talks); n > 0 {
-			latest = &t.talks[n-1]
+		if n := len(talks); n > 0 {
+			latest = &talks[n-1]
 		}
 		if latest != nil && talkID(*latest) != t.dv.ID {
 			old := t.dv
@@ -326,12 +358,12 @@ func (t *Tracker) syncDV(now time.Time) {
 			t.finish(old, time.Time{}, true)
 		}
 	}
-	n := len(t.talks)
+	n := len(talks)
 	if n == 0 {
 		t.endDV(now, bridgeKeyed)
 		return
 	}
-	k := t.talks[n-1]
+	k := talks[n-1]
 	id := talkID(k)
 	if t.dvDone[id] {
 		return
@@ -355,23 +387,13 @@ func (t *Tracker) syncDV(now time.Time) {
 
 // talking: is call k (the newest) in progress? An end line ends it. Without
 // one the bridge link's keyed state decides. STFU calls are given a few
-// seconds for the link to key, and last up to dmrMax when the link is not
-// known (a lost end line must not keep the strip red).
+// seconds for the link to key (a lost end line must not keep the strip red).
 func (t *Tracker) talking(k Talk, now time.Time, bridgeKeyed bool) bool {
 	age := now.Sub(k.Start)
 	if !k.End.IsZero() || age > maxOpen {
 		return false
 	}
-	stfu := k.Via == "stfu"
-	switch {
-	case t.bridgeK && bridgeKeyed:
-		return true
-	case t.bridgeK:
-		return stfu && age < bridgeLag
-	case stfu:
-		return age < dmrMax
-	}
-	return age < noBridgeGrace
+	return bridgeKeyed || k.Via == "stfu" && age < bridgeLag
 }
 
 // endDV closes the open DVSwitch call when it is over.
@@ -380,9 +402,9 @@ func (t *Tracker) endDV(now time.Time, bridgeKeyed bool) {
 		return
 	}
 	var k *Talk
-	for i := range t.talks {
-		if talkID(t.talks[i]) == t.dv.ID {
-			k = &t.talks[i]
+	for i := range t.eff {
+		if talkID(t.eff[i]) == t.dv.ID {
+			k = &t.eff[i]
 		}
 	}
 	if k != nil && t.talking(*k, now, bridgeKeyed) {
@@ -393,7 +415,7 @@ func (t *Tracker) endDV(now time.Time, bridgeKeyed bool) {
 	// is not: hold it open for dvHangover (it is still reported as talking,
 	// so the strip stays red) and end it at the moment the link unkeyed.
 	down := now
-	if k != nil && k.End.IsZero() && k.Via != "stfu" && t.bridgeK && !bridgeKeyed && now.Sub(k.Start) <= maxOpen {
+	if k != nil && k.End.IsZero() && k.Via != "stfu" && !bridgeKeyed && now.Sub(k.Start) <= maxOpen {
 		if t.dvDown.IsZero() {
 			t.dvDown = now
 		}
@@ -409,8 +431,6 @@ func (t *Tracker) endDV(now time.Time, bridgeKeyed bool) {
 	end := down
 	if k != nil && !k.End.IsZero() {
 		end = k.End
-	} else if k != nil && !t.bridgeK && end.Sub(k.Start) > noBridgeGrace {
-		end = k.Start.Add(noBridgeGrace)
 	}
 	t.finish(c, end, true)
 	if len(t.dvDone) > 64 {
