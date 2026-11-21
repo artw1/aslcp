@@ -8,6 +8,7 @@
   import { dismissKey, isDismissed, jobSummary, pickJobKind, setDismissed } from '../lib/dvjob';
   import Dialog from './Dialog.svelte';
   import DvswitchSetup from './DvswitchSetup.svelte';
+  import UserListCard from './UserListCard.svelte';
   import Refresh from '@lucide/svelte/icons/refresh-cw';
   import Download from '@lucide/svelte/icons/download';
   import Trash from '@lucide/svelte/icons/trash-2';
@@ -139,6 +140,7 @@
   {#if st.installed && !running}
     <DvswitchSetup units={st.units} onunits={(u) => { if (st) st = { ...st, units: u }; }} />
   {/if}
+  <UserListCard />
   {/if}
 </div>
 

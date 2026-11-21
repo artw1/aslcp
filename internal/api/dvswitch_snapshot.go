@@ -166,6 +166,9 @@ func (d *dvSnapper) build(ctx context.Context, info helper.DVSwitchInfo, infoErr
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	sn := d.buildLocked(ctx, info, infoErr)
+	if infoErr == nil && info.Found && d.s.nc != nil {
+		d.s.ncDV(info, sn)
+	}
 	d.last, d.have, d.builtAt = sn, true, d.now()
 	return sn
 }

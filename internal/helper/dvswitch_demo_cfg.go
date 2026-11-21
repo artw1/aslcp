@@ -24,7 +24,32 @@ func demoCallers(now time.Time) *DVCallers {
 		rec = append(rec, c)
 	}
 	cur := rec[0]
-	return &DVCallers{Current: &cur, Recent: rec}
+	return &DVCallers{Current: &cur, Recent: rec, Talks: demoTalks(now)}
+}
+
+// demoTalks: one placeholder call every 30 s, 12 s long, in turn BrandMeister
+// (an end line, as STFU writes), YSF (no end line) and BrandMeister again. A
+// call has no end until it is over, like the real log.
+func demoTalks(now time.Time) []DVTalk {
+	w := now.Unix() / 30
+	var out []DVTalk
+	for i := w - 2; i <= w; i++ {
+		start := time.Unix(i*30+3, 0).UTC()
+		t := DVTalk{Kind: DVTalkDMR, Via: DVViaSTFU, DMRID: "1234567", Dst: "91", Start: start.Format(time.RFC3339Nano)}
+		switch i % 3 {
+		case 1:
+			t.DMRID, t.Call = "1234568", "N0DEMO"
+		case 2:
+			t = DVTalk{Kind: DVTalkYSF, Via: "analog_bridge", Call: "N0TEST", DMRID: "1234569", Dst: "9", Slot: 2, Start: start.Format(time.RFC3339Nano)}
+		}
+		if end := start.Add(12 * time.Second); t.Kind == DVTalkDMR && !end.After(now) {
+			t.End, t.Frames = end.Format(time.RFC3339Nano), 200
+		}
+		if !start.After(now) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // Demo side of the M4 ops: values live in memory, nothing is written. The

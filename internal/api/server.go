@@ -26,6 +26,7 @@ import (
 	"github.com/artw1/aslcp/internal/helper"
 	"github.com/artw1/aslcp/internal/nodelist"
 	"github.com/artw1/aslcp/internal/public"
+	"github.com/artw1/aslcp/internal/radioid"
 	"github.com/artw1/aslcp/internal/rpt"
 	"github.com/artw1/aslcp/internal/schedules"
 	"github.com/artw1/aslcp/internal/store"
@@ -61,6 +62,9 @@ type Deps struct {
 	// DVBridgeNode finds the local node that uses a USRP channel (rpt.conf,
 	// read-only; nil: never found).
 	DVBridgeNode func(ctx context.Context) (string, bool)
+	// RadioID is the radioid.net user list: names and places of DMR and YSF
+	// callers for the "Now calling" strip (nil: bare callsigns only).
+	RadioID *radioid.Manager
 	// ConfigEditor is the configuration editing service (nil: 503
 	// config_unavailable).
 	ConfigEditor *configsvc.Service
@@ -145,6 +149,7 @@ type Server struct {
 	term termState
 
 	dvs *dvSnapper // DVSwitch snapshot and its change events
+	nc  *ncState   // "Now calling" (nowcalling.go)
 	// dvUndo is what the last private-node apply changed (for its rollback).
 	dvUndo   *dvPrivateUndo
 	dvUndoMu sync.Mutex
@@ -199,6 +204,7 @@ func New(d Deps) *Server {
 	s.rec.OnRecord = s.pub.ActivityRecorded
 	s.initFavStats()
 	s.initSchedules()
+	s.initNowCalling()
 	s.initDVSwitch()
 	s.initDVLink()
 	s.routes()
@@ -213,6 +219,7 @@ func (s *Server) SetCommandGap(d time.Duration) { s.rpt.MinGap = d }
 func (s *Server) Run(ctx context.Context) {
 	go s.systemLoop(ctx)
 	go s.rec.Run(ctx)
+	go s.ncTick(ctx)
 	go s.terminalLoop(ctx)
 	if s.d.FavStats != nil {
 		go s.d.FavStats.Run(ctx)
@@ -371,6 +378,7 @@ func (s *Server) routes() {
 	s.backupRoutes()
 	s.radioRoutes()
 	s.dvswitchRoutes()
+	s.nowCallingRoutes()
 	s.systemRoutes()
 	m.HandleFunc("GET /api/updates", s.authed(store.RoleAdmin, s.handleUpdatesGet))
 	m.HandleFunc("POST /api/updates/check", s.authed(store.RoleAdmin, s.handleUpdatesCheck))

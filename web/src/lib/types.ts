@@ -329,3 +329,14 @@ export interface TerminalStatus { enabled: boolean; available: boolean; sessions
 export interface TerminalTicket { ticket: string; expiresIn: number }
 // One live terminal session (attached or detached); GET /system/terminal/sessions.
 export interface TerminalSessionInfo { id: string; owner: string; mine: boolean; started: number; attached: boolean; detachedSince?: number; linuxUser?: string }
+
+/** One call shown by the Now Calling strip (GET /api/nowcalling, SSE "nowcalling"). */
+export interface NowCall {
+  id: string; kind: 'allstar' | 'dmr' | 'ysf'; call?: string; first?: string; name?: string;
+  city?: string; state?: string; country?: string; location?: string; dmrId?: string;
+  node?: string; desc?: string; local?: string; network?: string; tg?: string; tgName?: string;
+  slot?: number; private?: boolean; room?: string; start: string; end?: string; active: boolean;
+}
+export interface NowCalling { current: NowCall | null; recent: NowCall[] }
+/** The radioid.net user list (admin, DVSwitch settings). */
+export interface UserListStatus { enabled: boolean; entries: number; updated?: string; checked?: string; error?: string; busy?: boolean; size?: number }

@@ -3,6 +3,16 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [1.3.5] - 2026-11-21
+
+### Added
+- **Now Calling** strip on the dashboard, directly under the header (logged-in users only). While someone talks it is a red strip with a pulsing dot (no animation if your device asks for reduced motion), "Now calling" with the source (AllStar, DMR with the talkgroup, or the YSF room), the callsign, first name and place, and a running timer. Only one talker is shown, the one that keyed last. When it is quiet, a grey line shows who was heard last and how long ago. Tap either one for the details: source and link, callsign, name, place, DMR ID, start and duration, a QRZ lookup link, a radioid.net link for digital calls, and the last 5 talkers. It is a bottom sheet on phones and a dialog on larger screens. Nothing is shown until something has been heard. The last talkers are kept by ASLCP, so a page reload does not lose them.
+- Talkers on the digital side of **DVSwitch** are read from the BrandMeister (STFU) and Analog_Bridge logs, including YSF. AllStar callers come from the keyed link (the DVSwitch bridge link is left out).
+- **radioid.net user list**: the strip looks up name and place of DMR talkers by ID and YSF talkers by callsign. The list (`user.csv`) is downloaded to the data directory, on by default, refreshed weekly, and kept if a download fails. An administrator can turn it off, see when it was updated, how many entries it has and the last error, and press Download now, under DVSwitch.
+
+### Changed
+- The demo mode (`--demo`) shows sample talkers in the Now Calling strip.
+
 ## [1.3.4] - 2026-11-20
 
 Versions 1.3.0 to 1.3.4 are released together as 1.3.4.

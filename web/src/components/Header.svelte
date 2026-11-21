@@ -11,6 +11,7 @@
   import WifiOff from '@lucide/svelte/icons/wifi-off';
   import User from '@lucide/svelte/icons/user';
   import LogOut from '@lucide/svelte/icons/log-out';
+  import NowCalling from './NowCalling.svelte';
 
   const nav = $derived([['/', 'Dashboard'], ['/schedules', 'Schedules'], ['/lookup', 'Lookup'], ...(isAdmin() ? [['/config', 'Config']] : []), ...(isAdmin() && app.tune.devices.length ? [['/tune', 'Audio Tuning']] : []), ...(isAdmin() ? [['/dvswitch', 'DVSwitch']] : []), ['/settings', 'Settings'], ...(isAdmin() ? [['/backup', 'Backup'], ['/system', 'System']] : [])] as [string, string][]);
   // Admin only: counts only (SSE "updates"); security updates or a reboot use the warn colour.
@@ -60,4 +61,5 @@
       </div>
     </div>
   </div>
+  {#if app.user && router.path === '/'}<NowCalling />{/if}
 </header>

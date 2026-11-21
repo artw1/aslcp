@@ -476,6 +476,21 @@ Design: docs/DVSWITCH.md "API". `503 dvswitch_unavailable` when the helper is mi
 
 SSE event `dvswitch` carries the snapshot (all roles), sent only when it changed.
 
+### Now Calling and the radioid.net user list
+
+| Method | Path | Role | Reply |
+|---|---|---|---|
+| GET | `/api/nowcalling` | viewer, operator, admin | `200` `{current: Call \| null, recent: [Call]}` |
+| GET | `/api/dvswitch/userlist` | admin | `200` `{enabled, entries, updated?, checked?, error?, busy?, size?}` |
+| PUT | `/api/dvswitch/userlist` | admin, CSRF | `{"enabled": bool}`; `200` the status. Turning it on with no list downloads it. Audited as `dvswitch.userlist` |
+| POST | `/api/dvswitch/userlist/download` | admin, CSRF | `202` the status (the download runs in the background; poll the GET while `busy`). `409` `userlist_off` or `userlist_busy`. Audited as `dvswitch.userlist.download` |
+
+`Call` is `{id, kind: "allstar"\|"dmr"\|"ysf", call?, first?, name?, city?, state?, country?, location?, dmrId?, node?, desc?, local?, network?, tg?, tgName?, slot?, private?, room?, start, end?, active}`; times are RFC 3339 UTC. Only one talker is `current` (the most recently keyed); `recent` holds the last finished calls, newest first, at most 5. The state is kept in memory on the server, so it survives a page reload but not a restart of ASLCP. Sources: the keyed adjacent AllStar link (the DVSwitch bridge link excluded), and for the digital side the DVSwitch logs: `STFU.log` (BrandMeister: `ODMR Begin Tx` and `End Tx` lines, 60 ms per frame, talker alias lines ignored) and `Analog_Bridge.log` (`Begin TX:` lines, also for YSF, where `call=` is the callsign). With no end line, the bridge link's keyed state ends the call. Name and place come from the radioid.net list (DMR by ID, YSF by callsign), then `DMRIds.dat` (callsign only), then the bare callsign. Callsigns, names and DMR IDs are for logged-in roles only, never audited. `userlist_unavailable` (`503`) when the list is not available.
+
+The list is the CSV `https://radioid.net/static/user.csv` (header `RADIO_ID,CALLSIGN,FIRST_NAME,LAST_NAME,CITY,STATE,COUNTRY`), on by default, refreshed weekly with `If-Modified-Since`/`ETag`. The file `user.csv` is kept in the data directory (atomic replace; a download with a wrong header, an error or more than 64 MB keeps the old file) with a compact index in memory (about 12 bytes per row, rows are read from the file on lookup). The switch is the setting `radioid.enabled`. `User-Agent: ASLCP/<version>`.
+
+SSE event `nowcalling` carries `{current, recent}` (all roles; also sent on connect), whenever it changes.
+
 ### DVSwitch private bridge node (admin)
 
 Design: docs/DVSWITCH.md "Private node and USRP (M2)" (implemented, unverified on a real node). Admin only (`403 forbidden`), `X-ASLCP: 1`, `503 dvswitch_unavailable`. Audited as `dvswitch.private` (with `kind`), `dvswitch.private.remove`, `.private.failed`, `.private.refused` and `.private.rollback` (node and step names, no values).
@@ -601,6 +616,7 @@ Requires a session. Each message has an `event:` name and a JSON `data:` line. O
 | `system` | `System` (including `updateAvailable` / `updateVersion`) |
 | `updates` | Admin clients only: `{"aslcp": bool, "aslcpVersion": str, "os": n, "security": n, "reboot": bool}`: counts for the header badge, never package names. Sent on connect and whenever they change. |
 | `favorites` | `[Favorite]`: favorites changed (any client) |
+| `nowcalling` | `{current, recent}`: the Now Calling strip (see "Now Calling and the radioid.net user list"); sent on connect and when it changes |
 | `schedules` | `Snapshot` (see Schedules; all roles): sent after every change (create, edit, delete, switch, pause) and after each executed event. Not part of the initial state: fetch `GET /api/schedules` after login. |
 | `favstats` | `FavStats` with only the changed nodes in `stats` and, in `removed`, the nodes whose values were just cleared (offline, no data, 404, no longer a favorite; clients delete them and show an empty row): sent when a request starts (`checking` set, `next` moved on) and when it ends, and whenever the favorites change the `next` node (`checking` cleared, the node's `checkedAt` and the progress updated; `stats` only if its values changed), and when the scan is switched on or off (then `enabled` says which; off clears all values). `checkedAt` also carries only the changed nodes. Clients merge it into the snapshot. |
 

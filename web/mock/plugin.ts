@@ -5,6 +5,7 @@ import { handleConfig } from './config.ts';
 import { handleBackup, downUntil } from './backup.ts';
 import { handleRadio } from './radio.ts';
 import { dvNodeLink, handleDVSwitch } from './dvswitch.ts';
+import { handleNowCalling, nowCalling } from './nowcalling.ts';
 import { createSchedules } from './schedules.ts';
 import { handleSystem } from './system.ts';
 import { handleWifi } from './wifi.ts';
@@ -196,6 +197,7 @@ export function mockApi(): Plugin {
           if (Math.random() < 0.05) s.rx = t + 2000;
         }
         broadcast('nodes', (r) => Object.keys(locals).map((id) => status(id, r)));
+        broadcast('nowcalling', () => nowCalling());
         if (pubCfg.enabled) pubClients.forEach((res) => res.write(`event: snapshot\ndata: ${JSON.stringify(pubSnapshot())}\n\n`));
         if (tick % 10 === 0) broadcast('system', system);
       }, 1000);
@@ -243,6 +245,7 @@ export function mockApi(): Plugin {
         if (handleRadio({ m, p, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }), links: (n) => locals[n]?.links.map((l) => l.node) ?? [] })) return;
         if (handleWifi({ m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleSystem({ m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }), file: (name, text) => { res.statusCode = 200; res.setHeader('Content-Type', 'application/gzip'); res.setHeader('Content-Disposition', `attachment; filename="${name}"`); res.end(text); } })) return;
+        if (handleNowCalling({ m, p, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleDVSwitch({ push: (ev, d) => broadcast(ev, () => d), m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleConfig({ m, p, body, url, user, json: (c, b) => json(res, c, b), err: (c, msg, code, extra) => json(res, c, { error: msg, code, ...extra }) })) return;
 
@@ -254,6 +257,7 @@ export function mockApi(): Plugin {
           clients.add(c); req.on('close', () => clients.delete(c));
           sse(c, 'hello', { user, version: mockVersion, instance: mockInstance, settings: { favoritesScan: favScan } });
           sse(c, 'nodes', Object.keys(locals).map((id) => status(id, user.role)));
+          sse(c, 'nowcalling', nowCalling());
           if (user.role === 'admin') sse(c, 'updates', osBadge());
           sse(c, 'system', system()); sse(c, 'favorites', sortedFavs()); sse(c, 'schedules', sched.snapshot()); if (favScan) sse(c, 'favstats', favActivity());
           return;

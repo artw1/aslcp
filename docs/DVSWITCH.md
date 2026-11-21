@@ -817,6 +817,10 @@ SSE: event `dvswitch` (all roles) carries the Snapshot, published only when it c
 
 The bridge node has a display name, default `DVSwitch linked node`. It is a setting (`dvswitch.node_name`), not part of `privatenode.json` (the record belongs to the helper and holds only what must be reverted; display data stays in the ASLCP database, like the link settings), so saving it writes no Asterisk or DVSwitch file and needs no restart. `PUT /api/dvswitch/private-node/name` (admin) takes `{name}`, 1 to 40 printable characters, empty for the default. It is edited in the Bridge node section of the DVSwitch tab (a "Name" field with its own "Save name" button, separate from "Review changes"), and a removal of the bridge node clears it. The snapshot carries it as `bridgeNode.name` (the default when none is saved) and `GET /api/dvswitch/setup` as `bridgeNode.name`. The dashboard shows it on the DVSwitch card's node line, and `nodeLabel(snapshot, node)` in `dvpanel.ts` returns it for the bridge node number (and '' for any other node) so the connection status table can show it beside that node.
 
+### Now Calling talks
+
+The helper's `dvswitch-info` reply also carries `callers.talks`: calls with a start and (when known) an end time in UTC, read from `STFU.log` (`ODMR Begin Tx: src = <id>, dst = <tg> (GROUP|PRIVATE)`, `ODMR End Tx:DMR frame count was N frames`, 60 ms per frame; talker alias lines are ignored; both logs are taken as UTC) and from `Analog_Bridge.log` (`Begin TX: src= rpt= dst= slot= cc= call=`; with `ambeMode = YSFN` the call is YSF and `call=` is the callsign; the ABInfo `digital.call` is not used). An Analog_Bridge DMR begin within 5 s of an STFU begin for the same ID is the same call. The web process turns them, with the keyed state of the AllStar links, into the Now Calling strip (`internal/nowcalling`); names and places come from `internal/radioid` (docs/API.md "Now Calling and the radioid.net user list").
+
 ### Caller callsign
 
 The bridge node's "RX keyed" line shows who is talking: "RX keyed · DMR TG 91 · N0CALL". The dashboard card's Last heard list shows the last five distinct callers.
