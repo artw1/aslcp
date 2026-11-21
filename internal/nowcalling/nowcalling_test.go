@@ -100,6 +100,7 @@ func talk(kind, via, id string, start time.Time, end time.Time) Talk {
 func TestDMRWithEndLine(t *testing.T) {
 	c := &clk{t0}
 	tr, _ := newT(c)
+	tr.UpdateAllStar("1998", nil, true, false, false)
 	tr.UpdateDV([]Talk{talk(KindDMR, "stfu", "1234567", t0, time.Time{})})
 	cur := tr.Snapshot().Current
 	if cur == nil || cur.Kind != KindDMR || cur.Network != "BrandMeister" || cur.TG != "91" || cur.DMRID != "1234567" || !cur.Active {
@@ -241,36 +242,98 @@ func TestYSFNewBeginTxDuringHangoverReplaces(t *testing.T) {
 	}
 }
 
-func TestDVWithoutBridgeInfoEndsAfterGrace(t *testing.T) {
+func TestDVTalkWhileUnlinkedShowsNothing(t *testing.T) {
 	c := &clk{t0}
 	tr, _ := newT(c)
-	tr.UpdateDV([]Talk{{Kind: KindYSF, Via: "analog_bridge", Call: "N1CALL", Start: t0}})
-	if tr.Snapshot().Current == nil {
-		t.Fatal("not shown")
-	}
-	c.add(10 * time.Second)
-	tr.Tick()
-	s := tr.Snapshot()
-	if s.Current != nil || len(s.Recent) != 1 || s.Recent[0].End != t0.Add(noBridgeGrace).Format(time.RFC3339) {
-		t.Fatalf("after grace = %+v", s)
+	tr.UpdateAllStar("1998", nil, false, false, false) // bridge node not linked
+	for _, k := range []Talk{
+		{Kind: KindYSF, Via: "analog_bridge", Call: "N0CALL", Start: t0},
+		talk(KindDMR, "stfu", "1234567", t0, time.Time{}),
+		talk(KindDMR, "stfu", "1234567", t0, t0.Add(2*time.Second)),
+	} {
+		tr.UpdateDV([]Talk{k})
+		c.add(10 * time.Second)
+		tr.Tick()
+		if s := tr.Snapshot(); s.Current != nil || len(s.Recent) != 0 {
+			t.Fatalf("unlinked %+v: %+v", k, s)
+		}
 	}
 }
 
-func TestHistoryAtStartIsRecentOnly(t *testing.T) {
+func TestDVTalkWhileLinkedShows(t *testing.T) {
 	c := &clk{t0}
 	tr, _ := newT(c)
-	old := t0.Add(-time.Hour)
-	tr.UpdateDV([]Talk{
-		talk(KindDMR, "stfu", "1234567", old, old.Add(2*time.Second)),
-		{Kind: KindYSF, Via: "analog_bridge", Call: "N1CALL", Start: old.Add(time.Minute)},
-		talk(KindDMR, "stfu", "1234568", old.Add(2*time.Minute), old.Add(2*time.Minute+time.Second)),
-	})
-	s := tr.Snapshot()
-	if s.Current != nil || len(s.Recent) != 3 {
-		t.Fatalf("snapshot = %+v", s)
+	tr.UpdateAllStar("1998", nil, true, true, false)
+	tr.UpdateDV([]Talk{{Kind: KindYSF, Via: "analog_bridge", Call: "N0CALL", Start: t0}})
+	if cur := tr.Snapshot().Current; cur == nil || cur.Call != "N0CALL" {
+		t.Fatalf("linked: %+v", cur)
 	}
-	if s.Recent[0].DMRID != "1234568" || s.Recent[1].Call != "N1CALL" || s.Recent[1].End != "" {
-		t.Fatalf("order/unknown length = %+v", s.Recent)
+	c.add(time.Second)
+	tr.UpdateAllStar("1998", nil, true, false, false)
+	c.add(dvHangover)
+	tr.UpdateAllStar("1998", nil, true, false, false)
+	if s := tr.Snapshot(); s.Current != nil || len(s.Recent) != 1 {
+		t.Fatalf("after unkey: %+v", s)
+	}
+}
+
+func TestDVUnlinkedTalkNotShownWhenLinkComesUp(t *testing.T) {
+	c := &clk{t0}
+	tr, _ := newT(c)
+	old := []Talk{
+		talk(KindDMR, "stfu", "1234567", t0, t0.Add(2*time.Second)),
+		{Kind: KindYSF, Via: "analog_bridge", Call: "N0CALL", Start: t0.Add(5 * time.Second)},
+	}
+	tr.UpdateDV(old)
+	c.add(8 * time.Second)
+	tr.UpdateAllStar("1998", nil, true, true, false) // linked now, keyed; logs re-read
+	tr.UpdateDV(old)
+	tr.Tick()
+	if s := tr.Snapshot(); s.Current != nil || len(s.Recent) != 0 {
+		t.Fatalf("retroactive: %+v", s)
+	}
+	// a new talk after the link does show
+	c.add(time.Second)
+	tr.UpdateDV(append(old, talk(KindDMR, "stfu", "1234568", c.t, time.Time{})))
+	if cur := tr.Snapshot().Current; cur == nil || cur.DMRID != "1234568" {
+		t.Fatalf("new talk: %+v", cur)
+	}
+}
+
+func TestDVLinkDropEndsActiveCall(t *testing.T) {
+	c := &clk{t0}
+	tr, _ := newT(c)
+	tr.UpdateAllStar("1998", nil, true, true, false)
+	tk := []Talk{{Kind: KindYSF, Via: "analog_bridge", Call: "N0CALL", Start: t0}}
+	tr.UpdateDV(tk)
+	if tr.Snapshot().Current == nil {
+		t.Fatal("not shown")
+	}
+	c.add(3 * time.Second)
+	tr.UpdateAllStar("1998", nil, false, false, false) // the bridge node was unlinked
+	s := tr.Snapshot()
+	if s.Current != nil || len(s.Recent) != 1 || s.Recent[0].End != c.t.Format(time.RFC3339) {
+		t.Fatalf("after drop: %+v", s)
+	}
+	// the same log lines again, and a re-link, add nothing
+	tr.UpdateDV(tk)
+	c.add(time.Second)
+	tr.UpdateAllStar("1998", nil, true, true, false)
+	tr.UpdateDV(tk)
+	if s := tr.Snapshot(); s.Current != nil || len(s.Recent) != 1 {
+		t.Fatalf("after relink: %+v", s)
+	}
+}
+
+func TestDVStaleIsNotLinked(t *testing.T) {
+	c := &clk{t0}
+	tr, _ := newT(c)
+	tr.UpdateAllStar("1998", nil, true, true, false)
+	tr.UpdateDV([]Talk{talk(KindDMR, "stfu", "1234567", t0, time.Time{})})
+	c.add(time.Second)
+	tr.UpdateAllStar("1998", nil, true, true, true) // stale: state unknown
+	if s := tr.Snapshot(); s.Current != nil || len(s.Recent) != 1 {
+		t.Fatalf("stale: %+v", s)
 	}
 }
 

@@ -18,6 +18,11 @@ Release notes are taken from the section of the tag being released
 - The DMR - Other host picker no longer lists TGIF masters (TGIF has its own card).
 - The settings of every DMR network (TGIF and DMR - Other with their passwords, and the Enable state of BrandMeister, TGIF and DMR - Other) are part of a DVSwitch backup, so a restore brings them all back. Older ASLCP versions cannot restore a backup that holds them.
 
+## [1.3.9] - 2026-11-21
+
+### Fixed
+- Now Calling no longer shows DVSwitch traffic while the DVSwitch node is not linked to a local node.
+
 ## [1.3.8] - 2026-11-21
 
 ### Fixed
