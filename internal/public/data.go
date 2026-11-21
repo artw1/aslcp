@@ -26,6 +26,7 @@ type Info struct {
 // are hidden.
 type Link struct {
 	Node       string `json:"node"`
+	Label      string `json:"label,omitempty"` // the DVSwitch bridge node's display name
 	Kind       string `json:"kind"`
 	Info       *Info  `json:"info,omitempty"`
 	Direction  string `json:"direction"`
@@ -40,6 +41,7 @@ type Link struct {
 // callsigns are hidden.
 type NetNode struct {
 	Node     string `json:"node"`
+	Label    string `json:"label,omitempty"` // the DVSwitch bridge node's display name
 	Callsign string `json:"callsign,omitempty"`
 }
 
@@ -58,8 +60,9 @@ type Node struct {
 
 // Activity is one recent transmission.
 type Activity struct {
-	Node     string `json:"node"` // local node
-	Link     string `json:"link"` // link node number, or "local" for the local receiver
+	Node     string `json:"node"`            // local node
+	Link     string `json:"link"`            // link node number, or "local" for the local receiver
+	Label    string `json:"label,omitempty"` // the DVSwitch bridge node's display name
 	Callsign string `json:"callsign,omitempty"`
 	At       int64  `json:"at"`       // unix seconds
 	Duration int64  `json:"duration"` // seconds, at least 1
@@ -143,6 +146,20 @@ type View struct {
 	Callsigns bool
 	Network   bool
 	Now       time.Time
+	// Bridge is the private DVSwitch bridge node and BridgeName its display
+	// name (as on the dashboard). Both empty when there is none. The number
+	// is shown as is (scrubNode only hides addresses); the label tells
+	// visitors what it is.
+	Bridge     string
+	BridgeName string
+}
+
+// label is the display name of node when it is the DVSwitch bridge node.
+func (v View) label(node string) string {
+	if v.Bridge != "" && node == v.Bridge {
+		return v.BridgeName
+	}
+	return ""
 }
 
 // BuildNode converts a monitor status to its public form. Age fields
@@ -176,7 +193,7 @@ func BuildNode(st rpt.NodeStatus, l Lookup, v View, withNetwork bool) Node {
 			kind = "unknown"
 		}
 		out := Link{
-			Node: scrubNode(lk.Node), Kind: kind, Direction: string(lk.Direction), Mode: mode,
+			Node: scrubNode(lk.Node), Label: v.label(lk.Node), Kind: kind, Direction: string(lk.Direction), Mode: mode,
 			Connected: secs(lk.Connected), Keyed: lk.Keyed, SinceKey: opt(lk.SinceKey), SinceUnkey: opt(lk.SinceUnkey),
 		}
 		if v.Callsigns {
@@ -195,7 +212,7 @@ func BuildNetwork(st rpt.NodeStatus, l Lookup, v View) []NetNode {
 	out := make([]NetNode, 0, len(st.Network))
 	seen := make(map[string]bool, len(st.Network))
 	for _, nn := range st.Network {
-		e := NetNode{Node: scrubNode(nn.Node)}
+		e := NetNode{Node: scrubNode(nn.Node), Label: v.label(nn.Node)}
 		// Several entries that were scrubbed to "unknown" (addresses) must not
 		// be listed more than once.
 		if seen[e.Node] {
@@ -220,7 +237,7 @@ func BuildActivity(rows []store.Activity, l Lookup, v View) []Activity {
 		if d < 1 {
 			d = 1
 		}
-		a := Activity{Node: scrubNode(r.Node), Link: scrubNode(r.Link), At: r.Start.Unix(), Duration: d, Kerchunk: r.Kerchunk}
+		a := Activity{Node: scrubNode(r.Node), Link: scrubNode(r.Link), Label: v.label(r.Link), At: r.Start.Unix(), Duration: d, Kerchunk: r.Kerchunk}
 		if v.Callsigns && r.Link != "local" {
 			if in := infoOf(l, r.Link); in != nil {
 				a.Callsign = in.Callsign

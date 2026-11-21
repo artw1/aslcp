@@ -65,7 +65,7 @@
         <td class="max-w-0">
           <div class="flex items-center gap-1.5">
             {#if l.keyed}<span class="inline-flex shrink-0 items-center gap-1 rounded border border-white/60 px-1 text-xs font-bold" role="img" aria-label="Keyed: audio coming in"><Audio size={12} aria-hidden="true" /><span class="max-sm:hidden">KEY</span></span>{/if}
-            <span class="truncate"><span class="font-semibold">{title(l)}</span> <span class="muted text-muted">{infoLine(l.info)}</span></span>
+            <span class="truncate"><span class="font-semibold">{l.label || title(l)}</span> <span class="muted text-muted">{infoLine(l.info)}</span></span>
           </div>
           <div class="muted text-xs text-muted md:hidden">heard {received(l)} · {l.direction}{#if l.mode === 'C'} · connecting{/if}</div>
         </td>

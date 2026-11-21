@@ -20,7 +20,7 @@
               <td class="max-w-0">
                 <span class="block truncate">
                   {#if a.link === 'local'}<span class="font-semibold">Local receiver</span>
-                  {:else}<span class="num font-semibold">{a.link}</span>{#if a.callsign}&nbsp;<span class="text-muted">{a.callsign}</span>{/if}{/if}
+                  {:else}<span class="num font-semibold">{a.link}</span>{#if a.label || a.callsign}&nbsp;<span class="text-muted">{a.label || a.callsign}</span>{/if}{/if}
                   {#if a.kerchunk}<span class="badge ml-1" title="Very short transmission">kerchunk</span>{/if}
                 </span>
               </td>
