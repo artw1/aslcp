@@ -98,7 +98,8 @@ var (
 )
 
 var dvErrors = []error{ErrDVAlreadyInstalled, ErrDVUnsupported, ErrDVClockUnset, ErrDVKeyMismatch, ErrDVOutsideASLCP, ErrDVInvalid, ErrDVNotInstalled, ErrDVNoHistory, ErrDVNoInfo, ErrDVNoList, ErrDVNoPorts,
-	ErrDVSTFUNotInstalled, ErrDVSTFUInstalled, ErrDVNoIdentity, ErrDVNoPassword, ErrDVBMMaster, ErrDVSwitchFailed}
+	ErrDVSTFUNotInstalled, ErrDVSTFUInstalled, ErrDVNoIdentity, ErrDVNoPassword, ErrDVBMMaster, ErrDVSwitchFailed, ErrDVModeDisabled, ErrDVBMNotConfigured,
+	ErrDVNetMaster, ErrDVNetNotConfigured, ErrDVNetFailed}
 
 // DVSwitchPkg is one package of the install set.
 type DVSwitchPkg struct {
@@ -263,6 +264,9 @@ func (o *Ops) dvInstallScript() string {
 		// the stfu package enables its unit: it stays off until the
 		// BrandMeister section is saved
 		"systemctl disable --now " + dvSTFUUnit + ".service || true",
+		// every mode off and BrandMeister disabled: each card's Enable turns
+		// its mode on; the step never fails the job
+		self + " dvswitch-step " + StepInstallDefaults,
 		// settings saved by a backup restore on a node without DVSwitch;
 		// the step never fails the job
 		self + " dvswitch-step " + StepRestoreApply,

@@ -1,11 +1,12 @@
 // Run with `npm test`. svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bmBlocker, bmOptions, bmRequest, DEFAULT_STFU_SERVER, formError, formOf, isBMHost, isBMHostName, otherOptions, rxLine, STFU_PORT, validAlias, validHost, validPassword } from './dvbm.ts';
+import { bmBlocker, bmOptions, bmRequest, DEFAULT_STFU_SERVER, formError, formOf, isBMHost, isBMHostName, rxLine, STFU_PORT, validAlias, validHost, validPassword } from './dvbm.ts';
 import { bridgeInUse, outcomeFor } from './dmrlogin.ts';
+import { otherOptions } from './dvnetworks.ts';
 import type { DVBMView, DVListItem, DVSTFUStatus } from './types';
 
-const view: DVBMView = { installed: true, present: true, enabled: false, stayLoggedIn: false, configured: true, server: DEFAULT_STFU_SERVER, port: 54006, talkerAlias: 'N0CALL', startTg: '4000', txPort: 36100, rxPort: 36103, passwordSet: true };
+const view: DVBMView = { installed: true, present: true, enabled: false, unitEnabled: false, stayLoggedIn: false, configured: true, server: DEFAULT_STFU_SERVER, port: 54006, talkerAlias: 'N0CALL', startTg: '4000', txPort: 36100, rxPort: 36103, passwordSet: true };
 const fresh: DVBMView = { ...view, enabled: false, configured: false, server: '', talkerAlias: '', startTg: '', passwordSet: false };
 
 const list: DVListItem[] = [
@@ -13,6 +14,7 @@ const list: DVListItem[] = [
   { value: '192.0.2.12', name: 'BM_3100_Example', address: '192.0.2.12', port: 62031 },
   { value: '3102.repeater.net', name: 'Example_Repeater', address: '3102.repeater.net', port: 62031 },
   { value: '192.0.2.30', name: 'TGIF_Example', address: '192.0.2.30', port: 62031 },
+  { value: '192.0.2.31', name: 'Example_Network', address: '192.0.2.31', port: 62031 },
 ];
 
 test('validHost: host names only', () => {
@@ -39,11 +41,12 @@ test('BrandMeister hosts: by name or a BM_ entry', () => {
   assert.equal(isBMHost('', list), false);
 });
 
-test('pickers: BrandMeister gets the BM masters on port 54006, DMR - Other the rest', () => {
+test('pickers: BrandMeister gets the BM masters on port 54006, DMR - Other the rest but TGIF', () => {
   const bm = bmOptions(list);
   assert.deepEqual(bm.map((o) => o.value), ['example-master.invalid', '192.0.2.12', '3102.repeater.net']);
   assert.ok(bm.every((o) => o.port === STFU_PORT));
-  assert.deepEqual(otherOptions(list).map((o) => o.name), ['TGIF_Example']);
+  assert.deepEqual(otherOptions(list).map((o) => o.name), ['Example_Network']);
+  assert.deepEqual(otherOptions([{ value: 'tgif.network', name: 'tgif_network', address: 'tgif.network', port: 62031 }]), []);
 });
 
 test('formOf and formError', () => {

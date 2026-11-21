@@ -46,9 +46,6 @@ export function bmOptions(items: DVListItem[]): DVListItem[] {
   return items.filter(isBMItem).map((it) => ({ ...it, value: it.address, port: STFU_PORT }));
 }
 
-/** The DMR - Other master picker: every entry but the BrandMeister ones. */
-export const otherOptions = (items: DVListItem[]): DVListItem[] => items.filter((it) => !isBMItem(it));
-
 export interface BMForm { server: string; password: string; talkerAlias: string; startTg: string; stayLoggedIn: boolean }
 
 export function formOf(b: DVBMView | undefined): BMForm {

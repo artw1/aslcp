@@ -164,7 +164,7 @@ func (o *Ops) DVSwitchUSRP(ctx context.Context, req *DVSwitchRequest) (DVApplyRe
 		return DVApplyResult{}, err
 	}
 	u := req.USRP
-	if u == nil || req.Identity != nil || req.Credentials != nil || req.Modes != nil || req.Startup != nil || req.Tune != nil || req.Private != nil {
+	if u == nil || req.Identity != nil || req.Credentials != nil || req.Modes != nil || req.Tune != nil || req.Private != nil {
 		return DVApplyResult{}, errors.New("invalid request: usrp only")
 	}
 	var ch []dvChange

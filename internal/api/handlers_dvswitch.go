@@ -28,7 +28,9 @@ type DVSwitch interface {
 	DVSwitchIdentity(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
 	DVSwitchCredentials(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
 	DVSwitchModes(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
-	DVSwitchStartup(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
+	// DVSwitchBootMode makes DVSwitch start in the last mode (the resume
+	// tracker); not a user write.
+	DVSwitchBootMode(ctx context.Context, mode string) (helper.DVApplyResult, error)
 	DVSwitchRollback(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
 	DVSwitchRestart(ctx context.Context, req helper.DVSwitchRequest) (helper.DVRestartResult, error)
 	// Host and TG lists of the pickers (read-only).
@@ -41,6 +43,8 @@ type DVSwitch interface {
 	DVSwitchTune(ctx context.Context, req helper.DVSwitchRequest) (helper.DVTuneResult, error)
 	// The BrandMeister connection (STFU) and the STFU package.
 	DVSwitchBM(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
+	// The MMDVM_Bridge DMR networks (TGIF, DMR - Other): save, enable, disable.
+	DVSwitchNetwork(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
 	DVSwitchSTFUInstall(ctx context.Context) (helper.DVSwitchStatus, error)
 }
 
@@ -71,10 +75,11 @@ func (s *Server) dvswitchRoutes() {
 	m.HandleFunc("PUT /api/dvswitch/identity", s.authed(store.RoleAdmin, s.handleDVSwitchIdentity))
 	m.HandleFunc("PUT /api/dvswitch/credentials", s.authed(store.RoleAdmin, s.handleDVSwitchCredentials))
 	m.HandleFunc("PUT /api/dvswitch/modes", s.authed(store.RoleAdmin, s.handleDVSwitchModes))
-	m.HandleFunc("PUT /api/dvswitch/startup", s.authed(store.RoleAdmin, s.handleDVSwitchStartup))
 	m.HandleFunc("PUT /api/dvswitch/brandmeister", s.authed(store.RoleAdmin, s.handleDVSwitchBMSave))
-	m.HandleFunc("DELETE /api/dvswitch/brandmeister", s.authed(store.RoleAdmin, s.handleDVSwitchBMClear))
-	m.HandleFunc("DELETE /api/dvswitch/dmr-connection", s.authed(store.RoleAdmin, s.handleDVSwitchDMRClear))
+	m.HandleFunc("PUT /api/dvswitch/brandmeister/enabled", s.authed(store.RoleAdmin, s.handleDVSwitchBMEnabled))
+	// Every DMR network of the registry: BM's save is the brandmeister body.
+	m.HandleFunc("PUT /api/dvswitch/networks/{id}", s.authed(store.RoleAdmin, s.handleDVSwitchNetwork))
+	m.HandleFunc("PUT /api/dvswitch/networks/{id}/enabled", s.authed(store.RoleAdmin, s.handleDVSwitchNetworkEnabled))
 	m.HandleFunc("POST /api/dvswitch/stfu/install", s.authed(store.RoleAdmin, s.handleDVSwitchSTFUInstall))
 	// Tune and resume (M1): operators tune, only admins change the setting.
 	m.HandleFunc("POST /api/dvswitch/tune", s.authed(store.RoleOperator, s.handleDVSwitchTune))
@@ -236,8 +241,19 @@ func (s *Server) dvswitchError(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusConflict, "no_identity", err.Error())
 	case errors.Is(err, helper.ErrDVNoPassword):
 		writeErr(w, http.StatusConflict, "no_password", err.Error())
+	case errors.Is(err, helper.ErrDVModeDisabled):
+		writeErr(w, http.StatusConflict, "mode_disabled", err.Error())
+	case errors.Is(err, helper.ErrDVBMNotConfigured):
+		writeErr(w, http.StatusConflict, "bm_not_configured", err.Error())
 	case errors.Is(err, helper.ErrDVBMMaster):
 		writeErr(w, http.StatusBadRequest, "bm_master", err.Error())
+	case errors.Is(err, helper.ErrDVNetMaster):
+		writeErr(w, http.StatusBadRequest, "net_master", err.Error())
+	case errors.Is(err, helper.ErrDVNetNotConfigured):
+		writeErr(w, http.StatusConflict, "net_not_configured", err.Error())
+	case errors.Is(err, helper.ErrDVNetFailed):
+		s.d.Logger.Printf("dvswitch: %v", err)
+		writeErr(w, http.StatusBadGateway, "net_failed", err.Error())
 	case errors.Is(err, helper.ErrDVSwitchFailed):
 		s.d.Logger.Printf("dvswitch: %v", err)
 		writeErr(w, http.StatusBadGateway, "switch_failed", err.Error())

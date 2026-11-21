@@ -37,9 +37,14 @@ type dvCmdReply struct {
 	Left string `json:"left,omitempty"`
 	// BMLoginPending: BM was entered but STFU's login was not seen in time.
 	// STFUStopFailed: leaving BM, stfu could not be stopped.
-	BMLoginPending bool       `json:"bmLoginPending,omitempty"`
-	STFUStopFailed bool       `json:"stfuStopFailed,omitempty"`
-	Snapshot       DVSnapshot `json:"snapshot"`
+	BMLoginPending bool `json:"bmLoginPending,omitempty"`
+	STFUStopFailed bool `json:"stfuStopFailed,omitempty"`
+	// NetRestarted: entering TGIF or DMR - Other rewrote [DMR Network] and
+	// restarted mmdvm_bridge; NetLoginPending: its login was not seen in
+	// time.
+	NetRestarted    bool       `json:"netRestarted,omitempty"`
+	NetLoginPending bool       `json:"netLoginPending,omitempty"`
+	Snapshot        DVSnapshot `json:"snapshot"`
 }
 
 // dvDone builds the reply of a command, publishes the new snapshot and
@@ -48,7 +53,8 @@ func (s *Server) dvDone(ctx context.Context, res helper.DVTuneResult) dvCmdReply
 	sn := s.dvs.snapshot(ctx, true)
 	s.dvs.publish(sn)
 	s.dvs.afterCommand()
-	return dvCmdReply{Mode: res.Mode, Switched: res.Switched, Confirmed: res.Confirmed, Left: res.Left, BMLoginPending: res.BMLoginPending, STFUStopFailed: res.STFUStopFailed, Snapshot: sn}
+	return dvCmdReply{Mode: res.Mode, Switched: res.Switched, Confirmed: res.Confirmed, Left: res.Left, BMLoginPending: res.BMLoginPending, STFUStopFailed: res.STFUStopFailed,
+		NetRestarted: res.NetRestarted, NetLoginPending: res.NetLoginPending, Snapshot: sn}
 }
 
 // handleDVSwitchSnapshot: GET /api/dvswitch/snapshot, every role. The admin
@@ -58,24 +64,8 @@ func (s *Server) handleDVSwitchSnapshot(w http.ResponseWriter, r *http.Request, 
 	writeJSON(w, 200, s.dvs.snapshot(r.Context(), false))
 }
 
-// dvModeEnabled: BM when the BrandMeister connection is configured, the
-// others when MMDVM_Bridge enables them.
-func dvModeEnabled(setup helper.DVSwitchSetup, mode string) bool {
-	v := setup.Modes
-	switch mode {
-	case helper.DVModeBM:
-		return setup.BrandMeister.Configured
-	case "DMR":
-		return v.DMR
-	case "YSF":
-		return v.YSF
-	case "P25":
-		return v.P25
-	case "NXDN":
-		return v.NXDN
-	}
-	return false
-}
+// dvModeEnabled follows the mode's card (helper.DVModeOn).
+func dvModeEnabled(setup helper.DVSwitchSetup, mode string) bool { return helper.DVModeOn(setup, mode) }
 
 func dvKnownMode(m string) bool {
 	for _, k := range helper.DVTuneModes {
@@ -124,7 +114,7 @@ func (s *Server) handleDVSwitchMode(w http.ResponseWriter, r *http.Request, u st
 	}
 	mode := strings.ToUpper(strings.TrimSpace(b.Mode))
 	if !dvKnownMode(mode) {
-		writeErr(w, http.StatusBadRequest, "bad_request", "mode must be BM, DMR, YSF, P25 or NXDN")
+		writeErr(w, http.StatusBadRequest, "bad_request", "mode must be one of "+strings.Join(helper.DVTuneModes, ", "))
 		return
 	}
 	setup, err := s.d.DVSwitch.DVSwitchSetup(r.Context())
@@ -183,6 +173,12 @@ func (s *Server) handleDVSwitchMode(w http.ResponseWriter, r *http.Request, u st
 	}
 	if res.BMLoginPending {
 		audit["bmLoginPending"] = true
+	}
+	if res.NetRestarted {
+		audit["netRestarted"] = true
+	}
+	if res.NetLoginPending {
+		audit["netLoginPending"] = true
 	}
 	s.audit(u, "dvswitch.mode", audit)
 	s.d.Logger.Printf("dvswitch.mode %s by %s", mode, u.Username)

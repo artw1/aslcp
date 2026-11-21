@@ -270,8 +270,9 @@ func (o *Ops) dvReadInfo(pid int) (DVSwitchInfo, error) {
 
 // ---- restart / start
 
-// DVRestartResult lists what was acted on. A restart resets the running mode
-// and talkgroup to the startup values in the ini files.
+// DVRestartResult lists what was acted on. After a restart DVSwitch starts in
+// the last mode (the boot mode follows it, dvswitch_bootmode.go); with the
+// resume switch on, the server re-tunes the last talkgroup or reflector.
 type DVRestartResult struct {
 	Action  string         `json:"action"`
 	Units   []string       `json:"units"`

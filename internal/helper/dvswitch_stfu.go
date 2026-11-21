@@ -38,14 +38,15 @@ import (
 
 // Operation names.
 const (
-	OpDVSwitchBM          = "dvswitch-bm"           // save or clear the BrandMeister connection
+	OpDVSwitchBM          = "dvswitch-bm"           // save, enable or disable the BrandMeister connection
 	OpDVSwitchSTFUInstall = "dvswitch-stfu-install" // apt-get install stfu in a transient unit
 )
 
 // Actions of dvswitch-bm.
 const (
-	DVBMSave  = "save"  // write [STFU], enable and (re)start stfu
-	DVBMClear = "clear" // stop and disable stfu, reset the password
+	DVBMSave    = "save"    // write [STFU]; enabled: (re)start stfu and check the login
+	DVBMEnable  = "enable"  // turn BrandMeister on in ASLCP with the saved settings
+	DVBMDisable = "disable" // turn it off: stop and disable stfu, keep the settings
 )
 
 // DMR connections (DVDMRStatus.Via).
@@ -54,7 +55,7 @@ const (
 	DVViaSTFU  = "stfu"
 )
 
-// Panel modes of the two DMR connections (DVTuneModes).
+// Panel modes of BrandMeister and DMR - Other (DVNetworks).
 const (
 	DVModeBM  = "BM"
 	DVModeDMR = "DMR"
@@ -95,16 +96,18 @@ var (
 	ErrDVSTFUInstalled    = errors.New("stfu_installed: STFU is already installed")
 	ErrDVNoIdentity       = errors.New("no_identity: save the callsign and DMR ID first")
 	ErrDVNoPassword       = errors.New("no_password: enter the BrandMeister hotspot security password")
-	ErrDVBMMaster         = errors.New("bm_master: BrandMeister masters are set up under BrandMeister, not DMR - Other")
+	ErrDVBMMaster         = errors.New("bm_master: BrandMeister masters are set up under BrandMeister, not on another DMR network's card")
 	ErrDVSwitchFailed     = errors.New("switch_failed: the BrandMeister connection could not be changed; the previous settings were restored")
+	ErrDVModeDisabled     = errors.New("mode_disabled: this mode is disabled; enable it on the DVSwitch page first")
+	ErrDVBMNotConfigured  = errors.New("bm_not_configured: save the BrandMeister password first")
 )
 
 // DVBM is the argument of dvswitch-bm. Save: Server is the BrandMeister
 // server STFU logs in to ("" keeps the saved one, or the default); its port
 // is always 54006. Password is the hotspot security password of SelfCare
 // (nil keeps the saved one; write-only). Nil TalkerAlias and StartTG keep
-// the saved value (or the default: the callsign and 4000). Clear takes no
-// other field.
+// the saved value (or the default: the callsign and 4000). Enable and
+// Disable take no other field.
 type DVBM struct {
 	Action      string  `json:"action"`
 	Server      string  `json:"server,omitempty"`
@@ -169,27 +172,6 @@ func DVBMHostName(host string) bool {
 	return false
 }
 
-// dvIsBMHost reports whether host is a BrandMeister server: by name, or the
-// address of a BM_ entry of DMR_Hosts.txt.
-func (o *Ops) dvIsBMHost(host string) bool {
-	if host == "" {
-		return false
-	}
-	if DVBMHostName(host) {
-		return true
-	}
-	data, err := o.dvReadList("dmr")
-	if err != nil {
-		return false
-	}
-	for _, it := range ParseDMRHosts(data) {
-		if strings.HasPrefix(it.Name, "BM_") && strings.EqualFold(it.Address, host) {
-			return true
-		}
-	}
-	return false
-}
-
 // ---- hooks of the other config ops
 
 // dvBMIdentity: with BrandMeister configured ([STFU] holds a password), a
@@ -213,14 +195,18 @@ func dvPasswordSet(pw string) bool { return pw != "" && pw != dvStockPassword &&
 // ---- setup view
 
 // DVBMView is the BrandMeister part of the setup view. Installed: the stfu
-// unit is there; Present: DVSwitch.ini has [STFU]; Enabled: the unit is
+// unit is there; Present: DVSwitch.ini has [STFU]; UnitEnabled: the unit is
 // enabled at boot (only with StayLoggedIn: on demand it stays disabled).
-// Configured: installed, present, a saved password and a 7-digit UserID: the
-// panel offers BrandMeister, whether stfu runs or not. StayLoggedIn: STFU
-// stays logged in outside BM mode. The password only as PasswordSet.
+// Configured: installed, present, a saved password and a 7-digit UserID.
+// Enabled: BrandMeister is turned on in ASLCP (the card's Enable/Disable,
+// off by default); the panel offers BrandMeister when it is configured and
+// enabled. StayLoggedIn: STFU stays logged in outside BM mode (the saved
+// setting; it applies only while enabled). The password only as
+// PasswordSet.
 type DVBMView struct {
 	Installed    bool   `json:"installed"`
 	Present      bool   `json:"present"`
+	UnitEnabled  bool   `json:"unitEnabled"`
 	Enabled      bool   `json:"enabled"`
 	StayLoggedIn bool   `json:"stayLoggedIn"`
 	Configured   bool   `json:"configured"`
@@ -265,7 +251,7 @@ func (o *Ops) dvBMConfigured(ctx context.Context) (loaded, configured bool) {
 }
 
 func dvBMView(dv *ini.File, loaded, enabled, stay bool) DVBMView {
-	v := DVBMView{Installed: loaded, Enabled: enabled, StayLoggedIn: stay}
+	v := DVBMView{Installed: loaded, UnitEnabled: enabled, StayLoggedIn: stay}
 	if dv == nil || !dv.HasSection(dvSTFUSection) {
 		return v
 	}
@@ -360,7 +346,7 @@ func (o *Ops) DVSwitchBM(ctx context.Context, req *DVSwitchRequest) (DVApplyResu
 		return DVApplyResult{}, err
 	}
 	b := req.BM
-	if b == nil || req.Identity != nil || req.Credentials != nil || req.Modes != nil || req.Startup != nil || req.Tune != nil || req.USRP != nil || req.Private != nil {
+	if b == nil || req.Identity != nil || req.Credentials != nil || req.Modes != nil || req.Tune != nil || req.USRP != nil || req.Private != nil {
 		return DVApplyResult{}, errors.New("invalid request: brandmeister only")
 	}
 	o.bmMu.Lock()
@@ -368,11 +354,14 @@ func (o *Ops) DVSwitchBM(ctx context.Context, req *DVSwitchRequest) (DVApplyResu
 	switch b.Action {
 	case DVBMSave:
 		return o.dvBMSave(ctx, b, req.Base)
-	case DVBMClear:
-		if b.Server != "" || b.Password != nil || b.TalkerAlias != nil || b.StartTG != nil {
+	case DVBMEnable, DVBMDisable:
+		if b.Server != "" || b.Password != nil || b.TalkerAlias != nil || b.StartTG != nil || b.StayLoggedIn != nil {
 			return DVApplyResult{}, dvInvalid("brandmeister")
 		}
-		return o.dvBMClear(ctx, req.Base)
+		if b.Action == DVBMEnable {
+			return o.dvBMEnable(ctx)
+		}
+		return o.dvBMDisable(ctx)
 	}
 	return DVApplyResult{}, dvInvalid("brandmeister/action")
 }
@@ -447,11 +436,33 @@ func (o *Ops) dvBMSave(ctx context.Context, b *DVBM, base map[string]string) (DV
 		ch = append(ch, set("BMPassword", *b.Password))
 	}
 
+	if !o.dvBMEnabled() {
+		// Disabled: the settings are saved for a later Enable; stfu is not
+		// touched (it is stopped and stays so).
+		res, err := o.dvApply(ctx, ch, base)
+		if err != nil {
+			return res, err
+		}
+		if err := o.dvSTFUStaySet(stay); err != nil {
+			o.dvBMUndo(ctx, res.Files)
+			return DVApplyResult{}, fmt.Errorf("%w (state)", ErrDVSwitchFailed)
+		}
+		res.RestartHint = []string{}
+		return res, nil
+	}
 	_, wasEnabled, wasActive := o.dvBMUnitState(ctx)
 	res, err := o.dvApply(ctx, ch, base)
 	if err != nil {
 		return res, err
 	}
+	return o.dvBMActivate(ctx, res, stay, prevStay, oldPorts, wasEnabled, wasActive)
+}
+
+// dvBMActivate is the tail of a save or an Enable: STFU's log made
+// root-only, the umask drop-in, the stay setting, the unit enabled at boot
+// (stay) or not (on demand), a restart and the login check. A failure puts
+// everything back, the files the op wrote (res.Files) included.
+func (o *Ops) dvBMActivate(ctx context.Context, res DVApplyResult, stay, prevStay bool, oldPorts [2]int, wasEnabled, wasActive bool) (DVApplyResult, error) {
 	_, dropErr := os.Lstat(o.dvSTFUDropinPath())
 	hadDropin := dropErr == nil
 	// On demand (the default) the unit stays disabled and ASLCP starts it
@@ -519,38 +530,69 @@ func (o *Ops) dvBMReady(ctx context.Context) (dvBMFiles, error) {
 	return f, nil
 }
 
-// dvBMClear stops and disables stfu, removes its drop-in and resets [STFU]
-// BMPassword to the stock value. A live session on STFU's ports moves to
-// [DMR]'s.
-func (o *Ops) dvBMClear(ctx context.Context, base map[string]string) (DVApplyResult, error) {
+// dvBMEnable turns BrandMeister on with the saved settings: nothing is
+// typed again. It needs a configured [STFU] (password and UserID saved),
+// then starts stfu like a save does and checks the login (on demand stfu is
+// stopped again after the check).
+func (o *Ops) dvBMEnable(ctx context.Context) (DVApplyResult, error) {
+	f, err := o.dvBMReady(ctx)
+	if err != nil {
+		return DVApplyResult{}, err
+	}
+	if !dvBMView(f.dv, true, false, false).Configured {
+		return DVApplyResult{}, ErrDVBMNotConfigured
+	}
+	if o.dvBMEnabled() {
+		return dvNoChange(), nil
+	}
+	if err := o.dvBMEnabledSet(true); err != nil {
+		return DVApplyResult{}, fmt.Errorf("%w (state)", ErrDVSwitchFailed)
+	}
+	stay := o.dvSTFUStay()
+	_, wasEnabled, wasActive := o.dvBMUnitState(ctx)
+	res, err := o.dvBMActivate(ctx, dvNoChange(), stay, stay, [2]int{dvSTFUTx, dvSTFURx}, wasEnabled, wasActive)
+	if err != nil {
+		_ = o.dvBMEnabledSet(false)
+		o.dvSystemctl(ctx, "disable", "--now", dvSTFUUnit+".service")
+		return res, err
+	}
+	res.Files = []string{DVStateBMEnabled}
+	return res, nil
+}
+
+// DVStateBMEnabled is the id the BrandMeister Enable and Disable report in
+// DVApplyResult.Files: the helper's flag changed, no ini file.
+const DVStateBMEnabled = "bm_enabled"
+
+// dvBMDisable turns BrandMeister off and keeps its settings: stfu is stopped
+// and disabled, the [STFU] values, the password and the stay setting stay
+// for the next Enable. A live session on STFU's ports moves to [DMR]'s.
+func (o *Ops) dvBMDisable(ctx context.Context) (DVApplyResult, error) {
 	f, err := o.dvBMRead(false)
 	if err != nil {
 		return DVApplyResult{}, err
 	}
-	var ch []dvChange
-	stfu, dmr := [2]int{}, [2]int{}
-	if f.dv != nil && f.dv.HasSection(dvSTFUSection) {
-		if pw, ok := f.dv.GetFold(dvSTFUSection, "BMPassword"); ok && pw != dvStockPassword {
-			ch = append(ch, dvChange{DVFileDVSwitch, dvSTFUSection, "BMPassword", dvStockPassword})
+	if !o.dvBMEnabled() {
+		// already off; make sure stfu is not left running
+		if loaded, _ := o.dvBMUnit(ctx); loaded {
+			o.dvSystemctl(ctx, "disable", "--now", dvSTFUUnit+".service")
 		}
-		stfu, dmr = dvSectionPorts(f.dv, dvSTFUSection), dvSectionPorts(f.dv, "DMR")
-	}
-	res := dvNoChange()
-	if len(ch) > 0 {
-		if res, err = o.dvApply(ctx, ch, base); err != nil {
-			return res, err
-		}
+		return dvNoChange(), nil
 	}
 	if loaded, _ := o.dvBMUnit(ctx); loaded && !o.dvSystemctl(ctx, "disable", "--now", dvSTFUUnit+".service") {
-		o.dvBMUndo(ctx, res.Files)
 		return DVApplyResult{}, fmt.Errorf("%w (%s)", ErrDVSwitchFailed, dvSTFUUnit)
 	}
-	o.dvSTFUDropinRemove(ctx)
-	_ = o.dvSTFUStaySet(false)
-	if stfu[0] != 0 && dmr[0] != 0 && dmr[1] != 0 {
-		o.dvRepointDMR(ctx, stfu, dmr[0], dmr[1])
+	if err := o.dvBMEnabledSet(false); err != nil {
+		return DVApplyResult{}, fmt.Errorf("%w (state)", ErrDVSwitchFailed)
 	}
-	res.RestartHint = []string{}
+	if f.dv != nil && f.dv.HasSection(dvSTFUSection) {
+		stfu, dmr := dvSectionPorts(f.dv, dvSTFUSection), dvSectionPorts(f.dv, "DMR")
+		if stfu[0] != 0 && dmr[0] != 0 && dmr[1] != 0 {
+			o.dvRepointDMR(ctx, stfu, dmr[0], dmr[1])
+		}
+	}
+	res := dvNoChange()
+	res.Files = []string{DVStateBMEnabled}
 	return res, nil
 }
 
@@ -564,38 +606,53 @@ func (o *Ops) dvBMUndo(ctx context.Context, files []string) {
 
 // ---- panel mode
 
-// DVPanelMode is the panel's mode of a bridge state: BM or DMR (both
-// ambe_mode DMR, told apart by the TLV ports, see dvPanel), YSF, P25, NXDN;
-// "" for a mode the panel does not handle. A state without Panel (a test
-// fake, an older helper) falls back to the AMBE mode.
+// DVPanelMode is the panel's mode of a bridge state: a DMR network of the
+// registry (BM, TGIF, DMR; all ambe_mode DMR, told apart by the TLV ports
+// and [DMR Network], see dvPanel), YSF, P25, NXDN; "" for a mode the panel
+// does not handle. A state without Panel (a test fake, an older helper)
+// falls back to the AMBE mode.
 func DVPanelMode(info DVSwitchInfo) string {
-	switch info.Panel {
-	case DVModeBM, DVModeDMR, "YSF", "P25", "NXDN":
-		return info.Panel
+	if m := DVNormMode(info.Panel); m != "" {
+		return m
 	}
 	return DVNormMode(info.Mode)
 }
 
-// DVDMRFamily: BM and DMR are both DMR on the air (talkgroups, private
-// calls, slot).
-func DVDMRFamily(mode string) bool { return mode == DVModeBM || mode == DVModeDMR }
+// DVDMRFamily: the DMR networks of the registry are all DMR on the air
+// (talkgroups, private calls, slot).
+func DVDMRFamily(mode string) bool {
+	_, ok := DVNetworkByID(mode)
+	return ok
+}
 
 // dvPanel sets info.Panel: in ambe_mode DMR, BM when Analog_Bridge's live TLV
 // ports are [STFU]'s (it sends to STFU's rxPort and listens on its txPort),
-// else DMR. [STFU] ports equal to [DMR]'s cannot be told apart and read DMR.
+// else the MMDVM_Bridge network [DMR Network] holds (dvMMDVMLive). [STFU]
+// ports equal to [DMR]'s cannot be told apart and read as MMDVM_Bridge.
 func (o *Ops) dvPanel(info *DVSwitchInfo) {
 	info.Panel = DVNormMode(info.Mode)
-	if info.Panel != DVModeDMR || info.tlvTx == 0 {
+	if info.Panel != DVModeDMR {
 		return
+	}
+	if o.dvPanelOnSTFU(info) {
+		info.Panel = DVModeBM
+		return
+	}
+	info.Panel = o.dvMMDVMLive()
+}
+
+func (o *Ops) dvPanelOnSTFU(info *DVSwitchInfo) bool {
+	if info.tlvTx == 0 {
+		return false
 	}
 	tx, rx, err := o.dvModePorts(dvSTFUSection)
 	if err != nil || info.tlvTx != rx || info.tlvRx != tx {
-		return
+		return false
 	}
 	if dtx, drx, err := o.dvModePorts("DMR"); err == nil && dtx == tx && drx == rx {
-		return
+		return false
 	}
-	info.Panel = DVModeBM
+	return true
 }
 
 // ---- unit and file helpers

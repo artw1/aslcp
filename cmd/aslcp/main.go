@@ -243,7 +243,8 @@ func run(cfgPath string, dev, demoMode bool) error {
 		dvInstalled = ddv.Installed
 		// The demo tracker reads the in-memory demo ABInfo, keeps its state in
 		// the demo database (a temporary dir) and polls fast.
-		dvTrack = &dvswitch.Tracker{Src: ddv, Store: st, Logger: logger, Installed: ddv.Installed, Interval: 3 * time.Second}
+		dvTrack = &dvswitch.Tracker{Src: ddv, Store: st, Logger: logger, Installed: ddv.Installed, Interval: 3 * time.Second,
+			BootMode: dvBootMode(ddv), ModeEnabled: dvModeOn(ddv)}
 		bg(func() { upd.Run(ctx) })
 		bg(func() { upd.OS.Run(ctx) })
 	} else {
@@ -260,7 +261,8 @@ func run(cfgPath string, dev, demoMode bool) error {
 		sysHost = hc
 		dvsw = hc
 		dvInstalled = dvswitchInstalled
-		dvTrack = &dvswitch.Tracker{Src: hc, Store: st, Logger: logger, Installed: dvswitchInstalled}
+		dvTrack = &dvswitch.Tracker{Src: hc, Store: st, Logger: logger, Installed: dvswitchInstalled,
+			BootMode: dvBootMode(hc), ModeEnabled: dvModeOn(hc)}
 		bg(func() { upd.Run(ctx) })
 		bg(func() { upd.OS.Run(ctx) })
 	}
@@ -666,4 +668,28 @@ func dvBridgeNode(src any) func(context.Context) (string, bool) {
 		return nil
 	}
 	return func(ctx context.Context) (string, bool) { return susb.USRPNode(ctx, cs) }
+}
+
+// dvBootSource is what the tracker's boot-mode hooks need of the helper.
+type dvBootSource interface {
+	DVSwitchSetup(ctx context.Context) (helper.DVSwitchSetup, error)
+	DVSwitchBootMode(ctx context.Context, mode string) (helper.DVApplyResult, error)
+}
+
+// dvBootMode makes DVSwitch start in the last mode (docs/DVSWITCH.md, "Boot
+// mode"). It is not a user write: no audit, no history copy, no restart.
+func dvBootMode(h dvBootSource) func(context.Context, string) error {
+	return func(ctx context.Context, mode string) error {
+		_, err := h.DVSwitchBootMode(ctx, mode)
+		return err
+	}
+}
+
+// dvModeOn says whether a mode's card is enabled; an unreadable setup counts
+// as on (the helper still refuses a disabled BM).
+func dvModeOn(h dvBootSource) func(context.Context, string) bool {
+	return func(ctx context.Context, mode string) bool {
+		v, err := h.DVSwitchSetup(ctx)
+		return err != nil || helper.DVModeOn(v, mode)
+	}
 }

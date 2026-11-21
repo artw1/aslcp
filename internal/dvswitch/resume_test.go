@@ -581,3 +581,95 @@ func TestDisconnectForgetsTune(t *testing.T) {
 		t.Fatal("YSF disconnect not remembered")
 	}
 }
+
+// The boot mode follows LastMode: written when a new one is recorded (BM as
+// itself; the helper maps it to DMR), once per change, with resume on or
+// off; a failure is retried on the next poll.
+func TestBootModeFollowsLastMode(t *testing.T) {
+	tr, src, _, _ := newTracker(t)
+	ctx := context.Background()
+	var boots []string
+	var fail error
+	tr.BootMode = func(_ context.Context, m string) error {
+		boots = append(boots, m)
+		return fail
+	}
+	boot := t0.Add(-time.Hour)
+	// nothing remembered yet: nothing to write
+	src.info = started(dmr(t, "9", "2", ""), boot)
+	tr.Poll(ctx)
+	if len(boots) != 0 {
+		t.Fatalf("%v", boots)
+	}
+	// resume is off: a YSF tune still sets the boot mode, once
+	src.info = started(other(t, "YSFN", "192.0.2.10:42000"), boot)
+	tr.Poll(ctx)
+	tr.Poll(ctx)
+	if strings.Join(boots, ",") != "YSF" || tr.Get().Resume {
+		t.Fatalf("%v", boots)
+	}
+	// P25, with the helper failing: retried until it works
+	fail = errors.New("busy")
+	src.info = started(other(t, "P25", "10100"), boot)
+	tr.Poll(ctx)
+	fail = nil
+	tr.Poll(ctx)
+	tr.Poll(ctx)
+	if strings.Join(boots, ",") != "YSF,P25,P25" {
+		t.Fatalf("%v", boots)
+	}
+	// a new tracker (aslcp restarted) writes the stored mode once
+	var boots2 []string
+	tr2 := &Tracker{Src: src, Store: tr.Store, Now: tr.Now, BootMode: func(_ context.Context, m string) error { boots2 = append(boots2, m); return nil }}
+	tr2.Poll(ctx)
+	tr2.Poll(ctx)
+	if strings.Join(boots2, ",") != "P25" {
+		t.Fatalf("%v", boots2)
+	}
+}
+
+// A resume into a mode whose card is disabled is skipped, not sent.
+func TestResumeSkipsDisabledMode(t *testing.T) {
+	tr, src, _, now := newTracker(t)
+	ctx := context.Background()
+	var w strings.Builder
+	tr.Logger = newLogger(&w)
+	tr.mu.Lock()
+	tr.st = resumeState(true)
+	tr.loaded = true
+	tr.mu.Unlock()
+	tr.ModeEnabled = func(_ context.Context, m string) bool { return m != "YSF" }
+	boot := t0.Add(-20 * time.Second)
+	src.info = started(dmr(t, "9", "2", ""), boot)
+	*now = t0.Add(10 * time.Second)
+	tr.Poll(ctx)
+	if len(src.tunes) != 0 || !strings.Contains(w.String(), "disabled") {
+		t.Fatalf("%+v %s", src.tunes, w.String())
+	}
+}
+
+// Each DMR network is its own mode: TGIF's talkgroup is stored under its
+// key, recorded while the panel is in TGIF, and resumed with Mode TGIF.
+func TestResumeTGIFOwnKey(t *testing.T) {
+	tr, src, st, now := newTracker(t)
+	ctx := context.Background()
+	st.m = map[string]string{SettingKey: `{"lastMode":"TGIF","perMode":{"TGIF":{"tune":"31665","ts":"2"},"DMR":{"tune":"91","ts":"2"}},"resume":true}`}
+	boot := t0.Add(-20 * time.Second)
+	in := started(dmr(t, "9", "2", ""), boot)
+	in.Panel = "TGIF"
+	src.info = in
+	*now = t0.Add(10 * time.Second)
+	tr.Poll(ctx)
+	if len(src.tunes) != 1 || src.tunes[0] != (helper.DVTune{Mode: "TGIF", Tune: "31665"}) {
+		t.Fatalf("%+v", src.tunes)
+	}
+	// a TGIF tune is remembered under TGIF, DMR - Other's stays
+	in = started(dmr(t, "777", "2", "777"), boot)
+	in.Panel = "TGIF"
+	src.info = in
+	*now = now.Add(15 * time.Second)
+	tr.Poll(ctx)
+	if v := tr.Get(); v.PerMode["TGIF"].Tune != "777" || v.PerMode["DMR"].Tune != "91" || v.LastMode != "TGIF" {
+		t.Fatalf("%+v", v)
+	}
+}

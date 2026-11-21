@@ -27,10 +27,10 @@ const OpDVSwitchTune = "dvswitch-tune"
 // ErrDVNoPorts: DVSwitch.ini has no usable TXPort/RXPort for the mode.
 var ErrDVNoPorts = errors.New("no_ports: DVSwitch.ini has no ports for this mode")
 
-// DVTuneModes are the modes dvswitch-tune takes, in display order.
-// BM (BrandMeister through STFU) and DMR (DMR - Other through MMDVM_Bridge)
-// are both DMR on the air.
-var DVTuneModes = []string{"BM", "DMR", "YSF", "P25", "NXDN"}
+// DVTuneModes are the modes dvswitch-tune takes, in display order: the DMR
+// networks of the registry (DVNetworks: BM through STFU, TGIF and DMR -
+// Other through MMDVM_Bridge; all DMR on the air), then YSF, P25, NXDN.
+var DVTuneModes = append(dvNetworkIDs(), "YSF", "P25", "NXDN")
 
 // DVTune is the argument of dvswitch-tune.
 //
@@ -43,11 +43,12 @@ type DVTune struct {
 }
 
 // DVUnlinkTune is the tune value that unlinks the mode (dvswitch.sh): BM and
-// DMR 4000, YSF disconnect, P25 and NXDN 9999. "" for an unknown mode.
+// the DMR networks 4000, YSF disconnect, P25 and NXDN 9999. "" for an unknown mode.
 func DVUnlinkTune(mode string) string {
-	switch mode {
-	case "BM", "DMR":
+	if DVDMRFamily(mode) {
 		return "4000"
+	}
+	switch mode {
 	case "YSF":
 		return "disconnect"
 	case "P25", "NXDN":
@@ -73,6 +74,11 @@ type DVTuneResult struct {
 	// not be stopped (the switch went ahead).
 	BMLoginPending bool `json:"bmLoginPending,omitempty"`
 	STFUStopFailed bool `json:"stfuStopFailed,omitempty"`
+	// NetRestarted: entering an MMDVM_Bridge network (TGIF, DMR - Other)
+	// rewrote [DMR Network] and restarted mmdvm_bridge. NetLoginPending:
+	// its login was not seen in time (the switch went ahead).
+	NetRestarted    bool `json:"netRestarted,omitempty"`
+	NetLoginPending bool `json:"netLoginPending,omitempty"`
 }
 
 // dvLinkedTune is what the bridge state shows the panel mode tuned to: for
@@ -86,11 +92,15 @@ func dvLinkedTune(mode string, info DVSwitchInfo) string {
 }
 
 // DVNormMode maps ABInfo's ambe_mode to a tune mode: YSFN and YSFW are YSF.
-// "" means a mode this feature does not handle (DMR_IPSC, DSTAR, ...). BM
-// (never an ambe_mode; DVPanelMode tells it from DMR) maps to itself.
+// "" means a mode this feature does not handle (DMR_IPSC, DSTAR, ...). The
+// DMR networks of the registry (BM, TGIF: never an ambe_mode; DVPanelMode
+// tells them from DMR) map to themselves.
 func DVNormMode(m string) string {
+	if DVDMRFamily(m) {
+		return m
+	}
 	switch m {
-	case "BM", "DMR", "P25", "NXDN":
+	case "P25", "NXDN":
 		return m
 	case "YSFN", "YSFW", "YSF":
 		return "YSF"
@@ -101,9 +111,10 @@ func DVNormMode(m string) string {
 // DVUnlinkValue is the tune value that disconnects a mode (dvswitch.sh): it is
 // not a place to resume to.
 func DVUnlinkValue(mode, tune string) bool {
-	switch mode {
-	case "BM", "DMR":
+	if DVDMRFamily(mode) {
 		return tune == "4000"
+	}
+	switch mode {
 	case "YSF":
 		return tune == "disconnect"
 	case "P25", "NXDN":
@@ -138,9 +149,10 @@ func DVValidTune(mode, tune string) bool {
 	if tune == "" || strings.HasPrefix(tune, "-") || strings.Contains(tune, "=") {
 		return false
 	}
-	switch mode {
-	case "BM", "DMR":
+	if DVDMRFamily(mode) {
 		return reDVTG.MatchString(strings.TrimSuffix(tune, DVPrivateMark))
+	}
+	switch mode {
 	case "P25", "NXDN":
 		return reDVRefl.MatchString(tune)
 	case "YSF":
@@ -361,7 +373,7 @@ func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneRes
 		return DVTuneResult{}, err
 	}
 	t := req.Tune
-	if t == nil || req.Identity != nil || req.Credentials != nil || req.Modes != nil || req.Startup != nil {
+	if t == nil || req.Identity != nil || req.Credentials != nil || req.Modes != nil {
 		return DVTuneResult{}, errors.New("invalid request: tune only")
 	}
 	ok := false
@@ -370,6 +382,23 @@ func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneRes
 	}
 	if !ok {
 		return DVTuneResult{}, dvInvalid("tune/mode")
+	}
+	// A disabled network is never switched to, whoever asks (the panel,
+	// the resume after a restart): a disabled BrandMeister never starts
+	// stfu, a disabled MMDVM_Bridge network never rewrites [DMR Network].
+	net, isNet := DVNetworkByID(t.Mode)
+	mmdvm := isNet && net.Via == DVViaMMDVM
+	if t.Mode == DVModeBM && !o.dvBMEnabled() {
+		return DVTuneResult{}, ErrDVModeDisabled
+	}
+	if mmdvm {
+		s := o.dvNetGet().Networks[t.Mode]
+		if !s.Enabled {
+			return DVTuneResult{}, ErrDVModeDisabled
+		}
+		if !dvNetConfigured(net, s) {
+			return DVTuneResult{}, ErrDVNetNotConfigured
+		}
 	}
 	if t.ModeOnly {
 		if t.Tune != "" {
@@ -400,21 +429,26 @@ func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneRes
 	}
 	res := DVTuneResult{Mode: t.Mode}
 	var cmds []string
-	// BM goes to STFU's [STFU] ports, DMR to MMDVM_Bridge's [DMR] ports; both
-	// are ambeMode=DMR. Analog_Bridge in DMR on the other DMR connection's
-	// ports switches over (DVPanelMode).
+	// BM goes to STFU's [STFU] ports, the MMDVM_Bridge networks (TGIF, DMR -
+	// Other) to MMDVM_Bridge's [DMR] ports; all are ambeMode=DMR.
+	// Analog_Bridge in DMR on another DMR network switches over
+	// (DVPanelMode).
 	section, ambe := t.Mode, t.Mode
-	if t.Mode == DVModeBM {
+	switch {
+	case t.Mode == DVModeBM:
 		section, ambe = dvSTFUSection, DVModeDMR
+	case mmdvm:
+		section, ambe = "DMR", DVModeDMR
 	}
 	port := info.tlvRx
 	// On demand STFU logs in only while the panel is in BM: start it and wait
 	// for the login before Analog_Bridge is pointed at it. Whether it was
 	// reached is reported, never fatal.
-	if t.Mode == DVModeBM && !o.dvSTFUStay() {
+	if t.Mode == DVModeBM && !o.dvSTFUStayOn() {
 		res.BMLoginPending = o.dvSTFUEnsure(ctx, DVPanelMode(info) == DVModeBM)
 	}
-	if cur := DVPanelMode(info); cur != t.Mode {
+	cur := DVPanelMode(info)
+	if cur != t.Mode {
 		tx, rx, err := o.dvModePorts(section)
 		if err != nil {
 			return res, err
@@ -434,6 +468,17 @@ func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneRes
 		}
 		cmds = append(cmds, o.dvSwitchCmds(ambe, tx, rx)...)
 		res.Switched = true
+	}
+	// An MMDVM_Bridge network: [DMR Network] must hold its settings. When it
+	// holds another network's, they are written and mmdvm_bridge alone
+	// restarts (after the unlink above, which went to the network left);
+	// the login is awaited, a missing one reported, never fatal.
+	if mmdvm {
+		restarted, pending, err := o.dvNetEnsure(ctx, net)
+		if err != nil {
+			return res, err
+		}
+		res.NetRestarted, res.NetLoginPending = restarted, pending
 	}
 	if !t.ModeOnly {
 		cmds = append(cmds, "txTg="+value, "info")

@@ -51,6 +51,9 @@ type dvPendingMeta struct {
 	// Private: the record of the private bridge node is staged too (file
 	// privatenode.json). Optional: sets staged before it existed lack it.
 	Private bool `json:"private,omitempty"`
+	// Networks: the DMR network settings are staged too (file
+	// networks.json). Optional like Private.
+	Networks bool `json:"networks,omitempty"`
 }
 
 func (o *Ops) dvPendingDir() string { return filepath.Join(o.dvStateDir(), dvPendingDirName) }
@@ -81,10 +84,11 @@ func writeNew(path string, data []byte) error {
 	return werr
 }
 
-// dvStagePending replaces any pending set with items and, when private is not
-// empty, the (already validated) bridge node record: a new 0700 directory,
-// files 0600, then a rename into place.
-func (o *Ops) dvStagePending(items []dvItem, date string, private []byte) error {
+// dvStagePending replaces any pending set with items and, when private or
+// networks is not empty, the (already validated) bridge node record and DMR
+// network settings: a new 0700 directory, files 0600, then a rename into
+// place.
+func (o *Ops) dvStagePending(items []dvItem, date string, private, networks []byte) error {
 	base := o.dvStateDir()
 	if err := os.MkdirAll(base, 0o700); err != nil {
 		return err
@@ -117,6 +121,12 @@ func (o *Ops) dvStagePending(items []dvItem, date string, private []byte) error 
 			return err
 		}
 		meta.Private = true
+	}
+	if len(networks) > 0 {
+		if err := dvStageNetworks(tmp, networks); err != nil {
+			return err
+		}
+		meta.Networks = true
 	}
 	raw, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
@@ -266,6 +276,13 @@ func (o *Ops) dvRestoreApply(ctx context.Context, w io.Writer) error {
 			fmt.Fprintf(w, "warning: the bridge node record from your backup was not restored: %v\n", err)
 		} else {
 			fmt.Fprintf(w, "bridge node %s is managed by ASLCP again\n", node)
+		}
+	}
+	if m.Networks {
+		if err := o.dvApplyPendingNetworks(); err != nil {
+			fmt.Fprintf(w, "warning: the DMR network settings from your backup were not restored: %v\n", err)
+		} else {
+			fmt.Fprintln(w, "DMR network settings restored")
 		}
 	}
 	if err := os.RemoveAll(o.dvPendingDir()); err != nil {

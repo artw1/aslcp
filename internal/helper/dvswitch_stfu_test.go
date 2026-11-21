@@ -15,8 +15,9 @@ import (
 )
 
 // stfuOps: stock inis, identity N0CALL 1234567/01, MMDVM_Bridge password
-// example-pass, DMR on, stfu installed, every systemctl call succeeds. The
-// fake reports every unit (stfu too) loaded and enabled.
+// example-pass, DMR on, BrandMeister enabled in ASLCP (its card's Enable),
+// stfu installed, every systemctl call succeeds. The fake reports every unit
+// (stfu too) loaded and enabled.
 func stfuOps(t *testing.T) (*Ops, *fakeRunner) {
 	t.Helper()
 	o, f := cfgOps(t)
@@ -35,8 +36,8 @@ func stfuOps(t *testing.T) (*Ops, *fakeRunner) {
 	if _, err := o.DVSwitchCredentials(ctx, &DVSwitchRequest{Credentials: &DVCredentials{Password: &pw}}); err != nil {
 		t.Fatal(err)
 	}
-	on := true
-	if _, err := o.DVSwitchModes(ctx, &DVSwitchRequest{Modes: &DVModes{DMR: &on}}); err != nil {
+	netAction(t, o, DVModeDMR, DVNetEnable)
+	if err := o.dvBMEnabledSet(true); err != nil {
 		t.Fatal(err)
 	}
 	return o, f
@@ -98,7 +99,7 @@ func bmSave(pw string) *DVSwitchRequest {
 	return &DVSwitchRequest{BM: b}
 }
 
-func TestBMSaveAndClear(t *testing.T) {
+func TestBMSaveAndDisable(t *testing.T) {
 	o, f := stfuOps(t)
 	ctx := context.Background()
 	mmBefore, abBefore := readDV(t, o, DVFileMMDVMBridge), readDV(t, o, DVFileAnalogBridge)
@@ -150,7 +151,7 @@ func TestBMSaveAndClear(t *testing.T) {
 		t.Fatal(err)
 	}
 	bm := st.BrandMeister
-	if !bm.Installed || !bm.Present || !bm.Enabled || !bm.Configured || !bm.PasswordSet || bm.TxPort != 36100 || bm.RxPort != 36103 || bm.Port != 54006 || !st.Modes.DMR {
+	if !bm.Installed || !bm.Present || !bm.Enabled || !bm.UnitEnabled || !bm.Configured || !bm.PasswordSet || bm.TxPort != 36100 || bm.RxPort != 36103 || bm.Port != 54006 || !st.Modes.DMR {
 		t.Fatalf("%+v", bm)
 	}
 	if b, _ := json.Marshal(st); strings.Contains(string(b), "example-pass") {
@@ -177,32 +178,96 @@ func TestBMSaveAndClear(t *testing.T) {
 		}
 	}
 
-	// clear: stock password, unit off, drop-in gone, DMR - Other untouched
+	// disable: stfu stopped and disabled, the password and settings kept,
+	// DMR - Other untouched
 	mmBefore = readDV(t, o, DVFileMMDVMBridge)
-	if _, err := o.DVSwitchBM(ctx, &DVSwitchRequest{BM: &DVBM{Action: DVBMClear}}); err != nil {
-		t.Fatal(err)
+	res, err = o.DVSwitchBM(ctx, &DVSwitchRequest{BM: &DVBM{Action: DVBMDisable}})
+	if err != nil || len(res.Files) != 1 || res.Files[0] != DVStateBMEnabled {
+		t.Fatalf("%+v %v", res, err)
 	}
-	if v, _ := dvIni(t, o, DVFileDVSwitch).Get("STFU", "BMPassword"); v != dvStockPassword {
-		t.Fatal("password left", v)
+	if v, _ := dvIni(t, o, DVFileDVSwitch).Get("STFU", "BMPassword"); v != "example-pass" {
+		t.Fatal("password not kept", v)
 	}
 	if f.called("systemctl disable --now stfu.service") != 1 {
-		t.Fatal("stfu not disabled")
+		t.Fatal("stfu not stopped and disabled")
 	}
-	if _, err := os.Stat(o.DVSTFUDropin); !os.IsNotExist(err) {
-		t.Fatal("drop-in left", err)
-	}
-	if st, _ := o.DVSwitchSetup(ctx); st.BrandMeister.PasswordSet || st.BrandMeister.Configured || !st.Modes.DMR {
+	st, _ = o.DVSwitchSetup(ctx)
+	if !st.BrandMeister.PasswordSet || !st.BrandMeister.Configured || st.BrandMeister.Enabled || !st.Modes.DMR || st.BrandMeister.Server != "2041.master.brandmeister.network" {
 		t.Fatalf("%+v", st.BrandMeister)
 	}
 	if readDV(t, o, DVFileMMDVMBridge) != mmBefore {
-		t.Error("clear touched MMDVM_Bridge.ini")
+		t.Error("disable touched MMDVM_Bridge.ini")
 	}
-	// a cleared connection no longer follows the identity
-	if _, err := o.DVSwitchIdentity(ctx, &DVSwitchRequest{Identity: &DVIdentity{Callsign: "N0CALL", DMRID: "1234567", ESSID: "01"}}); err != nil {
+	// disabled again: no change
+	if res, err := o.DVSwitchBM(ctx, &DVSwitchRequest{BM: &DVBM{Action: DVBMDisable}}); err != nil || len(res.Files) != 0 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	// enable: back without retyping; stfu logs in again
+	restarts := f.called("systemctl restart stfu.service")
+	res, err = o.DVSwitchBM(ctx, &DVSwitchRequest{BM: &DVBM{Action: DVBMEnable}})
+	if err != nil || len(res.Files) != 1 || res.Files[0] != DVStateBMEnabled || !o.dvBMEnabled() {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if f.called("systemctl restart stfu.service") != restarts+1 {
+		t.Error("no login check after enable")
+	}
+	if v, _ := dvIni(t, o, DVFileDVSwitch).Get("STFU", "BMPassword"); v != "example-pass" {
+		t.Fatal("password lost", v)
+	}
+}
+
+// A disabled BrandMeister never starts stfu: not on a save, not for a BM
+// tune (the panel and the resume), not in a restart scope, not to stay
+// logged in.
+func TestBMDisabledNeverStartsSTFU(t *testing.T) {
+	o, f := stfuOps(t)
+	ctx := context.Background()
+	if err := o.dvBMEnabledSet(false); err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := dvIni(t, o, DVFileDVSwitch).Get("STFU", "UserID"); v != "7654321" {
-		t.Fatal("UserID changed after clear", v)
+	stay := true
+	pw := "example-pass"
+	res, err := o.DVSwitchBM(ctx, &DVSwitchRequest{BM: &DVBM{Action: DVBMSave, Password: &pw, StayLoggedIn: &stay}})
+	if err != nil || res.BMLogin != "" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	// settings stored
+	if v, _ := dvIni(t, o, DVFileDVSwitch).Get("STFU", "BMPassword"); v != "example-pass" || !o.dvSTFUStay() {
+		t.Fatal("settings not stored")
+	}
+	for _, c := range []string{"systemctl restart stfu", "systemctl start stfu", "systemctl enable stfu"} {
+		if f.called(c) != 0 {
+			t.Errorf("%s called", c)
+		}
+	}
+	if o.dvSTFUWanted(ctx) || o.dvSTFUStayOn() {
+		t.Error("stfu wanted while disabled")
+	}
+	// the panel refuses BM: also what the resume gets
+	if _, err := o.DVSwitchTune(ctx, &DVSwitchRequest{Author: "resume", Tune: &DVTune{Mode: DVModeBM, Tune: "91"}}); !errors.Is(err, ErrDVModeDisabled) {
+		t.Fatalf("BM tune: %v", err)
+	}
+	// a restart of the DMR scope leaves stfu alone
+	r, err := o.DVSwitchRestart(ctx, &DVSwitchRequest{Scope: "dmr"})
+	if err != nil || strings.Contains(strings.Join(r.Units, ","), "stfu") {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if f.called("systemctl restart stfu") != 0 || f.called("systemctl start stfu") != 0 {
+		t.Error("stfu started")
+	}
+	// status: disabled, not a fault
+	if st, _ := o.DVSwitchDMRStatus(ctx); st.BM == nil || st.BM.State != DMRDisabled {
+		t.Fatalf("%+v", st.BM)
+	}
+	// the view: configured, not enabled; the panel has no BM
+	v, _ := o.DVSwitchSetup(ctx)
+	if !v.BrandMeister.Configured || v.BrandMeister.Enabled || DVModeOn(v, DVModeBM) || !DVModeOn(v, DVModeDMR) {
+		t.Fatalf("%+v", v.BrandMeister)
+	}
+	// enable needs a saved password
+	writeDVIni(t, o, DVFileDVSwitch, "STFU", "BMPassword", dvStockPassword)
+	if _, err := o.DVSwitchBM(ctx, &DVSwitchRequest{BM: &DVBM{Action: DVBMEnable}}); !errors.Is(err, ErrDVBMNotConfigured) {
+		t.Fatal(err)
 	}
 }
 
@@ -268,13 +333,14 @@ func TestBMRefusals(t *testing.T) {
 		{Action: DVBMSave, Password: str("example-pass"), TalkerAlias: str(strings.Repeat("A", 28))},
 		{Action: DVBMSave, Password: str("example-pass"), TalkerAlias: str("a=b")},
 		{Action: DVBMSave, Password: str("example-pass"), StartTG: str("x")},
-		{Action: DVBMClear, Server: "3102.repeater.net"},
+		{Action: DVBMEnable, Server: "3102.repeater.net"},
+		{Action: DVBMDisable, Password: str("example-pass")},
 	} {
 		if err := bad(b); !errors.Is(err, ErrDVInvalid) {
 			t.Errorf("%+v: %v", b, err)
 		}
 	}
-	if _, err := o.DVSwitchBM(ctx, &DVSwitchRequest{BM: &DVBM{Action: DVBMClear}, Modes: &DVModes{}}); err == nil {
+	if _, err := o.DVSwitchBM(ctx, &DVSwitchRequest{BM: &DVBM{Action: DVBMDisable}, Modes: &DVModes{}}); err == nil {
 		t.Error("a mixed request accepted")
 	}
 	// no password given and none saved
@@ -312,8 +378,8 @@ func TestDMROtherRefusesBM(t *testing.T) {
 		t.Fatal(err)
 	}
 	st, _ := o.DVSwitchSetup(ctx)
-	if st.DMR.PointsAtBM || !st.DMR.Enabled {
-		t.Fatalf("%+v", st.DMR)
+	if netView(st, DVModeDMR).PointsAtBM || !netView(st, DVModeDMR).Enabled {
+		t.Fatalf("%+v", netView(st, DVModeDMR))
 	}
 	// a hand-edited BM master shows a warning, nothing more
 	writeDVIni(t, o, DVFileMMDVMBridge, "DMR Network", "Address", "2041.master.brandmeister.network")
@@ -322,14 +388,12 @@ func TestDMROtherRefusesBM(t *testing.T) {
 	for _, w := range st.Warnings {
 		found = found || w == DVDMRBMWarning
 	}
-	if !st.DMR.PointsAtBM || !found {
-		t.Fatalf("%+v %v", st.DMR, st.Warnings)
+	if !netView(st, DVModeDMR).PointsAtBM || !found {
+		t.Fatalf("%+v %v", netView(st, DVModeDMR), st.Warnings)
 	}
-	// clearing DMR - Other turns both flags off; the warning goes
-	off := false
-	if _, err := o.DVSwitchModes(ctx, &DVSwitchRequest{Modes: &DVModes{DMR: &off}}); err != nil {
-		t.Fatal(err)
-	}
+	// disabling DMR - Other (the only MMDVM network) turns both flags off;
+	// the warning goes
+	netAction(t, o, DVModeDMR, DVNetDisable)
 	mm := dvIni(t, o, DVFileMMDVMBridge)
 	for _, s := range []string{"DMR", "DMR Network"} {
 		if v, _ := mm.Get(s, "Enable"); v != "0" {
@@ -457,6 +521,7 @@ func TestDemoBM(t *testing.T) {
 	d.now = func() time.Time { return now }
 	ctx := context.Background()
 	d.installed, d.deps = true, true
+	d.cfg().identity.DMRID = "1234567"
 	pw := "example-pass"
 	stay := true
 	save := DVSwitchRequest{BM: &DVBM{Action: DVBMSave, Password: &pw, StayLoggedIn: &stay}}
@@ -470,8 +535,18 @@ func TestDemoBM(t *testing.T) {
 	if _, err := d.DVSwitchBM(ctx, save); err != nil {
 		t.Fatal(err)
 	}
+	// off by default: saved, not logged in, no BM on the panel
+	if r, _ := d.DVSwitchDMRStatus(ctx); r.BM == nil || r.BM.State != DMRDisabled {
+		t.Fatalf("%+v", r.BM)
+	}
+	if _, err := d.DVSwitchTune(ctx, DVSwitchRequest{Tune: &DVTune{Mode: DVModeBM, Tune: "91"}}); !errors.Is(err, ErrDVModeDisabled) {
+		t.Fatalf("disabled BM tune: %v", err)
+	}
+	if _, err := d.DVSwitchBM(ctx, DVSwitchRequest{BM: &DVBM{Action: DVBMEnable}}); err != nil {
+		t.Fatal(err)
+	}
 	v, _ := d.DVSwitchSetup(ctx)
-	if !v.BrandMeister.Present || v.BrandMeister.Server != DefaultDVSTFUServer || !v.BrandMeister.PasswordSet || !v.Modes.DMR {
+	if !v.BrandMeister.Present || v.BrandMeister.Server != DefaultDVSTFUServer || !v.BrandMeister.PasswordSet || !v.BrandMeister.Enabled {
 		t.Fatalf("%+v", v.BrandMeister)
 	}
 	if b, _ := json.Marshal(v); strings.Contains(string(b), pw) {
@@ -496,7 +571,7 @@ func TestDemoBM(t *testing.T) {
 	if r, _ := d.DVSwitchDMRStatus(ctx); r.BM == nil || r.BM.State != DMRIdle {
 		t.Fatalf("%+v", r.BM)
 	}
-	if v, _ := d.DVSwitchSetup(ctx); v.BrandMeister.StayLoggedIn || v.BrandMeister.Enabled || !v.BrandMeister.Configured {
+	if v, _ := d.DVSwitchSetup(ctx); v.BrandMeister.StayLoggedIn || v.BrandMeister.UnitEnabled || !v.BrandMeister.Enabled || !v.BrandMeister.Configured {
 		t.Fatalf("%+v", v.BrandMeister)
 	}
 	if r, _ := d.DVSwitchRestart(ctx, DVSwitchRequest{Scope: "dmr"}); strings.Contains(strings.Join(r.Units, ","), "stfu") {
@@ -508,17 +583,26 @@ func TestDemoBM(t *testing.T) {
 	if r, _ := d.DVSwitchDMRStatus(ctx); r.BM == nil || r.BM.State != DMRConnecting {
 		t.Fatalf("%+v", r.BM)
 	}
+	if _, err := d.DVSwitchTune(ctx, DVSwitchRequest{Tune: &DVTune{Mode: DVModeDMR, Tune: "4000"}}); !errors.Is(err, ErrDVModeDisabled) {
+		t.Fatalf("disabled DMR - Other tune: %v", err)
+	}
+	if _, err := d.DVSwitchNetwork(ctx, DVSwitchRequest{Network: &DVNetworkReq{ID: DVModeDMR, Action: DVNetEnable}}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := d.DVSwitchTune(ctx, DVSwitchRequest{Tune: &DVTune{Mode: DVModeDMR, Tune: "4000"}}); err != nil {
 		t.Fatal(err)
 	}
 	if r, _ := d.DVSwitchDMRStatus(ctx); r.BM == nil || r.BM.State != DMRIdle {
 		t.Fatalf("%+v", r.BM)
 	}
-	if _, err := d.DVSwitchBM(ctx, DVSwitchRequest{BM: &DVBM{Action: DVBMClear}}); err != nil {
+	if _, err := d.DVSwitchBM(ctx, DVSwitchRequest{BM: &DVBM{Action: DVBMDisable}}); err != nil {
 		t.Fatal(err)
 	}
 	if r, _ := d.DVSwitchDMRStatus(ctx); r.BM == nil || r.BM.State != DMRDisabled {
 		t.Fatalf("%+v", r.BM)
+	}
+	if v, _ := d.DVSwitchSetup(ctx); !v.BrandMeister.PasswordSet || v.BrandMeister.Enabled {
+		t.Fatalf("disable lost the password: %+v", v.BrandMeister)
 	}
 }
 

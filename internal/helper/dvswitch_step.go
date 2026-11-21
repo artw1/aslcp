@@ -37,6 +37,8 @@ func (o *Ops) RunDVSwitchStep(ctx context.Context, phase string, w io.Writer) er
 		return o.dvInstallCheck(w)
 	case StepUninstallPlan:
 		return o.dvUninstallPlan(ctx, w)
+	case StepInstallDefaults:
+		return o.dvInstallDefaults(ctx, w)
 	case StepRestoreApply:
 		return o.dvRestoreApply(ctx, w)
 	case StepPrivateRev:

@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "node --experimental-strip-types --no-warnings --test src/lib/dvlist.test.ts src/lib/dmrlogin.test.ts src/lib/dvmsg.test.ts src/lib/dvstartup.test.ts src/lib/dvpanel.test.ts src/lib/dvbridge.test.ts src/lib/dvbm.test.ts src/lib/sysnav.test.ts src/lib/svcweb.test.ts src/lib/wifi.test.ts src/lib/termconn.test.ts src/lib/nowcalling.test.ts src/lib/eachkeys.test.ts src/components/system/sections.test.ts"
+    "test": "node --experimental-strip-types --no-warnings --test src/lib/dvlist.test.ts src/lib/dmrlogin.test.ts src/lib/dvmsg.test.ts src/lib/dvmodes.test.ts src/lib/dvpanel.test.ts src/lib/dvbridge.test.ts src/lib/dvbm.test.ts src/lib/dvnetworks.test.ts src/lib/sysnav.test.ts src/lib/svcweb.test.ts src/lib/wifi.test.ts src/lib/termconn.test.ts src/lib/nowcalling.test.ts src/lib/eachkeys.test.ts src/components/system/sections.test.ts"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "7.3.1",

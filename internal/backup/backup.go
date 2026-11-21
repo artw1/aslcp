@@ -99,9 +99,15 @@ func DVSwitchPath(rel string) string { return PathDVSwitchOpt + "/" + rel }
 // rpt.conf has the node's stanza.
 const PathDVSwitchPrivate = "dvswitch/state/privatenode.json"
 
+// PathDVSwitchNetworks is the archive path of the DMR network settings
+// (networks.json of the helper's DVSwitch state directory): each DMR network
+// mode's settings, password included, and enabled state, and the BM stay
+// setting. Optional (older backups lack it).
+const PathDVSwitchNetworks = "dvswitch/state/networks.json"
+
 var treeRoots = []string{PathAsteriskEtc, PathHistory, PathAllmon3, PathSoundsVar, PathSoundsUsr}
 var singleFiles = func() []string {
-	f := []string{PathAstDB, PathAslcpDB, PathAslcpConf, PathSA818, PathDVSwitchPrivate}
+	f := []string{PathAstDB, PathAslcpDB, PathAslcpConf, PathSA818, PathDVSwitchPrivate, PathDVSwitchNetworks}
 	for _, r := range DVSwitchFiles {
 		f = append(f, DVSwitchPath(r))
 	}

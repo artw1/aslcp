@@ -2,9 +2,6 @@ package helper
 
 import (
 	"context"
-	"errors"
-	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -14,33 +11,16 @@ import (
 // "stay logged in" is set (then it is enabled and always running).
 
 const (
-	dvSTFUStayFile     = "stfu-stay" // helper state file: present = stay logged in
 	dvSTFULoginWaitDef = 10 * time.Second
 	dvSTFULoginPollDef = 250 * time.Millisecond
 )
 
-func (o *Ops) dvSTFUStayPath() string { return filepath.Join(o.dvStateDir(), dvSTFUStayFile) }
+// The BrandMeister enabled flag and "stay logged in" are in networks.json
+// (dvswitch_networks.go).
 
-// dvSTFUStay reports the "stay logged in outside BM mode" setting.
-func (o *Ops) dvSTFUStay() bool {
-	_, err := os.Stat(o.dvSTFUStayPath())
-	return err == nil
-}
-
-// dvSTFUStaySet stores the setting (a state file, root only).
-func (o *Ops) dvSTFUStaySet(on bool) error {
-	p := o.dvSTFUStayPath()
-	if on {
-		if err := os.MkdirAll(o.dvStateDir(), 0o700); err != nil {
-			return err
-		}
-		return writeStateFile(p, []byte("1\n"), 0o600)
-	}
-	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
-}
+// dvSTFUStayOn: stay logged in is set and BrandMeister is enabled (the
+// saved setting outlives a Disable, but a disabled BM never runs stfu).
+func (o *Ops) dvSTFUStayOn() bool { return o.dvBMEnabled() && o.dvSTFUStay() }
 
 // dvUnitRunning: an ActiveState that means the unit is up or coming up.
 func dvUnitRunning(active string) bool {
@@ -53,9 +33,10 @@ func (o *Ops) dvPanelIsBM(ctx context.Context) bool {
 	return err == nil && info.Found && DVPanelMode(info) == DVModeBM
 }
 
-// dvSTFUWanted: stfu is supposed to be running.
+// dvSTFUWanted: stfu is supposed to be running. Never while BrandMeister
+// is disabled.
 func (o *Ops) dvSTFUWanted(ctx context.Context) bool {
-	return o.dvSTFUStay() || o.dvPanelIsBM(ctx)
+	return o.dvBMEnabled() && (o.dvSTFUStay() || o.dvPanelIsBM(ctx))
 }
 
 func (o *Ops) dvSleep(ctx context.Context, d time.Duration) {
@@ -72,12 +53,18 @@ func (o *Ops) dvSleep(ctx context.Context, d time.Duration) {
 }
 
 // dvSTFUWaitLogin polls the STFU log for a login after the unit's start, up
-// to DVSTFULoginWait. It counts polls rather than reading a clock.
+// to DVSTFULoginWait.
 func (o *Ops) dvSTFUWaitLogin(ctx context.Context) bool {
+	return o.dvWaitLogin(ctx, func() bool { return o.dvSTFUStatus(ctx).State == DMRLoggedIn })
+}
+
+// dvWaitLogin polls check (a login seen in a log) up to DVSTFULoginWait,
+// every DVSTFULoginPoll. It counts polls rather than reading a clock.
+func (o *Ops) dvWaitLogin(ctx context.Context, check func() bool) bool {
 	wait, poll := orDuration(o.DVSTFULoginWait, dvSTFULoginWaitDef), orDuration(o.DVSTFULoginPoll, dvSTFULoginPollDef)
 	n := int((wait + poll - 1) / poll)
 	for i := 0; ; i++ {
-		if o.dvSTFUStatus(ctx).State == DMRLoggedIn {
+		if check() {
 			return true
 		}
 		if i >= n || ctx.Err() != nil {
@@ -115,7 +102,7 @@ func (o *Ops) dvSTFUEnsure(ctx context.Context, onlyIfStopped bool) (pending boo
 // dvSTFUStopIdle stops stfu after the panel left BM, unless it stays logged
 // in. It reports failed: it should have been stopped and was not.
 func (o *Ops) dvSTFUStopIdle(ctx context.Context) (failed bool) {
-	if o.dvSTFUStay() {
+	if o.dvSTFUStayOn() {
 		return false
 	}
 	loaded, active, _ := o.dvUnitStart(ctx, dvSTFUUnit+".service")

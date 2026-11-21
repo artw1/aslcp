@@ -881,12 +881,6 @@ func TestDemoDVSwitchNXDNID(t *testing.T) {
 	if v, _ = d.DVSwitchSetup(ctx); len(noStock(v.Warnings)) != 0 {
 		t.Fatalf("%v", v.Warnings)
 	}
-	if _, err := d.DVSwitchStartup(ctx, DVSwitchRequest{Startup: &DVStartup{YSF: sp("Example Reflector 1")}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := d.DVSwitchStartup(ctx, DVSwitchRequest{Startup: &DVStartup{YSF: sp("a=b")}}); !errors.Is(err, ErrDVInvalid) {
-		t.Fatal(err)
-	}
 }
 
 func TestDVJobTime(t *testing.T) {

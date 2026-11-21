@@ -93,6 +93,14 @@ type Tracker struct {
 	// error, or ErrNotInstalled when the node has no DVSwitch (info is empty
 	// then and the helper was not asked). It runs in the poll goroutine.
 	OnPoll func(info helper.DVSwitchInfo, err error)
+	// BootMode, when set, makes DVSwitch start in the last mode: it is called
+	// with LastMode when the tracker records a new one (and once per process
+	// for the stored one), whether resume is on or off. A failure is retried
+	// on the next poll.
+	BootMode func(ctx context.Context, mode string) error
+	// ModeEnabled, when set, says whether a mode is on (its card's Enable); a
+	// resume into a disabled mode is skipped.
+	ModeEnabled func(ctx context.Context, mode string) bool
 
 	mu     sync.Mutex
 	st     State
@@ -108,6 +116,8 @@ type Tracker struct {
 	prevMode          string // mode of the previous sample
 	dmrHold           bool   // the DMR talkgroup is not trusted yet (see record)
 	lastLogged        string
+	bootSynced        string // the boot mode written by this process
+	bootFailed        bool   // the last BootMode failed (logged once)
 
 	// What the last poll saw, for nextInterval (guarded by mu).
 	ps pollState
@@ -343,6 +353,9 @@ func (t *Tracker) Poll(ctx context.Context) {
 	t.observe(info, now)
 	t.mu.Unlock()
 
+	if act == resumeFire && t.ModeEnabled != nil && !t.ModeEnabled(ctx, mode) {
+		act, why = resumeSkip, "the mode is disabled"
+	}
 	switch act {
 	case resumeFire:
 		_, err := t.Src.DVSwitchTune(ctx, helper.DVSwitchRequest{Author: "resume", Tune: &helper.DVTune{Mode: mode, Tune: tune}})
@@ -358,6 +371,32 @@ func (t *Tracker) Poll(ctx context.Context) {
 		t.markResumed(info.Started)
 	}
 	t.record(info, now)
+	t.syncBoot(ctx)
+}
+
+// syncBoot passes a new LastMode to BootMode. The helper writes only what
+// differs; this keeps it from being asked on every poll.
+func (t *Tracker) syncBoot(ctx context.Context) {
+	if t.BootMode == nil {
+		return
+	}
+	t.mu.Lock()
+	mode := t.st.LastMode
+	done := mode == "" || mode == t.bootSynced
+	t.mu.Unlock()
+	if done {
+		return
+	}
+	if err := t.BootMode(ctx, mode); err != nil {
+		if !t.bootFailed {
+			t.bootFailed = true
+			t.logf("dvswitch tracker: cannot set the boot mode to %s: %v", mode, err)
+		}
+		return
+	}
+	t.mu.Lock()
+	t.bootSynced, t.bootFailed = mode, false
+	t.mu.Unlock()
 }
 
 // observe updates the poll state from a successful poll. Callers hold mu.
@@ -445,14 +484,15 @@ var reYSFID = regexp.MustCompile(`^[0-9]{5}$`)
 
 // record remembers the current tune of the current mode.
 //
-//   - BM and DMR (both ambe_mode DMR, told apart by the panel mode,
-//     helper.DVPanelMode): digital.tg (and ts). The startup talkgroup shown after a start is
+//   - The DMR networks BM, TGIF and DMR (all ambe_mode DMR, told apart by
+//     the panel mode, helper.DVPanelMode), each under its own key:
+//     digital.tg (and ts). The startup talkgroup shown after a start is
 //     not a tune: it counts once it differs from the first state seen after
 //     the start, or once last_tune holds a value set in DMR.
 //   - YSF, P25, NXDN: last_tune, when it is not empty and valid for the mode.
 //     last_tune survives a mode change, so a value first seen in another mode
 //     is not taken for this one.
-//   - Right after a switch of mode to BM or DMR the talkgroup is not trusted:
+//   - Right after a switch of mode to a DMR network the talkgroup is not trusted:
 //     Analog_Bridge takes txTg= of a YSF tune ("192.0.2.10:42000") as a number
 //     and keeps its leading digits ("192") as digital.tg, so the first DMR
 //     sample after a switch shows a value that is nobody's tune. It counts
@@ -494,8 +534,8 @@ func (t *Tracker) record(info helper.DVSwitchInfo, now time.Time) {
 	}
 
 	var tune, ts string
-	switch mode {
-	case helper.DVModeBM, helper.DVModeDMR:
+	switch {
+	case helper.DVDMRFamily(mode):
 		if !helper.DVValidTune(mode, info.TG) {
 			return
 		}

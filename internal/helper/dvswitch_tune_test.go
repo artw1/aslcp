@@ -78,6 +78,12 @@ func TestDVInfoStarted(t *testing.T) {
 func tuneEnv(t *testing.T, mode, lastTune string) (*Ops, *fakeAB) {
 	t.Helper()
 	o, _ := cfgOps(t)
+	// BrandMeister's card enabled: a BM tune is allowed
+	if err := o.dvBMEnabledSet(true); err != nil {
+		t.Fatal(err)
+	}
+	// and DMR - Other (seeded from the fixture's [DMR Network])
+	netOn(t, o, DVModeDMR)
 	return o, newFakeAB(t, o, mode, lastTune)
 }
 
@@ -143,7 +149,7 @@ func TestDVTuneRefusals(t *testing.T) {
 	if _, err := o.DVSwitchTune(ctx, &DVSwitchRequest{}); err == nil {
 		t.Error("missing tune accepted")
 	}
-	if _, err := o.DVSwitchTune(ctx, &DVSwitchRequest{Tune: &DVTune{Mode: "DMR", Tune: "9"}, Startup: &DVStartup{}}); err == nil {
+	if _, err := o.DVSwitchTune(ctx, &DVSwitchRequest{Tune: &DVTune{Mode: "DMR", Tune: "9"}, Modes: &DVModes{}}); err == nil {
 		t.Error("extra field accepted")
 	}
 	if got := ab.recv(); len(got) != 0 {

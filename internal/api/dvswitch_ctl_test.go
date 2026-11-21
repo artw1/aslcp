@@ -27,7 +27,9 @@ type ctlDV struct {
 	active  string
 	infoErr error
 	left    []string // the unlinks sent before a switch: "mode>value"
-	bm      bool     // BrandMeister configured
+	bm      bool     // BrandMeister configured and enabled
+	bmOff   bool     // BrandMeister configured but its card disabled
+	tgif    bool     // the TGIF card is enabled (modes.DMR: DMR - Other's)
 }
 
 func newCtlDV() *ctlDV {
@@ -56,7 +58,12 @@ func (f *ctlDV) DVSwitchSetup(context.Context) (helper.DVSwitchSetup, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return helper.DVSwitchSetup{Identity: helper.DVIdentityView{Callsign: "N0CALL", DMRID: "1234567"}, Modes: f.modes, Files: []helper.DVFileView{},
-		BrandMeister: helper.DVBMView{Configured: f.bm}}, nil
+		BrandMeister: helper.DVBMView{Configured: f.bm || f.bmOff, Enabled: f.bm},
+		Networks: []helper.DVNetworkView{
+			{ID: "BM", Label: "BrandMeister", Via: helper.DVViaSTFU, Configured: f.bm || f.bmOff, Enabled: f.bm},
+			{ID: "TGIF", Label: "TGIF", Via: helper.DVViaMMDVM, Configured: true, Enabled: f.tgif},
+			{ID: "DMR", Label: "DMR - Other", Via: helper.DVViaMMDVM, Configured: true, Enabled: f.modes.DMR},
+		}}, nil
 }
 
 func (f *ctlDV) DVSwitchInfo(context.Context) (helper.DVSwitchInfo, error) {
@@ -93,7 +100,7 @@ func (f *ctlDV) DVSwitchTune(_ context.Context, r helper.DVSwitchRequest) (helpe
 		if !f.noConf {
 			// BM is ambe_mode DMR on STFU's ports
 			f.info.Mode, f.info.Panel = t.Mode, t.Mode
-			if t.Mode == "BM" {
+			if helper.DVDMRFamily(t.Mode) {
 				f.info.Mode = "DMR"
 			}
 		}
@@ -166,8 +173,10 @@ func TestDVSnapshotRolesAndContent(t *testing.T) {
 	if b.Mode != "YSF" || b.Tune != "192.0.2.10:42000" || b.TargetName != "Example room" || b.Source != "abinfo" || b.Slot != 2 || !b.Muted {
 		t.Errorf("bridge: %+v", b)
 	}
-	if len(sn.Modes) != 5 || sn.Modes[0] != (api.DVModeView{ID: "BM", Enabled: false, Unlink: "4000"}) || sn.Modes[1] != (api.DVModeView{ID: "DMR", Enabled: true, Unlink: "4000"}) ||
-		sn.Modes[2].Unlink != "disconnect" || sn.Modes[3].Enabled || sn.Modes[4].Unlink != "9999" {
+	if len(sn.Modes) != 6 || sn.Modes[0] != (api.DVModeView{ID: "BM", Enabled: false, Unlink: "4000", Label: "BrandMeister"}) ||
+		sn.Modes[1] != (api.DVModeView{ID: "TGIF", Enabled: false, Unlink: "4000", Label: "TGIF"}) ||
+		sn.Modes[2] != (api.DVModeView{ID: "DMR", Enabled: true, Unlink: "4000", Label: "DMR - Other"}) ||
+		sn.Modes[3].Unlink != "disconnect" || sn.Modes[4].Enabled || sn.Modes[5].Unlink != "9999" {
 		t.Errorf("modes: %+v", sn.Modes)
 	}
 	// ysfgateway is enabled (YSF) but down; p25gateway is not enabled; netcheck is not shown
@@ -803,12 +812,83 @@ func TestDVModeBMNeedsConfiguration(t *testing.T) {
 	f := newCtlDV()
 	e := ctlEnv(t, f)
 	expectErr(t, e, "op", "POST", "/api/dvswitch/mode", map[string]any{"mode": "BM"}, 409, "mode_disabled")
-	f.set(func(f *ctlDV) { f.bm = true })
+	// configured but disabled on its card: still refused, and not offered
+	f.set(func(f *ctlDV) { f.bmOff = true })
+	expectErr(t, e, "op", "POST", "/api/dvswitch/mode", map[string]any{"mode": "BM"}, 409, "mode_disabled")
+	var sn api.DVSnapshot
+	if e.do("viewer", "GET", "/api/dvswitch/snapshot", nil, &sn); len(sn.Modes) == 0 || sn.Modes[0].Enabled {
+		t.Fatalf("disabled BM offered: %+v", sn.Modes)
+	}
+	f.set(func(f *ctlDV) { f.bm, f.bmOff = true, false })
 	var rep struct{ Snapshot api.DVSnapshot }
 	if c := e.do("op", "POST", "/api/dvswitch/mode", map[string]any{"mode": "bm"}, &rep); c != 200 || rep.Snapshot.Bridge.Mode != "BM" {
 		t.Fatalf("%d %+v", c, rep.Snapshot.Bridge)
 	}
 	if tn := f.lastTunes(); len(tn) != 1 || tn[0] != (helper.DVTune{Mode: "BM", Tune: "4000"}) {
 		t.Fatalf("%+v", tn)
+	}
+}
+
+// The panel's mode buttons follow the cards: a mode disabled on its card is
+// refused (409 mode_disabled) and not offered; each DMR network is its own
+// mode with its own label.
+func TestDVModeFollowsCards(t *testing.T) {
+	f := newCtlDV()
+	f.modes = helper.DVModesView{}
+	e := ctlEnv(t, f)
+	for _, m := range []string{"BM", "TGIF", "DMR", "YSF", "P25", "NXDN"} {
+		expectErr(t, e, "op", "POST", "/api/dvswitch/mode", map[string]any{"mode": m}, 409, "mode_disabled")
+	}
+	if n := len(f.lastTunes()); n != 0 {
+		t.Fatalf("a disabled mode reached the helper: %d", n)
+	}
+	f.set(func(f *ctlDV) { f.modes = helper.DVModesView{DMR: true, NXDN: true}; f.tgif = true })
+	time.Sleep(450 * time.Millisecond)
+	var sn api.DVSnapshot
+	e.do("viewer", "GET", "/api/dvswitch/snapshot", nil, &sn)
+	on := map[string]bool{}
+	var ids []string
+	for _, m := range sn.Modes {
+		on[m.ID] = m.Enabled
+		ids = append(ids, m.ID)
+		if want := map[string]string{"BM": "BrandMeister", "TGIF": "TGIF", "DMR": "DMR - Other"}[m.ID]; want != "" && m.Label != want {
+			t.Errorf("%s label %q", m.ID, m.Label)
+		}
+	}
+	if strings.Join(ids, ",") != "BM,TGIF,DMR,YSF,P25,NXDN" {
+		t.Errorf("modes %v", ids)
+	}
+	if on["BM"] || !on["TGIF"] || !on["DMR"] || on["YSF"] || on["P25"] || !on["NXDN"] {
+		t.Fatalf("%+v", sn.Modes)
+	}
+	var rep struct{ Snapshot api.DVSnapshot }
+	if c := e.do("op", "POST", "/api/dvswitch/mode", map[string]any{"mode": "NXDN"}, &rep); c != 200 {
+		t.Fatalf("NXDN: %d", c)
+	}
+	expectErr(t, e, "op", "POST", "/api/dvswitch/mode", map[string]any{"mode": "YSF"}, 409, "mode_disabled")
+}
+
+// Each DMR network remembers its own talkgroup: TGIF's under PerMode
+// "TGIF", DMR - Other's under "DMR"; a switch between them keeps both.
+func TestDVNetworksRememberOwnTG(t *testing.T) {
+	f := newCtlDV()
+	f.tgif = true
+	f.info = helper.DVSwitchInfo{Found: true, Mode: "DMR", Panel: "DMR", TG: "91", Tune: "91", Slot: "2"}
+	_, tr, post := trackedCtl(t, f)
+	if got := tr.Get().PerMode["DMR"].Tune; got != "91" {
+		t.Fatalf("DMR not remembered: %q", got)
+	}
+	post("/api/dvswitch/tune", map[string]any{"mode": "TGIF", "tune": "31665"})
+	v := tr.Get()
+	if v.PerMode["TGIF"].Tune != "31665" || v.PerMode["DMR"].Tune != "91" || v.LastMode != "TGIF" {
+		t.Fatalf("%+v", v)
+	}
+	// back to DMR - Other: its own talkgroup is what it tunes to
+	post("/api/dvswitch/mode", map[string]any{"mode": "DMR"})
+	if tn := f.lastTunes(); len(tn) == 0 || tn[len(tn)-1] != (helper.DVTune{Mode: "DMR", Tune: "91"}) {
+		t.Fatalf("%+v", tn)
+	}
+	if v := tr.Get(); v.PerMode["TGIF"].Tune != "31665" || v.LastMode != "DMR" {
+		t.Fatalf("%+v", v)
 	}
 }

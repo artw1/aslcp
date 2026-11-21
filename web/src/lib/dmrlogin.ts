@@ -41,7 +41,7 @@ export function outcomeFor(s: DVDMRStatus, last: boolean): Outcome | null {
     case 'timed_out': case 'socket_failed': return { kind: 'error', message: MSG_NO_ANSWER };
     case 'idle': return { kind: 'info', message: 'STFU is stopped while BrandMeister is not the active mode. It logs in when you switch to BM.' };
     case 'not_running': return { kind: 'warn', message: `${s.via === 'stfu' ? 'stfu' : 'mmdvm_bridge'} is not running, so there is no login to check.`, needStart: true };
-    case 'disabled': return { kind: 'info', message: s.via === 'stfu' ? 'BrandMeister is not enabled, so STFU does not log in.' : 'DMR - Other is disabled, so the bridge does not log in.' };
+    case 'disabled': return { kind: 'info', message: s.via === 'stfu' ? 'BrandMeister is not enabled, so STFU does not log in.' : 'No MMDVM_Bridge DMR network (TGIF, DMR - Other) is enabled, so the bridge does not log in.' };
     case 'not_installed': return { kind: 'info', message: s.via === 'stfu' ? 'STFU is not installed.' : 'MMDVM_Bridge is not installed.' };
     case 'master_closing': return last ? { kind: 'warn', message: 'The master is closing down. Try again in a moment.' } : null;
     default: return last ? { kind: 'warn', message: MSG_PENDING } : null;

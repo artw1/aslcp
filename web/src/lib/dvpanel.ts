@@ -1,12 +1,15 @@
 // Pure logic of the dashboard DVSwitch card (docs/DVSWITCH.md "Dashboard card"): the state line,
 // favourite and tune validation (the same rules as the server), and the pending/confirm logic.
+import { isDVNetwork, networkLabel } from './dvnetworks.ts';
 import type { DVBridge, DVCaller, DVFavorite, DVSnapshot, DVTuneMode, NodeStatus } from './types';
 
-export const PANEL_MODES: DVTuneMode[] = ['BM', 'DMR', 'YSF', 'P25', 'NXDN'];
-/** BM (BrandMeister through STFU) and DMR (DMR - Other through MMDVM_Bridge) are both DMR on the air: talkgroups, private calls. */
-export const isDMRFamily = (mode: string): boolean => mode === 'BM' || mode === 'DMR';
-/** The name of a panel mode: "BrandMeister" for BM, else the mode itself. */
-export const modeLabel = (mode: string): string => (mode === 'BM' ? 'BrandMeister' : mode);
+export { PANEL_MODES } from './dvnetworks.ts';
+/** The DMR networks (BrandMeister, TGIF, DMR - Other; web/src/lib/dvnetworks.ts) are all DMR on the air: talkgroups, private calls. */
+export const isDMRFamily = (mode: string): boolean => isDVNetwork(mode);
+/** The name of a panel mode: the registry label of a DMR network ("BrandMeister", "TGIF", "DMR - Other"), else the mode itself. */
+export const modeLabel = (mode: string): string => networkLabel(mode);
+/** The name of a panel mode button: the snapshot's label when it has one, else modeLabel. */
+export const modeButtonLabel = (m: { id: string; label?: string }): string => m.label || modeLabel(m.id);
 /** How long a mode switch may stay unconfirmed before the card says so. */
 export const CONFIRM_MS = 5000;
 export const FAV_NAME_MAX = 40;
@@ -54,12 +57,12 @@ export function validFavName(name: string): string | null {
   return n >= 1 && n <= FAV_NAME_MAX && printable(t) ? t : null;
 }
 
-/** Same rules as the server's tune validator: BM and DMR TG 1-8 digits (a trailing # makes it a private call), P25 and NXDN 1-5 digits, YSF a 5-digit id, a name or host:port. */
+/** Same rules as the server's tune validator: a DMR network's TG 1-8 digits (a trailing # makes it a private call), P25 and NXDN 1-5 digits, YSF a 5-digit id, a name or host:port. */
 export function validTune(mode: string, value: string): boolean {
   const v = value.trim();
   if (!v || v.startsWith('-') || v.includes('=')) return false;
+  if (isDMRFamily(mode)) return /^[0-9]{1,8}#?$/.test(v);
   switch (mode) {
-    case 'BM': case 'DMR': return /^[0-9]{1,8}#?$/.test(v);
     case 'P25': case 'NXDN': return /^[0-9]{1,5}$/.test(v);
     case 'YSF': {
       const hp = /^[A-Za-z0-9.-]{1,253}:([0-9]{1,5})$/.exec(v);
@@ -74,9 +77,9 @@ export function validTune(mode: string, value: string): boolean {
 /** BM Parrot: DMR 9990, called as a private call. */
 export const PARROT_ID = '9990';
 export const PRIVATE_MARK = '#';
-/** True for a BM or DMR private call value ("9990#"). */
+/** True for a DMR network's private call value ("9990#"). */
 export const isPrivateTune = (mode: string, value: string): boolean => isDMRFamily(mode) && value.trim().endsWith(PRIVATE_MARK) && validTune(mode, value);
-/** The value to send: BM and DMR get the private mark when asked, other modes never. */
+/** The value to send: the DMR networks get the private mark when asked, other modes never. */
 export function withPrivate(mode: string, value: string, priv: boolean): string {
   const v = value.trim();
   if (!isDMRFamily(mode)) return v;

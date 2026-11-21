@@ -24,6 +24,7 @@ type demoSTFU struct {
 	started   time.Time // install job start
 	stay      bool      // stay logged in outside BM mode (the unit is enabled)
 	pwSet     bool      // BrandMeister saved
+	enabled   bool      // BrandMeister enabled in ASLCP (off by default)
 	server    string
 	alias     string
 	startTG   string
@@ -31,10 +32,11 @@ type demoSTFU struct {
 }
 
 // stfuRunning: the simulated stfu unit runs (caller holds d.mu): BrandMeister
-// is saved and either it stays logged in or the panel is in BM mode.
+// is saved and enabled, and either it stays logged in or the panel is in BM
+// mode.
 func (d *DemoDVSwitch) stfuRunning() bool {
 	s := d.stfu()
-	return s.pwSet && (s.stay || d.cfg().live.panel == DVModeBM)
+	return s.pwSet && s.enabled && (s.stay || d.cfg().live.panel == DVModeBM)
 }
 
 func (d *DemoDVSwitch) stfu() *demoSTFU {
@@ -107,7 +109,7 @@ func (d *DemoDVSwitch) DVSwitchSTFUInstall(context.Context) (DVSwitchStatus, err
 // bmView is the setup view part (caller holds d.mu).
 func (d *DemoDVSwitch) bmView() DVBMView {
 	s := d.stfu()
-	v := DVBMView{Installed: s.installed, Enabled: s.stay && s.pwSet, StayLoggedIn: s.stay}
+	v := DVBMView{Installed: s.installed, UnitEnabled: s.stay && s.pwSet && s.enabled, Enabled: s.enabled, StayLoggedIn: s.stay}
 	if !s.installed {
 		return v
 	}
@@ -142,7 +144,7 @@ func (d *DemoDVSwitch) DVSwitchBM(_ context.Context, r DVSwitchRequest) (DVApply
 		if b.StartTG != nil && !reDVTG.MatchString(*b.StartTG) {
 			return DVApplyResult{}, dvInvalid("brandmeister/startTg")
 		}
-	case DVBMClear:
+	case DVBMEnable, DVBMDisable:
 		if b.Server != "" || b.Password != nil || b.TalkerAlias != nil || b.StartTG != nil || b.StayLoggedIn != nil {
 			return DVApplyResult{}, dvInvalid("brandmeister")
 		}
@@ -157,15 +159,29 @@ func (d *DemoDVSwitch) DVSwitchBM(_ context.Context, r DVSwitchRequest) (DVApply
 	s := d.stfu()
 	c := d.cfg()
 	var res DVApplyResult
-	if b.Action == DVBMClear {
-		if !s.stay && !s.pwSet {
+	switch b.Action {
+	case DVBMDisable:
+		if !s.enabled {
 			return dvNoChange(), nil
 		}
-		s.stay, s.pwSet = false, false
+		s.enabled = false // the settings and the password stay
 		if c.live.panel == DVModeBM {
 			c.live.panel = DVModeDMR
 		}
-	} else {
+		return DVApplyResult{Files: []string{DVStateBMEnabled}, Skipped: []string{}, RestartHint: []string{}, Hashes: map[string]string{}}, nil
+	case DVBMEnable:
+		if !s.installed {
+			return DVApplyResult{}, ErrDVSTFUNotInstalled
+		}
+		if !s.pwSet || !reDVDigits7.MatchString(c.identity.DMRID) {
+			return DVApplyResult{}, ErrDVBMNotConfigured
+		}
+		if s.enabled {
+			return dvNoChange(), nil
+		}
+		s.enabled, s.at = true, d.now()
+		return DVApplyResult{Files: []string{DVStateBMEnabled}, Skipped: []string{}, RestartHint: []string{}, Hashes: map[string]string{}, BMLogin: "logged_in"}, nil
+	default:
 		if !s.installed {
 			return DVApplyResult{}, ErrDVSTFUNotInstalled
 		}
@@ -187,8 +203,11 @@ func (d *DemoDVSwitch) DVSwitchBM(_ context.Context, r DVSwitchRequest) (DVApply
 		if b.StayLoggedIn != nil {
 			s.stay = *b.StayLoggedIn
 		}
-		s.pwSet, s.at = true, d.now()
-		res.BMLogin = "logged_in"
+		s.pwSet = true
+		if s.enabled {
+			s.at = d.now()
+			res.BMLogin = "logged_in"
+		}
 	}
 	c.times++
 	if c.hist[DVFileDVSwitch] < dvHistoryKeep {

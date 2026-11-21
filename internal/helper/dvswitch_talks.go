@@ -28,7 +28,7 @@ import (
 
 // Kinds of a talk.
 const (
-	DVTalkDMR = "dmr" // DMR: BrandMeister through STFU, or DMR - Other
+	DVTalkDMR = "dmr" // DMR: BrandMeister through STFU, or an MMDVM_Bridge network (TGIF, DMR - Other)
 	DVTalkYSF = "ysf"
 	DVTalkDV  = "dv" // another digital mode (P25, NXDN)
 )
@@ -152,7 +152,7 @@ func parseABTalks(data []byte, panel string) []DVTalk {
 }
 
 // dvTalkKind maps the bridge's mode (log: YSFN, DMR, P25D, NXDN; panel: YSF,
-// BM, DMR, P25, NXDN) to a kind. The log's ambeMode wins over the panel.
+// a DMR network, P25, NXDN) to a kind. The log's ambeMode wins over the panel.
 func dvTalkKind(mode, panel string) string {
 	m := mode
 	if m == "" {
@@ -161,7 +161,7 @@ func dvTalkKind(mode, panel string) string {
 	switch {
 	case strings.HasPrefix(m, "YSF"):
 		return DVTalkYSF
-	case m == "" || m == "DMR" || m == DVModeBM:
+	case m == "" || DVDMRFamily(m):
 		return DVTalkDMR
 	}
 	return DVTalkDV

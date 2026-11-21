@@ -18,8 +18,9 @@ import (
 
 // The DVSwitch backup part (docs/BACKUP.md): the allowlisted ini files and
 // dvsm.macro, stored as dvswitch/opt/<rel> with owner, group and mode in the
-// manifest, and the record of the private bridge node (backup_dv_private.go,
-// dvswitch/state/privatenode.json). Nothing is redacted. The history copies of the setup page
+// manifest, the record of the private bridge node (backup_dv_private.go,
+// dvswitch/state/privatenode.json) and the DMR network settings
+// (backup_dv_networks.go, dvswitch/state/networks.json). Nothing is redacted. The history copies of the setup page
 // (/var/lib/aslcp-dvswitch-history) are not part of it.
 
 // DVRestorePendingDetail is the step detail when DVSwitch is not installed
@@ -61,6 +62,9 @@ func (o *Ops) dvPartInfo() BackupPartInfo {
 	if fi, err := os.Lstat(o.dvPrivatePath()); err == nil && fi.Mode().IsRegular() && fi.Size() <= dvPrivateMax {
 		p.Size += fi.Size()
 	}
+	if fi, err := os.Lstat(o.dvNetworksPath()); err == nil && fi.Mode().IsRegular() && fi.Size() <= dvNetworksMax {
+		p.Size += fi.Size()
+	}
 	return p
 }
 
@@ -100,11 +104,16 @@ func (o *Ops) collectDVSwitch(c *collector) (bool, error) {
 	} else if ok {
 		added = true
 	}
+	if ok, err := o.collectDVNetworks(c); err != nil {
+		return added, err
+	} else if ok {
+		added = true
+	}
 	return added, nil
 }
 
 func dvHasFiles(m *backup.Manifest) bool {
-	if m.Find(backup.PathDVSwitchPrivate) != nil {
+	if m.Find(backup.PathDVSwitchPrivate) != nil || m.Find(backup.PathDVSwitchNetworks) != nil {
 		return true
 	}
 	for _, rel := range backup.DVSwitchFiles {
@@ -205,16 +214,23 @@ func (o *Ops) restoreDVSwitch(ctx context.Context, sp *spool, m *backup.Manifest
 	// the restored rpt.conf, written by the Asterisk step before this one,
 	// has the node's stanza. Older backups have none.
 	priv, privNode, privNote := o.dvRestoredPrivate(sp, m)
-	if len(items) == 0 && (len(priv) == 0 || !o.dvInstalled()) {
+	// The DMR network settings (dvswitch/state/networks.json): every DMR
+	// network mode's settings and enabled state. Older backups have none.
+	nets, netsNote := dvRestoredNetworks(sp, m)
+	privNote = joinNote(privNote, netsNote)
+	if len(items) == 0 && (len(priv) == 0 && len(nets) == 0 || !o.dvInstalled()) {
 		return privNote, true, nil
 	}
 	if !o.dvInstalled() {
-		if err := o.dvStagePending(items, date, priv); err != nil {
+		if err := o.dvStagePending(items, date, priv, nets); err != nil {
 			return "", false, fmt.Errorf("cannot save the DVSwitch settings: %w", err)
 		}
 		detail = DVRestorePendingDetail
 		if len(priv) > 0 {
 			detail += "; the bridge node record is saved too"
+		}
+		if len(nets) > 0 {
+			detail += "; the DMR network settings are saved too"
 		}
 		return joinNote(detail, privNote), false, nil
 	}
@@ -234,6 +250,13 @@ func (o *Ops) restoreDVSwitch(ctx context.Context, sp *spool, m *backup.Manifest
 			privNote = "the bridge node record could not be restored: " + err.Error()
 		} else {
 			detail += "; bridge node " + privNode + " is managed by ASLCP again"
+		}
+	}
+	if len(nets) > 0 {
+		if err := o.dvWriteNetworks(nets); err != nil {
+			privNote = joinNote(privNote, "the DMR network settings could not be restored: "+err.Error())
+		} else {
+			detail += "; DMR network settings restored"
 		}
 	}
 	detail = joinNote(detail, privNote)
