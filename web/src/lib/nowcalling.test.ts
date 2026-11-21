@@ -1,7 +1,7 @@
 // Run with `npm test`. Placeholder data only.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { agoText, ariaLabel, durationSec, durText, idleLine, mainLine, mmss, placeText, qrzUrl, radioidUrl, sourceLabel, sourceShort, stateAbbrev, stripState } from './nowcalling.ts';
+import { agoText, ariaLabel, durationSec, durText, idleLine, mainLine, mmss, placeText, qrzUrl, radioidUrl, sourceDetail, sourceLabel, sourceShort, stateAbbrev, stripState } from './nowcalling.ts';
 import type { NowCall } from './types';
 
 const base: NowCall = { id: 'a', kind: 'dmr', call: 'N0CALL', first: 'Alex', name: 'Alex Example', city: 'Springfield', state: 'Illinois', country: 'United States', dmrId: '1234567', tg: '91', tgName: 'Example', start: '2026-11-21T10:00:00Z', active: true };
@@ -29,13 +29,29 @@ test('main line leaves out what is unknown', () => {
 });
 
 test('source labels', () => {
-  assert.equal(sourceLabel(base), 'DMR · TG 91 Example');
+  assert.equal(sourceLabel(base), 'DMR · TG 91');
   assert.equal(sourceLabel({ ...base, tgName: '' }), 'DMR · TG 91');
   assert.equal(sourceLabel({ ...base, private: true }), 'DMR · Private call');
   assert.equal(sourceLabel({ ...base, kind: 'ysf', room: 'Example Room' }), 'YSF · Example Room');
   assert.equal(sourceLabel({ ...base, kind: 'allstar' }), 'AllStar');
   assert.equal(sourceShort(base), 'DMR TG 91');
   assert.equal(sourceShort({ ...base, kind: 'ysf', room: 'Room' }), 'YSF Room');
+});
+
+test('source detail for the sheet', () => {
+  assert.equal(
+    sourceDetail({ id: 'n', kind: 'allstar', local: '2001', node: '1998', desc: 'Example hub', start: base.start, active: true }),
+    'AllStar node 2001 · link 1998 (Example hub)',
+  );
+  assert.equal(sourceDetail({ id: 'n', kind: 'allstar', start: base.start, active: true }), 'AllStar');
+  assert.equal(
+    sourceDetail({ ...base, network: 'Example net', tgName: 'Example hub', slot: 2 }),
+    'DVSwitch · Example net · TG 91 Example hub · slot 2',
+  );
+  assert.equal(sourceDetail({ ...base, network: '', tgName: '', slot: undefined }), 'DVSwitch · DMR · TG 91');
+  assert.equal(sourceDetail({ ...base, private: true, slot: 1 }), 'DVSwitch · DMR · private call · slot 1');
+  assert.equal(sourceDetail({ ...base, kind: 'ysf', room: 'Example Room' }), 'DVSwitch · YSF · room Example Room');
+  assert.equal(sourceDetail({ ...base, kind: 'ysf', room: '' }), 'DVSwitch · YSF');
 });
 
 test('links', () => {
@@ -80,5 +96,5 @@ test('strip state and idle line', () => {
   assert.match(ariaLabel(idle, now), /^Last: N0CALL/);
   const talk = stripState({ current: base, recent: [done] });
   assert.equal(talk.mode, 'talking');
-  assert.match(ariaLabel(talk, Date.parse(base.start) + 65000), /Now calling: N0CALL · Alex · Springfield, IL, DMR · TG 91 Example, 01:05/);
+  assert.match(ariaLabel(talk, Date.parse(base.start) + 65000), /Now calling: N0CALL · Alex · Springfield, IL, DMR · TG 91, 01:05/);
 });

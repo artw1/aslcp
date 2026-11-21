@@ -1,6 +1,6 @@
 <script lang="ts">
   import { app, clock } from '../lib/store.svelte';
-  import { agoText, ariaLabel, durationSec, durText, idleLine, mainLine, mmss, placeFull, qrzUrl, radioidUrl, sinceSec, sourceLabel, sourceShort, stripState, who } from '../lib/nowcalling';
+  import { agoText, ariaLabel, durationSec, durText, idleLine, mainLine, mmss, placeFull, qrzUrl, radioidUrl, sinceSec, sourceDetail, sourceLabel, sourceShort, stripState, who } from '../lib/nowcalling';
   import type { NowCall } from '../lib/types';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import Clock from '@lucide/svelte/icons/clock';
@@ -60,15 +60,7 @@
         {@const c = shown}
         <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5">
           <dt class="text-muted">Source</dt>
-          <dd class="break-words">
-            {#if c.kind === 'allstar'}
-              AllStar{c.local ? ` node ${c.local}` : ''}{#if c.node} · link {c.node}{c.desc ? ` (${c.desc})` : ''}{/if}
-            {:else if c.kind === 'dmr'}
-              DVSwitch · {c.network || 'DMR'}{#if c.private} · private call{:else if c.tg} · TG {c.tg}{c.tgName ? ` ${c.tgName}` : ''}{/if}{c.slot ? ` · slot ${c.slot}` : ''}
-            {:else}
-              DVSwitch · YSF{c.room ? ` · room ${c.room}` : ''}
-            {/if}
-          </dd>
+          <dd class="break-words">{sourceDetail(c)}</dd>
           <dt class="text-muted">Callsign</dt><dd class="font-semibold">{who(c)}</dd>
           {#if c.name}<dt class="text-muted">Name</dt><dd>{c.name}</dd>{/if}
           {#if placeFull(c) || c.location}<dt class="text-muted">Place</dt><dd>{placeFull(c) || c.location}</dd>{/if}
