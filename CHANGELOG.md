@@ -12,6 +12,7 @@ Release notes are taken from the section of the tag being released
 
 ### Changed
 - The demo mode (`--demo`) shows sample talkers in the Now Calling strip.
+- The demo mode keys only one link at a time across its nodes, like a real system, so the Now Calling strip shows one talker that matches the keyed row.
 
 ## [1.3.4] - 2026-11-20
 

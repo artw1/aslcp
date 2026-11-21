@@ -8,6 +8,14 @@ const SCRIPT: { at: number; len: number; c: MockCall }[] = [
   { at: 30, len: 8, c: { id: 'ysf', kind: 'ysf', call: 'N0TEST', first: '', name: '', city: '', state: '', country: '', room: 'Example Room' } },
 ];
 const CYCLE = 40;
+// The single shared timeline: the one link that is keyed right now, or null. The DMR and YSF talkers come in through
+// the DVSwitch bridge link (node 1900) and the AllStar talker is the hub link 1998, all on local node 2001.
+export const BRIDGE_NODE = '1900';
+export function talkerLink(now = Date.now()): { local: string; node: string; len: number } | null {
+  const c = (nowCalling(now).current as MockCall | null);
+  if (!c) return null;
+  return { local: '2001', node: c.kind === 'allstar' ? c.node! : BRIDGE_NODE, len: SCRIPT.find((s) => c.id.startsWith(s.c.id + '-'))?.len ?? 0 };
+}
 const iso = (ms: number) => new Date(ms).toISOString();
 
 export function nowCalling(now = Date.now()) {

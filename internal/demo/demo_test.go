@@ -2,6 +2,7 @@ package demo
 
 import (
 	"context"
+	"math/rand/v2"
 	"testing"
 	"time"
 
@@ -114,5 +115,36 @@ func TestNodeList(t *testing.T) {
 		if !seen[n] {
 			t.Errorf("missing %s", n)
 		}
+	}
+}
+
+// Only one link may be keyed at a time across all local nodes.
+func TestOneKeyedLinkAtATime(t *testing.T) {
+	now := time.Now()
+	s := &Sim{nodes: map[string]*nodeState{}, sessions: map[*session]struct{}{}, rng: rand.New(rand.NewPCG(1, 2))}
+	for _, id := range LocalNodes {
+		s.nodes[id] = &nodeState{id: id, nextRx: now.Add(time.Hour)}
+	}
+	s.addLink("2006", "50241", 'T', true, "192.0.2.58", now.Add(-time.Minute))
+	s.addLink("2006", "2000", 'T', true, "192.0.2.59", now.Add(-time.Minute))
+	s.addLink("2007", "2001", 'T', true, "192.0.2.60", now.Add(-time.Minute))
+	keyedSeen := false
+	for i := 0; i < 2000; i++ {
+		s.step(now.Add(time.Duration(i) * 500 * time.Millisecond))
+		k := 0
+		for _, n := range s.nodes {
+			for _, l := range n.links {
+				if l.keyed {
+					k++
+				}
+			}
+		}
+		if k > 1 {
+			t.Fatalf("step %d: %d links keyed", i, k)
+		}
+		keyedSeen = keyedSeen || k == 1
+	}
+	if !keyedSeen {
+		t.Fatal("nothing ever keyed")
 	}
 }
