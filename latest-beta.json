@@ -1,5 +1,5 @@
 {
   "version": "1.3.9",
-  "notes": "1.3.9: Now Calling ignores unlinked DVSwitch traffic (#17)\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01WyFLnHQojhM4Jvfwzs5euQ",
+  "notes": "### Fixed\n- Now Calling no longer shows DVSwitch traffic while the DVSwitch node is not linked to a local node.",
   "date": "2026-11-21"
 }
