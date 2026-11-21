@@ -197,8 +197,8 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return o.DVSwitchCredentials(ctx, req.DVSwitch)
 	case OpDVSwitchModes:
 		return o.DVSwitchModes(ctx, req.DVSwitch)
-	case OpDVSwitchStartup:
-		return o.DVSwitchStartup(ctx, req.DVSwitch)
+	case OpDVSwitchBootMode:
+		return o.DVSwitchBootMode(ctx, req.DVSwitch)
 	case OpDVSwitchRollback:
 		return o.DVSwitchRollback(ctx, req.DVSwitch)
 	case OpDVSwitchRestart:

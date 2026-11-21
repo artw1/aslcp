@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, isDMRFamily, isPrivateTune, modeLabel, nodeLabel, nodeLinkClass, pendingOutcome, rxCaller, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate } from './dvpanel.ts';
+import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, pendingOutcome, rxCaller, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate } from './dvpanel.ts';
 import type { DVFavorite, DVSnapshot } from './types';
 
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
@@ -258,6 +258,8 @@ test('BrandMeister and DMR - Other: both DMR on the air, each with its own label
   assert.ok(isDMRFamily('BM') && isDMRFamily('DMR') && !isDMRFamily('YSF') && !isDMRFamily(''));
   assert.equal(modeLabel('BM'), 'BrandMeister');
   assert.equal(modeLabel('DMR'), 'DMR');
+  assert.equal(modeButtonLabel({ id: 'DMR', label: 'TGIF' }), 'TGIF');
+  assert.equal(modeButtonLabel({ id: 'BM' }), 'BrandMeister');
   assert.ok(validTune('BM', '91') && !validTune('BM', '123456789'));
   assert.equal(withPrivate('BM', '1234567', true), '1234567#');
   assert.ok(isPrivateTune('BM', '1234567#'));

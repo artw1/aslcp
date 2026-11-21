@@ -27,6 +27,7 @@ type fakeDV struct {
 	tuneCalls                      int
 	lastTune                       helper.DVTune
 	tuneErr                        error
+	profileChanged                 bool // DVSwitchModes reports a DMR profile switch
 
 	// private bridge node (M2)
 	mu         sync.Mutex
@@ -113,7 +114,7 @@ func (f *fakeDV) rec(r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
 	if f.cfgErr != nil {
 		return helper.DVApplyResult{}, f.cfgErr
 	}
-	return helper.DVApplyResult{Files: []string{"mmdvm_bridge"}, RestartHint: []string{"mmdvm_bridge"}}, nil
+	return helper.DVApplyResult{Files: []string{"mmdvm_bridge"}, RestartHint: []string{"mmdvm_bridge"}, DMRProfileChanged: f.profileChanged && r.Modes != nil}, nil
 }
 func (f *fakeDV) DVSwitchSetup(context.Context) (helper.DVSwitchSetup, error) {
 	f.mu.Lock()
@@ -138,8 +139,9 @@ func (f *fakeDV) DVSwitchCredentials(_ context.Context, r helper.DVSwitchRequest
 func (f *fakeDV) DVSwitchModes(_ context.Context, r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
 	return f.rec(r)
 }
-func (f *fakeDV) DVSwitchStartup(_ context.Context, r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
-	return f.rec(r)
+func (f *fakeDV) DVSwitchBootMode(_ context.Context, mode string) (helper.DVApplyResult, error) {
+	f.note("bootmode:" + mode)
+	return helper.DVApplyResult{}, f.cfgErr
 }
 func (f *fakeDV) DVSwitchRollback(_ context.Context, r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
 	f.note("rollback")
@@ -270,10 +272,10 @@ var dvCfgEndpoints = [][3]string{
 	{"PUT", "/api/dvswitch/identity", `{"callsign":"N0CALL","dmrId":"1234567","essid":"01"}`},
 	{"PUT", "/api/dvswitch/credentials", `{"dmrPassword":"example-pass"}`},
 	{"PUT", "/api/dvswitch/modes", `{"dmr":true}`},
-	{"PUT", "/api/dvswitch/startup", `{"txTg":"9"}`},
 	{"PUT", "/api/dvswitch/brandmeister", `{"server":"3102.repeater.net"}`},
-	{"DELETE", "/api/dvswitch/brandmeister", ""},
-	{"DELETE", "/api/dvswitch/dmr-connection", ""},
+	{"PUT", "/api/dvswitch/brandmeister/enabled", `{"enabled":true}`},
+	{"PUT", "/api/dvswitch/tgif", `{"password":"example-pass"}`},
+	{"PUT", "/api/dvswitch/tgif/enabled", `{"enabled":true}`},
 	{"POST", "/api/dvswitch/restart", `{"scope":"all"}`},
 	{"POST", "/api/dvswitch/rollback", `{"file":"analog_bridge"}`},
 }
@@ -539,7 +541,7 @@ func TestDVSwitchEmptyWritesAreNoOps(t *testing.T) {
 	for _, ep := range []struct{ path, body string }{
 		{"/api/dvswitch/credentials", `{"base":{}}`},
 		{"/api/dvswitch/modes", `{}`},
-		{"/api/dvswitch/startup", `{}`},
+		{"/api/dvswitch/tgif", `{"address":"192.0.2.10"}`},
 	} {
 		var body map[string]any
 		_ = json.Unmarshal([]byte(ep.body), &body)
@@ -629,16 +631,18 @@ func TestDVSwitchResumeRoles(t *testing.T) {
 	expectErr(t, newEnv(t, opts{}), "op", "GET", "/api/dvswitch/resume", nil, 503, "dvswitch_unavailable")
 }
 
-// useCurrent is gone: the field is ignored (a no-op request) and the helper
-// is not called.
-func TestDVSwitchStartupUseCurrentRemoved(t *testing.T) {
+// The startup endpoint, the BrandMeister clear and the DMR - Other clear
+// are gone.
+func TestDVSwitchRemovedEndpoints(t *testing.T) {
 	f := &fakeDV{}
 	e := newEnv(t, opts{dvswitch: f})
-	if c := e.do("admin", "PUT", "/api/dvswitch/startup", map[string]any{"useCurrent": true}, nil); c != 200 {
-		t.Fatalf("%d", c)
+	for _, r := range [][2]string{{"PUT", "/api/dvswitch/startup"}, {"DELETE", "/api/dvswitch/brandmeister"}, {"DELETE", "/api/dvswitch/dmr-connection"}, {"PUT", "/api/dvswitch/dmr-connection"}} {
+		if c := e.do("admin", r[0], r[1], map[string]any{"txTg": "9"}, nil); c == 200 {
+			t.Errorf("%s %s still served", r[0], r[1])
+		}
 	}
 	if f.calls != 0 {
-		t.Fatal("useCurrent reached the helper")
+		t.Fatal("a removed endpoint reached the helper")
 	}
 }
 
@@ -670,15 +674,19 @@ func TestDVSwitchBrandMeister(t *testing.T) {
 	if aud, _ := e.st.ListAudit(50); !strings.Contains(fmt.Sprint(aud), "dvswitch.brandmeister.stay") {
 		t.Error("audit lacks dvswitch.brandmeister.stay")
 	}
-	if c := e.do("admin", "DELETE", "/api/dvswitch/brandmeister", nil, nil); c != 200 || f.last.BM == nil || f.last.BM.Action != helper.DVBMClear {
-		t.Fatalf("clear: %d %+v", c, f.last)
+	// disable and enable: no other field
+	if c := e.do("admin", "PUT", "/api/dvswitch/brandmeister/enabled", map[string]any{"enabled": false}, nil); c != 200 || f.last.BM == nil || f.last.BM.Action != helper.DVBMDisable {
+		t.Fatalf("disable: %d %+v", c, f.last)
 	}
-	if c := e.do("admin", "DELETE", "/api/dvswitch/dmr-connection", nil, nil); c != 200 || f.last.Modes == nil || f.last.Modes.DMR == nil || *f.last.Modes.DMR {
-		t.Fatalf("dmr clear: %d %+v", c, f.last)
+	if c := e.do("admin", "PUT", "/api/dvswitch/brandmeister/enabled", map[string]any{"enabled": true}, nil); c != 200 || f.last.BM == nil || f.last.BM.Action != helper.DVBMEnable ||
+		f.last.BM.Password != nil || f.last.BM.Server != "" {
+		t.Fatalf("enable: %d %+v", c, f.last)
 	}
-	// the old endpoint is gone
-	if c := e.do("admin", "PUT", "/api/dvswitch/dmr-connection", map[string]any{"via": "stfu"}, nil); c == 200 {
-		t.Fatal("PUT dmr-connection still served")
+	expectErr(t, e, "admin", "PUT", "/api/dvswitch/brandmeister/enabled", map[string]any{}, 400, "invalid_field")
+	// DMR - Other's Disable is the modes endpoint, Other's profile
+	if c := e.do("admin", "PUT", "/api/dvswitch/modes", map[string]any{"dmr": false}, nil); c != 200 || f.last.Modes == nil || f.last.Modes.DMR == nil || *f.last.Modes.DMR ||
+		f.last.Modes.DMRProfile != helper.DVProfileOther {
+		t.Fatalf("dmr disable: %d %+v", c, f.last.Modes)
 	}
 	aud, _ := e.st.ListAudit(50)
 	var saw []string
@@ -688,7 +696,7 @@ func TestDVSwitchBrandMeister(t *testing.T) {
 		}
 		saw = append(saw, a.Action)
 	}
-	for _, w := range []string{"dvswitch.brandmeister", "dvswitch.brandmeister.clear", "dvswitch.dmr_connection.clear"} {
+	for _, w := range []string{"dvswitch.brandmeister", "dvswitch.brandmeister.disable", "dvswitch.brandmeister.enable", "dvswitch.modes"} {
 		if !strings.Contains(strings.Join(saw, ","), w) {
 			t.Errorf("audit lacks %s: %v", w, saw)
 		}
@@ -699,4 +707,49 @@ func TestDVSwitchBrandMeister(t *testing.T) {
 		}
 	}
 	t.Error("audit lacks the password key (only the key, never the value)")
+}
+
+func TestDVSwitchTGIF(t *testing.T) {
+	f := &fakeDV{}
+	e := newEnv(t, opts{dvswitch: f})
+	code, raw, _ := e.raw("PUT", "/api/dvswitch/tgif", map[string]any{"password": "example-pass", "base": map[string]string{"mmdvm_bridge": "ab01"}}, e.ck["admin"], nil)
+	if code != 200 || strings.Contains(string(raw), "example-pass") {
+		t.Fatalf("%d %s", code, raw)
+	}
+	c := f.last.Credentials
+	if c == nil || c.Profile != helper.DVProfileTGIF || c.Password == nil || *c.Password != "example-pass" || c.Address != nil || c.Port != nil || f.last.Base["mmdvm_bridge"] != "ab01" {
+		t.Fatalf("%+v", f.last)
+	}
+	expectErr(t, e, "admin", "PUT", "/api/dvswitch/tgif", map[string]any{"password": "example-pass", "clearPassword": true}, 400, "invalid_field")
+	if code := e.do("admin", "PUT", "/api/dvswitch/tgif", map[string]any{"clearPassword": true}, nil); code != 200 || !f.last.Credentials.ClearPassword {
+		t.Fatalf("clear: %d %+v", code, f.last.Credentials)
+	}
+	// DMR - Other's credentials go to the other profile
+	if code := e.do("admin", "PUT", "/api/dvswitch/credentials", map[string]any{"dmrAddress": "192.0.2.21"}, nil); code != 200 || f.last.Credentials.Profile != helper.DVProfileOther {
+		t.Fatalf("other: %d %+v", code, f.last.Credentials)
+	}
+	// enable TGIF: DMR on with the TGIF profile
+	if code := e.do("admin", "PUT", "/api/dvswitch/tgif/enabled", map[string]any{"enabled": true}, nil); code != 200 || f.last.Modes == nil ||
+		f.last.Modes.DMR == nil || !*f.last.Modes.DMR || f.last.Modes.DMRProfile != helper.DVProfileTGIF || f.last.Modes.YSF != nil {
+		t.Fatalf("enable: %d %+v", code, f.last.Modes)
+	}
+	expectErr(t, e, "admin", "PUT", "/api/dvswitch/tgif/enabled", map[string]any{}, 400, "invalid_field")
+	for _, role := range []string{"viewer", "op"} {
+		if code := e.do(role, "PUT", "/api/dvswitch/tgif/enabled", map[string]any{"enabled": true}, nil); code != 403 {
+			t.Errorf("%s: %d", role, code)
+		}
+	}
+	aud, _ := e.st.ListAudit(50)
+	var saw []string
+	for _, a := range aud {
+		if strings.Contains(a.Detail, "example-pass") {
+			t.Errorf("audit leaks a password: %+v", a)
+		}
+		saw = append(saw, a.Action)
+	}
+	for _, w := range []string{"dvswitch.tgif", "dvswitch.tgif.enabled"} {
+		if !strings.Contains(strings.Join(saw, ","), w) {
+			t.Errorf("audit lacks %s: %v", w, saw)
+		}
+	}
 }

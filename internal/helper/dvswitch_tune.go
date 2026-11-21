@@ -361,7 +361,7 @@ func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneRes
 		return DVTuneResult{}, err
 	}
 	t := req.Tune
-	if t == nil || req.Identity != nil || req.Credentials != nil || req.Modes != nil || req.Startup != nil {
+	if t == nil || req.Identity != nil || req.Credentials != nil || req.Modes != nil {
 		return DVTuneResult{}, errors.New("invalid request: tune only")
 	}
 	ok := false
@@ -370,6 +370,11 @@ func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneRes
 	}
 	if !ok {
 		return DVTuneResult{}, dvInvalid("tune/mode")
+	}
+	// A disabled BrandMeister never starts stfu, whoever asks (the panel,
+	// the resume after a restart).
+	if t.Mode == DVModeBM && !o.dvBMEnabled() {
+		return DVTuneResult{}, ErrDVModeDisabled
 	}
 	if t.ModeOnly {
 		if t.Tune != "" {
@@ -411,7 +416,7 @@ func (o *Ops) DVSwitchTune(ctx context.Context, req *DVSwitchRequest) (DVTuneRes
 	// On demand STFU logs in only while the panel is in BM: start it and wait
 	// for the login before Analog_Bridge is pointed at it. Whether it was
 	// reached is reported, never fatal.
-	if t.Mode == DVModeBM && !o.dvSTFUStay() {
+	if t.Mode == DVModeBM && !o.dvSTFUStayOn() {
 		res.BMLoginPending = o.dvSTFUEnsure(ctx, DVPanelMode(info) == DVModeBM)
 	}
 	if cur := DVPanelMode(info); cur != t.Mode {

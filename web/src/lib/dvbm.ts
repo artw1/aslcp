@@ -46,8 +46,11 @@ export function bmOptions(items: DVListItem[]): DVListItem[] {
   return items.filter(isBMItem).map((it) => ({ ...it, value: it.address, port: STFU_PORT }));
 }
 
-/** The DMR - Other master picker: every entry but the BrandMeister ones. */
-export const otherOptions = (items: DVListItem[]): DVListItem[] => items.filter((it) => !isBMItem(it));
+/** A TGIF master of DMR_Hosts.txt (a name starting with TGIF, any case): it belongs to the TGIF card. */
+export const isTGIFItem = (it: DVListItem): boolean => it.name.toUpperCase().startsWith('TGIF');
+
+/** The DMR - Other master picker: every entry but the BrandMeister and the TGIF ones. */
+export const otherOptions = (items: DVListItem[]): DVListItem[] => items.filter((it) => !isBMItem(it) && !isTGIFItem(it));
 
 export interface BMForm { server: string; password: string; talkerAlias: string; startTg: string; stayLoggedIn: boolean }
 

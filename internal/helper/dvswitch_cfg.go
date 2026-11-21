@@ -33,7 +33,7 @@ const (
 	OpDVSwitchIdentity    = "dvswitch-identity"    // callsign, DMR ID, ESSID everywhere, optional NXDN ID
 	OpDVSwitchCredentials = "dvswitch-credentials" // DMR master address, port, password
 	OpDVSwitchModes       = "dvswitch-modes"       // enable flags
-	OpDVSwitchStartup     = "dvswitch-startup"     // ambeMode/txTg/txTs/colorCode, gateway Startup
+	OpDVSwitchBootMode    = "dvswitch-bootmode"    // internal: ambeMode and ports follow the last mode, gateway Startup blank
 	OpDVSwitchRollback    = "dvswitch-rollback"    // newest history copy of one file
 	OpDVSwitchRestart     = "dvswitch-restart"     // enum scope and action
 	// OpDVSwitchLists (dvswitch_lists.go) is the host and TG lists of the pickers.
@@ -41,7 +41,7 @@ const (
 
 func isDVConfigOp(op string) bool {
 	switch op {
-	case OpDVSwitchIdentity, OpDVSwitchCredentials, OpDVSwitchModes, OpDVSwitchStartup, OpDVSwitchRollback, OpDVSwitchRestart, OpDVSwitchLists, OpDVSwitchTune, OpDVSwitchUSRP, OpDVSwitchPrivate, OpDVSwitchBM:
+	case OpDVSwitchIdentity, OpDVSwitchCredentials, OpDVSwitchModes, OpDVSwitchBootMode, OpDVSwitchRollback, OpDVSwitchRestart, OpDVSwitchLists, OpDVSwitchTune, OpDVSwitchUSRP, OpDVSwitchPrivate, OpDVSwitchBM:
 		return true
 	}
 	return false
@@ -165,6 +165,10 @@ func vYSFStartup(s string) bool {
 var dvAmbeModes = map[string]bool{"DMR": true, "YSFN": true, "YSFW": true, "P25": true, "NXDN": true}
 
 func vMatch(re *regexp.Regexp) func(string) bool { return re.MatchString }
+
+// vBlank: the gateways' [Network] Startup is only ever blanked (DVSwitch
+// starts in the last mode, ASLCP re-tunes the last reflector).
+func vBlank(s string) bool { return s == "" }
 func vOrEmpty(re *regexp.Regexp) func(string) bool {
 	return func(s string) bool { return s == "" || re.MatchString(s) }
 }
@@ -201,9 +205,8 @@ var dvAllow = func() map[dvKey]func(string) bool {
 		{DVFileAnalogBridge, "AMBE_AUDIO", "gatewayDmrId"}: vMatch(reDVDigits7),
 		{DVFileAnalogBridge, "AMBE_AUDIO", "repeaterID"}:   vMatch(reDVDigits9),
 		{DVFileAnalogBridge, "AMBE_AUDIO", "ambeMode"}:     func(s string) bool { return dvAmbeModes[s] },
-		{DVFileAnalogBridge, "AMBE_AUDIO", "txTg"}:         vMatch(reDVTG),
-		{DVFileAnalogBridge, "AMBE_AUDIO", "txTs"}:         vInt(1, 2),
-		{DVFileAnalogBridge, "AMBE_AUDIO", "colorCode"}:    vInt(0, 15),
+		{DVFileAnalogBridge, "AMBE_AUDIO", "txPort"}:       vInt(1024, 65535),
+		{DVFileAnalogBridge, "AMBE_AUDIO", "rxPort"}:       vInt(1024, 65535),
 
 		{DVFileAnalogBridge, "USRP", "address"}: func(s string) bool { return s == dvUSRPAddress },
 		{DVFileAnalogBridge, "USRP", "rxPort"}:  vInt(1024, 65535),
@@ -224,11 +227,11 @@ var dvAllow = func() map[dvKey]func(string) bool {
 		{DVFileMMDVMBridge, "DMR Network", "Password"}: vPassword,
 		{DVFileYSFGateway, "General", "Callsign"}:      vMatch(reDVCall),
 		{DVFileYSFGateway, "General", "Id"}:            vMatch(reDVDigits7),
-		{DVFileYSFGateway, "Network", "Startup"}:       func(s string) bool { return s == "" || vYSFStartup(s) },
+		{DVFileYSFGateway, "Network", "Startup"}:       vBlank,
 		{DVFileP25Gateway, "General", "Callsign"}:      vMatch(reDVCall),
-		{DVFileP25Gateway, "Network", "Startup"}:       vOrEmpty(reDVRefl),
+		{DVFileP25Gateway, "Network", "Startup"}:       vBlank,
 		{DVFileNXDNGateway, "General", "Callsign"}:     vMatch(reDVCall),
-		{DVFileNXDNGateway, "Network", "Startup"}:      vOrEmpty(reDVRefl),
+		{DVFileNXDNGateway, "Network", "Startup"}:      vBlank,
 
 		{DVFileDVSwitch, dvSTFUSection, "BMAddress"}:   vMatch(reDVHost),
 		{DVFileDVSwitch, dvSTFUSection, "BMPort"}:      vInt(1, 65535),
@@ -259,14 +262,14 @@ type DVSwitchRequest struct {
 	Identity    *DVIdentity    `json:"identity,omitempty"`
 	Credentials *DVCredentials `json:"credentials,omitempty"`
 	Modes       *DVModes       `json:"modes,omitempty"`
-	Startup     *DVStartup     `json:"startup,omitempty"`
 	// File: rollback, a file id.
 	File string `json:"file,omitempty"`
 	// Scope: restart, "bridge", "gateways" or "all". Action: "restart"
 	// (default) or "start".
 	Scope  string `json:"scope,omitempty"`
 	Action string `json:"action,omitempty"`
-	// Mode: lists, "dmr", "ysf", "p25" or "nxdn".
+	// Mode: lists, "dmr", "ysf", "p25" or "nxdn"; bootmode, a panel mode
+	// (BM, DMR, YSF, P25, NXDN).
 	Mode string `json:"mode,omitempty"`
 	// Tune: dvswitch-tune.
 	Tune *DVTune `json:"tune,omitempty"`
@@ -400,6 +403,12 @@ type DVCredentials struct {
 	Port          *int    `json:"port,omitempty"`
 	Password      *string `json:"password,omitempty"`
 	ClearPassword bool    `json:"clearPassword,omitempty"`
+	// Profile: "" or "other" is DMR - Other, "tgif" is TGIF (Password and
+	// ClearPassword only: its master comes from DMR_Hosts.txt). The two share
+	// [DMR Network]; the profile that is not active is kept in the helper's
+	// state (dvswitch_dmrprofile.go) and written to the ini when it is
+	// enabled.
+	Profile string `json:"profile,omitempty"`
 }
 
 // DVModes: nil fields are left alone.
@@ -408,18 +417,11 @@ type DVModes struct {
 	YSF  *bool `json:"ysf,omitempty"`
 	P25  *bool `json:"p25,omitempty"`
 	NXDN *bool `json:"nxdn,omitempty"`
-}
-
-// DVStartup: values Analog_Bridge and the gateways start with. Nil fields are
-// left alone, so each card of the UI saves only its own fields.
-type DVStartup struct {
-	AmbeMode  *string `json:"ambeMode,omitempty"`
-	TxTg      *string `json:"txTg,omitempty"`
-	TxTs      *int    `json:"txTs,omitempty"`
-	ColorCode *int    `json:"colorCode,omitempty"`
-	YSF       *string `json:"ysf,omitempty"`
-	P25       *string `json:"p25,omitempty"`
-	NXDN      *string `json:"nxdn,omitempty"`
+	// DMRProfile ("tgif" or "other", optional) says which DMR profile DMR
+	// refers to. DMR true with a profile that is not active switches
+	// [DMR Network] to it; DMR false with a profile that is not active
+	// changes nothing.
+	DMRProfile string `json:"dmrProfile,omitempty"`
 }
 
 // DVApplyResult is the reply of the write ops. It carries no value.
@@ -437,6 +439,9 @@ type DVApplyResult struct {
 	BMLogin string `json:"bmLogin,omitempty"`
 	// STFUStopFailed: STFU should be stopped again and could not be.
 	STFUStopFailed bool `json:"stfuStopFailed,omitempty"`
+	// DMRProfileChanged: [DMR Network] now holds the other DMR profile (the
+	// server forgets the DMR tune: talkgroups belong to one network).
+	DMRProfileChanged bool `json:"dmrProfileChanged,omitempty"`
 }
 
 type dvChange struct{ file, section, key, value string }
@@ -595,6 +600,16 @@ func (o *Ops) dvBusy(ctx context.Context) bool {
 // not exist: the core files (Analog_Bridge, MMDVM_Bridge) make the op fail
 // with ErrDVNotInstalled, a gateway file is skipped.
 func (o *Ops) dvApply(ctx context.Context, changes []dvChange, base map[string]string) (DVApplyResult, error) {
+	return o.dvApplyOpt(ctx, changes, base, dvApplyOpts{})
+}
+
+// dvApplyOpts: noHistory writes without a history copy (internal writes the
+// user did not make: the boot mode, the install defaults; they stay out of
+// the rollback list). noBusy skips the busy check: for the steps that run
+// inside the install job itself.
+type dvApplyOpts struct{ noHistory, noBusy bool }
+
+func (o *Ops) dvApplyOpt(ctx context.Context, changes []dvChange, base map[string]string, opt dvApplyOpts) (DVApplyResult, error) {
 	res := DVApplyResult{Files: []string{}, Skipped: []string{}, RestartHint: []string{}, Hashes: map[string]string{}}
 	for _, c := range changes {
 		ok := false
@@ -613,7 +628,7 @@ func (o *Ops) dvApply(ctx context.Context, changes []dvChange, base map[string]s
 	}
 	o.applyMu.Lock()
 	defer o.applyMu.Unlock()
-	if o.dvBusy(ctx) {
+	if !opt.noBusy && o.dvBusy(ctx) {
 		return res, ErrBusy
 	}
 
@@ -659,7 +674,8 @@ func (o *Ops) dvApply(ctx context.Context, changes []dvChange, base map[string]s
 				// case-insensitive file: replace the line as it is spelled
 				c.key = w.f.KeyFold(c.section, c.key)
 			}
-			if _, exists := w.f.Get(c.section, c.key); !exists && c.value == "" {
+			old, exists := w.f.Get(c.section, c.key)
+			if !exists && c.value == "" {
 				continue // clearing a key that is not there
 			}
 			if _, err := w.f.Set(c.section, c.key, c.value); err != nil {
@@ -668,7 +684,7 @@ func (o *Ops) dvApply(ctx context.Context, changes []dvChange, base map[string]s
 			if h := dvHint(def, c); h != "" {
 				res.RestartHint = addUnit(res.RestartHint, h)
 			}
-			if def.id == DVFileMMDVMBridge && c.key == "Enable" {
+			if def.id == DVFileMMDVMBridge && c.key == "Enable" && old != c.value {
 				res.RestartHint = addUnit(res.RestartHint, "analog_bridge")
 			}
 		}
@@ -692,14 +708,18 @@ func (o *Ops) dvApply(ctx context.Context, changes []dvChange, base map[string]s
 		if string(w.out) == string(w.st.data) {
 			continue
 		}
-		hist, err := o.dvSaveHistory(w.st.def.id, w.st.data)
-		if err != nil {
-			revert()
-			return res, fmt.Errorf("cannot keep a copy of %s: %w", w.st.def.id, err)
+		if !opt.noHistory {
+			hist, err := o.dvSaveHistory(w.st.def.id, w.st.data)
+			if err != nil {
+				revert()
+				return res, fmt.Errorf("cannot keep a copy of %s: %w", w.st.def.id, err)
+			}
+			w.hist = hist
 		}
-		w.hist = hist
 		if err := o.dvWrite(w.st, w.out); err != nil {
-			os.Remove(filepath.Join(o.dvHistDir(w.st.def.id), hist))
+			if w.hist != "" {
+				os.Remove(filepath.Join(o.dvHistDir(w.st.def.id), w.hist))
+			}
 			revert()
 			return res, fmt.Errorf("cannot write %s: %w", w.st.def.id, err)
 		}
@@ -776,7 +796,7 @@ func (o *Ops) DVSwitchIdentity(ctx context.Context, req *DVSwitchRequest) (DVApp
 	if err != nil {
 		return DVApplyResult{}, err
 	}
-	if !oneOf(1, req.Identity != nil) || req.Credentials != nil || req.Modes != nil || req.Startup != nil {
+	if !oneOf(1, req.Identity != nil) || req.Credentials != nil || req.Modes != nil {
 		return DVApplyResult{}, errors.New("invalid request: identity only")
 	}
 	id := req.Identity
@@ -817,15 +837,36 @@ func (o *Ops) DVSwitchIdentity(ctx context.Context, req *DVSwitchRequest) (DVApp
 	return o.dvApply(ctx, ch, req.Base)
 }
 
-// DVSwitchCredentials writes the DMR master address, port and password.
+// DVSwitchCredentials writes the DMR master address, port and password of
+// a DMR profile: to [DMR Network] when it is the active profile, else to the
+// stored profile only (dvswitch_dmrprofile.go).
 func (o *Ops) DVSwitchCredentials(ctx context.Context, req *DVSwitchRequest) (DVApplyResult, error) {
 	req, err := o.dvArgs(req)
 	if err != nil {
 		return DVApplyResult{}, err
 	}
 	c := req.Credentials
-	if c == nil || req.Identity != nil || req.Modes != nil || req.Startup != nil {
+	if c == nil || req.Identity != nil || req.Modes != nil {
 		return DVApplyResult{}, errors.New("invalid request: credentials only")
+	}
+	profile := c.Profile
+	switch profile {
+	case "", DVProfileOther:
+		profile = DVProfileOther
+	case DVProfileTGIF:
+		if c.Address != nil || c.Port != nil {
+			return DVApplyResult{}, dvInvalid("credentials/profile")
+		}
+	default:
+		return DVApplyResult{}, dvInvalid("credentials/profile")
+	}
+	if c.Password != nil && c.ClearPassword {
+		return DVApplyResult{}, dvInvalid("DMR Network/Password")
+	}
+	dvProfileMu.Lock()
+	defer dvProfileMu.Unlock()
+	if o.dvDMRProfiles().Active != profile {
+		return o.dvCredentialsStored(c, profile)
 	}
 	var ch []dvChange
 	add := func(k, v string) { ch = append(ch, dvChange{DVFileMMDVMBridge, "DMR Network", k, v}) }
@@ -837,9 +878,6 @@ func (o *Ops) DVSwitchCredentials(ctx context.Context, req *DVSwitchRequest) (DV
 	}
 	if c.Port != nil {
 		add("Port", strconv.Itoa(*c.Port))
-	}
-	if c.Password != nil && c.ClearPassword {
-		return DVApplyResult{}, dvInvalid("DMR Network/Password")
 	}
 	if c.Password != nil {
 		add("Password", *c.Password)
@@ -855,21 +893,39 @@ func (o *Ops) DVSwitchCredentials(ctx context.Context, req *DVSwitchRequest) (DV
 }
 
 // DVSwitchModes sets the enable flags, each in the mode section and its
-// Network section together.
+// Network section together. With DMRProfile, DMR refers to that DMR profile:
+// enabling the one that is not active switches [DMR Network] to it (and so
+// turns the other off), disabling it changes nothing.
 func (o *Ops) DVSwitchModes(ctx context.Context, req *DVSwitchRequest) (DVApplyResult, error) {
 	req, err := o.dvArgs(req)
 	if err != nil {
 		return DVApplyResult{}, err
 	}
 	m := req.Modes
-	if m == nil || req.Identity != nil || req.Credentials != nil || req.Startup != nil {
+	if m == nil || req.Identity != nil || req.Credentials != nil {
 		return DVApplyResult{}, errors.New("invalid request: modes only")
+	}
+	switch m.DMRProfile {
+	case "", DVProfileOther, DVProfileTGIF:
+	default:
+		return DVApplyResult{}, dvInvalid("modes/dmrProfile")
+	}
+	dvProfileMu.Lock()
+	defer dvProfileMu.Unlock()
+	dmr := m.DMR
+	switchTo := ""
+	if dmr != nil && m.DMRProfile != "" && m.DMRProfile != o.dvDMRProfiles().Active {
+		if *dmr {
+			switchTo = m.DMRProfile
+		} else {
+			dmr = nil // that profile is already off
+		}
 	}
 	var ch []dvChange
 	for _, e := range []struct {
 		id string
 		v  *bool
-	}{{"dmr", m.DMR}, {"ysf", m.YSF}, {"p25", m.P25}, {"nxdn", m.NXDN}} {
+	}{{"dmr", dmr}, {"ysf", m.YSF}, {"p25", m.P25}, {"nxdn", m.NXDN}} {
 		if e.v == nil {
 			continue
 		}
@@ -885,44 +941,8 @@ func (o *Ops) DVSwitchModes(ctx context.Context, req *DVSwitchRequest) (DVApplyR
 			}
 		}
 	}
-	if len(ch) == 0 {
-		// nothing to write: a harmless no-op, not an error
-		return dvNoChange(), nil
-	}
-	return o.dvApply(ctx, ch, req.Base)
-}
-
-// DVSwitchStartup writes the startup values.
-func (o *Ops) DVSwitchStartup(ctx context.Context, req *DVSwitchRequest) (DVApplyResult, error) {
-	req, err := o.dvArgs(req)
-	if err != nil {
-		return DVApplyResult{}, err
-	}
-	s := req.Startup
-	if s == nil || req.Identity != nil || req.Credentials != nil || req.Modes != nil {
-		return DVApplyResult{}, errors.New("invalid request: startup only")
-	}
-	var ch []dvChange
-	ab := func(k, v string) { ch = append(ch, dvChange{DVFileAnalogBridge, "AMBE_AUDIO", k, v}) }
-	if s.AmbeMode != nil {
-		ab("ambeMode", *s.AmbeMode)
-	}
-	if s.TxTg != nil {
-		ab("txTg", *s.TxTg)
-	}
-	if s.TxTs != nil {
-		ab("txTs", strconv.Itoa(*s.TxTs))
-	}
-	if s.ColorCode != nil {
-		ab("colorCode", strconv.Itoa(*s.ColorCode))
-	}
-	for _, g := range []struct {
-		file string
-		v    *string
-	}{{DVFileYSFGateway, s.YSF}, {DVFileP25Gateway, s.P25}, {DVFileNXDNGateway, s.NXDN}} {
-		if g.v != nil {
-			ch = append(ch, dvChange{g.file, "Network", "Startup", *g.v})
-		}
+	if switchTo != "" {
+		return o.dvSwitchProfile(ctx, switchTo, ch, req.Base)
 	}
 	if len(ch) == 0 {
 		// nothing to write: a harmless no-op, not an error
@@ -996,9 +1016,12 @@ type DVSwitchSetup struct {
 	Private       *DVPrivateRecord `json:"private"`
 	ReservedPorts []int            `json:"reservedPorts"`
 	Modes         DVModesView      `json:"modes"`
-	Startup       DVStartupView    `json:"startup"`
-	Gateways      DVGateways       `json:"gateways"`
-	Files         []DVFileView     `json:"files"`
+	// Gateways: which gateway ini files are there (the YSF, P25 and NXDN
+	// cards).
+	Gateways DVGateways   `json:"gateways"`
+	Files    []DVFileView `json:"files"`
+	// TGIF is the TGIF profile of [DMR Network] (dvswitch_dmrprofile.go).
+	TGIF DVTGIFView `json:"tgif"`
 	// BrandMeister is the STFU connection: the [STFU] values of
 	// DVSwitch.ini and the unit state. No secret value.
 	BrandMeister DVBMView `json:"brandmeister"`
@@ -1043,12 +1066,17 @@ func dvInfoView(get func(sec, key string) string) DVInfoView {
 // DVDMRView is DMR - Other: MMDVM_Bridge's own DMR network. Enabled: [DMR]
 // and [DMR Network] are both on. PointsAtBM: the master is a BrandMeister
 // server (set up by hand; BrandMeister belongs under BrandMeister).
+//
+// The view is always the DMR - Other profile, whichever profile [DMR
+// Network] holds; Profile is the active one ("other" or "tgif"), and
+// Enabled is DMR on with DMR - Other active.
 type DVDMRView struct {
 	Address     string `json:"address"`
 	Port        int    `json:"port"`
 	PasswordSet bool   `json:"passwordSet"`
 	Enabled     bool   `json:"enabled"`
 	PointsAtBM  bool   `json:"pointsAtBm"`
+	Profile     string `json:"profile"`
 }
 
 // DVDMRBMWarning is the setup-view warning for DMR - Other on a BrandMeister
@@ -1068,16 +1096,8 @@ type DVModesView struct {
 	NXDN bool `json:"nxdn"`
 }
 
-type DVStartupView struct {
-	AmbeMode  string `json:"ambeMode"`
-	TxTg      string `json:"txTg"`
-	TxTs      int    `json:"txTs"`
-	ColorCode int    `json:"colorCode"`
-}
-
 type DVGatewayView struct {
-	Present bool   `json:"present"`
-	Startup string `json:"startup"`
+	Present bool `json:"present"`
 }
 
 type DVGateways struct {
@@ -1141,9 +1161,17 @@ func (o *Ops) DVSwitchSetup(ctx context.Context) (DVSwitchSetup, error) {
 	}
 	chk(DVFileYSFGateway, "General", "Id", v.Identity.DMRID)
 
+	// [DMR Network] holds the active DMR profile; the other one comes from
+	// the helper's state (dvswitch_dmrprofile.go).
+	prof := o.dvDMRProfiles()
 	pw := get(DVFileMMDVMBridge, "DMR Network", "Password")
-	v.DMR = DVDMRView{Address: get(DVFileMMDVMBridge, "DMR Network", "Address"), Port: atoi(get(DVFileMMDVMBridge, "DMR Network", "Port")),
-		PasswordSet: pw != "" && pw != dvStockPassword}
+	live := dvDMRProfile{Address: get(DVFileMMDVMBridge, "DMR Network", "Address"), Port: atoi(get(DVFileMMDVMBridge, "DMR Network", "Port")), Password: pw}
+	other, tgifPw := live, prof.TGIF.Password
+	if prof.Active == DVProfileTGIF {
+		other, tgifPw = prof.Other, pw
+	}
+	v.DMR = DVDMRView{Address: other.Address, Port: other.Port, PasswordSet: other.Password != "" && other.Password != dvStockPassword, Profile: prof.Active}
+	v.TGIF = o.dvTGIFView(tgifPw)
 	v.USRP = DVUSRPView{Address: get(DVFileAnalogBridge, "USRP", "address"), RxPort: atoi(get(DVFileAnalogBridge, "USRP", "rxPort")), TxPort: atoi(get(DVFileAnalogBridge, "USRP", "txPort"))}
 
 	v.Private, _ = ReadDVPrivate(o.dvPrivatePath())
@@ -1153,16 +1181,14 @@ func (o *Ops) DVSwitchSetup(ctx context.Context) (DVSwitchSetup, error) {
 		return get(DVFileMMDVMBridge, sec, "Enable") == "1" && get(DVFileMMDVMBridge, sec+" Network", "Enable") == "1"
 	}
 	v.Modes = DVModesView{DMR: en("DMR"), YSF: en("System Fusion"), P25: en("P25"), NXDN: en("NXDN")}
-	v.DMR.Enabled = v.Modes.DMR
+	v.DMR.Enabled = v.Modes.DMR && prof.Active == DVProfileOther
+	v.TGIF.Enabled = v.Modes.DMR && prof.Active == DVProfileTGIF
 	v.DMR.PointsAtBM = vHostname(v.DMR.Address) && o.dvIsBMHost(v.DMR.Address)
-	loaded, enabled := o.dvBMUnit(ctx)
-	v.BrandMeister = dvBMView(parsed[DVFileDVSwitch], loaded, enabled, o.dvSTFUStay())
+	loaded, unitEnabled := o.dvBMUnit(ctx)
+	v.BrandMeister = dvBMView(parsed[DVFileDVSwitch], loaded, unitEnabled, o.dvSTFUStay())
+	v.BrandMeister.Enabled = o.dvBMEnabled()
 
-	v.Startup = DVStartupView{AmbeMode: get(DVFileAnalogBridge, "AMBE_AUDIO", "ambeMode"), TxTg: get(DVFileAnalogBridge, "AMBE_AUDIO", "txTg"),
-		TxTs: atoi(get(DVFileAnalogBridge, "AMBE_AUDIO", "txTs")), ColorCode: atoi(get(DVFileAnalogBridge, "AMBE_AUDIO", "colorCode"))}
-	gw := func(file string) DVGatewayView {
-		return DVGatewayView{Present: parsed[file] != nil, Startup: get(file, "Network", "Startup")}
-	}
+	gw := func(file string) DVGatewayView { return DVGatewayView{Present: parsed[file] != nil} }
 	v.Gateways = DVGateways{YSF: gw(DVFileYSFGateway), P25: gw(DVFileP25Gateway), NXDN: gw(DVFileNXDNGateway)}
 	v.Identity.NXDNID = dvNXDNIDView(get(DVFileMMDVMBridge, "NXDN", "Id"))
 	v.Identity.Info = dvInfoView(func(sec, key string) string { return get(DVFileMMDVMBridge, sec, key) })

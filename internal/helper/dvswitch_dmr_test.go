@@ -311,6 +311,13 @@ func TestDemoDMRStatusCycle(t *testing.T) {
 		t.Fatal("not installed first")
 	}
 	d.installed, d.deps = true, true
+	if r := st(); r.State != DMRDisabled {
+		t.Fatalf("off by default: %+v", r)
+	}
+	on := true
+	if _, err := d.DVSwitchModes(ctx, DVSwitchRequest{Modes: &DVModes{DMR: &on}}); err != nil {
+		t.Fatal(err)
+	}
 	if r := st(); r.State != DMRLoggedIn || r.Master != "192.0.2.10:62031" {
 		t.Fatalf("%+v", r)
 	}

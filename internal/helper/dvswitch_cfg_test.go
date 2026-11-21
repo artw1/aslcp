@@ -188,25 +188,21 @@ func TestDVValidationNeverEchoes(t *testing.T) {
 			t.Errorf("%+v: %v", c, err)
 		}
 	}
-	for _, s := range []DVStartup{{AmbeMode: sp("DSTAR")}, {TxTg: sp("123456789")}, {TxTs: ip(3)}, {ColorCode: ip(16)},
-		{YSF: sp(" ab")}, {YSF: sp("a;b")}, {P25: sp("abc")}, {NXDN: sp("123456")}} {
-		s := s
-		if _, err := o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &s}); !errors.Is(err, ErrDVInvalid) {
-			t.Errorf("%+v: %v", s, err)
+	for _, m := range []string{"", "DSTAR", "dmr", "YSFW"} {
+		if _, err := o.DVSwitchBootMode(ctx, &DVSwitchRequest{Mode: m}); !errors.Is(err, ErrDVInvalid) {
+			t.Errorf("boot mode %q: %v", m, err)
 		}
 	}
 	// empty requests are a harmless no-op, not an error
-	for name, r := range map[string]DVSwitchRequest{"credentials": {Credentials: &DVCredentials{}}, "modes": {Modes: &DVModes{}}, "startup": {Startup: &DVStartup{}}} {
+	for name, r := range map[string]DVSwitchRequest{"credentials": {Credentials: &DVCredentials{}}, "modes": {Modes: &DVModes{}}} {
 		r := r
 		var res DVApplyResult
 		var err error
 		switch name {
 		case "credentials":
 			res, err = o.DVSwitchCredentials(ctx, &r)
-		case "modes":
-			res, err = o.DVSwitchModes(ctx, &r)
 		default:
-			res, err = o.DVSwitchStartup(ctx, &r)
+			res, err = o.DVSwitchModes(ctx, &r)
 		}
 		if err != nil || len(res.Files) != 0 || len(res.RestartHint) != 0 || res.Files == nil {
 			t.Errorf("empty %s: %+v %v", name, res, err)
@@ -312,24 +308,109 @@ func TestDVModesBothSections(t *testing.T) {
 	}
 }
 
-func TestDVStartupAndGatewayKeys(t *testing.T) {
+func TestDVBootModeFollowsLastMode(t *testing.T) {
 	o, _ := cfgOps(t)
 	ctx := context.Background()
-	_, err := o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &DVStartup{AmbeMode: sp("DMR"), TxTg: sp("91"), TxTs: ip(2), ColorCode: ip(1),
-		YSF: sp("US-Example"), P25: sp("10100"), NXDN: sp("20")}})
-	if err != nil {
+	writeDVIni(t, o, DVFileYSFGateway, "Network", "Startup", "US-Example")
+	writeDVIni(t, o, DVFileP25Gateway, "Network", "Startup", "10100")
+	hist := len(o.dvHistoryNames(DVFileAnalogBridge))
+	tg0, _ := dvIni(t, o, DVFileAnalogBridge).Get("AMBE_AUDIO", "txTg")
+	// stock: ambeMode DMR on [DMR]'s ports. BM boots as DMR: nothing to
+	// write in Analog_Bridge.ini; the gateways' Startup is blanked.
+	res, err := o.DVSwitchBootMode(ctx, &DVSwitchRequest{Mode: DVModeBM})
+	if err != nil || len(res.RestartHint) != 0 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	for _, f := range res.Files {
+		if f == DVFileAnalogBridge {
+			t.Errorf("BM rewrote Analog_Bridge.ini: %v", res.Files)
+		}
+	}
+	for _, id := range []string{DVFileYSFGateway, DVFileP25Gateway} {
+		if v, _ := dvIni(t, o, id).Get("Network", "Startup"); v != "" {
+			t.Errorf("%s Startup=%q", id, v)
+		}
+	}
+	// YSF: ambeMode YSFN and the TLV ports of DVSwitch.ini [YSF] (swapped)
+	res, err = o.DVSwitchBootMode(ctx, &DVSwitchRequest{Mode: "YSF"})
+	if err != nil || len(res.Files) != 1 || res.Files[0] != DVFileAnalogBridge || len(res.RestartHint) != 0 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	ab := dvIni(t, o, DVFileAnalogBridge)
+	get := func(k string) string { v, _ := ab.Get("AMBE_AUDIO", k); return v }
+	if get("ambeMode") != "YSFN" || get("txPort") != "33103" || get("rxPort") != "33100" {
+		t.Fatalf("ambeMode=%s txPort=%s rxPort=%s", get("ambeMode"), get("txPort"), get("rxPort"))
+	}
+	// only on change: the same mode again writes nothing
+	if res, err = o.DVSwitchBootMode(ctx, &DVSwitchRequest{Mode: "YSF"}); err != nil || len(res.Files) != 0 {
+		t.Fatalf("again: %+v %v", res, err)
+	}
+	// a node set to YSF wide by hand keeps it
+	writeDVIni(t, o, DVFileAnalogBridge, "AMBE_AUDIO", "ambeMode", "YSFW")
+	if res, err = o.DVSwitchBootMode(ctx, &DVSwitchRequest{Mode: "YSF"}); err != nil || len(res.Files) != 0 {
+		t.Fatalf("YSFW: %+v %v", res, err)
+	}
+	// back to DMR (from BM): DMR on [DMR]'s ports
+	if _, err = o.DVSwitchBootMode(ctx, &DVSwitchRequest{Mode: DVModeBM}); err != nil {
 		t.Fatal(err)
 	}
-	v, _ := o.DVSwitchSetup(ctx)
-	if v.Startup.TxTg != "91" || v.Gateways.YSF.Startup != "US-Example" || v.Gateways.P25.Startup != "10100" || v.Gateways.NXDN.Startup != "20" {
-		t.Fatalf("%+v %+v", v.Startup, v.Gateways)
+	ab = dvIni(t, o, DVFileAnalogBridge)
+	if get("ambeMode") != "DMR" || get("txPort") != "31103" || get("rxPort") != "31100" {
+		t.Fatalf("ambeMode=%s txPort=%s rxPort=%s", get("ambeMode"), get("txPort"), get("rxPort"))
+	}
+	// not a user change: no history copy, so the rollback list stays the user's
+	if n := len(o.dvHistoryNames(DVFileAnalogBridge)); n != hist {
+		t.Errorf("history %d -> %d", hist, n)
+	}
+	// txTg is never written
+	if tg, _ := ab.Get("AMBE_AUDIO", "txTg"); tg != tg0 {
+		t.Errorf("txTg %q -> %q", tg0, tg)
 	}
 	// a missing gateway is skipped, not an error
 	d, _ := dvFileByID(DVFileP25Gateway)
 	os.Remove(o.dvFilePath(d))
-	res, err := o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &DVStartup{P25: sp("10200")}})
-	if err != nil || len(res.Skipped) != 1 || res.Skipped[0] != DVFileP25Gateway {
-		t.Fatalf("%+v %v", res, err)
+	if _, err := o.DVSwitchBootMode(ctx, &DVSwitchRequest{Mode: "P25"}); err != nil {
+		t.Fatal(err)
+	}
+	// other fields are refused
+	if _, err := o.DVSwitchBootMode(ctx, &DVSwitchRequest{Mode: "P25", Modes: &DVModes{}}); err == nil {
+		t.Error("extra field accepted")
+	}
+	// the allowlist only takes a blank Startup
+	if _, err := o.dvApply(ctx, []dvChange{{DVFileYSFGateway, "Network", "Startup", "US-Example"}}, nil); !errors.Is(err, ErrDVInvalid) {
+		t.Errorf("Startup value accepted: %v", err)
+	}
+	if _, err := o.dvApply(ctx, []dvChange{{DVFileAnalogBridge, "AMBE_AUDIO", "txTg", "91"}}, nil); err == nil {
+		t.Error("txTg accepted")
+	}
+}
+
+func TestDVInstallDefaultsAllOff(t *testing.T) {
+	o, _ := cfgOps(t)
+	ctx := context.Background()
+	writeDVIni(t, o, DVFileMMDVMBridge, "DMR", "Enable", "1")
+	writeDVIni(t, o, DVFileMMDVMBridge, "DMR Network", "Enable", "1")
+	writeDVIni(t, o, DVFileYSFGateway, "Network", "Startup", "US-Example")
+	if err := o.dvBMEnabledSet(true); err != nil {
+		t.Fatal(err)
+	}
+	var sb strings.Builder
+	if err := o.dvInstallDefaults(ctx, &sb); err != nil {
+		t.Fatal(err)
+	}
+	m := readDV(t, o, DVFileMMDVMBridge)
+	if strings.Contains(m, "Enable=1") || strings.Contains(m, "Enable = 1") {
+		t.Errorf("a mode is still on:\n%s", m)
+	}
+	if o.dvBMEnabled() {
+		t.Error("BrandMeister still enabled")
+	}
+	if v, _ := dvIni(t, o, DVFileYSFGateway).Get("Network", "Startup"); v != "" {
+		t.Errorf("Startup=%q", v)
+	}
+	v, _ := o.DVSwitchSetup(ctx)
+	if v.Modes.DMR || v.Modes.YSF || v.Modes.P25 || v.Modes.NXDN || v.BrandMeister.Enabled || v.TGIF.Enabled {
+		t.Fatalf("%+v %+v", v.Modes, v.BrandMeister)
 	}
 }
 
@@ -451,7 +532,7 @@ func TestDVRollbackToOriginal(t *testing.T) {
 	o, _ := cfgOps(t)
 	ctx := context.Background()
 	orig := readDV(t, o, DVFileAnalogBridge)
-	if _, err := o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &DVStartup{TxTg: sp("4711")}}); err != nil {
+	if _, err := o.DVSwitchIdentity(ctx, &DVSwitchRequest{Identity: &DVIdentity{Callsign: "N0CALL", DMRID: "1234567", ESSID: "02"}}); err != nil {
 		t.Fatal(err)
 	}
 	res, err := o.DVSwitchRollback(ctx, &DVSwitchRequest{File: DVFileAnalogBridge})
@@ -606,13 +687,18 @@ func TestDVRequestFieldOnlyForDVOps(t *testing.T) {
 	}
 }
 
-// useCurrent was removed: the helper's strict decoder refuses the field.
-func TestDVStartupUseCurrentRefused(t *testing.T) {
+// The startup op was removed: the helper refuses it as an unknown op, and
+// the strict decoder refuses a startup request field.
+func TestDVStartupOpRemoved(t *testing.T) {
+	o, _ := cfgOps(t)
+	if _, err := o.HandleRequest(context.Background(), Request{Op: "dvswitch-startup"}); err == nil {
+		t.Fatal("dvswitch-startup still served")
+	}
 	var req Request
-	dec := json.NewDecoder(strings.NewReader(`{"op":"dvswitch-startup","dvswitch":{"startup":{"useCurrent":true}}}`))
+	dec := json.NewDecoder(strings.NewReader(`{"op":"dvswitch-modes","dvswitch":{"startup":{}}}`))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err == nil || !strings.Contains(err.Error(), "useCurrent") {
-		t.Fatalf("useCurrent accepted: %v", err)
+	if err := dec.Decode(&req); err == nil || !strings.Contains(err.Error(), "startup") {
+		t.Fatalf("startup accepted: %v", err)
 	}
 }
 
@@ -726,16 +812,5 @@ func TestDVYSFStartupValidator(t *testing.T) {
 	// reDVTune is unchanged: still no spaces
 	if reDVTune.MatchString("a b") || !reDVTune.MatchString("US-Example") {
 		t.Error("reDVTune changed")
-	}
-	o, _ := cfgOps(t)
-	ctx := context.Background()
-	if _, err := o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &DVStartup{YSF: sp("Example Reflector 1")}}); err != nil {
-		t.Fatal(err)
-	}
-	if v, _ := o.DVSwitchSetup(ctx); v.Gateways.YSF.Startup != "Example Reflector 1" {
-		t.Fatalf("%+v", v.Gateways.YSF)
-	}
-	if _, err := o.DVSwitchStartup(ctx, &DVSwitchRequest{Startup: &DVStartup{YSF: sp("a;b")}}); !errors.Is(err, ErrDVInvalid) {
-		t.Fatal(err)
 	}
 }

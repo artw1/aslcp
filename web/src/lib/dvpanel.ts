@@ -7,6 +7,8 @@ export const PANEL_MODES: DVTuneMode[] = ['BM', 'DMR', 'YSF', 'P25', 'NXDN'];
 export const isDMRFamily = (mode: string): boolean => mode === 'BM' || mode === 'DMR';
 /** The name of a panel mode: "BrandMeister" for BM, else the mode itself. */
 export const modeLabel = (mode: string): string => (mode === 'BM' ? 'BrandMeister' : mode);
+/** The name of a panel mode button: the snapshot's label when it has one ("TGIF" for DMR while TGIF is on), else modeLabel. */
+export const modeButtonLabel = (m: { id: string; label?: string }): string => m.label || modeLabel(m.id);
 /** How long a mode switch may stay unconfirmed before the card says so. */
 export const CONFIRM_MS = 5000;
 export const FAV_NAME_MAX = 40;

@@ -2,11 +2,10 @@
 const FIELD: Record<string, string> = {
   'identity/callsign': 'Callsign', 'identity/dmrId': 'DMR ID', 'identity/essid': 'ESSID', 'identity/nxdnId': 'NXDN ID',
   'DMR Network/Address': 'DMR master address', 'DMR Network/Port': 'DMR master port', 'DMR Network/Password': 'DMR master password',
-  'AMBE_AUDIO/ambeMode': 'Start-up mode', 'AMBE_AUDIO/txTg': 'Start-up talkgroup', 'AMBE_AUDIO/txTs': 'Start-up slot', 'AMBE_AUDIO/colorCode': 'Color code',
-  'General/Callsign': 'Callsign', 'General/Id': 'DMR ID', 'NXDN/Id': 'NXDN ID', 'Network/Startup': 'Gateway start-up reflector or talkgroup',
+  'General/Callsign': 'Callsign', 'General/Id': 'DMR ID', 'NXDN/Id': 'NXDN ID',
   'brandmeister/server': 'BrandMeister master', 'brandmeister/password': 'BrandMeister password', 'brandmeister/talkerAlias': 'Talker alias',
   'brandmeister/startTg': 'Start talkgroup', 'brandmeister/ports': 'STFU ports 36100/36103 (in use)', 'brandmeister/action': 'BrandMeister action', brandmeister: 'BrandMeister request',
-  modes: 'Modes', startup: 'Start-up values', credentials: 'DMR master', file: 'File', base: 'File version',
+  modes: 'Modes', enabled: 'Enable or Disable', dmrProfile: 'DMR network', profile: 'DMR network', credentials: 'DMR master', file: 'File', base: 'File version',
 };
 
 /** The field named in the helper's "invalid_field: a value is not allowed (path)" text, as a label; '' when unknown. */
@@ -19,9 +18,17 @@ export function fieldLabel(message: string): string {
   return FIELD[tail] ?? path;
 }
 
-/** What to show for a failed save: for invalid_field, which field; otherwise the server's message. */
+/** Messages for the conflict codes of the mode cards (docs/API.md "DVSwitch setup"). */
+const CODE: Record<string, string> = {
+  mode_disabled: 'That mode is disabled. Enable it on its card in the DVSwitch tab first.',
+  bm_not_configured: 'BrandMeister is not set up yet: save the hotspot security password and set the 7-digit DMR ID under Identity, then Enable.',
+};
+
+/** What to show for a failed save: for invalid_field, which field; for a known conflict, what to do; otherwise the server's message. */
 export function dvErrorMessage(e: unknown): string {
-  if (e instanceof Error && (e as { code?: string }).code === 'invalid_field') {
+  const code = e instanceof Error ? (e as { code?: string }).code : undefined;
+  if (code && CODE[code]) return CODE[code];
+  if (e instanceof Error && code === 'invalid_field') {
     const f = fieldLabel(e.message);
     return f ? `${f} is not valid. Check the value and try again.` : 'A value is not valid. Check the fields and try again.';
   }

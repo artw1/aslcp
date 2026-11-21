@@ -58,24 +58,8 @@ func (s *Server) handleDVSwitchSnapshot(w http.ResponseWriter, r *http.Request, 
 	writeJSON(w, 200, s.dvs.snapshot(r.Context(), false))
 }
 
-// dvModeEnabled: BM when the BrandMeister connection is configured, the
-// others when MMDVM_Bridge enables them.
-func dvModeEnabled(setup helper.DVSwitchSetup, mode string) bool {
-	v := setup.Modes
-	switch mode {
-	case helper.DVModeBM:
-		return setup.BrandMeister.Configured
-	case "DMR":
-		return v.DMR
-	case "YSF":
-		return v.YSF
-	case "P25":
-		return v.P25
-	case "NXDN":
-		return v.NXDN
-	}
-	return false
-}
+// dvModeEnabled follows the mode's card (helper.DVModeOn).
+func dvModeEnabled(setup helper.DVSwitchSetup, mode string) bool { return helper.DVModeOn(setup, mode) }
 
 func dvKnownMode(m string) bool {
 	for _, k := range helper.DVTuneModes {

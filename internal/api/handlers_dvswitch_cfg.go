@@ -13,7 +13,7 @@ import (
 // records the key name "password" only).
 
 // dvRestartWarning accompanies every restart and start.
-const dvRestartWarning = "A restart resets the running mode and talkgroup to the startup values in the ini files."
+const dvRestartWarning = "After a restart DVSwitch starts in the last mode; with \"Resume after restart\" on, ASLCP also re-tunes the last talkgroup or reflector."
 
 // dvSetupReply is the Setup view, the live ABInfo state and, after a write,
 // what changed.
@@ -124,6 +124,20 @@ func (s *Server) handleDVSwitchCredentials(w http.ResponseWriter, r *http.Reques
 	if !decode(w, r, &b, false) {
 		return
 	}
+	s.dvCredentials(w, r, u, "dvswitch.credentials", helper.DVProfileOther, b.Address, b.Port, b.Password, b.Clear, b.Base)
+}
+
+// dvCredentials writes the DMR - Other or the TGIF credentials (profile).
+// The profile that is not on is stored by the helper and written to
+// MMDVM_Bridge.ini when it is enabled.
+func (s *Server) dvCredentials(w http.ResponseWriter, r *http.Request, u store.User, action, profile string, addr *string, port *int, pw *string, clear bool, base map[string]string) {
+	b := struct {
+		Address  *string
+		Port     *int
+		Password *string
+		Clear    bool
+		Base     map[string]string
+	}{addr, port, pw, clear, base}
 	if b.Password != nil && b.Clear {
 		s.dvswitchError(w, fmt.Errorf("%w (DMR Network/Password)", helper.ErrDVInvalid)) // both set
 		return
@@ -141,10 +155,71 @@ func (s *Server) handleDVSwitchCredentials(w http.ResponseWriter, r *http.Reques
 	if b.Clear {
 		keys = append(keys, "clearPassword")
 	}
-	s.dvWrite(w, r, u, "dvswitch.credentials", keys, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
+	s.dvWrite(w, r, u, action, keys, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
 		return s.d.DVSwitch.DVSwitchCredentials(r.Context(), helper.DVSwitchRequest{Base: b.Base, Author: u.Username,
-			Credentials: &helper.DVCredentials{Address: b.Address, Port: b.Port, Password: b.Password, ClearPassword: b.Clear}})
+			Credentials: &helper.DVCredentials{Address: b.Address, Port: b.Port, Password: b.Password, ClearPassword: b.Clear, Profile: profile}})
 	})
+}
+
+// handleDVSwitchTGIF: PUT /api/dvswitch/tgif {password?, clearPassword?,
+// base}. TGIF's master comes from DMR_Hosts.txt and is not settable.
+func (s *Server) handleDVSwitchTGIF(w http.ResponseWriter, r *http.Request, u store.User) {
+	if s.d.DVSwitch == nil {
+		s.dvswitchError(w, errDVUnavailable)
+		return
+	}
+	var b struct {
+		Password *string           `json:"password"`
+		Clear    bool              `json:"clearPassword"`
+		Base     map[string]string `json:"base"`
+	}
+	if !decode(w, r, &b, false) {
+		return
+	}
+	s.dvCredentials(w, r, u, "dvswitch.tgif", helper.DVProfileTGIF, nil, nil, b.Password, b.Clear, b.Base)
+}
+
+// handleDVSwitchTGIFEnabled: PUT /api/dvswitch/tgif/enabled {enabled, base}.
+// Enabling TGIF writes its master and password to [DMR Network] and turns
+// DMR - Other off (they share MMDVM_Bridge's DMR network); DMR - Other's
+// values are kept. Disabling turns DMR off and keeps the password.
+func (s *Server) handleDVSwitchTGIFEnabled(w http.ResponseWriter, r *http.Request, u store.User) {
+	s.dvProfileEnabled(w, r, u, "dvswitch.tgif.enabled", helper.DVProfileTGIF)
+}
+
+// dvProfileEnabled turns the DMR network on with profile, or off when it is
+// the live one.
+func (s *Server) dvProfileEnabled(w http.ResponseWriter, r *http.Request, u store.User, action, profile string) {
+	if s.d.DVSwitch == nil {
+		s.dvswitchError(w, errDVUnavailable)
+		return
+	}
+	var b struct {
+		Enabled *bool             `json:"enabled"`
+		Base    map[string]string `json:"base"`
+	}
+	if !decode(w, r, &b, false) {
+		return
+	}
+	if b.Enabled == nil {
+		s.dvswitchError(w, fmt.Errorf("%w (enabled)", helper.ErrDVInvalid))
+		return
+	}
+	s.dvWrite(w, r, u, action, []string{"enabled"}, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
+		return s.dvModesWrite(r, u, helper.DVSwitchRequest{Base: b.Base, Author: u.Username,
+			Modes: &helper.DVModes{DMR: b.Enabled, DMRProfile: profile}})
+	})
+}
+
+// dvModesWrite runs DVSwitchModes and forgets the remembered DMR tune when
+// the DMR profile changed: a talkgroup of one network does not carry over to
+// the other.
+func (s *Server) dvModesWrite(r *http.Request, u store.User, req helper.DVSwitchRequest) (helper.DVApplyResult, error) {
+	res, err := s.d.DVSwitch.DVSwitchModes(r.Context(), req)
+	if err == nil && res.DMRProfileChanged {
+		s.dvForget("DMR")
+	}
+	return res, err
 }
 
 func (s *Server) handleDVSwitchModes(w http.ResponseWriter, r *http.Request, u store.User) {
@@ -153,11 +228,14 @@ func (s *Server) handleDVSwitchModes(w http.ResponseWriter, r *http.Request, u s
 		return
 	}
 	var b struct {
-		DMR  *bool             `json:"dmr"`
-		YSF  *bool             `json:"ysf"`
-		P25  *bool             `json:"p25"`
-		NXDN *bool             `json:"nxdn"`
-		Base map[string]string `json:"base"`
+		DMR  *bool `json:"dmr"`
+		YSF  *bool `json:"ysf"`
+		P25  *bool `json:"p25"`
+		NXDN *bool `json:"nxdn"`
+		// DMRProfile ("other", the default for this endpoint, or "tgif"): the
+		// profile dmr turns on or off.
+		DMRProfile string            `json:"dmrProfile"`
+		Base       map[string]string `json:"base"`
 	}
 	if !decode(w, r, &b, false) {
 		return
@@ -172,8 +250,12 @@ func (s *Server) handleDVSwitchModes(w http.ResponseWriter, r *http.Request, u s
 		}
 	}
 	s.dvWrite(w, r, u, "dvswitch.modes", keys, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
-		return s.d.DVSwitch.DVSwitchModes(r.Context(), helper.DVSwitchRequest{Base: b.Base, Author: u.Username,
-			Modes: &helper.DVModes{DMR: b.DMR, YSF: b.YSF, P25: b.P25, NXDN: b.NXDN}})
+		prof := b.DMRProfile
+		if prof == "" && b.DMR != nil {
+			prof = helper.DVProfileOther
+		}
+		return s.dvModesWrite(r, u, helper.DVSwitchRequest{Base: b.Base, Author: u.Username,
+			Modes: &helper.DVModes{DMR: b.DMR, YSF: b.YSF, P25: b.P25, NXDN: b.NXDN, DMRProfile: prof}})
 	})
 }
 
@@ -223,67 +305,31 @@ func (s *Server) handleDVSwitchBMSave(w http.ResponseWriter, r *http.Request, u 
 	})
 }
 
-// handleDVSwitchBMClear: DELETE /api/dvswitch/brandmeister. Stops and
-// disables stfu and resets its password to the stock value; BM leaves the
-// panel.
-func (s *Server) handleDVSwitchBMClear(w http.ResponseWriter, r *http.Request, u store.User) {
-	if s.d.DVSwitch == nil {
-		s.dvswitchError(w, errDVUnavailable)
-		return
-	}
-	s.dvWrite(w, r, u, "dvswitch.brandmeister.clear", []string{"brandmeister"}, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
-		return s.d.DVSwitch.DVSwitchBM(r.Context(), helper.DVSwitchRequest{Author: u.Username,
-			BM: &helper.DVBM{Action: helper.DVBMClear}})
-	})
-}
-
-// handleDVSwitchDMRClear: DELETE /api/dvswitch/dmr-connection. Turns DMR -
-// Other off ([DMR] and [DMR Network] Enable=0 in MMDVM_Bridge.ini); the
-// master and password stay.
-func (s *Server) handleDVSwitchDMRClear(w http.ResponseWriter, r *http.Request, u store.User) {
-	if s.d.DVSwitch == nil {
-		s.dvswitchError(w, errDVUnavailable)
-		return
-	}
-	off := false
-	s.dvWrite(w, r, u, "dvswitch.dmr_connection.clear", []string{"dmr"}, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
-		return s.d.DVSwitch.DVSwitchModes(r.Context(), helper.DVSwitchRequest{Author: u.Username,
-			Modes: &helper.DVModes{DMR: &off}})
-	})
-}
-
-func (s *Server) handleDVSwitchStartup(w http.ResponseWriter, r *http.Request, u store.User) {
+// handleDVSwitchBMEnabled: PUT /api/dvswitch/brandmeister/enabled
+// {enabled}. Disable stops and disables stfu and takes BM off the panel; the
+// master, password and settings stay, so Enable restores it without
+// retyping (Enable needs a saved password).
+func (s *Server) handleDVSwitchBMEnabled(w http.ResponseWriter, r *http.Request, u store.User) {
 	if s.d.DVSwitch == nil {
 		s.dvswitchError(w, errDVUnavailable)
 		return
 	}
 	var b struct {
-		AmbeMode  *string           `json:"ambeMode"`
-		TxTg      *string           `json:"txTg"`
-		TxTs      *int              `json:"txTs"`
-		ColorCode *int              `json:"colorCode"`
-		YSF       *string           `json:"ysf"`
-		P25       *string           `json:"p25"`
-		NXDN      *string           `json:"nxdn"`
-		Base      map[string]string `json:"base"`
+		Enabled *bool `json:"enabled"`
 	}
 	if !decode(w, r, &b, false) {
 		return
 	}
-	keys := []string{}
-	for _, k := range []struct {
-		n  string
-		ok bool
-	}{{"ambeMode", b.AmbeMode != nil}, {"txTg", b.TxTg != nil}, {"txTs", b.TxTs != nil}, {"colorCode", b.ColorCode != nil},
-		{"ysf", b.YSF != nil}, {"p25", b.P25 != nil}, {"nxdn", b.NXDN != nil}} {
-		if k.ok {
-			keys = append(keys, k.n)
-		}
+	if b.Enabled == nil {
+		s.dvswitchError(w, fmt.Errorf("%w (enabled)", helper.ErrDVInvalid))
+		return
 	}
-	s.dvWrite(w, r, u, "dvswitch.startup", keys, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
-		return s.d.DVSwitch.DVSwitchStartup(r.Context(), helper.DVSwitchRequest{Base: b.Base, Author: u.Username,
-			Startup: &helper.DVStartup{AmbeMode: b.AmbeMode, TxTg: b.TxTg, TxTs: b.TxTs, ColorCode: b.ColorCode,
-				YSF: b.YSF, P25: b.P25, NXDN: b.NXDN}})
+	act, name := helper.DVBMDisable, "dvswitch.brandmeister.disable"
+	if *b.Enabled {
+		act, name = helper.DVBMEnable, "dvswitch.brandmeister.enable"
+	}
+	s.dvWrite(w, r, u, name, []string{"enabled"}, func(s *Server, r *http.Request) (helper.DVApplyResult, error) {
+		return s.d.DVSwitch.DVSwitchBM(r.Context(), helper.DVSwitchRequest{Author: u.Username, BM: &helper.DVBM{Action: act}})
 	})
 }
 

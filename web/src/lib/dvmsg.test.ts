@@ -17,6 +17,8 @@ test('unknown field and other errors', () => {
   assert.match(dvErrorMessage(inv('invalid_field: a value is not allowed')), /A value is not valid/);
   assert.equal(dvErrorMessage(new ApiError(409, 'conflict', 'busy')), 'busy');
   assert.equal(dvErrorMessage('x'), 'x');
+  assert.match(dvErrorMessage(new ApiError(409, 'mode_disabled', 'x')), /disabled\. Enable it on its card/);
+  assert.match(dvErrorMessage(new ApiError(409, 'bm_not_configured', 'x')), /BrandMeister is not set up/);
 });
 test('formChanged', () => {
   assert.equal(formChanged({ a: '1', p: '' }, { a: '1', p: '' }), false);

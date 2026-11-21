@@ -14,7 +14,8 @@ import (
 // "stay logged in" is set (then it is enabled and always running).
 
 const (
-	dvSTFUStayFile     = "stfu-stay" // helper state file: present = stay logged in
+	dvSTFUStayFile     = "stfu-stay"  // helper state file: present = stay logged in
+	dvBMEnabledFile    = "bm-enabled" // helper state file: present = BrandMeister enabled in ASLCP
 	dvSTFULoginWaitDef = 10 * time.Second
 	dvSTFULoginPollDef = 250 * time.Millisecond
 )
@@ -26,6 +27,33 @@ func (o *Ops) dvSTFUStay() bool {
 	_, err := os.Stat(o.dvSTFUStayPath())
 	return err == nil
 }
+
+// dvBMEnabled reports whether BrandMeister is enabled in ASLCP (the card's
+// Enable). Off by default: without it the panel has no BM mode and ASLCP
+// never starts stfu; the [STFU] settings stay as they are.
+func (o *Ops) dvBMEnabled() bool {
+	_, err := os.Stat(filepath.Join(o.dvStateDir(), dvBMEnabledFile))
+	return err == nil
+}
+
+// dvBMEnabledSet stores the flag (a state file, root only).
+func (o *Ops) dvBMEnabledSet(on bool) error {
+	p := filepath.Join(o.dvStateDir(), dvBMEnabledFile)
+	if on {
+		if err := os.MkdirAll(o.dvStateDir(), 0o700); err != nil {
+			return err
+		}
+		return writeStateFile(p, []byte("1\n"), 0o600)
+	}
+	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// dvSTFUStayOn: stay logged in is set and BrandMeister is enabled (the
+// saved setting outlives a Disable, but a disabled BM never runs stfu).
+func (o *Ops) dvSTFUStayOn() bool { return o.dvBMEnabled() && o.dvSTFUStay() }
 
 // dvSTFUStaySet stores the setting (a state file, root only).
 func (o *Ops) dvSTFUStaySet(on bool) error {
@@ -53,9 +81,10 @@ func (o *Ops) dvPanelIsBM(ctx context.Context) bool {
 	return err == nil && info.Found && DVPanelMode(info) == DVModeBM
 }
 
-// dvSTFUWanted: stfu is supposed to be running.
+// dvSTFUWanted: stfu is supposed to be running. Never while BrandMeister
+// is disabled.
 func (o *Ops) dvSTFUWanted(ctx context.Context) bool {
-	return o.dvSTFUStay() || o.dvPanelIsBM(ctx)
+	return o.dvBMEnabled() && (o.dvSTFUStay() || o.dvPanelIsBM(ctx))
 }
 
 func (o *Ops) dvSleep(ctx context.Context, d time.Duration) {
@@ -115,7 +144,7 @@ func (o *Ops) dvSTFUEnsure(ctx context.Context, onlyIfStopped bool) (pending boo
 // dvSTFUStopIdle stops stfu after the panel left BM, unless it stays logged
 // in. It reports failed: it should have been stopped and was not.
 func (o *Ops) dvSTFUStopIdle(ctx context.Context) (failed bool) {
-	if o.dvSTFUStay() {
+	if o.dvSTFUStayOn() {
 		return false
 	}
 	loaded, active, _ := o.dvUnitStart(ctx, dvSTFUUnit+".service")

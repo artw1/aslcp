@@ -19,7 +19,7 @@
   } = $props();
 
   const bm = $derived(v.brandmeister);
-  let f = $state<BMForm>(formOf(undefined)), busy = $state(false), confirmClear = $state(false);
+  let f = $state<BMForm>(formOf(undefined)), busy = $state(false), confirmOff = $state(false);
   let stfu = $state<DVSTFUStatus | null>(null);
   let verify = $state<{ working: string; outcome: Outcome | null }>({ working: '', outcome: null });
   let gen = 0;
@@ -82,10 +82,12 @@
     busy = true;
     try {
       const s = await api.dvswitchBrandMeister({ ...r, base: base() });
-      const running = f.stayLoggedIn || app.dvswitch?.bridge.mode === 'BM';
-      toast(running ? 'BrandMeister saved. STFU is restarted.' : 'BrandMeister saved. STFU logs in when you switch to BM.', 'info');
+      const running = bm.enabled && (f.stayLoggedIn || app.dvswitch?.bridge.mode === 'BM');
+      toast(!bm.enabled ? 'BrandMeister saved. Enable it to use it.' : running ? 'BrandMeister saved. STFU is restarted.' : 'BrandMeister saved. STFU logs in when you switch to BM.', 'info');
+      const was = bm.enabled;
       onsaved(s);
       busy = false;
+      if (!was) return;
       if (s.bmLogin === 'logged_in') verify = { working: '', outcome: { kind: 'ok', message: 'The login to BrandMeister works.' } };
       else if (s.bmLogin === 'pending') {
         if (running) await watch();
@@ -94,19 +96,32 @@
       if (s.stfuStopFailed) toast('STFU could not be stopped after the login check.', 'error');
     } catch (e) { failed(e); } finally { f.password = ''; busy = false; }
   }
-  async function clear() {
-    confirmClear = false; busy = true; gen++;
+  // Enable/Disable: the settings and the password stay either way. Disable runs systemctl disable --now stfu; Enable
+  // brings BrandMeister back on the panel (and stfu at boot with "Stay logged in") without retyping anything.
+  async function setEnabled(on: boolean) {
+    confirmOff = false; busy = true; gen++;
     verify = { working: '', outcome: null };
-    try { onsaved(await api.dvswitchBrandMeisterClear()); toast('BrandMeister connection cleared. STFU is stopped.', 'info'); }
-    catch (e) { failed(e); } finally { busy = false; }
+    try {
+      const s = await api.dvswitchBrandMeisterEnabled(on);
+      onsaved(s);
+      toast(on ? 'BrandMeister enabled.' : 'BrandMeister disabled. STFU is stopped; the settings are kept.', 'info');
+      if (on && s.bmLogin === 'logged_in') verify = { working: '', outcome: { kind: 'ok', message: 'The login to BrandMeister works.' } };
+    } catch (e) { failed(e); } finally { busy = false; }
   }
 </script>
 
 <section class="card space-y-3 p-4" aria-label="BrandMeister">
   <div class="flex flex-wrap items-center gap-2">
     <h2 class="text-base font-semibold">BrandMeister</h2>
-    <span class="badge {TONE[bd.tone]}" role="status" title={status?.lastLine ?? ''} data-testid="dv-bm-state">{bd.text}</span>
+    {#if bm.enabled}<span class="badge {TONE[bd.tone]}" role="status" title={status?.lastLine ?? ''} data-testid="dv-bm-state">{bd.text}</span>{:else}<span class="badge" role="status" data-testid="dv-bm-state">Disabled</span>{/if}
+    <span class="ml-auto"></span>
+    {#if bm.enabled}
+      <button type="button" class="btn btn-sm" data-testid="dv-bm-toggle" disabled={busy || disabled || !!verify.working} onclick={() => (confirmOff = true)}>Disable</button>
+    {:else}
+      <button type="button" class="btn btn-sm btn-primary" data-testid="dv-bm-toggle" disabled={busy || disabled || !!verify.working || !bm.configured} title={bm.configured ? undefined : 'Save the password first (and set the DMR ID under Identity)'} onclick={() => setEnabled(true)}>Enable</button>
+    {/if}
   </div>
+  {#if !bm.enabled}<p class="text-xs text-muted" data-testid="dv-bm-off">Off: BrandMeister is not on the panel and STFU never starts. {bm.configured ? 'The settings are saved; Enable turns it back on.' : 'Save the settings below, then Enable.'}</p>{/if}
   <p class="text-xs text-muted">Through STFU, BrandMeister's Open DMR Terminal protocol. It runs next to DMR - Other; the panel switches between them. STFU logs in only while BrandMeister is the active mode, so it does not take the connection from your phone app (BrandMeister keeps one login per DMR ID); choose "Stay logged in" to keep it logged in always. In BrandMeister SelfCare the connection is listed under DMR Terminals as "Open DMR Terminal".</p>
   {#if blocker}
     <p class="text-xs text-muted" role="status" data-testid="dv-stfu-blocker">{blocker}
@@ -136,8 +151,7 @@
       {#if problem && (f.password || bm.passwordSet)}<p class="text-xs text-danger sm:col-span-3" role="alert">{problem}</p>{/if}
       <div class="flex flex-wrap items-center gap-2 sm:col-span-3">
         <button class="btn btn-primary" disabled={!!problem || !!verify.working}>Save BrandMeister</button>
-        {#if bm.configured || bm.passwordSet}<button type="button" class="btn" disabled={!!verify.working} onclick={() => (confirmClear = true)}>Clear BrandMeister connection</button>{/if}
-        <span class="text-xs text-muted">Saving restarts stfu only, to check the login.</span>
+        <span class="text-xs text-muted">{bm.enabled ? 'Saving restarts stfu only, to check the login.' : 'Saved only: nothing starts while BrandMeister is disabled.'}</span>
       </div>
     </fieldset>
   </form>
@@ -149,4 +163,4 @@
   {#if rx}<p class="text-xs text-muted" role="status" data-testid="dv-stfu-rx">{rx}</p>{/if}
 </section>
 
-<Confirm bind:open={confirmClear} title="Clear the BrandMeister connection?" confirmLabel="Clear" message="This removes the BrandMeister password, stops and disables stfu, and takes BrandMeister off the panel. DMR - Other is not touched." onconfirm={clear} />
+<Confirm bind:open={confirmOff} title="Disable BrandMeister?" confirmLabel="Disable" message="This stops and disables stfu and takes BrandMeister off the panel. The master, the password and the other settings stay, so Enable brings it back. The other DMR networks are not touched." onconfirm={() => setEnabled(false)} />

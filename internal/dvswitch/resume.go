@@ -93,6 +93,14 @@ type Tracker struct {
 	// error, or ErrNotInstalled when the node has no DVSwitch (info is empty
 	// then and the helper was not asked). It runs in the poll goroutine.
 	OnPoll func(info helper.DVSwitchInfo, err error)
+	// BootMode, when set, makes DVSwitch start in the last mode: it is called
+	// with LastMode when the tracker records a new one (and once per process
+	// for the stored one), whether resume is on or off. A failure is retried
+	// on the next poll.
+	BootMode func(ctx context.Context, mode string) error
+	// ModeEnabled, when set, says whether a mode is on (its card's Enable); a
+	// resume into a disabled mode is skipped.
+	ModeEnabled func(ctx context.Context, mode string) bool
 
 	mu     sync.Mutex
 	st     State
@@ -108,6 +116,8 @@ type Tracker struct {
 	prevMode          string // mode of the previous sample
 	dmrHold           bool   // the DMR talkgroup is not trusted yet (see record)
 	lastLogged        string
+	bootSynced        string // the boot mode written by this process
+	bootFailed        bool   // the last BootMode failed (logged once)
 
 	// What the last poll saw, for nextInterval (guarded by mu).
 	ps pollState
@@ -343,6 +353,9 @@ func (t *Tracker) Poll(ctx context.Context) {
 	t.observe(info, now)
 	t.mu.Unlock()
 
+	if act == resumeFire && t.ModeEnabled != nil && !t.ModeEnabled(ctx, mode) {
+		act, why = resumeSkip, "the mode is disabled"
+	}
 	switch act {
 	case resumeFire:
 		_, err := t.Src.DVSwitchTune(ctx, helper.DVSwitchRequest{Author: "resume", Tune: &helper.DVTune{Mode: mode, Tune: tune}})
@@ -358,6 +371,32 @@ func (t *Tracker) Poll(ctx context.Context) {
 		t.markResumed(info.Started)
 	}
 	t.record(info, now)
+	t.syncBoot(ctx)
+}
+
+// syncBoot passes a new LastMode to BootMode. The helper writes only what
+// differs; this keeps it from being asked on every poll.
+func (t *Tracker) syncBoot(ctx context.Context) {
+	if t.BootMode == nil {
+		return
+	}
+	t.mu.Lock()
+	mode := t.st.LastMode
+	done := mode == "" || mode == t.bootSynced
+	t.mu.Unlock()
+	if done {
+		return
+	}
+	if err := t.BootMode(ctx, mode); err != nil {
+		if !t.bootFailed {
+			t.bootFailed = true
+			t.logf("dvswitch tracker: cannot set the boot mode to %s: %v", mode, err)
+		}
+		return
+	}
+	t.mu.Lock()
+	t.bootSynced, t.bootFailed = mode, false
+	t.mu.Unlock()
 }
 
 // observe updates the poll state from a successful poll. Callers hold mu.

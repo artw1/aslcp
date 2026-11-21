@@ -204,7 +204,7 @@ func (o *Ops) DVSwitchDMRStatus(ctx context.Context) (DVDMRStatus, error) {
 	res, err := o.dvMMDVMStatus(ctx)
 	if loaded, configured := o.dvBMConfigured(ctx); loaded {
 		bm := DVDMRStatus{State: DMRDisabled, Via: DVViaSTFU}
-		if configured {
+		if configured && o.dvBMEnabled() {
 			bm = o.dvSTFUStatus(ctx)
 		}
 		res.BM = &bm

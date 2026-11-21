@@ -55,12 +55,15 @@ type DVBridge struct {
 	Updated string `json:"updated"`
 }
 
-// DVModeView: Enabled is what MMDVM_Bridge enables; Unlink is the tune value
-// the unlink button sends.
+// DVModeView: Enabled is the mode's card (BM: enabled and configured; the
+// others: what MMDVM_Bridge enables); Unlink is the tune value the unlink
+// button sends. Label, when set, names the button instead of ID ("TGIF" for
+// DMR while the TGIF profile is on).
 type DVModeView struct {
 	ID      string `json:"id"`
 	Enabled bool   `json:"enabled"`
 	Unlink  string `json:"unlink"`
+	Label   string `json:"label,omitempty"`
 }
 
 // DVServiceView is one systemd unit of the bridge.
@@ -184,10 +187,12 @@ func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, i
 	}
 	sn.Installed = true
 	var enabled helper.DVModesView
-	bm, stay := false, false
+	bm, stay, tgif := false, false, false
 	if v, ok := d.getSetup(ctx); ok {
 		enabled = v.Modes
-		bm, stay = v.BrandMeister.Configured, v.BrandMeister.StayLoggedIn
+		bm = v.BrandMeister.Configured && v.BrandMeister.Enabled
+		stay = bm && v.BrandMeister.StayLoggedIn
+		tgif = v.TGIF.Enabled
 	}
 	// On demand stfu runs only in BM mode: stopped otherwise, which is not a
 	// fault (stfuWanted).
@@ -206,7 +211,11 @@ func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, i
 		case "NXDN":
 			on = enabled.NXDN
 		}
-		sn.Modes = append(sn.Modes, DVModeView{ID: m, Enabled: on, Unlink: helper.DVUnlinkTune(m)})
+		mv := DVModeView{ID: m, Enabled: on, Unlink: helper.DVUnlinkTune(m)}
+		if m == "DMR" && tgif {
+			mv.Label = "TGIF"
+		}
+		sn.Modes = append(sn.Modes, mv)
 	}
 	gw := map[string]bool{"ysfgateway": enabled.YSF, "p25gateway": enabled.P25, "nxdngateway": enabled.NXDN}
 	for _, u := range st.Units {

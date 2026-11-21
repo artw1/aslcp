@@ -414,10 +414,10 @@ func (c *Client) DVSwitchModes(ctx context.Context, req DVSwitchRequest) (DVAppl
 	return r, c.dvCall(ctx, OpDVSwitchModes, req, &r)
 }
 
-// DVSwitchStartup calls dvswitch-startup.
-func (c *Client) DVSwitchStartup(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
+// DVSwitchBootMode calls dvswitch-bootmode: DVSwitch starts in mode.
+func (c *Client) DVSwitchBootMode(ctx context.Context, mode string) (DVApplyResult, error) {
 	var r DVApplyResult
-	return r, c.dvCall(ctx, OpDVSwitchStartup, req, &r)
+	return r, c.dvCall(ctx, OpDVSwitchBootMode, DVSwitchRequest{Mode: mode}, &r)
 }
 
 // DVSwitchBM calls dvswitch-bm.

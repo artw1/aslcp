@@ -27,7 +27,9 @@ type ctlDV struct {
 	active  string
 	infoErr error
 	left    []string // the unlinks sent before a switch: "mode>value"
-	bm      bool     // BrandMeister configured
+	bm      bool     // BrandMeister configured and enabled
+	bmOff   bool     // BrandMeister configured but its card disabled
+	tgif    bool     // the TGIF profile is the live DMR network
 }
 
 func newCtlDV() *ctlDV {
@@ -56,7 +58,7 @@ func (f *ctlDV) DVSwitchSetup(context.Context) (helper.DVSwitchSetup, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return helper.DVSwitchSetup{Identity: helper.DVIdentityView{Callsign: "N0CALL", DMRID: "1234567"}, Modes: f.modes, Files: []helper.DVFileView{},
-		BrandMeister: helper.DVBMView{Configured: f.bm}}, nil
+		BrandMeister: helper.DVBMView{Configured: f.bm || f.bmOff, Enabled: f.bm}, TGIF: helper.DVTGIFView{Enabled: f.tgif && f.modes.DMR}}, nil
 }
 
 func (f *ctlDV) DVSwitchInfo(context.Context) (helper.DVSwitchInfo, error) {
@@ -803,12 +805,75 @@ func TestDVModeBMNeedsConfiguration(t *testing.T) {
 	f := newCtlDV()
 	e := ctlEnv(t, f)
 	expectErr(t, e, "op", "POST", "/api/dvswitch/mode", map[string]any{"mode": "BM"}, 409, "mode_disabled")
-	f.set(func(f *ctlDV) { f.bm = true })
+	// configured but disabled on its card: still refused, and not offered
+	f.set(func(f *ctlDV) { f.bmOff = true })
+	expectErr(t, e, "op", "POST", "/api/dvswitch/mode", map[string]any{"mode": "BM"}, 409, "mode_disabled")
+	var sn api.DVSnapshot
+	if e.do("viewer", "GET", "/api/dvswitch/snapshot", nil, &sn); len(sn.Modes) == 0 || sn.Modes[0].Enabled {
+		t.Fatalf("disabled BM offered: %+v", sn.Modes)
+	}
+	f.set(func(f *ctlDV) { f.bm, f.bmOff = true, false })
 	var rep struct{ Snapshot api.DVSnapshot }
 	if c := e.do("op", "POST", "/api/dvswitch/mode", map[string]any{"mode": "bm"}, &rep); c != 200 || rep.Snapshot.Bridge.Mode != "BM" {
 		t.Fatalf("%d %+v", c, rep.Snapshot.Bridge)
 	}
 	if tn := f.lastTunes(); len(tn) != 1 || tn[0] != (helper.DVTune{Mode: "BM", Tune: "4000"}) {
 		t.Fatalf("%+v", tn)
+	}
+}
+
+// The panel's mode buttons follow the cards: a mode disabled on its card is
+// refused (409 mode_disabled) and not offered; DMR is labelled TGIF while
+// the TGIF profile is live.
+func TestDVModeFollowsCards(t *testing.T) {
+	f := newCtlDV()
+	f.modes = helper.DVModesView{}
+	e := ctlEnv(t, f)
+	for _, m := range []string{"BM", "DMR", "YSF", "P25", "NXDN"} {
+		expectErr(t, e, "op", "POST", "/api/dvswitch/mode", map[string]any{"mode": m}, 409, "mode_disabled")
+	}
+	if n := len(f.lastTunes()); n != 0 {
+		t.Fatalf("a disabled mode reached the helper: %d", n)
+	}
+	f.set(func(f *ctlDV) { f.modes = helper.DVModesView{DMR: true, NXDN: true}; f.tgif = true })
+	time.Sleep(450 * time.Millisecond)
+	var sn api.DVSnapshot
+	e.do("viewer", "GET", "/api/dvswitch/snapshot", nil, &sn)
+	on := map[string]bool{}
+	for _, m := range sn.Modes {
+		on[m.ID] = m.Enabled
+		if m.ID == "DMR" && m.Label != "TGIF" {
+			t.Errorf("DMR label %q", m.Label)
+		}
+	}
+	if on["BM"] || !on["DMR"] || on["YSF"] || on["P25"] || !on["NXDN"] {
+		t.Fatalf("%+v", sn.Modes)
+	}
+	var rep struct{ Snapshot api.DVSnapshot }
+	if c := e.do("op", "POST", "/api/dvswitch/mode", map[string]any{"mode": "NXDN"}, &rep); c != 200 {
+		t.Fatalf("NXDN: %d", c)
+	}
+	expectErr(t, e, "op", "POST", "/api/dvswitch/mode", map[string]any{"mode": "YSF"}, 409, "mode_disabled")
+}
+
+// A DMR talkgroup does not carry over between TGIF and DMR - Other: a switch
+// of the DMR profile forgets the remembered DMR tune; BM's stays.
+func TestDVProfileSwitchForgetsDMRTune(t *testing.T) {
+	f := newCtlDV()
+	f.info = helper.DVSwitchInfo{Found: true, Mode: "DMR", Panel: "DMR", TG: "91", Tune: "91", Slot: "2"}
+	e, tr, _ := trackedCtl(t, f)
+	if got := tr.Get().PerMode["DMR"].Tune; got != "91" {
+		t.Fatalf("DMR not remembered: %q", got)
+	}
+	// a modes write that is not a switch keeps it
+	if c := e.do("admin", "PUT", "/api/dvswitch/modes", map[string]any{"ysf": true}, nil); c != 200 || tr.Get().PerMode["DMR"].Tune != "91" {
+		t.Fatalf("%d %+v", c, tr.Get())
+	}
+	f.set(func(f *ctlDV) { f.profileChanged = true })
+	if c := e.do("admin", "PUT", "/api/dvswitch/tgif/enabled", map[string]any{"enabled": true}, nil); c != 200 {
+		t.Fatal(c)
+	}
+	if v := tr.Get(); v.PerMode["DMR"].Tune != "" || v.LastMode == "DMR" {
+		t.Fatalf("DMR tune carried over: %+v", v)
 	}
 }

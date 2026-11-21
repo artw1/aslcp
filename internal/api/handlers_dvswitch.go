@@ -28,7 +28,9 @@ type DVSwitch interface {
 	DVSwitchIdentity(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
 	DVSwitchCredentials(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
 	DVSwitchModes(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
-	DVSwitchStartup(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
+	// DVSwitchBootMode makes DVSwitch start in the last mode (the resume
+	// tracker); not a user write.
+	DVSwitchBootMode(ctx context.Context, mode string) (helper.DVApplyResult, error)
 	DVSwitchRollback(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
 	DVSwitchRestart(ctx context.Context, req helper.DVSwitchRequest) (helper.DVRestartResult, error)
 	// Host and TG lists of the pickers (read-only).
@@ -71,10 +73,10 @@ func (s *Server) dvswitchRoutes() {
 	m.HandleFunc("PUT /api/dvswitch/identity", s.authed(store.RoleAdmin, s.handleDVSwitchIdentity))
 	m.HandleFunc("PUT /api/dvswitch/credentials", s.authed(store.RoleAdmin, s.handleDVSwitchCredentials))
 	m.HandleFunc("PUT /api/dvswitch/modes", s.authed(store.RoleAdmin, s.handleDVSwitchModes))
-	m.HandleFunc("PUT /api/dvswitch/startup", s.authed(store.RoleAdmin, s.handleDVSwitchStartup))
 	m.HandleFunc("PUT /api/dvswitch/brandmeister", s.authed(store.RoleAdmin, s.handleDVSwitchBMSave))
-	m.HandleFunc("DELETE /api/dvswitch/brandmeister", s.authed(store.RoleAdmin, s.handleDVSwitchBMClear))
-	m.HandleFunc("DELETE /api/dvswitch/dmr-connection", s.authed(store.RoleAdmin, s.handleDVSwitchDMRClear))
+	m.HandleFunc("PUT /api/dvswitch/brandmeister/enabled", s.authed(store.RoleAdmin, s.handleDVSwitchBMEnabled))
+	m.HandleFunc("PUT /api/dvswitch/tgif", s.authed(store.RoleAdmin, s.handleDVSwitchTGIF))
+	m.HandleFunc("PUT /api/dvswitch/tgif/enabled", s.authed(store.RoleAdmin, s.handleDVSwitchTGIFEnabled))
 	m.HandleFunc("POST /api/dvswitch/stfu/install", s.authed(store.RoleAdmin, s.handleDVSwitchSTFUInstall))
 	// Tune and resume (M1): operators tune, only admins change the setting.
 	m.HandleFunc("POST /api/dvswitch/tune", s.authed(store.RoleOperator, s.handleDVSwitchTune))
@@ -236,6 +238,10 @@ func (s *Server) dvswitchError(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusConflict, "no_identity", err.Error())
 	case errors.Is(err, helper.ErrDVNoPassword):
 		writeErr(w, http.StatusConflict, "no_password", err.Error())
+	case errors.Is(err, helper.ErrDVModeDisabled):
+		writeErr(w, http.StatusConflict, "mode_disabled", err.Error())
+	case errors.Is(err, helper.ErrDVBMNotConfigured):
+		writeErr(w, http.StatusConflict, "bm_not_configured", err.Error())
 	case errors.Is(err, helper.ErrDVBMMaster):
 		writeErr(w, http.StatusBadRequest, "bm_master", err.Error())
 	case errors.Is(err, helper.ErrDVSwitchFailed):

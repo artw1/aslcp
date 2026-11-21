@@ -6,7 +6,7 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-  import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, isDMRFamily, modeLabel } from '../lib/dvpanel';
+  import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, isDMRFamily, modeButtonLabel, modeLabel } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import { exclusiveHint, linkButton, linkExclusiveOnClick, linkLine, pausedHint } from '../lib/dvbridge';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
@@ -190,8 +190,8 @@
         {#each snap.modes.filter((x) => x.id !== 'BM' || x.enabled) as m (m.id)}
           <button type="button" class="btn btn-sm {shown === m.id ? 'btn-primary' : ''}" aria-pressed={shown === m.id}
             disabled={!m.enabled || locked}
-            title={m.enabled ? undefined : `${m.id} is not enabled in MMDVM_Bridge${admin ? ' (DVSwitch tab, Modes)' : ''}`}
-            onclick={() => setMode(m.id)}>{modeLabel(m.id)}{#if pending?.mode === m.id && outcome === 'waiting'}…{/if}</button>
+            title={m.enabled ? undefined : `${modeButtonLabel(m)} is disabled${admin ? ' (DVSwitch tab, Enable on its card)' : ''}`}
+            onclick={() => setMode(m.id)}>{modeButtonLabel(m)}{#if pending?.mode === m.id && outcome === 'waiting'}…{/if}</button>
         {/each}
         <button type="button" class="btn btn-sm ml-auto" disabled={locked || !mode || !unlinkValue} title={mode ? `Unlink the ${modeLabel(mode)} talkgroup or reflector: send ${unlinkValue} to ${modeLabel(mode)}. The bridge node link is not changed.` : 'Mode unknown'} onclick={unlink}><Unlink size={13} aria-hidden="true" />Unlink {mode ? modeLabel(mode) + ' target' : ''}</button>
       </div>
