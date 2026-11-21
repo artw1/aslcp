@@ -1,5 +1,5 @@
 {
-  "version": "1.3.7",
-  "notes": "### Fixed\n- Now Calling shows an AllStar node's callsign, description and location instead of looking the callsign up as a person. The radioid.net user list now applies to DMR and YSF talkers only.\n\n### Changed\n- The Now Calling strip is shown on every page, not only the dashboard.",
+  "version": "1.3.8",
+  "notes": "### Fixed\n- The page no longer jumps when the Now Calling strip changes from a call to Last heard.",
   "date": "2026-11-21"
 }
