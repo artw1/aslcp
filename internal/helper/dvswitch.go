@@ -98,7 +98,8 @@ var (
 )
 
 var dvErrors = []error{ErrDVAlreadyInstalled, ErrDVUnsupported, ErrDVClockUnset, ErrDVKeyMismatch, ErrDVOutsideASLCP, ErrDVInvalid, ErrDVNotInstalled, ErrDVNoHistory, ErrDVNoInfo, ErrDVNoList, ErrDVNoPorts,
-	ErrDVSTFUNotInstalled, ErrDVSTFUInstalled, ErrDVNoIdentity, ErrDVNoPassword, ErrDVBMMaster, ErrDVSwitchFailed, ErrDVModeDisabled, ErrDVBMNotConfigured}
+	ErrDVSTFUNotInstalled, ErrDVSTFUInstalled, ErrDVNoIdentity, ErrDVNoPassword, ErrDVBMMaster, ErrDVSwitchFailed, ErrDVModeDisabled, ErrDVBMNotConfigured,
+	ErrDVNetMaster, ErrDVNetNotConfigured, ErrDVNetFailed}
 
 // DVSwitchPkg is one package of the install set.
 type DVSwitchPkg struct {

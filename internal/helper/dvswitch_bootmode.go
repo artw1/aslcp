@@ -13,19 +13,25 @@ import (
 // to set: DVSwitch starts in the last mode. When the server's resume tracker
 // sees a new last mode it calls dvswitch-bootmode, which writes
 // Analog_Bridge.ini [AMBE_AUDIO] ambeMode and the TLV ports of that mode (BM
-// starts as DMR on [DMR]'s ports: STFU is on demand) and blanks the gateways'
+// and the other DMR networks start as DMR on [DMR]'s ports: STFU is on
+// demand, [DMR Network] holds the network last switched to) and blanks the gateways'
 // [Network] Startup (the resume re-tunes the last reflector). It writes only
 // what differs, keeps no history copy (it is not a user change: the
 // rollback list stays the user's), restarts nothing and never touches txTg.
 
-// dvBootAmbe: panel mode -> ambeMode and DVSwitch.ini section.
-var dvBootAmbe = map[string][2]string{
-	DVModeBM:  {"DMR", "DMR"},
-	DVModeDMR: {"DMR", "DMR"},
-	"YSF":     {"YSFN", "YSF"},
-	"P25":     {"P25", "P25"},
-	"NXDN":    {"NXDN", "NXDN"},
-}
+// dvBootAmbe: panel mode -> ambeMode and DVSwitch.ini section. Every DMR
+// network of the registry is DMR on [DMR]'s ports.
+var dvBootAmbe = func() map[string][2]string {
+	m := map[string][2]string{
+		"YSF":  {"YSFN", "YSF"},
+		"P25":  {"P25", "P25"},
+		"NXDN": {"NXDN", "NXDN"},
+	}
+	for _, id := range dvNetworkIDs() {
+		m[id] = [2]string{"DMR", "DMR"}
+	}
+	return m
+}()
 
 // dvBlankStartup blanks [Network] Startup of the three gateways (a missing
 // file or key is skipped).
@@ -86,8 +92,8 @@ func (o *Ops) dvAmbeMode() string {
 }
 
 // StepInstallDefaults sets the defaults of a fresh install: every mode off
-// (all Enable flags of MMDVM_Bridge.ini 0), BrandMeister disabled in ASLCP,
-// no stored DMR profile, the gateways' Startup blank. Each mode is turned on
+// (all Enable flags of MMDVM_Bridge.ini 0), every DMR network disabled with
+// nothing stored (networks.json), the gateways' Startup blank. Each mode is turned on
 // with its card's Enable. It runs before restore-apply, so settings staged
 // by a backup restore still win.
 const StepInstallDefaults = "install-defaults"
@@ -106,26 +112,28 @@ func (o *Ops) dvInstallDefaults(ctx context.Context, w io.Writer) error {
 	} else {
 		io.WriteString(w, "install-defaults: all modes are off; enable them on the DVSwitch page\n")
 	}
-	_ = o.dvBMEnabledSet(false)
-	_ = o.dvDMRProfilesReset()
+	_ = o.dvNetworksReset()
 	return nil // never fails the install
 }
 
-// DVModeOn says whether a panel mode is on, as its card shows it: BM when
-// BrandMeister is enabled and configured, the others when MMDVM_Bridge
-// enables them (DMR: either DMR profile).
+// DVModeOn says whether a panel mode is on, as its card shows it: a DMR
+// network when it is enabled and configured (BM: BrandMeister), the others
+// when MMDVM_Bridge enables them.
 func DVModeOn(v DVSwitchSetup, mode string) bool {
 	switch mode {
 	case DVModeBM:
 		return v.BrandMeister.Configured && v.BrandMeister.Enabled
-	case DVModeDMR:
-		return v.Modes.DMR
 	case "YSF":
 		return v.Modes.YSF
 	case "P25":
 		return v.Modes.P25
 	case "NXDN":
 		return v.Modes.NXDN
+	}
+	for _, n := range v.Networks {
+		if n.ID == mode {
+			return n.Enabled && n.Configured
+		}
 	}
 	return false
 }

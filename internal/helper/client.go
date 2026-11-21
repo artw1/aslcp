@@ -426,6 +426,12 @@ func (c *Client) DVSwitchBM(ctx context.Context, req DVSwitchRequest) (DVApplyRe
 	return r, c.dvCall(ctx, OpDVSwitchBM, req, &r)
 }
 
+// DVSwitchNetwork calls dvswitch-network.
+func (c *Client) DVSwitchNetwork(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
+	var r DVApplyResult
+	return r, c.dvCall(ctx, OpDVSwitchNetwork, req, &r)
+}
+
 // DVSwitchSTFUInstall calls dvswitch-stfu-install.
 func (c *Client) DVSwitchSTFUInstall(ctx context.Context) (DVSwitchStatus, error) {
 	var s DVSwitchStatus

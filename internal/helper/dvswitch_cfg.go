@@ -31,7 +31,7 @@ const (
 	OpDVSwitchSetup       = "dvswitch-setup"       // read-only view of the editable values
 	OpDVSwitchInfo        = "dvswitch-info"        // parsed ABInfo (read-only)
 	OpDVSwitchIdentity    = "dvswitch-identity"    // callsign, DMR ID, ESSID everywhere, optional NXDN ID
-	OpDVSwitchCredentials = "dvswitch-credentials" // DMR master address, port, password
+	OpDVSwitchCredentials = "dvswitch-credentials" // DMR - Other's master address, port, password (dvswitch-network save)
 	OpDVSwitchModes       = "dvswitch-modes"       // enable flags
 	OpDVSwitchBootMode    = "dvswitch-bootmode"    // internal: ambeMode and ports follow the last mode, gateway Startup blank
 	OpDVSwitchRollback    = "dvswitch-rollback"    // newest history copy of one file
@@ -41,7 +41,7 @@ const (
 
 func isDVConfigOp(op string) bool {
 	switch op {
-	case OpDVSwitchIdentity, OpDVSwitchCredentials, OpDVSwitchModes, OpDVSwitchBootMode, OpDVSwitchRollback, OpDVSwitchRestart, OpDVSwitchLists, OpDVSwitchTune, OpDVSwitchUSRP, OpDVSwitchPrivate, OpDVSwitchBM:
+	case OpDVSwitchIdentity, OpDVSwitchCredentials, OpDVSwitchModes, OpDVSwitchBootMode, OpDVSwitchRollback, OpDVSwitchRestart, OpDVSwitchLists, OpDVSwitchTune, OpDVSwitchUSRP, OpDVSwitchPrivate, OpDVSwitchBM, OpDVSwitchNetwork:
 		return true
 	}
 	return false
@@ -269,7 +269,7 @@ type DVSwitchRequest struct {
 	Scope  string `json:"scope,omitempty"`
 	Action string `json:"action,omitempty"`
 	// Mode: lists, "dmr", "ysf", "p25" or "nxdn"; bootmode, a panel mode
-	// (BM, DMR, YSF, P25, NXDN).
+	// (DVTuneModes).
 	Mode string `json:"mode,omitempty"`
 	// Tune: dvswitch-tune.
 	Tune *DVTune `json:"tune,omitempty"`
@@ -278,6 +278,8 @@ type DVSwitchRequest struct {
 	Private *DVPrivate `json:"private,omitempty"`
 	// BM: dvswitch-bm (dvswitch_stfu.go).
 	BM *DVBM `json:"bm,omitempty"`
+	// Network: dvswitch-network (dvswitch_networks.go).
+	Network *DVNetworkReq `json:"network,omitempty"`
 }
 
 // DVIdentity: callsign, 7-digit DMR ID, 2-digit ESSID and the optional NXDN
@@ -395,33 +397,23 @@ func dvInfoChanges(in *DVInfo) ([]dvChange, error) {
 	return ch, nil
 }
 
-// DVCredentials: the DMR master. Nil fields are left alone. The password is
-// write-only. ClearPassword writes the stock value (dvStockPassword, reported
-// as "not set") for masters that need no password; it excludes Password.
+// DVCredentials: DMR - Other's master (the save of dvswitch-network). Nil
+// fields are left alone. The password is write-only. ClearPassword forgets
+// it (the stock value goes to the ini, reported as "not set") for masters
+// that need no password; it excludes Password.
 type DVCredentials struct {
 	Address       *string `json:"address,omitempty"`
 	Port          *int    `json:"port,omitempty"`
 	Password      *string `json:"password,omitempty"`
 	ClearPassword bool    `json:"clearPassword,omitempty"`
-	// Profile: "" or "other" is DMR - Other, "tgif" is TGIF (Password and
-	// ClearPassword only: its master comes from DMR_Hosts.txt). The two share
-	// [DMR Network]; the profile that is not active is kept in the helper's
-	// state (dvswitch_dmrprofile.go) and written to the ini when it is
-	// enabled.
-	Profile string `json:"profile,omitempty"`
 }
 
-// DVModes: nil fields are left alone.
+// DVModes: the YSF, P25 and NXDN enable flags; nil fields are left alone.
+// The DMR networks are enabled with dvswitch-network and dvswitch-bm.
 type DVModes struct {
-	DMR  *bool `json:"dmr,omitempty"`
 	YSF  *bool `json:"ysf,omitempty"`
 	P25  *bool `json:"p25,omitempty"`
 	NXDN *bool `json:"nxdn,omitempty"`
-	// DMRProfile ("tgif" or "other", optional) says which DMR profile DMR
-	// refers to. DMR true with a profile that is not active switches
-	// [DMR Network] to it; DMR false with a profile that is not active
-	// changes nothing.
-	DMRProfile string `json:"dmrProfile,omitempty"`
 }
 
 // DVApplyResult is the reply of the write ops. It carries no value.
@@ -439,9 +431,6 @@ type DVApplyResult struct {
 	BMLogin string `json:"bmLogin,omitempty"`
 	// STFUStopFailed: STFU should be stopped again and could not be.
 	STFUStopFailed bool `json:"stfuStopFailed,omitempty"`
-	// DMRProfileChanged: [DMR Network] now holds the other DMR profile (the
-	// server forgets the DMR tune: talkgroups belong to one network).
-	DMRProfileChanged bool `json:"dmrProfileChanged,omitempty"`
 }
 
 type dvChange struct{ file, section, key, value string }
@@ -837,95 +826,38 @@ func (o *Ops) DVSwitchIdentity(ctx context.Context, req *DVSwitchRequest) (DVApp
 	return o.dvApply(ctx, ch, req.Base)
 }
 
-// DVSwitchCredentials writes the DMR master address, port and password of
-// a DMR profile: to [DMR Network] when it is the active profile, else to the
-// stored profile only (dvswitch_dmrprofile.go).
+// DVSwitchCredentials saves DMR - Other's master address, port and
+// password: dvswitch-network save of DMR (kept for the credentials
+// endpoint).
 func (o *Ops) DVSwitchCredentials(ctx context.Context, req *DVSwitchRequest) (DVApplyResult, error) {
 	req, err := o.dvArgs(req)
 	if err != nil {
 		return DVApplyResult{}, err
 	}
 	c := req.Credentials
-	if c == nil || req.Identity != nil || req.Modes != nil {
+	if c == nil || req.Identity != nil || req.Modes != nil || req.Network != nil {
 		return DVApplyResult{}, errors.New("invalid request: credentials only")
 	}
-	profile := c.Profile
-	switch profile {
-	case "", DVProfileOther:
-		profile = DVProfileOther
-	case DVProfileTGIF:
-		if c.Address != nil || c.Port != nil {
-			return DVApplyResult{}, dvInvalid("credentials/profile")
-		}
-	default:
-		return DVApplyResult{}, dvInvalid("credentials/profile")
-	}
-	if c.Password != nil && c.ClearPassword {
-		return DVApplyResult{}, dvInvalid("DMR Network/Password")
-	}
-	dvProfileMu.Lock()
-	defer dvProfileMu.Unlock()
-	if o.dvDMRProfiles().Active != profile {
-		return o.dvCredentialsStored(c, profile)
-	}
-	var ch []dvChange
-	add := func(k, v string) { ch = append(ch, dvChange{DVFileMMDVMBridge, "DMR Network", k, v}) }
-	if c.Address != nil {
-		if o.dvIsBMHost(*c.Address) {
-			return DVApplyResult{}, ErrDVBMMaster
-		}
-		add("Address", *c.Address)
-	}
-	if c.Port != nil {
-		add("Port", strconv.Itoa(*c.Port))
-	}
-	if c.Password != nil {
-		add("Password", *c.Password)
-	}
-	if c.ClearPassword {
-		add("Password", dvStockPassword)
-	}
-	if len(ch) == 0 {
-		// nothing to write: a harmless no-op, not an error
-		return dvNoChange(), nil
-	}
-	return o.dvApply(ctx, ch, req.Base)
+	n, _ := DVNetworkByID(DVModeDMR)
+	return o.dvNetSaveOp(ctx, n, &DVNetworkReq{ID: DVModeDMR, Action: DVNetSave, Address: c.Address, Port: c.Port, Password: c.Password, ClearPassword: c.ClearPassword}, req.Base)
 }
 
-// DVSwitchModes sets the enable flags, each in the mode section and its
-// Network section together. With DMRProfile, DMR refers to that DMR profile:
-// enabling the one that is not active switches [DMR Network] to it (and so
-// turns the other off), disabling it changes nothing.
+// DVSwitchModes sets the YSF, P25 and NXDN enable flags, each in the mode
+// section and its Network section together.
 func (o *Ops) DVSwitchModes(ctx context.Context, req *DVSwitchRequest) (DVApplyResult, error) {
 	req, err := o.dvArgs(req)
 	if err != nil {
 		return DVApplyResult{}, err
 	}
 	m := req.Modes
-	if m == nil || req.Identity != nil || req.Credentials != nil {
+	if m == nil || req.Identity != nil || req.Credentials != nil || req.Network != nil {
 		return DVApplyResult{}, errors.New("invalid request: modes only")
-	}
-	switch m.DMRProfile {
-	case "", DVProfileOther, DVProfileTGIF:
-	default:
-		return DVApplyResult{}, dvInvalid("modes/dmrProfile")
-	}
-	dvProfileMu.Lock()
-	defer dvProfileMu.Unlock()
-	dmr := m.DMR
-	switchTo := ""
-	if dmr != nil && m.DMRProfile != "" && m.DMRProfile != o.dvDMRProfiles().Active {
-		if *dmr {
-			switchTo = m.DMRProfile
-		} else {
-			dmr = nil // that profile is already off
-		}
 	}
 	var ch []dvChange
 	for _, e := range []struct {
 		id string
 		v  *bool
-	}{{"dmr", dmr}, {"ysf", m.YSF}, {"p25", m.P25}, {"nxdn", m.NXDN}} {
+	}{{"ysf", m.YSF}, {"p25", m.P25}, {"nxdn", m.NXDN}} {
 		if e.v == nil {
 			continue
 		}
@@ -940,9 +872,6 @@ func (o *Ops) DVSwitchModes(ctx context.Context, req *DVSwitchRequest) (DVApplyR
 					dvChange{DVFileMMDVMBridge, ms.section + " Network", "Enable", val})
 			}
 		}
-	}
-	if switchTo != "" {
-		return o.dvSwitchProfile(ctx, switchTo, ch, req.Base)
 	}
 	if len(ch) == 0 {
 		// nothing to write: a harmless no-op, not an error
@@ -1008,7 +937,6 @@ func (o *Ops) DVSwitchRollback(ctx context.Context, req *DVSwitchRequest) (DVApp
 // the password is set, the file hashes. No secret value.
 type DVSwitchSetup struct {
 	Identity DVIdentityView `json:"identity"`
-	DMR      DVDMRView      `json:"dmr"`
 	USRP     DVUSRPView     `json:"usrp"`
 	// Private is the record of what ASLCP changed for the private bridge
 	// node (nil: none). ReservedPorts are the DVSwitch ports a USRP port must
@@ -1020,8 +948,9 @@ type DVSwitchSetup struct {
 	// cards).
 	Gateways DVGateways   `json:"gateways"`
 	Files    []DVFileView `json:"files"`
-	// TGIF is the TGIF profile of [DMR Network] (dvswitch_dmrprofile.go).
-	TGIF DVTGIFView `json:"tgif"`
+	// Networks are the DMR networks' cards, in registry order
+	// (dvswitch_networks.go). No secret value.
+	Networks []DVNetworkView `json:"networks"`
 	// BrandMeister is the STFU connection: the [STFU] values of
 	// DVSwitch.ini and the unit state. No secret value.
 	BrandMeister DVBMView `json:"brandmeister"`
@@ -1063,22 +992,6 @@ func dvInfoView(get func(sec, key string) string) DVInfoView {
 	return v
 }
 
-// DVDMRView is DMR - Other: MMDVM_Bridge's own DMR network. Enabled: [DMR]
-// and [DMR Network] are both on. PointsAtBM: the master is a BrandMeister
-// server (set up by hand; BrandMeister belongs under BrandMeister).
-//
-// The view is always the DMR - Other profile, whichever profile [DMR
-// Network] holds; Profile is the active one ("other" or "tgif"), and
-// Enabled is DMR on with DMR - Other active.
-type DVDMRView struct {
-	Address     string `json:"address"`
-	Port        int    `json:"port"`
-	PasswordSet bool   `json:"passwordSet"`
-	Enabled     bool   `json:"enabled"`
-	PointsAtBM  bool   `json:"pointsAtBm"`
-	Profile     string `json:"profile"`
-}
-
 // DVDMRBMWarning is the setup-view warning for DMR - Other on a BrandMeister
 // master.
 const DVDMRBMWarning = "DMR - Other points at a BrandMeister master. BrandMeister is set up under BrandMeister (STFU); point DMR - Other at another network or clear it"
@@ -1089,6 +1002,8 @@ type DVUSRPView struct {
 	TxPort  int    `json:"txPort"`
 }
 
+// DVModesView: the Enable flags of MMDVM_Bridge.ini (DMR is on while any
+// MMDVM_Bridge DMR network is enabled; informational).
 type DVModesView struct {
 	DMR  bool `json:"dmr"`
 	YSF  bool `json:"ysf"`
@@ -1161,17 +1076,6 @@ func (o *Ops) DVSwitchSetup(ctx context.Context) (DVSwitchSetup, error) {
 	}
 	chk(DVFileYSFGateway, "General", "Id", v.Identity.DMRID)
 
-	// [DMR Network] holds the active DMR profile; the other one comes from
-	// the helper's state (dvswitch_dmrprofile.go).
-	prof := o.dvDMRProfiles()
-	pw := get(DVFileMMDVMBridge, "DMR Network", "Password")
-	live := dvDMRProfile{Address: get(DVFileMMDVMBridge, "DMR Network", "Address"), Port: atoi(get(DVFileMMDVMBridge, "DMR Network", "Port")), Password: pw}
-	other, tgifPw := live, prof.TGIF.Password
-	if prof.Active == DVProfileTGIF {
-		other, tgifPw = prof.Other, pw
-	}
-	v.DMR = DVDMRView{Address: other.Address, Port: other.Port, PasswordSet: other.Password != "" && other.Password != dvStockPassword, Profile: prof.Active}
-	v.TGIF = o.dvTGIFView(tgifPw)
 	v.USRP = DVUSRPView{Address: get(DVFileAnalogBridge, "USRP", "address"), RxPort: atoi(get(DVFileAnalogBridge, "USRP", "rxPort")), TxPort: atoi(get(DVFileAnalogBridge, "USRP", "txPort"))}
 
 	v.Private, _ = ReadDVPrivate(o.dvPrivatePath())
@@ -1181,20 +1085,20 @@ func (o *Ops) DVSwitchSetup(ctx context.Context) (DVSwitchSetup, error) {
 		return get(DVFileMMDVMBridge, sec, "Enable") == "1" && get(DVFileMMDVMBridge, sec+" Network", "Enable") == "1"
 	}
 	v.Modes = DVModesView{DMR: en("DMR"), YSF: en("System Fusion"), P25: en("P25"), NXDN: en("NXDN")}
-	v.DMR.Enabled = v.Modes.DMR && prof.Active == DVProfileOther
-	v.TGIF.Enabled = v.Modes.DMR && prof.Active == DVProfileTGIF
-	v.DMR.PointsAtBM = vHostname(v.DMR.Address) && o.dvIsBMHost(v.DMR.Address)
 	loaded, unitEnabled := o.dvBMUnit(ctx)
 	v.BrandMeister = dvBMView(parsed[DVFileDVSwitch], loaded, unitEnabled, o.dvSTFUStay())
 	v.BrandMeister.Enabled = o.dvBMEnabled()
+	v.Networks = o.dvNetworkViews(v.BrandMeister)
 
 	gw := func(file string) DVGatewayView { return DVGatewayView{Present: parsed[file] != nil} }
 	v.Gateways = DVGateways{YSF: gw(DVFileYSFGateway), P25: gw(DVFileP25Gateway), NXDN: gw(DVFileNXDNGateway)}
 	v.Identity.NXDNID = dvNXDNIDView(get(DVFileMMDVMBridge, "NXDN", "Id"))
 	v.Identity.Info = dvInfoView(func(sec, key string) string { return get(DVFileMMDVMBridge, sec, key) })
 	v.Warnings = dvWarnings(v.Modes, v.Identity)
-	if v.DMR.PointsAtBM && v.DMR.Enabled {
-		v.Warnings = append(v.Warnings, DVDMRBMWarning)
+	for _, n := range v.Networks {
+		if n.PointsAtBM && n.Enabled {
+			v.Warnings = append(v.Warnings, DVDMRBMWarning)
+		}
 	}
 	return v, nil
 }

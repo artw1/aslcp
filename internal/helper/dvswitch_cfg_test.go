@@ -209,7 +209,7 @@ func TestDVValidationNeverEchoes(t *testing.T) {
 		}
 	}
 	// a request with a field its op does not take
-	if _, err := o.DVSwitchModes(ctx, &DVSwitchRequest{Modes: &DVModes{DMR: bp(true)}, Identity: &DVIdentity{}}); err == nil {
+	if _, err := o.DVSwitchModes(ctx, &DVSwitchRequest{Modes: &DVModes{YSF: bp(true)}, Identity: &DVIdentity{}}); err == nil {
 		t.Error("extra field accepted")
 	}
 	for _, d := range dvFiles {
@@ -223,7 +223,7 @@ func TestDVCredentialsWriteOnly(t *testing.T) {
 	o, _ := cfgOps(t)
 	ctx := context.Background()
 	v, _ := o.DVSwitchSetup(ctx)
-	if v.DMR.PasswordSet {
+	if netView(v, DVModeDMR).PasswordSet {
 		t.Fatal("stock password counts as set")
 	}
 	res, err := o.DVSwitchCredentials(ctx, &DVSwitchRequest{Credentials: &DVCredentials{Address: sp("192.0.2.10"), Port: ip(62031), Password: sp(dvTestPass)}})
@@ -239,8 +239,8 @@ func TestDVCredentialsWriteOnly(t *testing.T) {
 	if strings.Contains(string(b), dvTestPass) {
 		t.Error("setup view carries the password")
 	}
-	if !v.DMR.PasswordSet || v.DMR.Address != "192.0.2.10" || v.DMR.Port != 62031 {
-		t.Fatalf("%+v", v.DMR)
+	if !netView(v, DVModeDMR).PasswordSet || netView(v, DVModeDMR).Address != "192.0.2.10" || netView(v, DVModeDMR).Port != 62031 {
+		t.Fatalf("%+v", netView(v, DVModeDMR))
 	}
 	if !strings.Contains(readDV(t, o, DVFileMMDVMBridge), dvTestPass) {
 		t.Error("password not written")
@@ -266,7 +266,7 @@ func TestDVCredentialsClearPassword(t *testing.T) {
 	if _, err := o.DVSwitchCredentials(ctx, &DVSwitchRequest{Credentials: &DVCredentials{Password: sp(dvTestPass)}}); err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := o.DVSwitchSetup(ctx); !v.DMR.PasswordSet {
+	if v, _ := o.DVSwitchSetup(ctx); !netView(v, DVModeDMR).PasswordSet {
 		t.Fatal("password not set")
 	}
 	// both set is invalid and writes nothing
@@ -286,7 +286,7 @@ func TestDVCredentialsClearPassword(t *testing.T) {
 	if strings.Contains(got, dvTestPass) || !strings.Contains(got, "Password="+dvStockPassword) {
 		t.Errorf("password not reset to the stock value:\n%s", got)
 	}
-	if v, _ := o.DVSwitchSetup(ctx); v.DMR.PasswordSet {
+	if v, _ := o.DVSwitchSetup(ctx); netView(v, DVModeDMR).PasswordSet {
 		t.Error("passwordSet still true")
 	}
 }
@@ -294,16 +294,16 @@ func TestDVCredentialsClearPassword(t *testing.T) {
 func TestDVModesBothSections(t *testing.T) {
 	o, _ := cfgOps(t)
 	ctx := context.Background()
-	if _, err := o.DVSwitchModes(ctx, &DVSwitchRequest{Modes: &DVModes{DMR: bp(true), YSF: bp(true), P25: bp(false), NXDN: bp(false)}}); err != nil {
+	if _, err := o.DVSwitchModes(ctx, &DVSwitchRequest{Modes: &DVModes{YSF: bp(true), P25: bp(false), NXDN: bp(false)}}); err != nil {
 		t.Fatal(err)
 	}
 	v, _ := o.DVSwitchSetup(ctx)
-	if !v.Modes.DMR || !v.Modes.YSF || v.Modes.P25 || v.Modes.NXDN {
+	if v.Modes.DMR || !v.Modes.YSF || v.Modes.P25 || v.Modes.NXDN {
 		t.Fatalf("%+v", v.Modes)
 	}
 	// only one of the two flags set by hand: not enabled
 	m := readDV(t, o, DVFileMMDVMBridge)
-	if strings.Count(m, "Enable=1")+strings.Count(m, "Enable = 1") < 4 {
+	if strings.Count(m, "Enable=1")+strings.Count(m, "Enable = 1") < 2 {
 		t.Errorf("flags: %s", m)
 	}
 }
@@ -409,7 +409,7 @@ func TestDVInstallDefaultsAllOff(t *testing.T) {
 		t.Errorf("Startup=%q", v)
 	}
 	v, _ := o.DVSwitchSetup(ctx)
-	if v.Modes.DMR || v.Modes.YSF || v.Modes.P25 || v.Modes.NXDN || v.BrandMeister.Enabled || v.TGIF.Enabled {
+	if v.Modes.DMR || v.Modes.YSF || v.Modes.P25 || v.Modes.NXDN || v.BrandMeister.Enabled || netView(v, DVModeTGIF).Enabled || netView(v, DVModeDMR).Enabled {
 		t.Fatalf("%+v %+v", v.Modes, v.BrandMeister)
 	}
 }
@@ -515,9 +515,9 @@ func TestDVHistoryPruneAndRollback(t *testing.T) {
 	if _, err := o.DVSwitchRollback(ctx, &DVSwitchRequest{File: DVFileMMDVMBridge}); err != nil {
 		t.Fatal(err)
 	}
-	v, _ := o.DVSwitchSetup(ctx)
-	if v.DMR.Port != 40012 {
-		t.Fatalf("port %d", v.DMR.Port)
+	// the rollback is of the ini only
+	if p, _ := dvIni(t, o, DVFileMMDVMBridge).Get("DMR Network", "Port"); p != "40012" {
+		t.Fatalf("port %s", p)
 	}
 	if n := len(o.dvHistoryNames(DVFileMMDVMBridge)); n != dvHistoryKeep-1 {
 		t.Fatalf("history %d", n)
@@ -723,7 +723,7 @@ func TestDemoDVSwitchCfg(t *testing.T) {
 	if _, err := d.DVSwitchCredentials(ctx, DVSwitchRequest{Credentials: &DVCredentials{Password: sp(dvTestPass), ClearPassword: true}}); !errors.Is(err, ErrDVInvalid) {
 		t.Fatalf("both set: %v", err)
 	}
-	if strings.Contains(string(b), dvTestPass) || !v.DMR.PasswordSet {
+	if strings.Contains(string(b), dvTestPass) || !netView(v, DVModeDMR).PasswordSet {
 		t.Fatalf("%s", b)
 	}
 	if _, err := d.DVSwitchRollback(ctx, DVSwitchRequest{File: DVFileMMDVMBridge}); err != nil {

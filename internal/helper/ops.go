@@ -213,6 +213,8 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return o.DVSwitchPrivate(ctx, req.DVSwitch)
 	case OpDVSwitchBM:
 		return o.DVSwitchBM(ctx, req.DVSwitch)
+	case OpDVSwitchNetwork:
+		return o.DVSwitchNetwork(ctx, req.DVSwitch)
 	case OpDVSwitchSTFUInstall:
 		return o.DVSwitchSTFUInstall(ctx)
 	case OpBackupInfo:

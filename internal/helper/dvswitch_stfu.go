@@ -55,7 +55,7 @@ const (
 	DVViaSTFU  = "stfu"
 )
 
-// Panel modes of the two DMR connections (DVTuneModes).
+// Panel modes of BrandMeister and DMR - Other (DVNetworks).
 const (
 	DVModeBM  = "BM"
 	DVModeDMR = "DMR"
@@ -96,7 +96,7 @@ var (
 	ErrDVSTFUInstalled    = errors.New("stfu_installed: STFU is already installed")
 	ErrDVNoIdentity       = errors.New("no_identity: save the callsign and DMR ID first")
 	ErrDVNoPassword       = errors.New("no_password: enter the BrandMeister hotspot security password")
-	ErrDVBMMaster         = errors.New("bm_master: BrandMeister masters are set up under BrandMeister, not DMR - Other")
+	ErrDVBMMaster         = errors.New("bm_master: BrandMeister masters are set up under BrandMeister, not on another DMR network's card")
 	ErrDVSwitchFailed     = errors.New("switch_failed: the BrandMeister connection could not be changed; the previous settings were restored")
 	ErrDVModeDisabled     = errors.New("mode_disabled: this mode is disabled; enable it on the DVSwitch page first")
 	ErrDVBMNotConfigured  = errors.New("bm_not_configured: save the BrandMeister password first")
@@ -166,27 +166,6 @@ func DVBMHostName(host string) bool {
 	h := strings.ToLower(strings.TrimSuffix(host, "."))
 	for _, d := range dvBMDomains {
 		if h == d || strings.HasSuffix(h, "."+d) {
-			return true
-		}
-	}
-	return false
-}
-
-// dvIsBMHost reports whether host is a BrandMeister server: by name, or the
-// address of a BM_ entry of DMR_Hosts.txt.
-func (o *Ops) dvIsBMHost(host string) bool {
-	if host == "" {
-		return false
-	}
-	if DVBMHostName(host) {
-		return true
-	}
-	data, err := o.dvReadList("dmr")
-	if err != nil {
-		return false
-	}
-	for _, it := range ParseDMRHosts(data) {
-		if strings.HasPrefix(it.Name, "BM_") && strings.EqualFold(it.Address, host) {
 			return true
 		}
 	}
@@ -627,38 +606,53 @@ func (o *Ops) dvBMUndo(ctx context.Context, files []string) {
 
 // ---- panel mode
 
-// DVPanelMode is the panel's mode of a bridge state: BM or DMR (both
-// ambe_mode DMR, told apart by the TLV ports, see dvPanel), YSF, P25, NXDN;
-// "" for a mode the panel does not handle. A state without Panel (a test
-// fake, an older helper) falls back to the AMBE mode.
+// DVPanelMode is the panel's mode of a bridge state: a DMR network of the
+// registry (BM, TGIF, DMR; all ambe_mode DMR, told apart by the TLV ports
+// and [DMR Network], see dvPanel), YSF, P25, NXDN; "" for a mode the panel
+// does not handle. A state without Panel (a test fake, an older helper)
+// falls back to the AMBE mode.
 func DVPanelMode(info DVSwitchInfo) string {
-	switch info.Panel {
-	case DVModeBM, DVModeDMR, "YSF", "P25", "NXDN":
-		return info.Panel
+	if m := DVNormMode(info.Panel); m != "" {
+		return m
 	}
 	return DVNormMode(info.Mode)
 }
 
-// DVDMRFamily: BM and DMR are both DMR on the air (talkgroups, private
-// calls, slot).
-func DVDMRFamily(mode string) bool { return mode == DVModeBM || mode == DVModeDMR }
+// DVDMRFamily: the DMR networks of the registry are all DMR on the air
+// (talkgroups, private calls, slot).
+func DVDMRFamily(mode string) bool {
+	_, ok := DVNetworkByID(mode)
+	return ok
+}
 
 // dvPanel sets info.Panel: in ambe_mode DMR, BM when Analog_Bridge's live TLV
 // ports are [STFU]'s (it sends to STFU's rxPort and listens on its txPort),
-// else DMR. [STFU] ports equal to [DMR]'s cannot be told apart and read DMR.
+// else the MMDVM_Bridge network [DMR Network] holds (dvMMDVMLive). [STFU]
+// ports equal to [DMR]'s cannot be told apart and read as MMDVM_Bridge.
 func (o *Ops) dvPanel(info *DVSwitchInfo) {
 	info.Panel = DVNormMode(info.Mode)
-	if info.Panel != DVModeDMR || info.tlvTx == 0 {
+	if info.Panel != DVModeDMR {
 		return
+	}
+	if o.dvPanelOnSTFU(info) {
+		info.Panel = DVModeBM
+		return
+	}
+	info.Panel = o.dvMMDVMLive()
+}
+
+func (o *Ops) dvPanelOnSTFU(info *DVSwitchInfo) bool {
+	if info.tlvTx == 0 {
+		return false
 	}
 	tx, rx, err := o.dvModePorts(dvSTFUSection)
 	if err != nil || info.tlvTx != rx || info.tlvRx != tx {
-		return
+		return false
 	}
 	if dtx, drx, err := o.dvModePorts("DMR"); err == nil && dtx == tx && drx == rx {
-		return
+		return false
 	}
-	info.Panel = DVModeBM
+	return true
 }
 
 // ---- unit and file helpers

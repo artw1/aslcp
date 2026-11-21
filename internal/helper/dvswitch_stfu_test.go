@@ -36,10 +36,7 @@ func stfuOps(t *testing.T) (*Ops, *fakeRunner) {
 	if _, err := o.DVSwitchCredentials(ctx, &DVSwitchRequest{Credentials: &DVCredentials{Password: &pw}}); err != nil {
 		t.Fatal(err)
 	}
-	on := true
-	if _, err := o.DVSwitchModes(ctx, &DVSwitchRequest{Modes: &DVModes{DMR: &on}}); err != nil {
-		t.Fatal(err)
-	}
+	netAction(t, o, DVModeDMR, DVNetEnable)
 	if err := o.dvBMEnabledSet(true); err != nil {
 		t.Fatal(err)
 	}
@@ -381,8 +378,8 @@ func TestDMROtherRefusesBM(t *testing.T) {
 		t.Fatal(err)
 	}
 	st, _ := o.DVSwitchSetup(ctx)
-	if st.DMR.PointsAtBM || !st.DMR.Enabled {
-		t.Fatalf("%+v", st.DMR)
+	if netView(st, DVModeDMR).PointsAtBM || !netView(st, DVModeDMR).Enabled {
+		t.Fatalf("%+v", netView(st, DVModeDMR))
 	}
 	// a hand-edited BM master shows a warning, nothing more
 	writeDVIni(t, o, DVFileMMDVMBridge, "DMR Network", "Address", "2041.master.brandmeister.network")
@@ -391,14 +388,12 @@ func TestDMROtherRefusesBM(t *testing.T) {
 	for _, w := range st.Warnings {
 		found = found || w == DVDMRBMWarning
 	}
-	if !st.DMR.PointsAtBM || !found {
-		t.Fatalf("%+v %v", st.DMR, st.Warnings)
+	if !netView(st, DVModeDMR).PointsAtBM || !found {
+		t.Fatalf("%+v %v", netView(st, DVModeDMR), st.Warnings)
 	}
-	// clearing DMR - Other turns both flags off; the warning goes
-	off := false
-	if _, err := o.DVSwitchModes(ctx, &DVSwitchRequest{Modes: &DVModes{DMR: &off}}); err != nil {
-		t.Fatal(err)
-	}
+	// disabling DMR - Other (the only MMDVM network) turns both flags off;
+	// the warning goes
+	netAction(t, o, DVModeDMR, DVNetDisable)
 	mm := dvIni(t, o, DVFileMMDVMBridge)
 	for _, s := range []string{"DMR", "DMR Network"} {
 		if v, _ := mm.Get(s, "Enable"); v != "0" {
@@ -587,6 +582,12 @@ func TestDemoBM(t *testing.T) {
 	}
 	if r, _ := d.DVSwitchDMRStatus(ctx); r.BM == nil || r.BM.State != DMRConnecting {
 		t.Fatalf("%+v", r.BM)
+	}
+	if _, err := d.DVSwitchTune(ctx, DVSwitchRequest{Tune: &DVTune{Mode: DVModeDMR, Tune: "4000"}}); !errors.Is(err, ErrDVModeDisabled) {
+		t.Fatalf("disabled DMR - Other tune: %v", err)
+	}
+	if _, err := d.DVSwitchNetwork(ctx, DVSwitchRequest{Network: &DVNetworkReq{ID: DVModeDMR, Action: DVNetEnable}}); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := d.DVSwitchTune(ctx, DVSwitchRequest{Tune: &DVTune{Mode: DVModeDMR, Tune: "4000"}}); err != nil {
 		t.Fatal(err)

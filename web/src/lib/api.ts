@@ -1,4 +1,4 @@
-import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVBMReq, DVSwitchRestartResult, DVDMRStatus, DVRestartScope, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, DVInfoInput, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage, WifiState, WifiScan, TerminalStatus, TerminalTicket, TerminalSessionInfo, DiagPlan, NowCalling, UserListStatus } from './types';
+import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVSwitchStatus, DVSwitchJobs, DVSwitchSetup, DVBMReq, DVNetworkReq, DVSwitchRestartResult, DVDMRStatus, DVRestartScope, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, DVInfoInput, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage, WifiState, WifiScan, TerminalStatus, TerminalTicket, TerminalSessionInfo, DiagPlan, NowCalling, UserListStatus } from './types';
 import type { SvcStatus, SvcSetResult, WebPortStatus } from './svcweb';
 
 export class ApiError extends Error {
@@ -187,12 +187,11 @@ export const api = {
   dvswitchSetup: () => req<DVSwitchSetup>('GET', '/dvswitch/setup'),
   dvswitchBrandMeister: (b: DVBMReq) => req<DVSwitchSetup>('PUT', '/dvswitch/brandmeister', b),
   dvswitchBrandMeisterEnabled: (enabled: boolean) => req<DVSwitchSetup>('PUT', '/dvswitch/brandmeister/enabled', { enabled }),
-  dvswitchTgif: (b: { password?: string; clearPassword?: boolean; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/tgif', b),
-  dvswitchTgifEnabled: (enabled: boolean, base?: Record<string, string>) => req<DVSwitchSetup>('PUT', '/dvswitch/tgif/enabled', { enabled, base }),
+  dvswitchNetwork: (id: string, b: DVNetworkReq) => req<DVSwitchSetup>('PUT', `/dvswitch/networks/${q(id)}`, b),
+  dvswitchNetworkEnabled: (id: string, enabled: boolean, base?: Record<string, string>) => req<DVSwitchSetup>('PUT', `/dvswitch/networks/${q(id)}/enabled`, { enabled, base }),
   dvswitchStfuInstall: () => req<DVSwitchStatus>('POST', '/dvswitch/stfu/install'),
   dvswitchIdentity: (b: { callsign: string; dmrId: string; essid: string; nxdnId?: string; info?: DVInfoInput; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/identity', b),
-  dvswitchCredentials: (b: { dmrAddress?: string; dmrPort?: number; dmrPassword?: string; clearPassword?: boolean; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/credentials', b),
-  dvswitchModes: (b: { dmr?: boolean; ysf?: boolean; p25?: boolean; nxdn?: boolean; dmrProfile?: 'other' | 'tgif'; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/modes', b),
+  dvswitchModes: (b: { ysf?: boolean; p25?: boolean; nxdn?: boolean; base?: Record<string, string> }) => req<DVSwitchSetup>('PUT', '/dvswitch/modes', b),
   dvswitchTune: (b: { mode: DVTuneMode; tune: string }) => req<DVCmdReply>('POST', '/dvswitch/tune', b),
   dvswitchSnapshot: () => req<DVSnapshot>('GET', '/dvswitch/snapshot'),
   nowcalling: () => req<NowCalling>('GET', '/nowcalling'),

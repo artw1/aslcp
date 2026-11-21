@@ -484,14 +484,15 @@ var reYSFID = regexp.MustCompile(`^[0-9]{5}$`)
 
 // record remembers the current tune of the current mode.
 //
-//   - BM and DMR (both ambe_mode DMR, told apart by the panel mode,
-//     helper.DVPanelMode): digital.tg (and ts). The startup talkgroup shown after a start is
+//   - The DMR networks BM, TGIF and DMR (all ambe_mode DMR, told apart by
+//     the panel mode, helper.DVPanelMode), each under its own key:
+//     digital.tg (and ts). The startup talkgroup shown after a start is
 //     not a tune: it counts once it differs from the first state seen after
 //     the start, or once last_tune holds a value set in DMR.
 //   - YSF, P25, NXDN: last_tune, when it is not empty and valid for the mode.
 //     last_tune survives a mode change, so a value first seen in another mode
 //     is not taken for this one.
-//   - Right after a switch of mode to BM or DMR the talkgroup is not trusted:
+//   - Right after a switch of mode to a DMR network the talkgroup is not trusted:
 //     Analog_Bridge takes txTg= of a YSF tune ("192.0.2.10:42000") as a number
 //     and keeps its leading digits ("192") as digital.tg, so the first DMR
 //     sample after a switch shows a value that is nobody's tune. It counts
@@ -533,8 +534,8 @@ func (t *Tracker) record(info helper.DVSwitchInfo, now time.Time) {
 	}
 
 	var tune, ts string
-	switch mode {
-	case helper.DVModeBM, helper.DVModeDMR:
+	switch {
+	case helper.DVDMRFamily(mode):
 		if !helper.DVValidTune(mode, info.TG) {
 			return
 		}

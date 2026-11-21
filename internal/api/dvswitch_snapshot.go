@@ -39,8 +39,8 @@ type DVSnapshot struct {
 	Heard  []helper.DVCaller `json:"heard"`
 }
 
-// DVBridge: Mode is BM, DMR, YSF, P25 or NXDN ("" when unknown); Tune is the
-// TG (BM, DMR) or the last tune (host:port for YSF); Slot is the DMR slot (0 when
+// DVBridge: Mode is a panel mode (helper.DVTuneModes: BM, TGIF, DMR, YSF,
+// P25, NXDN; "" when unknown); Tune is the TG (a DMR network) or the last tune (host:port for YSF); Slot is the DMR slot (0 when
 // unknown); Source is "abinfo" or "none".
 type DVBridge struct {
 	Mode       string `json:"mode"`
@@ -55,10 +55,10 @@ type DVBridge struct {
 	Updated string `json:"updated"`
 }
 
-// DVModeView: Enabled is the mode's card (BM: enabled and configured; the
-// others: what MMDVM_Bridge enables); Unlink is the tune value the unlink
-// button sends. Label, when set, names the button instead of ID ("TGIF" for
-// DMR while the TGIF profile is on).
+// DVModeView: Enabled is the mode's card (a DMR network: enabled and
+// configured; the others: what MMDVM_Bridge enables); Unlink is the tune value the unlink
+// button sends. Label names a DMR network's button (the registry's label:
+// "BrandMeister", "TGIF", "DMR - Other").
 type DVModeView struct {
 	ID      string `json:"id"`
 	Enabled bool   `json:"enabled"`
@@ -187,33 +187,21 @@ func (d *dvSnapper) buildLocked(ctx context.Context, info helper.DVSwitchInfo, i
 	}
 	sn.Installed = true
 	var enabled helper.DVModesView
-	bm, stay, tgif := false, false, false
+	var setup helper.DVSwitchSetup
+	bm, stay := false, false
 	if v, ok := d.getSetup(ctx); ok {
+		setup = v
 		enabled = v.Modes
-		bm = v.BrandMeister.Configured && v.BrandMeister.Enabled
+		bm = helper.DVModeOn(v, helper.DVModeBM)
 		stay = bm && v.BrandMeister.StayLoggedIn
-		tgif = v.TGIF.Enabled
 	}
 	// On demand stfu runs only in BM mode: stopped otherwise, which is not a
 	// fault (stfuWanted).
 	stfuWanted := stay || infoErr == nil && info.Found && helper.DVPanelMode(info) == helper.DVModeBM
 	for _, m := range helper.DVTuneModes {
-		on := false
-		switch m {
-		case helper.DVModeBM:
-			on = bm
-		case "DMR":
-			on = enabled.DMR
-		case "YSF":
-			on = enabled.YSF
-		case "P25":
-			on = enabled.P25
-		case "NXDN":
-			on = enabled.NXDN
-		}
-		mv := DVModeView{ID: m, Enabled: on, Unlink: helper.DVUnlinkTune(m)}
-		if m == "DMR" && tgif {
-			mv.Label = "TGIF"
+		mv := DVModeView{ID: m, Enabled: helper.DVModeOn(setup, m), Unlink: helper.DVUnlinkTune(m)}
+		if helper.DVDMRFamily(m) {
+			mv.Label = helper.DVNetworkLabel(m)
 		}
 		sn.Modes = append(sn.Modes, mv)
 	}
@@ -275,16 +263,17 @@ func (d *dvSnapper) fillBridge(ctx context.Context, sn *DVSnapshot, info helper.
 	}
 	switch b.Mode {
 	case "":
-	case helper.DVModeBM, helper.DVModeDMR:
-		// TG may still hold another mode's value (a YSF reflector's number
-		// after a switch that sent no tune): it is a talkgroup only when no
-		// last tune is set or the last tune was set in BM or DMR.
-		if info.Tune == "" || helper.DVDMRFamily(d.tuneMode) {
-			b.Tune = info.TG
-		}
-	default:
+	case "YSF", "P25", "NXDN":
 		if d.tuneMode == b.Mode && helper.DVValidTune(b.Mode, info.Tune) {
 			b.Tune = info.Tune
+		}
+	default:
+		// a DMR network. TG may still hold another mode's value (a YSF
+		// reflector's number after a switch that sent no tune): it is a
+		// talkgroup only when no last tune is set or the last tune was set
+		// on a DMR network.
+		if info.Tune == "" || helper.DVDMRFamily(d.tuneMode) {
+			b.Tune = info.TG
 		}
 	}
 	if b.Tune != "" {

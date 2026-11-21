@@ -2,9 +2,6 @@ package helper
 
 import (
 	"context"
-	"errors"
-	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -14,61 +11,16 @@ import (
 // "stay logged in" is set (then it is enabled and always running).
 
 const (
-	dvSTFUStayFile     = "stfu-stay"  // helper state file: present = stay logged in
-	dvBMEnabledFile    = "bm-enabled" // helper state file: present = BrandMeister enabled in ASLCP
 	dvSTFULoginWaitDef = 10 * time.Second
 	dvSTFULoginPollDef = 250 * time.Millisecond
 )
 
-func (o *Ops) dvSTFUStayPath() string { return filepath.Join(o.dvStateDir(), dvSTFUStayFile) }
-
-// dvSTFUStay reports the "stay logged in outside BM mode" setting.
-func (o *Ops) dvSTFUStay() bool {
-	_, err := os.Stat(o.dvSTFUStayPath())
-	return err == nil
-}
-
-// dvBMEnabled reports whether BrandMeister is enabled in ASLCP (the card's
-// Enable). Off by default: without it the panel has no BM mode and ASLCP
-// never starts stfu; the [STFU] settings stay as they are.
-func (o *Ops) dvBMEnabled() bool {
-	_, err := os.Stat(filepath.Join(o.dvStateDir(), dvBMEnabledFile))
-	return err == nil
-}
-
-// dvBMEnabledSet stores the flag (a state file, root only).
-func (o *Ops) dvBMEnabledSet(on bool) error {
-	p := filepath.Join(o.dvStateDir(), dvBMEnabledFile)
-	if on {
-		if err := os.MkdirAll(o.dvStateDir(), 0o700); err != nil {
-			return err
-		}
-		return writeStateFile(p, []byte("1\n"), 0o600)
-	}
-	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
-}
+// The BrandMeister enabled flag and "stay logged in" are in networks.json
+// (dvswitch_networks.go).
 
 // dvSTFUStayOn: stay logged in is set and BrandMeister is enabled (the
 // saved setting outlives a Disable, but a disabled BM never runs stfu).
 func (o *Ops) dvSTFUStayOn() bool { return o.dvBMEnabled() && o.dvSTFUStay() }
-
-// dvSTFUStaySet stores the setting (a state file, root only).
-func (o *Ops) dvSTFUStaySet(on bool) error {
-	p := o.dvSTFUStayPath()
-	if on {
-		if err := os.MkdirAll(o.dvStateDir(), 0o700); err != nil {
-			return err
-		}
-		return writeStateFile(p, []byte("1\n"), 0o600)
-	}
-	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
-}
 
 // dvUnitRunning: an ActiveState that means the unit is up or coming up.
 func dvUnitRunning(active string) bool {
@@ -101,12 +53,18 @@ func (o *Ops) dvSleep(ctx context.Context, d time.Duration) {
 }
 
 // dvSTFUWaitLogin polls the STFU log for a login after the unit's start, up
-// to DVSTFULoginWait. It counts polls rather than reading a clock.
+// to DVSTFULoginWait.
 func (o *Ops) dvSTFUWaitLogin(ctx context.Context) bool {
+	return o.dvWaitLogin(ctx, func() bool { return o.dvSTFUStatus(ctx).State == DMRLoggedIn })
+}
+
+// dvWaitLogin polls check (a login seen in a log) up to DVSTFULoginWait,
+// every DVSTFULoginPoll. It counts polls rather than reading a clock.
+func (o *Ops) dvWaitLogin(ctx context.Context, check func() bool) bool {
 	wait, poll := orDuration(o.DVSTFULoginWait, dvSTFULoginWaitDef), orDuration(o.DVSTFULoginPoll, dvSTFULoginPollDef)
 	n := int((wait + poll - 1) / poll)
 	for i := 0; ; i++ {
-		if o.dvSTFUStatus(ctx).State == DMRLoggedIn {
+		if check() {
 			return true
 		}
 		if i >= n || ctx.Err() != nil {

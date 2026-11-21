@@ -56,18 +56,16 @@ func demoTalks(now time.Time) []DVTalk {
 // demo password is never stored, only whether one was set.
 
 type demoDVCfg struct {
-	set      bool
 	identity DVIdentityView
-	dmr      DVDMRView
 	modes    DVModesView
 	gw       DVGateways
 	// bootMode is the mode the bridge starts in: the last mode (set by
 	// DVSwitchBootMode from the resume tracker).
 	bootMode string
-	// The DMR profiles (dvswitch_dmrprofile.go): which one [DMR Network]
-	// holds and whether TGIF has a password. DMR - Other is dmr and set.
-	profile string
-	tgifPw  bool
+	// The MMDVM_Bridge DMR networks (dvswitch_networks.go): their settings
+	// and which one [DMR Network] holds.
+	nets    map[string]demoNet
+	netLive string
 	hist    map[string]int
 	times   int
 
@@ -82,23 +80,29 @@ type demoDVCfg struct {
 	started time.Time
 }
 
+type demoNet struct {
+	enabled bool
+	address string
+	port    int
+	pwSet   bool
+}
+
 type demoDVLive struct {
 	mode, tg, slot, tune string
-	panel                string // BM or DMR in ambe_mode DMR
+	panel                string // the DMR network in ambe_mode DMR
 	private              bool
 }
 
 func newDemoDVCfg() *demoDVCfg {
 	return &demoDVCfg{
-		set: true,
 		identity: DVIdentityView{Callsign: "N0CALL", DMRID: "1234567", ESSID: "01", NXDNID: "12346", Consistent: true,
 			Info: DVInfoView{Location: dvStockInfoLoc, Description: "MMDVM_Bridge", URL: "https://example.org/dvswitch", FrequencyHz: 0, RXHz: dvStockInfoRX, TXHz: 224940000, Latitude: "41.7333", Longitude: "-50.3999", Stock: true}},
-		dmr: DVDMRView{Address: "192.0.2.10", Port: 62031},
+		nets:    map[string]demoNet{DVModeDMR: {address: "192.0.2.10", port: 62031, pwSet: true}},
+		netLive: DVModeDMR,
 		// a fresh install: every mode off until its card enables it
 		modes:    DVModesView{},
 		gw:       DVGateways{YSF: DVGatewayView{Present: true}, P25: DVGatewayView{Present: true}, NXDN: DVGatewayView{Present: true}},
 		bootMode: DVModeDMR,
-		profile:  DVProfileOther,
 		hist:     map[string]int{},
 		usrp:     DVUSRPView{Address: "127.0.0.1", RxPort: 31001, TxPort: 31001},
 	}
@@ -128,16 +132,28 @@ func (d *DemoDVSwitch) DVSwitchSetup(context.Context) (DVSwitchSetup, error) {
 func (d *DemoDVSwitch) setup() DVSwitchSetup {
 	d.progress()
 	c := d.cfg()
-	v := DVSwitchSetup{Identity: c.identity, DMR: c.dmr, Modes: c.modes, Gateways: c.gw,
+	v := DVSwitchSetup{Identity: c.identity, Modes: c.modes, Gateways: c.gw,
 		USRP: c.usrp, Private: c.priv, ReservedPorts: dvReservedPortsDemo(), Files: []DVFileView{}}
-	v.DMR.PasswordSet = c.set
-	v.DMR.Profile = c.profile
-	v.DMR.Enabled = c.modes.DMR && c.profile == DVProfileOther
-	v.TGIF = d.tgifView()
-	v.TGIF.PasswordSet = c.tgifPw
-	v.TGIF.Enabled = c.modes.DMR && c.profile == DVProfileTGIF
-	v.DMR.PointsAtBM = DVBMHostName(c.dmr.Address)
+	v.Modes.DMR = c.dmrOn()
 	v.BrandMeister = d.bmView()
+	for _, n := range DVNetworks {
+		s := c.nets[n.ID]
+		nv := DVNetworkView{ID: n.ID, Label: n.Label, Via: n.Via, Master: n.Master}
+		switch {
+		case n.Via == DVViaSTFU:
+			nv.Enabled, nv.Configured = v.BrandMeister.Enabled, v.BrandMeister.Configured
+		case n.Master == DVMasterFixed:
+			nv.Address, nv.Port, nv.Source, nv.Name = d.demoNetMaster(n)
+		default:
+			nv.Address, nv.Port = s.address, s.port
+			nv.PointsAtBM = DVBMHostName(s.address)
+		}
+		if n.Via == DVViaMMDVM {
+			nv.Enabled, nv.PasswordSet, nv.Live = s.enabled, s.pwSet, c.netLive == n.ID
+			nv.Configured = dvNetConfigured(n, dvNetState{Address: s.address, Port: s.port})
+		}
+		v.Networks = append(v.Networks, nv)
+	}
 	v.Warnings = dvWarnings(v.Modes, v.Identity)
 	for i, id := range DVFileIDs() {
 		v.Files = append(v.Files, DVFileView{ID: id, Present: d.installed, Writable: d.installed,
@@ -165,23 +181,34 @@ func (d *DemoDVSwitch) DVSwitchInfo(context.Context) (DVSwitchInfo, error) {
 }
 
 // resetLive is what Analog_Bridge does on a start: the boot mode (the last
-// mode; BM starts as DMR), an empty last tune and a new start time.
+// mode; a DMR network starts as the one [DMR Network] holds), an empty last tune and a new start time.
 func (d *DemoDVSwitch) resetLive(c *demoDVCfg) {
 	panel := c.bootMode
-	if panel == "" || panel == DVModeBM {
-		panel = DVModeDMR
+	if panel == "" || DVDMRFamily(panel) {
+		// BM starts as DMR on [DMR]'s ports: the network [DMR Network] holds
+		panel = c.netLive
 	}
 	ambe := dvBootAmbe[panel][0]
 	c.live = demoDVLive{mode: ambe, panel: panel, slot: "2"}
 	c.started = d.now()
 }
 
-// tgifView is TGIF's master from the demo host list (caller holds d.mu).
-func (d *DemoDVSwitch) tgifView() DVTGIFView {
-	if d.Lists != nil {
-		return d.Lists.dvTGIFView("")
+// dmrOn: MMDVM_Bridge's DMR is on while any of its networks is enabled.
+func (c *demoDVCfg) dmrOn() bool {
+	for _, n := range DVNetworks {
+		if n.Via == DVViaMMDVM && c.nets[n.ID].enabled {
+			return true
+		}
 	}
-	return DVTGIFView{Address: DefaultDVTGIFHost, Port: DefaultDVTGIFPort, Source: "default"}
+	return false
+}
+
+// demoNetMaster is a fixed network's master from the demo host list.
+func (d *DemoDVSwitch) demoNetMaster(n DVNetwork) (string, int, string, string) {
+	if d.Lists != nil {
+		return d.Lists.dvNetMaster(n)
+	}
+	return n.DefaultHost, n.DefaultPort, "default", ""
 }
 
 // DVSwitchBootMode implements the API's DVSwitch interface: the demo bridge
@@ -257,6 +284,21 @@ func (d *DemoDVSwitch) DVSwitchTune(_ context.Context, r DVSwitchRequest) (DVTun
 	if t.Mode == DVModeBM && !d.stfu().enabled {
 		return DVTuneResult{}, ErrDVModeDisabled
 	}
+	if n, ok := DVNetworkByID(t.Mode); ok && n.Via == DVViaMMDVM {
+		s := c.nets[t.Mode]
+		if !s.enabled {
+			return DVTuneResult{}, ErrDVModeDisabled
+		}
+		if !dvNetConfigured(n, dvNetState{Address: s.address, Port: s.port}) {
+			return DVTuneResult{}, ErrDVNetNotConfigured
+		}
+		if c.netLive != t.Mode {
+			// like the helper: [DMR Network] rewritten, mmdvm_bridge restarted
+			c.netLive = t.Mode
+			d.dmrAt, d.dmrRuns = d.now(), 0
+			res.NetRestarted = true
+		}
+	}
 	if t.Mode == DVModeBM && !d.stfu().stay && !d.stfuRunning() {
 		d.stfu().at = d.now() // started on demand; the login is simulated as seen
 	}
@@ -267,10 +309,10 @@ func (d *DemoDVSwitch) DVSwitchTune(_ context.Context, r DVSwitchRequest) (DVTun
 			res.Left = c.live.panel
 		}
 		c.live.mode, c.live.panel = t.Mode, t.Mode
-		switch t.Mode {
-		case "YSF":
+		switch {
+		case t.Mode == "YSF":
 			c.live.mode = "YSFN"
-		case DVModeBM:
+		case DVDMRFamily(t.Mode):
 			c.live.mode = DVModeDMR
 		}
 	}
@@ -348,92 +390,128 @@ func (d *DemoDVSwitch) DVSwitchIdentity(_ context.Context, r DVSwitchRequest) (D
 	})
 }
 
-// DVSwitchCredentials implements the API's DVSwitch interface.
-func (d *DemoDVSwitch) DVSwitchCredentials(_ context.Context, r DVSwitchRequest) (DVApplyResult, error) {
+// DVSwitchCredentials implements the API's DVSwitch interface: the save of
+// DMR - Other.
+func (d *DemoDVSwitch) DVSwitchCredentials(ctx context.Context, r DVSwitchRequest) (DVApplyResult, error) {
 	cr := r.Credentials
-	if cr == nil || cr.Address == nil && cr.Port == nil && cr.Password == nil && !cr.ClearPassword {
+	if cr == nil {
 		return dvNoChange(), nil
 	}
-	switch cr.Profile {
-	case "", DVProfileOther:
-	case DVProfileTGIF:
-		if cr.Address != nil || cr.Port != nil {
-			return DVApplyResult{}, dvInvalid("credentials/profile")
+	return d.DVSwitchNetwork(ctx, DVSwitchRequest{Base: r.Base, Network: &DVNetworkReq{ID: DVModeDMR, Action: DVNetSave,
+		Address: cr.Address, Port: cr.Port, Password: cr.Password, ClearPassword: cr.ClearPassword}})
+}
+
+// DVSwitchNetwork implements the API's DVSwitch interface: it validates like
+// the helper and keeps the settings in memory.
+func (d *DemoDVSwitch) DVSwitchNetwork(_ context.Context, r DVSwitchRequest) (DVApplyResult, error) {
+	nr := r.Network
+	if nr == nil {
+		return DVApplyResult{}, errors.New("invalid request: network only")
+	}
+	n, ok := DVNetworkByID(nr.ID)
+	if !ok || n.Via != DVViaMMDVM {
+		return DVApplyResult{}, dvInvalid("network/id")
+	}
+	switch nr.Action {
+	case DVNetSave:
+		if nr.Password != nil && nr.ClearPassword {
+			return DVApplyResult{}, dvInvalid("network/password")
 		}
-	default:
-		return DVApplyResult{}, dvInvalid("credentials/profile")
-	}
-	if cr.Address != nil && !reDVHost.MatchString(*cr.Address) {
-		return DVApplyResult{}, dvInvalid("DMR Network/Address")
-	}
-	if cr.Address != nil && DVBMHostName(*cr.Address) {
-		return DVApplyResult{}, ErrDVBMMaster
-	}
-	if cr.Port != nil && !vInt(1, 65535)(strconv.Itoa(*cr.Port)) {
-		return DVApplyResult{}, dvInvalid("DMR Network/Port")
-	}
-	if cr.Password != nil && cr.ClearPassword {
-		return DVApplyResult{}, dvInvalid("DMR Network/Password")
-	}
-	if cr.Password != nil && !vPassword(*cr.Password) {
-		return DVApplyResult{}, dvInvalid("DMR Network/Password")
-	}
-	if cr.Profile == DVProfileTGIF {
-		return d.demoWrite([]string{DVFileMMDVMBridge}, []string{"mmdvm_bridge"}, func(c *demoDVCfg) error {
-			c.tgifPw = cr.Password != nil
+		if nr.Address != nil && !n.has("address") || nr.Port != nil && !n.has("port") {
+			return DVApplyResult{}, dvInvalid("network/fields")
+		}
+		if nr.Address != nil {
+			if !reDVHost.MatchString(*nr.Address) {
+				return DVApplyResult{}, dvInvalid("network/address")
+			}
+			rows := []DVListItem(nil)
+			if d.Lists != nil {
+				if data, err := d.Lists.dvReadList("dmr"); err == nil {
+					rows = ParseDMRHosts(data)
+				}
+			}
+			switch id := DVNetworkClaim(*nr.Address, rows); {
+			case id == DVModeBM:
+				return DVApplyResult{}, ErrDVBMMaster
+			case id != "" && id != n.ID:
+				return DVApplyResult{}, ErrDVNetMaster
+			}
+		}
+		if nr.Port != nil && (*nr.Port < 1 || *nr.Port > 65535) {
+			return DVApplyResult{}, dvInvalid("network/port")
+		}
+		if nr.Password != nil && !vPassword(*nr.Password) {
+			return DVApplyResult{}, dvInvalid("network/password")
+		}
+		files, hint := []string{DVStateNetworks}, []string{}
+		d.mu.Lock()
+		live := d.cfg().netLive == n.ID
+		d.mu.Unlock()
+		if live {
+			files, hint = []string{DVFileMMDVMBridge, DVStateNetworks}, []string{"mmdvm_bridge"}
+		}
+		return d.demoWrite(files, hint, func(c *demoDVCfg) error {
+			s := c.nets[n.ID]
+			if nr.Address != nil {
+				s.address = *nr.Address
+			}
+			if nr.Port != nil {
+				s.port = *nr.Port
+			}
+			if nr.Password != nil {
+				s.pwSet = true
+			}
+			if nr.ClearPassword {
+				s.pwSet = false
+			}
+			c.nets[n.ID] = s
 			return nil
 		})
+	case DVNetEnable, DVNetDisable:
+		on := nr.Action == DVNetEnable
+		d.mu.Lock()
+		c := d.cfg()
+		s := c.nets[n.ID]
+		before := c.dmrOn()
+		d.mu.Unlock()
+		if on && !dvNetConfigured(n, dvNetState{Address: s.address, Port: s.port}) {
+			return DVApplyResult{}, ErrDVNetNotConfigured
+		}
+		var after bool
+		res, err := d.demoWrite([]string{DVStateNetworks}, []string{}, func(c *demoDVCfg) error {
+			s := c.nets[n.ID]
+			s.enabled = on
+			c.nets[n.ID] = s
+			after = c.dmrOn()
+			c.modes.DMR = after
+			return nil
+		})
+		if err == nil && before != after {
+			res.Files = append(res.Files, DVFileMMDVMBridge)
+			res.RestartHint = []string{"analog_bridge", "mmdvm_bridge"}
+		}
+		return res, err
 	}
-	return d.demoWrite([]string{DVFileMMDVMBridge}, []string{"mmdvm_bridge"}, func(c *demoDVCfg) error {
-		if cr.Address != nil {
-			c.dmr.Address = *cr.Address
-		}
-		if cr.Port != nil {
-			c.dmr.Port = *cr.Port
-		}
-		if cr.Password != nil {
-			c.set = true
-		}
-		if cr.ClearPassword {
-			c.set = false
-		}
-		return nil
-	})
+	return DVApplyResult{}, dvInvalid("network/action")
 }
 
 // DVSwitchModes implements the API's DVSwitch interface.
 func (d *DemoDVSwitch) DVSwitchModes(_ context.Context, r DVSwitchRequest) (DVApplyResult, error) {
 	m := r.Modes
-	if m == nil || m.DMR == nil && m.YSF == nil && m.P25 == nil && m.NXDN == nil {
+	if m == nil || m.YSF == nil && m.P25 == nil && m.NXDN == nil {
 		return dvNoChange(), nil
 	}
-	switch m.DMRProfile {
-	case "", DVProfileOther, DVProfileTGIF:
-	default:
-		return DVApplyResult{}, dvInvalid("modes/dmrProfile")
-	}
-	switched := false
-	res, err := d.demoWrite([]string{DVFileMMDVMBridge}, []string{"analog_bridge", "mmdvm_bridge"}, func(c *demoDVCfg) error {
-		dmr := m.DMR
-		if dmr != nil && m.DMRProfile != "" && m.DMRProfile != c.profile {
-			if *dmr {
-				c.profile, switched = m.DMRProfile, true
-			} else {
-				dmr = nil // that profile is already off
-			}
-		}
+	return d.demoWrite([]string{DVFileMMDVMBridge}, []string{"analog_bridge", "mmdvm_bridge"}, func(c *demoDVCfg) error {
 		for _, e := range []struct {
 			in  *bool
 			out *bool
-		}{{dmr, &c.modes.DMR}, {m.YSF, &c.modes.YSF}, {m.P25, &c.modes.P25}, {m.NXDN, &c.modes.NXDN}} {
+		}{{m.YSF, &c.modes.YSF}, {m.P25, &c.modes.P25}, {m.NXDN, &c.modes.NXDN}} {
 			if e.in != nil {
 				*e.out = *e.in
 			}
 		}
 		return nil
 	})
-	res.DMRProfileChanged = switched
-	return res, err
 }
 
 // DVSwitchRollback implements the API's DVSwitch interface.
@@ -527,10 +605,10 @@ func (d *DemoDVSwitch) DVSwitchDMRStatus(context.Context) (DVDMRStatus, error) {
 	return res, nil
 }
 
-// demoMMDVMStatus is DMR - Other's login (caller holds d.mu).
+// demoMMDVMStatus is MMDVM_Bridge's login (caller holds d.mu).
 func (d *DemoDVSwitch) demoMMDVMStatus() DVDMRStatus {
 	c := d.cfg()
-	if !c.modes.DMR {
+	if !c.dmrOn() {
 		return DVDMRStatus{State: DMRDisabled, Via: DVViaMMDVM}
 	}
 	now := d.now()

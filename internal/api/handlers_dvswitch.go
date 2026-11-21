@@ -43,6 +43,8 @@ type DVSwitch interface {
 	DVSwitchTune(ctx context.Context, req helper.DVSwitchRequest) (helper.DVTuneResult, error)
 	// The BrandMeister connection (STFU) and the STFU package.
 	DVSwitchBM(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
+	// The MMDVM_Bridge DMR networks (TGIF, DMR - Other): save, enable, disable.
+	DVSwitchNetwork(ctx context.Context, req helper.DVSwitchRequest) (helper.DVApplyResult, error)
 	DVSwitchSTFUInstall(ctx context.Context) (helper.DVSwitchStatus, error)
 }
 
@@ -75,8 +77,9 @@ func (s *Server) dvswitchRoutes() {
 	m.HandleFunc("PUT /api/dvswitch/modes", s.authed(store.RoleAdmin, s.handleDVSwitchModes))
 	m.HandleFunc("PUT /api/dvswitch/brandmeister", s.authed(store.RoleAdmin, s.handleDVSwitchBMSave))
 	m.HandleFunc("PUT /api/dvswitch/brandmeister/enabled", s.authed(store.RoleAdmin, s.handleDVSwitchBMEnabled))
-	m.HandleFunc("PUT /api/dvswitch/tgif", s.authed(store.RoleAdmin, s.handleDVSwitchTGIF))
-	m.HandleFunc("PUT /api/dvswitch/tgif/enabled", s.authed(store.RoleAdmin, s.handleDVSwitchTGIFEnabled))
+	// Every DMR network of the registry: BM's save is the brandmeister body.
+	m.HandleFunc("PUT /api/dvswitch/networks/{id}", s.authed(store.RoleAdmin, s.handleDVSwitchNetwork))
+	m.HandleFunc("PUT /api/dvswitch/networks/{id}/enabled", s.authed(store.RoleAdmin, s.handleDVSwitchNetworkEnabled))
 	m.HandleFunc("POST /api/dvswitch/stfu/install", s.authed(store.RoleAdmin, s.handleDVSwitchSTFUInstall))
 	// Tune and resume (M1): operators tune, only admins change the setting.
 	m.HandleFunc("POST /api/dvswitch/tune", s.authed(store.RoleOperator, s.handleDVSwitchTune))
@@ -244,6 +247,13 @@ func (s *Server) dvswitchError(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusConflict, "bm_not_configured", err.Error())
 	case errors.Is(err, helper.ErrDVBMMaster):
 		writeErr(w, http.StatusBadRequest, "bm_master", err.Error())
+	case errors.Is(err, helper.ErrDVNetMaster):
+		writeErr(w, http.StatusBadRequest, "net_master", err.Error())
+	case errors.Is(err, helper.ErrDVNetNotConfigured):
+		writeErr(w, http.StatusConflict, "net_not_configured", err.Error())
+	case errors.Is(err, helper.ErrDVNetFailed):
+		s.d.Logger.Printf("dvswitch: %v", err)
+		writeErr(w, http.StatusBadGateway, "net_failed", err.Error())
 	case errors.Is(err, helper.ErrDVSwitchFailed):
 		s.d.Logger.Printf("dvswitch: %v", err)
 		writeErr(w, http.StatusBadGateway, "switch_failed", err.Error())

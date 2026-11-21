@@ -200,7 +200,7 @@ func (s *Server) ncTGName(tg string) string {
 		return ""
 	}
 	for _, f := range favs {
-		if (f.Mode == helper.DVModeBM || f.Mode == helper.DVModeDMR) && f.Value == tg {
+		if helper.DVDMRFamily(f.Mode) && f.Value == tg {
 			return f.Name
 		}
 	}

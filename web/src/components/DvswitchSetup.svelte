@@ -9,13 +9,14 @@
   import { credentialsPatch, dvErrorMessage, formChanged } from '../lib/dvmsg';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import { freqToHz, hzToMHz, validCoord, validInfoText, validInfoUrl } from '../lib/dvpanel';
-  import { cardEnabled, lastUsed, modesBody, OTHER_EXCLUSIVE, RESTART_WARNING, RESUME_NOTICE, resumeHint, resumeToast, tgifSource, TGIF_EXCLUSIVE, type DVCard } from '../lib/dvmodes';
+  import { cardEnabled, lastUsed, modesBody, RESTART_WARNING, RESUME_NOTICE, resumeHint, resumeToast, type DVCard } from '../lib/dvmodes';
+  import { masterSource, netView, otherOptions } from '../lib/dvnetworks';
   import Confirm from './Confirm.svelte';
   import Toggle from './Toggle.svelte';
   import NodePicker from './NodePicker.svelte';
   import DvswitchBridge from './DvswitchBridge.svelte';
   import DvswitchBM from './DvswitchBM.svelte';
-  import { isBMHost, otherOptions } from '../lib/dvbm';
+  import { isBMHost } from '../lib/dvbm';
 
   let { units, onunits }: { units: DVSwitchStatus['units']; onunits: (u: DVSwitchStatus['units']) => void } = $props();
 
@@ -41,7 +42,7 @@
   let info = $state({ location: '', description: '', url: '', freq: '', lat: '', lon: '' });
   let net = $state({ address: '', port: '', password: '' });
   let clearPw = $state(false);
-  // TGIF: only the password is typed; the master comes from DMR_Hosts.txt.
+  // TGIF: only the password is typed; the master comes from DMR_Hosts.txt (read-only).
   let tgifPw = $state(''), tgifClear = $state(false);
   // The last mode and tune and the resume toggle (GET /api/dvswitch/resume).
   let resume = $state<DVResume | null>(null), now = $state(Date.now());
@@ -56,7 +57,8 @@
     id = { callsign: s.identity.callsign, dmrId: s.identity.dmrId, essid: s.identity.essid, nxdnId: s.identity.nxdnId ?? '' };
     const i = s.identity.info;
     info = i ? { location: i.location, description: i.description, url: i.url, freq: hzToMHz(i.frequencyHz), lat: i.latitude, lon: i.longitude } : { location: '', description: '', url: '', freq: '', lat: '', lon: '' };
-    net = { address: s.dmr.address, port: s.dmr.port ? String(s.dmr.port) : '', password: '' };
+    const o = netView(s, 'DMR');
+    net = { address: o?.address ?? '', port: o?.port ? String(o.port) : '', password: '' };
     clearPw = false;
     tgifPw = ''; tgifClear = false;
     snap = { id: { ...id }, info: { ...info }, net: { ...net } };
@@ -91,12 +93,14 @@
   // DMR - Other logs in through mmdvm_bridge; BrandMeister (stfu) has its own section.
   const dmrUnit = 'mmdvm_bridge';
   const bmOn = $derived(!!v?.brandmeister?.configured && !!v?.brandmeister?.enabled);
-  // The DMR network card the login check belongs to (TGIF or DMR - Other share mmdvm_bridge).
-  const liveDmr = $derived<'TGIF' | 'DMR' | null>(!v ? null : cardEnabled(v, 'TGIF') ? 'TGIF' : cardEnabled(v, 'DMR') ? 'DMR' : null);
+  // The MMDVM_Bridge network [DMR Network] holds now (the panel switches it on entering TGIF or DMR - Other):
+  // the login badge and the check after a save belong to its card.
+  const tgif = $derived(netView(v, 'TGIF')), other = $derived(netView(v, 'DMR'));
+  const liveDmr = $derived<'TGIF' | 'DMR' | null>(tgif?.live ? 'TGIF' : other?.live ? 'DMR' : null);
   let verifyFor = $state<'TGIF' | 'DMR'>('DMR');
-  async function verifyLogin() {
+  async function verifyLogin(card?: 'TGIF' | 'DMR') {
     const my = ++gen;
-    verifyFor = liveDmr ?? verifyFor;
+    verifyFor = card ?? liveDmr ?? verifyFor;
     const done = (outcome: Outcome) => { verify = { working: '', outcome }; };
     if (!v?.modes.dmr) { done(outcomeFor({ state: 'disabled' }, true)!); return; }
     const unit = dmrUnit;
@@ -136,7 +140,9 @@
       hint = s.restartHint ?? [];
       const changed = !!(s.changed && s.changed.length);
       toast(changed ? `${what} saved.` : `${what}: nothing to change.`, 'info');
-      if (check) { if (changed) { busy = false; await verifyLogin(); } else pollOnce(); }
+      // only an ini change needs the restart and the login check ("networks" is the stored settings, no restart)
+      const iniChanged = (s.changed ?? []).some((f) => f !== 'networks');
+      if (check) { if (iniChanged) { busy = false; await verifyLogin(); } else pollOnce(); }
     } catch (e) {
       if (e instanceof ApiError && e.code === 'conflict') { toast('A file changed on disk. The values were reloaded; check them and save again.', 'error'); await load(); }
       else toast(dvErrorMessage(e), 'error');
@@ -167,22 +173,24 @@
     const p = credentialsPatch(snap.net, net, clearPw);
     if (!p) return noChanges('DMR master');
     if (p.dmrAddress && isBMHost(p.dmrAddress, lists.dmr)) { toast('That is a BrandMeister master: set it up under BrandMeister instead.', 'error'); return; }
-    return save('DMR master', async () => { try { return await api.dvswitchCredentials({ ...p, base: base() }); } finally { net.password = ''; clearPw = false; } }, !!v && cardEnabled(v, 'DMR'));
+    const body = { address: p.dmrAddress, port: p.dmrPort, password: p.dmrPassword, clearPassword: p.clearPassword };
+    return save('DMR - Other', async () => { try { return await api.dvswitchNetwork('DMR', { ...body, base: base() }); } finally { net.password = ''; clearPw = false; } }, liveOn('DMR'));
   }
-  const CARD_LABEL: Record<DVCard, string> = { DMR: 'DMR - Other', TGIF: 'TGIF', YSF: 'System Fusion (YSF)', P25: 'P25', NXDN: 'NXDN' };
-  // Enable/Disable of a card. DMR - Other and TGIF restart mmdvm_bridge only and check the login when turned on;
-  // turning one of them on turns the other off (they share [DMR Network]). The settings stay when a card is off.
-  async function setCard(card: DVCard, on: boolean) {
+  const CARD_LABEL: Record<DVCard, string> = { BM: 'BrandMeister', TGIF: 'TGIF', DMR: 'DMR - Other', YSF: 'System Fusion (YSF)', P25: 'P25', NXDN: 'NXDN' };
+  // A network card's save or Enable writes MMDVM_Bridge.ini (and the login is checked) only while [DMR Network] holds it;
+  // otherwise its settings are stored and used when the dashboard switches to that mode.
+  const liveOn = (card: 'TGIF' | 'DMR') => !!netView(v, card)?.live && !!netView(v, card)?.enabled;
+  // Enable/Disable of a card changes that mode only. The settings stay when a card is off.
+  async function setCard(card: Exclude<DVCard, 'BM'>, on: boolean) {
     if (!on) { gen++; verify = { working: '', outcome: null }; }
     const what = `${CARD_LABEL[card]} ${on ? 'enabled' : 'disabled'}`;
-    const call = card === 'TGIF' ? () => api.dvswitchTgifEnabled(on, base()) : () => api.dvswitchModes({ ...modesBody(card, on), base: base() });
-    await save(what, call, on && (card === 'TGIF' || card === 'DMR'));
+    const call = card === 'TGIF' || card === 'DMR' ? () => api.dvswitchNetworkEnabled(card, on, base()) : () => api.dvswitchModes({ ...modesBody(card, on), base: base() });
+    await save(what, call, on && (card === 'TGIF' || card === 'DMR') && !!netView(v, card)?.live);
     if (!on) pollOnce();
   }
   function saveTgif() {
     if (!tgifPw && !tgifClear) return noChanges('TGIF');
-    const live = !!v?.tgif.enabled;
-    return save('TGIF', async () => { try { return await api.dvswitchTgif({ ...(tgifClear ? { clearPassword: true } : { password: tgifPw }), base: base() }); } finally { tgifPw = ''; tgifClear = false; } }, live);
+    return save('TGIF', async () => { try { return await api.dvswitchNetwork('TGIF', { ...(tgifClear ? { clearPassword: true } : { password: tgifPw }), base: base() }); } finally { tgifPw = ''; tgifClear = false; } }, liveOn('TGIF'));
   }
   // The BrandMeister section saved (s) or asks for a reload (null).
   async function connSaved(s: DVSwitchSetup | null) {
@@ -215,11 +223,12 @@
   const ok = $derived(!!v && v.files.some((f) => f.present));
 </script>
 
-{#snippet toggle(card: DVCard, on: boolean)}
+{#snippet toggle(card: Exclude<DVCard, 'BM'>, on: boolean)}
+  {@const unset = (card === 'TGIF' || card === 'DMR') && !netView(v, card)?.configured}
   {#if on}
     <button type="button" class="btn btn-sm" data-testid="dv-toggle-{card}" disabled={busy || !!verify.working} onclick={() => setCard(card, false)}>Disable</button>
   {:else}
-    <button type="button" class="btn btn-sm btn-primary" data-testid="dv-toggle-{card}" disabled={busy || !!verify.working} onclick={() => setCard(card, true)}>Enable</button>
+    <button type="button" class="btn btn-sm btn-primary" data-testid="dv-toggle-{card}" disabled={busy || !!verify.working || unset} title={unset ? 'Save the master first' : undefined} onclick={() => setCard(card, true)}>Enable</button>
   {/if}
 {/snippet}
 {#snippet verifyBox()}
@@ -241,7 +250,7 @@
   <div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
     <section class="card space-y-3 p-4 lg:col-span-2" aria-label="Identity">
       <h2 class="text-base font-semibold">Identity</h2>
-      {#each (v.warnings ?? []).filter((w) => w !== NXDN_WARNING && !(v?.dmr.pointsAtBm && w.startsWith('DMR - Other points at'))) as w}<p class="text-xs text-warn" role="status">{w}</p>{/each}
+      {#each (v.warnings ?? []).filter((w) => w !== NXDN_WARNING && !(other?.pointsAtBm && w.startsWith('DMR - Other points at'))) as w}<p class="text-xs text-warn" role="status">{w}</p>{/each}
       {#if !v.identity.consistent}<p class="text-xs text-warn" role="status">The identity differs between the ini files (edited by hand?). Saving writes it to all of them.</p>{/if}
       <form class="grid grid-cols-1 gap-2 sm:grid-cols-3" onsubmit={(e) => { e.preventDefault(); saveIdentity(); }}>
         <div><label class="label" for="dv-call">Callsign</label><input id="dv-call" class="input font-mono" bind:value={id.callsign} maxlength="10" autocapitalize="characters" /></div>
@@ -276,54 +285,64 @@
 
     <DvswitchBM {v} {base} status={dmr?.bm ?? null} hosts={lists.dmr} disabled={busy} onsaved={connSaved} />
 
+    {#snippet netBadge(n: { id: string; enabled: boolean; live: boolean }, testid: string)}
+      {#if !n.enabled}<span class="badge" role="status" data-testid={testid}>Disabled</span>
+      {:else if n.live}<span class="badge {TONE[bd.tone]}" role="status" title={dmr?.lastLine ?? ''} data-testid={testid}>{bd.text}</span>
+      {:else}<span class="badge border-ok text-ok" role="status" title="MMDVM_Bridge switches to it when you pick it on the dashboard" data-testid={testid}>Enabled</span>{/if}
+    {/snippet}
+
+    {#if tgif}
     <section class="card space-y-3 p-4" aria-label="TGIF">
       <div class="flex flex-wrap items-center gap-2">
         <h2 class="text-base font-semibold">TGIF</h2>
-        {#if v.tgif.enabled}<span class="badge {TONE[bd.tone]}" role="status" title={dmr?.lastLine ?? ''} data-testid="dv-tgif-state">{bd.text}</span>{:else}<span class="badge" role="status" data-testid="dv-tgif-state">Disabled</span>{/if}
+        {@render netBadge(tgif, 'dv-tgif-state')}
         <span class="ml-auto"></span>
-        {@render toggle('TGIF', v.tgif.enabled)}
+        {@render toggle('TGIF', tgif.enabled)}
       </div>
-      <p class="text-xs text-muted">The TGIF network through MMDVM_Bridge. {TGIF_EXCLUSIVE}</p>
+      <p class="text-xs text-muted">The TGIF network through MMDVM_Bridge: its own dashboard button and remembered talkgroup. Switching to it on the dashboard points MMDVM_Bridge at TGIF.</p>
       <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-        <dt class="text-muted">Master</dt><dd class="font-mono break-all" data-testid="dv-tgif-master">{v.tgif.address}:{v.tgif.port}</dd>
-        <dt class="text-muted">Source</dt><dd class="text-xs {v.tgif.source === 'default' ? 'text-warn' : 'text-muted'}" data-testid="dv-tgif-source">{tgifSource(v.tgif)}</dd>
+        <dt class="text-muted">Master</dt><dd class="font-mono break-all" data-testid="dv-tgif-master">{tgif.address}:{tgif.port}</dd>
+        <dt class="text-muted">Source</dt><dd class="text-xs {tgif.source === 'default' ? 'text-warn' : 'text-muted'}" data-testid="dv-tgif-source">{masterSource(tgif)}</dd>
       </dl>
       <form class="space-y-1" onsubmit={(e) => { e.preventDefault(); saveTgif(); }}>
-        <label class="label" for="dv-tgif-pw">TGIF password <span class="text-muted" data-testid="dv-tgif-pw-state">({v.tgif.passwordSet ? 'Password saved' : 'No password'})</span></label>
-        <input id="dv-tgif-pw" class="input font-mono" type="password" autocomplete="new-password" bind:value={tgifPw} disabled={tgifClear} placeholder={tgifClear ? 'The password will be cleared' : v.tgif.passwordSet ? 'Leave empty to keep the password' : 'Enter the password'} maxlength="64" />
-        {#if v.tgif.passwordSet}<label class="flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={tgifClear} /> Clear password</label>{/if}
+        <label class="label" for="dv-tgif-pw">TGIF password <span class="text-muted" data-testid="dv-tgif-pw-state">({tgif.passwordSet ? 'Password saved' : 'No password'})</span></label>
+        <input id="dv-tgif-pw" class="input font-mono" type="password" autocomplete="new-password" bind:value={tgifPw} disabled={tgifClear} placeholder={tgifClear ? 'The password will be cleared' : tgif.passwordSet ? 'Leave empty to keep the password' : 'Enter the password'} maxlength="64" />
+        {#if tgif.passwordSet}<label class="flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={tgifClear} /> Clear password</label>{/if}
         <p class="text-xs text-muted">The hotspot password of your TGIF account, kept apart from DMR - Other's. Write-only: it is never shown again.</p>
-        <div class="flex flex-wrap items-center gap-2 pt-1"><button class="btn btn-primary" disabled={busy || !!verify.working}>Save TGIF</button><span class="text-xs text-muted">{v.tgif.enabled ? `Saving restarts ${dmrUnit} only, then checks the login.` : 'Enabling restarts mmdvm_bridge only, then checks the login.'}</span></div>
+        <div class="flex flex-wrap items-center gap-2 pt-1"><button class="btn btn-primary" disabled={busy || !!verify.working}>Save TGIF</button><span class="text-xs text-muted">{liveOn('TGIF') ? `MMDVM_Bridge is on TGIF now: saving restarts ${dmrUnit} only, then checks the login.` : 'Saved for when you switch to TGIF.'}</span></div>
       </form>
       {#if verifyFor === 'TGIF'}{@render verifyBox()}{/if}
     </section>
+    {/if}
 
+    {#if other}
     <section class="card space-y-3 p-4" aria-label="DMR - Other">
       <form class="grid grid-cols-1 gap-2 sm:grid-cols-3" onsubmit={(e) => { e.preventDefault(); saveNet(); }}>
         <div class="flex flex-wrap items-center gap-2 sm:col-span-3">
           <h2 class="text-base font-semibold">DMR - Other</h2>
-          {#if cardEnabled(v, 'DMR')}<span class="badge {TONE[bd.tone]}" role="status" title={dmr?.lastLine ?? ''} data-testid="dv-dmr-state">{bd.text}</span>{:else}<span class="badge" role="status" data-testid="dv-dmr-state">Disabled</span>{/if}
+          {@render netBadge(other, 'dv-dmr-state')}
           <span class="ml-auto"></span>
-          {@render toggle('DMR', cardEnabled(v, 'DMR'))}
-          <span class="w-full text-xs text-muted">Any DMR network but BrandMeister and TGIF, through MMDVM_Bridge. {OTHER_EXCLUSIVE}</span>
+          {@render toggle('DMR', other.enabled)}
+          <span class="w-full text-xs text-muted">Any DMR network but BrandMeister and TGIF, through MMDVM_Bridge: its own dashboard button and remembered talkgroup.</span>
         </div>
-        {#if v.dmr.pointsAtBm}<p class="text-xs text-warn sm:col-span-3" role="status" data-testid="dv-dmr-points-at-bm">DMR - Other points at a BrandMeister master. Set BrandMeister up under BrandMeister, then point DMR - Other at another network or disable it.</p>{/if}
+        {#if other.pointsAtBm}<p class="text-xs text-warn sm:col-span-3" role="status" data-testid="dv-dmr-points-at-bm">DMR - Other points at a BrandMeister master. Set BrandMeister up under BrandMeister, then point DMR - Other at another network or disable it.</p>{/if}
         <div class="sm:col-span-2"><label class="label" for="dv-addr">DMR master address</label>
           <NodePicker id="dv-addr" bind:value={net.address} options={otherOptions(lists.dmr)} search={find('dmr')} label={label('dmr')} onpickoption={(o) => { net.port = String(o.port); }} placeholder="Search a master or type an address" inputmode="text" maxlength={253} describedby="dv-addr-hint" /></div>
         <div><label class="label" for="dv-port">Port</label><input id="dv-port" class="input font-mono" bind:value={net.port} inputmode="numeric" maxlength="5" /></div>
-        <p id="dv-addr-hint" class="text-xs text-muted sm:col-span-3">{lists.dmr.length ? 'Search by name, network ID or address. Picking a master fills the address and the port; you can also type your own.' : 'Type the master address and port.'} The list never holds your password: enter your own below.</p>
+        <p id="dv-addr-hint" class="text-xs text-muted sm:col-span-3">{lists.dmr.length ? 'Search by name, network ID or address. Picking a master fills the address and the port; you can also type your own. BrandMeister and TGIF masters are on their own cards.' : 'Type the master address and port.'} The list never holds your password: enter your own below.</p>
         <div class="sm:col-span-3">
-          <label class="label" for="dv-pw">DMR password <span class="text-muted" data-testid="dv-pw-state">({v.dmr.passwordSet ? 'Password saved' : 'No password'})</span></label>
-          <input id="dv-pw" class="input font-mono" type="password" autocomplete="new-password" bind:value={net.password} disabled={clearPw} placeholder={clearPw ? 'The password will be cleared' : v.dmr.passwordSet ? 'Leave empty to keep the password' : 'Enter the password'} maxlength="64" />
-          {#if v.dmr.passwordSet}
+          <label class="label" for="dv-pw">DMR password <span class="text-muted" data-testid="dv-pw-state">({other.passwordSet ? 'Password saved' : 'No password'})</span></label>
+          <input id="dv-pw" class="input font-mono" type="password" autocomplete="new-password" bind:value={net.password} disabled={clearPw} placeholder={clearPw ? 'The password will be cleared' : other.passwordSet ? 'Leave empty to keep the password' : 'Enter the password'} maxlength="64" />
+          {#if other.passwordSet}
             <label class="mt-1 flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={clearPw} /> Clear password <span class="text-xs text-muted">(for masters that don't need a password)</span></label>
           {/if}
           <p class="mt-1 text-xs text-muted">Write-only: it is never shown again. Printable ASCII, up to 64 characters, without quotes, # or ;.</p>
         </div>
-        <div class="flex flex-wrap items-center gap-2 sm:col-span-3"><button class="btn btn-primary" disabled={busy || !!verify.working}>Save DMR master</button><span class="text-xs text-muted">{cardEnabled(v, 'DMR') ? `Saving restarts ${dmrUnit} only, then checks the login.` : 'Saved only while DMR - Other is disabled.'}</span></div>
+        <div class="flex flex-wrap items-center gap-2 sm:col-span-3"><button class="btn btn-primary" disabled={busy || !!verify.working}>Save DMR - Other</button><span class="text-xs text-muted">{liveOn('DMR') ? `MMDVM_Bridge is on DMR - Other now: saving restarts ${dmrUnit} only, then checks the login.` : 'Saved for when you switch to DMR - Other.'}</span></div>
       </form>
       {#if verifyFor === 'DMR'}{@render verifyBox()}{/if}
     </section>
+    {/if}
 
     {#each [['YSF', 'ysf'], ['P25', 'p25'], ['NXDN', 'nxdn']] as const as [card, k] (card)}
       <section class="card space-y-2 p-4" aria-label={CARD_LABEL[card]}>

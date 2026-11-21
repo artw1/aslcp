@@ -82,6 +82,8 @@ func tuneEnv(t *testing.T, mode, lastTune string) (*Ops, *fakeAB) {
 	if err := o.dvBMEnabledSet(true); err != nil {
 		t.Fatal(err)
 	}
+	// and DMR - Other (seeded from the fixture's [DMR Network])
+	netOn(t, o, DVModeDMR)
 	return o, newFakeAB(t, o, mode, lastTune)
 }
 

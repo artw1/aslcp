@@ -5,7 +5,9 @@ const FIELD: Record<string, string> = {
   'General/Callsign': 'Callsign', 'General/Id': 'DMR ID', 'NXDN/Id': 'NXDN ID',
   'brandmeister/server': 'BrandMeister master', 'brandmeister/password': 'BrandMeister password', 'brandmeister/talkerAlias': 'Talker alias',
   'brandmeister/startTg': 'Start talkgroup', 'brandmeister/ports': 'STFU ports 36100/36103 (in use)', 'brandmeister/action': 'BrandMeister action', brandmeister: 'BrandMeister request',
-  modes: 'Modes', enabled: 'Enable or Disable', dmrProfile: 'DMR network', profile: 'DMR network', credentials: 'DMR master', file: 'File', base: 'File version',
+  modes: 'Modes', enabled: 'Enable or Disable', 'network/address': 'DMR master address', 'network/port': 'DMR master port', 'network/password': 'DMR network password',
+  'network/fields': 'DMR network settings', 'network/id': 'DMR network', 'network/action': 'DMR network action', 'modes/dmr': 'DMR (use the network card)',
+  credentials: 'DMR master', file: 'File', base: 'File version',
 };
 
 /** The field named in the helper's "invalid_field: a value is not allowed (path)" text, as a label; '' when unknown. */
@@ -21,6 +23,9 @@ export function fieldLabel(message: string): string {
 /** Messages for the conflict codes of the mode cards (docs/API.md "DVSwitch setup"). */
 const CODE: Record<string, string> = {
   mode_disabled: 'That mode is disabled. Enable it on its card in the DVSwitch tab first.',
+  net_not_configured: 'Save this DMR network\'s settings first, then Enable.',
+  net_master: 'That master belongs to another DMR network: set it up on that network\'s card.',
+  bm_master: 'That is a BrandMeister master: set BrandMeister up on its own card.',
   bm_not_configured: 'BrandMeister is not set up yet: save the hotspot security password and set the 7-digit DMR ID under Identity, then Enable.',
 };
 

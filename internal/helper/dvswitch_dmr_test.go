@@ -314,8 +314,7 @@ func TestDemoDMRStatusCycle(t *testing.T) {
 	if r := st(); r.State != DMRDisabled {
 		t.Fatalf("off by default: %+v", r)
 	}
-	on := true
-	if _, err := d.DVSwitchModes(ctx, DVSwitchRequest{Modes: &DVModes{DMR: &on}}); err != nil {
+	if _, err := d.DVSwitchNetwork(ctx, DVSwitchRequest{Network: &DVNetworkReq{ID: DVModeDMR, Action: DVNetEnable}}); err != nil {
 		t.Fatal(err)
 	}
 	if r := st(); r.State != DMRLoggedIn || r.Master != "192.0.2.10:62031" {
@@ -341,7 +340,9 @@ func TestDemoDMRStatusCycle(t *testing.T) {
 		t.Fatal("gateways restart touched the DMR login")
 	}
 	// DMR off
-	d.cfg().modes.DMR = false
+	if _, err := d.DVSwitchNetwork(ctx, DVSwitchRequest{Network: &DVNetworkReq{ID: DVModeDMR, Action: DVNetDisable}}); err != nil {
+		t.Fatal(err)
+	}
 	if st().State != DMRDisabled {
 		t.Fatal("disabled")
 	}

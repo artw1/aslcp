@@ -236,11 +236,10 @@ export interface DVInfoInput { location: string; description: string; url?: stri
 export interface DVSwitchSetup {
   identity: { callsign: string; dmrId: string; essid: string; nxdnId: string; consistent: boolean; info: DVInfoView };
   warnings?: string[];
-  /** DMR - Other (MMDVM_Bridge). `enabled`: [DMR] and [DMR Network] are on with this profile; `pointsAtBm`: the master is a BrandMeister one (set it up under BrandMeister instead). `profile`: the DMR profile [DMR Network] holds ("other" or "tgif"). */
-  dmr: { address: string; port: number; passwordSet: boolean; enabled?: boolean; pointsAtBm?: boolean; profile?: DVDMRProfile };
-  /** The TGIF card: the master from DMR_Hosts.txt (`source` "hosts") or the default tgif.network:62031 (`source` "default"). */
-  tgif: DVTGIFView;
+  /** The DMR networks' cards, in registry order (BM, TGIF, DMR; web/src/lib/dvnetworks.ts). No secret value. */
+  networks: DVNetworkView[];
   usrp: { address: string; rxPort: number; txPort: number };
+  /** The Enable flags of MMDVM_Bridge.ini; `dmr` is on while any MMDVM_Bridge DMR network is enabled (informational). */
   modes: { dmr: boolean; ysf: boolean; p25: boolean; nxdn: boolean };
   gateways: { ysf: { present: boolean }; p25: { present: boolean }; nxdn: { present: boolean } };
   files: DVFileView[];
@@ -268,11 +267,22 @@ export interface DVListItem { value: string; name: string; detail?: string; addr
 export interface DVList { mode: DVListMode; items: DVListItem[]; truncated?: boolean; etag: string }
 
 /** GET and PUT /api/dvswitch/resume (docs/API.md "DVSwitch tune and resume"): the last tune of each mode and the toggle. */
-/** BM is BrandMeister through STFU, DMR is DMR - Other through MMDVM_Bridge; each has its own remembered tune and favourites. */
-export type DVTuneMode = 'BM' | 'DMR' | 'YSF' | 'P25' | 'NXDN';
+/** The DMR networks BM (BrandMeister through STFU), TGIF and DMR (DMR - Other, both through MMDVM_Bridge) are separate modes, each with its own remembered tune and favourites. */
+export type DVTuneMode = 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN';
 export interface DVRemembered { tune: string; ts?: string; at: string }
-export type DVDMRProfile = 'other' | 'tgif';
-export interface DVTGIFView { address: string; port: number; source: 'hosts' | 'default'; name?: string; passwordSet: boolean; enabled: boolean }
+/**
+ * One DMR network's card (GET /api/dvswitch/setup `networks`). `address`/`port`: the typed-in master (`master` "user"),
+ * or the fixed one (`master` "fixed": `source` "hosts" with the row's `name`, or "default"). The password only as `passwordSet`.
+ * `configured`: it can be enabled. `live`: MMDVM_Bridge's [DMR Network] holds it now. `pointsAtBm`: its master is a BrandMeister one.
+ * BrandMeister's details are in `brandmeister`.
+ */
+export interface DVNetworkView {
+  id: 'BM' | 'TGIF' | 'DMR'; label: string; via: 'stfu' | 'mmdvm'; master?: 'fixed' | 'user';
+  address: string; port: number; source?: 'hosts' | 'default'; name?: string;
+  passwordSet: boolean; enabled: boolean; configured: boolean; live: boolean; pointsAtBm?: boolean;
+}
+/** PUT /api/dvswitch/networks/{id} of an MMDVM_Bridge network: the fields of its registry entry (TGIF: the password only). */
+export interface DVNetworkReq { address?: string; port?: number; password?: string; clearPassword?: boolean; base?: Record<string, string> }
 export interface DVResume { resume: boolean; lastMode?: string; perMode: Partial<Record<DVTuneMode, DVRemembered>> }
 
 /** GET /api/dvswitch/snapshot and the SSE `dvswitch` event (all roles; docs/API.md "DVSwitch panel"). No install log, no identity, no secret. */
@@ -282,7 +292,7 @@ export interface DVCaller { call?: string; private?: boolean; dmrId?: string; ds
 export interface DVSnapshot {
   installed: boolean; running: boolean; configured: boolean;
   bridge: DVBridge;
-  /** `label`: the button's name when it is not the id ("TGIF" for DMR while TGIF is on). */
+  /** `label`: the button's name when it is not the id (a DMR network's registry label: "BrandMeister", "TGIF", "DMR - Other"). */
   modes: { id: DVTuneMode; enabled: boolean; unlink: string; label?: string }[];
   services: { unit: string; active: boolean }[];
   /** `name` is the display name of the bridge node (the default "DVSwitch linked node" when none was saved); present with `present`. */
@@ -300,7 +310,9 @@ export interface DVLink { mode: DVLinkMode; localNode: string; linked: boolean; 
 /** The reply of POST /api/dvswitch/mode, /unlink and /tune. */
 /** `left`: the mode a switch unlinked before leaving it (it reconnects when switched back). */
 /** `bmLoginPending`: BM was entered but STFU's login was not seen in time (the switch went ahead). `stfuStopFailed`: leaving BM, stfu could not be stopped. */
-export interface DVCmdReply { mode: string; switched: boolean; confirmed: boolean; left?: string; bmLoginPending?: boolean; stfuStopFailed?: boolean; snapshot: DVSnapshot }
+export interface DVCmdReply { mode: string; switched: boolean; confirmed: boolean; left?: string; bmLoginPending?: boolean; stfuStopFailed?: boolean;
+  /** Entering TGIF or DMR - Other rewrote [DMR Network] and restarted mmdvm_bridge; `netLoginPending`: its login was not seen in time. */
+  netRestarted?: boolean; netLoginPending?: boolean; snapshot: DVSnapshot }
 export interface DVFavorite { id: number; mode: DVTuneMode; value: string; name: string; sort: number }
 
 // System tab (docs/API.md "System"); all admin-only.

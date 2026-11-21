@@ -6,6 +6,7 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
+  import { networkDef } from '../lib/dvnetworks';
   import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, isDMRFamily, modeButtonLabel, modeLabel } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import { exclusiveHint, linkButton, linkExclusiveOnClick, linkLine, pausedHint } from '../lib/dvbridge';
@@ -45,7 +46,12 @@
     app.dvswitch = r.snapshot;
     if (r.bmLoginPending) toast('Switched to BM, but the BrandMeister login was not seen yet. Check the BrandMeister card.', 'error');
     if (r.stfuStopFailed) toast('Switched, but STFU could not be stopped.', 'error');
+    const net = modeLabel(r.mode);
+    if (r.netLoginPending) toast(`Switched to ${net}, but the login to its master was not seen yet. Check its card on the DVSwitch tab.`, 'error');
+    else if (r.netRestarted) toast(`MMDVM_Bridge restarted and logged in to ${net}.`, 'info');
   }
+  // Entering TGIF or DMR - Other may point MMDVM_Bridge at that network: a restart and a login, a few seconds.
+  const netSwitching = $derived(busy && pending && networkDef(pending.mode)?.via === 'mmdvm' ? modeLabel(pending.mode) : '');
   async function setMode(m: DVTuneMode) {
     if (locked || shown === m) return;
     clearTimeout(timer);
@@ -187,7 +193,7 @@
 
     {#if op && live}
       <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Mode">
-        {#each snap.modes.filter((x) => x.id !== 'BM' || x.enabled) as m (m.id)}
+        {#each snap.modes.filter((x) => !isDMRFamily(x.id) || x.enabled) as m (m.id)}
           <button type="button" class="btn btn-sm {shown === m.id ? 'btn-primary' : ''}" aria-pressed={shown === m.id}
             disabled={!m.enabled || locked}
             title={m.enabled ? undefined : `${modeButtonLabel(m)} is disabled${admin ? ' (DVSwitch tab, Enable on its card)' : ''}`}
@@ -195,6 +201,8 @@
         {/each}
         <button type="button" class="btn btn-sm ml-auto" disabled={locked || !mode || !unlinkValue} title={mode ? `Unlink the ${modeLabel(mode)} talkgroup or reflector: send ${unlinkValue} to ${modeLabel(mode)}. The bridge node link is not changed.` : 'Mode unknown'} onclick={unlink}><Unlink size={13} aria-hidden="true" />Unlink {mode ? modeLabel(mode) + ' target' : ''}</button>
       </div>
+
+      {#if netSwitching}<p class="text-xs text-muted" role="status" data-testid="dv-net-switching">Switching to {netSwitching}: MMDVM_Bridge restarts if it was on another network, then logs in…</p>{/if}
 
       {#if mode}
         <form class="flex flex-wrap items-center gap-1.5" onsubmit={(e) => { e.preventDefault(); void go(); }}>

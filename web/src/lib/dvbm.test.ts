@@ -1,8 +1,9 @@
 // Run with `npm test`. svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bmBlocker, bmOptions, bmRequest, DEFAULT_STFU_SERVER, formError, formOf, isBMHost, isBMHostName, otherOptions, rxLine, STFU_PORT, validAlias, validHost, validPassword } from './dvbm.ts';
+import { bmBlocker, bmOptions, bmRequest, DEFAULT_STFU_SERVER, formError, formOf, isBMHost, isBMHostName, rxLine, STFU_PORT, validAlias, validHost, validPassword } from './dvbm.ts';
 import { bridgeInUse, outcomeFor } from './dmrlogin.ts';
+import { otherOptions } from './dvnetworks.ts';
 import type { DVBMView, DVListItem, DVSTFUStatus } from './types';
 
 const view: DVBMView = { installed: true, present: true, enabled: false, unitEnabled: false, stayLoggedIn: false, configured: true, server: DEFAULT_STFU_SERVER, port: 54006, talkerAlias: 'N0CALL', startTg: '4000', txPort: 36100, rxPort: 36103, passwordSet: true };

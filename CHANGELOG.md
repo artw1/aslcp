@@ -7,7 +7,7 @@ Release notes are taken from the section of the tag being released
 
 ### Added
 - **Enable/Disable on each DVSwitch mode card.** BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN each have their own Enable/Disable button, and the dashboard's mode buttons follow them: a disabled mode is greyed out there. After a fresh DVSwitch install every mode is off until you enable it.
-- **TGIF card.** TGIF has its own card with its own password (set or cleared like the BrandMeister password). Its master and port are taken from the DVSwitch host list (`DMR_Hosts.txt`); if TGIF is not in the list, `tgif.network:62031` is used and the card says so. Enabling TGIF restarts only the DMR bridge and shows the login result. TGIF and DMR - Other share the DMR bridge, so only one can be on: enabling TGIF turns DMR - Other off and the other way round, and both keep their settings. The dashboard's DMR button reads "TGIF" while TGIF is on. The last DMR talkgroup is not carried over from one network to the other.
+- **BrandMeister, TGIF and DMR - Other are separate modes.** Each DMR network has its own card, its own button on the dashboard and its own remembered talkgroup and favourites, and any of them can be enabled at the same time. TGIF's card has its own password (set or cleared like the BrandMeister password); its master and port are taken from the DVSwitch host list (`DMR_Hosts.txt`), and if TGIF is not in the list, `tgif.network:62031` is used and the card says so. TGIF and DMR - Other share the DMR bridge: switching between them on the dashboard restarts only the DMR bridge, and only when it is logged in to the other network; the dashboard shows the progress and the login result. Disabling a network keeps its settings.
 - A notice card under Identity explains that DVSwitch starts in the last mode after a restart, and holds the "Resume after restart" switch with the last used mode and talkgroup or reflector.
 
 ### Changed
@@ -16,7 +16,7 @@ Release notes are taken from the section of the tag being released
 - BrandMeister's "Clear BrandMeister connection" and DMR - Other's "Clear DMR connection" are replaced by Disable. Disabling BrandMeister stops STFU and keeps its settings, so Enable brings it back without typing the password again.
 - **After the update, BrandMeister is disabled:** press Enable on the BrandMeister card once to use it again. The other modes keep their state.
 - The DMR - Other host picker no longer lists TGIF masters (TGIF has its own card).
-- The stored TGIF or DMR - Other settings that are not in use, and the BrandMeister Enable state, are not part of a backup; after a restore, enable BrandMeister again, and if you used TGIF, enable it and set its password again (the restored DMR network shows under DMR - Other).
+- The settings of every DMR network (TGIF and DMR - Other with their passwords, and the Enable state of BrandMeister, TGIF and DMR - Other) are part of a DVSwitch backup, so a restore brings them all back. Older ASLCP versions cannot restore a backup that holds them.
 
 ## [1.3.8] - 2026-11-21
 

@@ -647,3 +647,29 @@ func TestResumeSkipsDisabledMode(t *testing.T) {
 		t.Fatalf("%+v %s", src.tunes, w.String())
 	}
 }
+
+// Each DMR network is its own mode: TGIF's talkgroup is stored under its
+// key, recorded while the panel is in TGIF, and resumed with Mode TGIF.
+func TestResumeTGIFOwnKey(t *testing.T) {
+	tr, src, st, now := newTracker(t)
+	ctx := context.Background()
+	st.m = map[string]string{SettingKey: `{"lastMode":"TGIF","perMode":{"TGIF":{"tune":"31665","ts":"2"},"DMR":{"tune":"91","ts":"2"}},"resume":true}`}
+	boot := t0.Add(-20 * time.Second)
+	in := started(dmr(t, "9", "2", ""), boot)
+	in.Panel = "TGIF"
+	src.info = in
+	*now = t0.Add(10 * time.Second)
+	tr.Poll(ctx)
+	if len(src.tunes) != 1 || src.tunes[0] != (helper.DVTune{Mode: "TGIF", Tune: "31665"}) {
+		t.Fatalf("%+v", src.tunes)
+	}
+	// a TGIF tune is remembered under TGIF, DMR - Other's stays
+	in = started(dmr(t, "777", "2", "777"), boot)
+	in.Panel = "TGIF"
+	src.info = in
+	*now = now.Add(15 * time.Second)
+	tr.Poll(ctx)
+	if v := tr.Get(); v.PerMode["TGIF"].Tune != "777" || v.PerMode["DMR"].Tune != "91" || v.LastMode != "TGIF" {
+		t.Fatalf("%+v", v)
+	}
+}

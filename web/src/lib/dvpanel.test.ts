@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, pendingOutcome, rxCaller, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate } from './dvpanel.ts';
+import { CONFIRM_MS, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, pendingOutcome, rxCaller, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate } from './dvpanel.ts';
 import type { DVFavorite, DVSnapshot } from './types';
 
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
@@ -141,13 +141,13 @@ test('RX line shows the mode and target while the bridge node is keyed', () => {
   const link = (keyed: boolean, node = '1999') => ({ node, kind: 'allstar', info: null, ip: '', direction: 'OUT', connected: 0, state: 'ESTABLISHED', mode: 'T', keyed, sinceKey: null, sinceUnkey: null }) as never;
   const local = (links: never[], rxKeyed = false) => ({ node: '2001', rxKeyed, links });
   const dmr = snap({ bridge: { ...bridge, mode: 'DMR', tune: '3100', targetName: undefined } });
-  assert.equal(bridgeRx([local([link(true)])], dmr), 'RX: DMR TG 3100');
+  assert.equal(bridgeRx([local([link(true)])], dmr), 'RX: DMR - Other TG 3100');
   assert.equal(bridgeRx([local([link(true)])], snap()), 'RX: YSF Example room');
   assert.equal(bridgeRx([local([link(true)])], snap({ bridge: { ...bridge, targetName: undefined } })), 'RX: YSF 192.0.2.10:42000');
   assert.equal(bridgeRx([local([link(true)])], snap({ bridge: { ...bridge, mode: 'P25', tune: '10100', targetName: undefined } })), 'RX: P25 TG 10100');
   assert.equal(bridgeRx([local([link(true)])], snap({ bridge: { ...bridge, tune: '', targetName: undefined } })), 'RX: YSF');
   // the bridge node monitored on its own
-  assert.equal(bridgeRx([{ node: '1999', rxKeyed: true, links: [] }], dmr), 'RX: DMR TG 3100');
+  assert.equal(bridgeRx([{ node: '1999', rxKeyed: true, links: [] }], dmr), 'RX: DMR - Other TG 3100');
   // not keyed, another node keyed, no bridge node, unknown bridge
   assert.equal(bridgeRx([local([link(false)])], dmr), null);
   assert.equal(bridgeRx([local([link(true, '2006')])], dmr), null);
@@ -158,11 +158,11 @@ test('RX line shows the mode and target while the bridge node is keyed', () => {
 });
 
 test('bridge RX target', () => {
-  assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, mode: 'DMR', tune: '3100', targetName: undefined } })), 'DMR TG 3100');
+  assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, mode: 'DMR', tune: '3100', targetName: undefined } })), 'DMR - Other TG 3100');
   assert.equal(bridgeRxTarget(snap()), 'YSF Example room');
   assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, targetName: undefined } })), 'YSF 192.0.2.10:42000');
   assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, mode: 'P25', tune: '10100', targetName: undefined } })), 'P25 TG 10100');
-  assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, mode: 'DMR', tune: '', targetName: undefined } })), 'DMR');
+  assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, mode: 'DMR', tune: '', targetName: undefined } })), 'DMR - Other');
   assert.equal(bridgeRxTarget(snap({ bridgeNode: { present: false } })), null);
   assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, source: 'none', mode: '' } })), null);
   assert.equal(bridgeRxTarget(null), null);
@@ -193,7 +193,7 @@ test('a private call is a favourite with its #, apart from the plain talkgroup',
 
 test('bridge RX target of a private call, and the caller', () => {
   const priv = snap({ bridge: { ...bridge, mode: 'DMR', tune: '9990', targetName: undefined, private: true } });
-  assert.equal(bridgeRxTarget(priv), 'DMR private call');
+  assert.equal(bridgeRxTarget(priv), 'DMR - Other private call');
   assert.equal(rxCaller(snap()), null);
   assert.equal(rxCaller(snap({ caller: { call: 'N0CALL', dmrId: '1234567', dst: '91', slot: 2 } })), 'N0CALL');
   assert.equal(rxCaller(snap({ caller: { call: '  ' } })), null);
@@ -254,17 +254,25 @@ test('[Info] text, URL and coordinates', () => {
   assert.ok(!validCoord('1e2', 90));
 });
 
-test('BrandMeister and DMR - Other: both DMR on the air, each with its own label', () => {
-  assert.ok(isDMRFamily('BM') && isDMRFamily('DMR') && !isDMRFamily('YSF') && !isDMRFamily(''));
+test('the DMR networks: all DMR on the air, each its own mode with its own label', () => {
+  assert.ok(isDMRFamily('BM') && isDMRFamily('TGIF') && isDMRFamily('DMR') && !isDMRFamily('YSF') && !isDMRFamily(''));
+  assert.deepEqual(PANEL_MODES, ['BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN']);
   assert.equal(modeLabel('BM'), 'BrandMeister');
-  assert.equal(modeLabel('DMR'), 'DMR');
-  assert.equal(modeButtonLabel({ id: 'DMR', label: 'TGIF' }), 'TGIF');
+  assert.equal(modeLabel('TGIF'), 'TGIF');
+  assert.equal(modeLabel('DMR'), 'DMR - Other');
+  assert.equal(modeLabel('P25'), 'P25');
+  assert.equal(modeButtonLabel({ id: 'TGIF', label: 'TGIF' }), 'TGIF');
+  assert.equal(modeButtonLabel({ id: 'DMR' }), 'DMR - Other');
   assert.equal(modeButtonLabel({ id: 'BM' }), 'BrandMeister');
   assert.ok(validTune('BM', '91') && !validTune('BM', '123456789'));
+  assert.ok(validTune('TGIF', '31665') && validTune('TGIF', '9990#') && !validTune('TGIF', 'abc'));
   assert.equal(withPrivate('BM', '1234567', true), '1234567#');
+  assert.equal(withPrivate('TGIF', '9990', true), '9990#');
   assert.ok(isPrivateTune('BM', '1234567#'));
   assert.equal(stateLine({ mode: 'BM', tune: '91', source: 'abinfo' }), 'Mode BrandMeister, tuned to 91');
+  assert.equal(stateLine({ mode: 'TGIF', tune: '31665', source: 'abinfo' }), 'Mode TGIF, tuned to 31665');
   assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, mode: 'BM', tune: '91', targetName: undefined } })), 'BrandMeister TG 91');
-  assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, mode: 'DMR', tune: '1', targetName: undefined } })), 'DMR TG 1');
+  assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, mode: 'TGIF', tune: '31665', targetName: undefined } })), 'TGIF TG 31665');
+  assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, mode: 'DMR', tune: '1', targetName: undefined } })), 'DMR - Other TG 1');
   assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, mode: 'BM', tune: '1234567', targetName: undefined, private: true } })), 'BrandMeister private call');
 });

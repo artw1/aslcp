@@ -27,7 +27,6 @@ type fakeDV struct {
 	tuneCalls                      int
 	lastTune                       helper.DVTune
 	tuneErr                        error
-	profileChanged                 bool // DVSwitchModes reports a DMR profile switch
 
 	// private bridge node (M2)
 	mu         sync.Mutex
@@ -114,13 +113,13 @@ func (f *fakeDV) rec(r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
 	if f.cfgErr != nil {
 		return helper.DVApplyResult{}, f.cfgErr
 	}
-	return helper.DVApplyResult{Files: []string{"mmdvm_bridge"}, RestartHint: []string{"mmdvm_bridge"}, DMRProfileChanged: f.profileChanged && r.Modes != nil}, nil
+	return helper.DVApplyResult{Files: []string{"mmdvm_bridge"}, RestartHint: []string{"mmdvm_bridge"}}, nil
 }
 func (f *fakeDV) DVSwitchSetup(context.Context) (helper.DVSwitchSetup, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return helper.DVSwitchSetup{Identity: helper.DVIdentityView{Callsign: "N0CALL", DMRID: "1234567", ESSID: "01"},
-		DMR: helper.DVDMRView{Address: "192.0.2.10", Port: 62031, PasswordSet: true}, USRP: f.usrp, Private: f.priv, ReservedPorts: f.reserved,
+		Networks: []helper.DVNetworkView{{ID: "DMR", Label: "DMR - Other", Via: helper.DVViaMMDVM, Address: "192.0.2.10", Port: 62031, PasswordSet: true}}, USRP: f.usrp, Private: f.priv, ReservedPorts: f.reserved,
 		Files: []helper.DVFileView{{ID: "analog_bridge", Present: true, Writable: true, SHA256: "ab01"}}}, f.err
 }
 func (f *fakeDV) DVSwitchInfo(context.Context) (helper.DVSwitchInfo, error) {
@@ -134,6 +133,9 @@ func (f *fakeDV) DVSwitchIdentity(_ context.Context, r helper.DVSwitchRequest) (
 	return f.rec(r)
 }
 func (f *fakeDV) DVSwitchCredentials(_ context.Context, r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
+	return f.rec(r)
+}
+func (f *fakeDV) DVSwitchNetwork(_ context.Context, r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
 	return f.rec(r)
 }
 func (f *fakeDV) DVSwitchModes(_ context.Context, r helper.DVSwitchRequest) (helper.DVApplyResult, error) {
@@ -271,11 +273,13 @@ var dvCfgEndpoints = [][3]string{
 	{"GET", "/api/dvswitch/setup", ""},
 	{"PUT", "/api/dvswitch/identity", `{"callsign":"N0CALL","dmrId":"1234567","essid":"01"}`},
 	{"PUT", "/api/dvswitch/credentials", `{"dmrPassword":"example-pass"}`},
-	{"PUT", "/api/dvswitch/modes", `{"dmr":true}`},
+	{"PUT", "/api/dvswitch/modes", `{"ysf":true}`},
 	{"PUT", "/api/dvswitch/brandmeister", `{"server":"3102.repeater.net"}`},
 	{"PUT", "/api/dvswitch/brandmeister/enabled", `{"enabled":true}`},
-	{"PUT", "/api/dvswitch/tgif", `{"password":"example-pass"}`},
-	{"PUT", "/api/dvswitch/tgif/enabled", `{"enabled":true}`},
+	{"PUT", "/api/dvswitch/networks/TGIF", `{"password":"example-pass"}`},
+	{"PUT", "/api/dvswitch/networks/DMR", `{"address":"192.0.2.10","port":62031}`},
+	{"PUT", "/api/dvswitch/networks/TGIF/enabled", `{"enabled":true}`},
+	{"PUT", "/api/dvswitch/networks/DMR/enabled", `{"enabled":false}`},
 	{"POST", "/api/dvswitch/restart", `{"scope":"all"}`},
 	{"POST", "/api/dvswitch/rollback", `{"file":"analog_bridge"}`},
 }
@@ -324,7 +328,7 @@ func TestDVSwitchPasswordNeverEchoed(t *testing.T) {
 	if !strings.Contains(string(raw), `"passwordSet":true`) {
 		t.Errorf("no passwordSet: %s", raw)
 	}
-	if f.last.Credentials == nil || f.last.Credentials.Password == nil || *f.last.Credentials.Password != pw {
+	if f.last.Network == nil || f.last.Network.ID != "DMR" || f.last.Network.Password == nil || *f.last.Network.Password != pw {
 		t.Error("password not passed to the helper")
 	}
 	// refused write: no echo either
@@ -344,7 +348,7 @@ func TestDVSwitchPasswordNeverEchoed(t *testing.T) {
 	}
 	found := false
 	for _, a := range aud {
-		found = found || a.Action == "dvswitch.credentials" && strings.Contains(a.Detail, "dmrPassword")
+		found = found || a.Action == "dvswitch.network.dmr" && strings.Contains(a.Detail, "password")
 	}
 	if !found {
 		t.Error("audit lacks the key name")
@@ -358,13 +362,13 @@ func TestDVSwitchClearPassword(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("%d %s", code, raw)
 	}
-	if f.last.Credentials == nil || !f.last.Credentials.ClearPassword || f.last.Credentials.Password != nil {
-		t.Errorf("clear not passed to the helper: %+v", f.last.Credentials)
+	if f.last.Network == nil || !f.last.Network.ClearPassword || f.last.Network.Password != nil {
+		t.Errorf("clear not passed to the helper: %+v", f.last.Network)
 	}
 	aud, _ := e.st.ListAudit(50)
 	found := false
 	for _, a := range aud {
-		found = found || a.Action == "dvswitch.credentials" && strings.Contains(a.Detail, "clearPassword")
+		found = found || a.Action == "dvswitch.network.dmr" && strings.Contains(a.Detail, "clearPassword")
 	}
 	if !found {
 		t.Error("audit lacks the key name")
@@ -372,8 +376,8 @@ func TestDVSwitchClearPassword(t *testing.T) {
 	// false is the same as absent: a no-op
 	f.last = helper.DVSwitchRequest{}
 	code, _, _ = e.raw("PUT", "/api/dvswitch/credentials", map[string]any{"clearPassword": false}, e.ck["admin"], nil)
-	if code != 200 || f.last.Credentials != nil {
-		t.Errorf("clearPassword:false was not a no-op: %d %+v", code, f.last.Credentials)
+	if code != 200 || f.last.Network != nil {
+		t.Errorf("clearPassword:false was not a no-op: %d %+v", code, f.last.Network)
 	}
 	// both set: refused before the helper is called
 	f.last = helper.DVSwitchRequest{}
@@ -429,7 +433,8 @@ func TestDVSwitchCfgErrors(t *testing.T) {
 	for _, c := range cases {
 		e := newEnv(t, opts{dvswitch: &fakeDV{cfgErr: c.err}})
 		expectErr(t, e, "admin", "PUT", "/api/dvswitch/brandmeister", map[string]any{"server": "3102.repeater.net"}, c.status, c.code)
-		expectErr(t, e, "admin", "PUT", "/api/dvswitch/modes", map[string]any{"dmr": true}, c.status, c.code)
+		expectErr(t, e, "admin", "PUT", "/api/dvswitch/modes", map[string]any{"ysf": true}, c.status, c.code)
+		expectErr(t, e, "admin", "PUT", "/api/dvswitch/networks/TGIF/enabled", map[string]any{"enabled": true}, c.status, c.code)
 		expectErr(t, e, "admin", "POST", "/api/dvswitch/rollback", map[string]any{"file": "analog_bridge"}, c.status, c.code)
 	}
 }
@@ -541,7 +546,8 @@ func TestDVSwitchEmptyWritesAreNoOps(t *testing.T) {
 	for _, ep := range []struct{ path, body string }{
 		{"/api/dvswitch/credentials", `{"base":{}}`},
 		{"/api/dvswitch/modes", `{}`},
-		{"/api/dvswitch/tgif", `{"address":"192.0.2.10"}`},
+		{"/api/dvswitch/networks/TGIF", `{}`},
+		{"/api/dvswitch/networks/DMR", `{"base":{}}`},
 	} {
 		var body map[string]any
 		_ = json.Unmarshal([]byte(ep.body), &body)
@@ -683,10 +689,11 @@ func TestDVSwitchBrandMeister(t *testing.T) {
 		t.Fatalf("enable: %d %+v", c, f.last)
 	}
 	expectErr(t, e, "admin", "PUT", "/api/dvswitch/brandmeister/enabled", map[string]any{}, 400, "invalid_field")
-	// DMR - Other's Disable is the modes endpoint, Other's profile
-	if c := e.do("admin", "PUT", "/api/dvswitch/modes", map[string]any{"dmr": false}, nil); c != 200 || f.last.Modes == nil || f.last.Modes.DMR == nil || *f.last.Modes.DMR ||
-		f.last.Modes.DMRProfile != helper.DVProfileOther {
-		t.Fatalf("dmr disable: %d %+v", c, f.last.Modes)
+	// the modes endpoint takes YSF, P25 and NXDN only: DMR networks have
+	// their own endpoints
+	expectErr(t, e, "admin", "PUT", "/api/dvswitch/modes", map[string]any{"dmr": false}, 400, "invalid_field")
+	if c := e.do("admin", "PUT", "/api/dvswitch/modes", map[string]any{"ysf": true}, nil); c != 200 || f.last.Modes == nil || f.last.Modes.YSF == nil {
+		t.Fatalf("modes: %d %+v", c, f.last.Modes)
 	}
 	aud, _ := e.st.ListAudit(50)
 	var saw []string
@@ -709,36 +716,63 @@ func TestDVSwitchBrandMeister(t *testing.T) {
 	t.Error("audit lacks the password key (only the key, never the value)")
 }
 
-func TestDVSwitchTGIF(t *testing.T) {
+func TestDVSwitchNetworks(t *testing.T) {
 	f := &fakeDV{}
 	e := newEnv(t, opts{dvswitch: f})
-	code, raw, _ := e.raw("PUT", "/api/dvswitch/tgif", map[string]any{"password": "example-pass", "base": map[string]string{"mmdvm_bridge": "ab01"}}, e.ck["admin"], nil)
+	// TGIF: the password only (its master is fixed)
+	code, raw, _ := e.raw("PUT", "/api/dvswitch/networks/TGIF", map[string]any{"password": "example-pass", "base": map[string]string{"mmdvm_bridge": "ab01"}}, e.ck["admin"], nil)
 	if code != 200 || strings.Contains(string(raw), "example-pass") {
 		t.Fatalf("%d %s", code, raw)
 	}
-	c := f.last.Credentials
-	if c == nil || c.Profile != helper.DVProfileTGIF || c.Password == nil || *c.Password != "example-pass" || c.Address != nil || c.Port != nil || f.last.Base["mmdvm_bridge"] != "ab01" {
+	n := f.last.Network
+	if n == nil || n.ID != "TGIF" || n.Action != helper.DVNetSave || n.Password == nil || *n.Password != "example-pass" || n.Address != nil || n.Port != nil || f.last.Base["mmdvm_bridge"] != "ab01" {
 		t.Fatalf("%+v", f.last)
 	}
-	expectErr(t, e, "admin", "PUT", "/api/dvswitch/tgif", map[string]any{"password": "example-pass", "clearPassword": true}, 400, "invalid_field")
-	if code := e.do("admin", "PUT", "/api/dvswitch/tgif", map[string]any{"clearPassword": true}, nil); code != 200 || !f.last.Credentials.ClearPassword {
-		t.Fatalf("clear: %d %+v", code, f.last.Credentials)
+	expectErr(t, e, "admin", "PUT", "/api/dvswitch/networks/TGIF", map[string]any{"password": "example-pass", "clearPassword": true}, 400, "invalid_field")
+	if code := e.do("admin", "PUT", "/api/dvswitch/networks/TGIF", map[string]any{"clearPassword": true}, nil); code != 200 || !f.last.Network.ClearPassword {
+		t.Fatalf("clear: %d %+v", code, f.last.Network)
 	}
-	// DMR - Other's credentials go to the other profile
-	if code := e.do("admin", "PUT", "/api/dvswitch/credentials", map[string]any{"dmrAddress": "192.0.2.21"}, nil); code != 200 || f.last.Credentials.Profile != helper.DVProfileOther {
-		t.Fatalf("other: %d %+v", code, f.last.Credentials)
+	// DMR - Other: address, port, password; the old credentials endpoint is
+	// the same save
+	if code := e.do("admin", "PUT", "/api/dvswitch/networks/DMR", map[string]any{"address": "192.0.2.21", "port": 62031}, nil); code != 200 ||
+		f.last.Network.ID != "DMR" || *f.last.Network.Address != "192.0.2.21" || *f.last.Network.Port != 62031 {
+		t.Fatalf("other: %d %+v", code, f.last.Network)
 	}
-	// enable TGIF: DMR on with the TGIF profile
-	if code := e.do("admin", "PUT", "/api/dvswitch/tgif/enabled", map[string]any{"enabled": true}, nil); code != 200 || f.last.Modes == nil ||
-		f.last.Modes.DMR == nil || !*f.last.Modes.DMR || f.last.Modes.DMRProfile != helper.DVProfileTGIF || f.last.Modes.YSF != nil {
-		t.Fatalf("enable: %d %+v", code, f.last.Modes)
+	if code := e.do("admin", "PUT", "/api/dvswitch/credentials", map[string]any{"dmrAddress": "192.0.2.22"}, nil); code != 200 || f.last.Network == nil || f.last.Network.ID != "DMR" {
+		t.Fatalf("credentials: %d %+v", code, f.last)
 	}
-	expectErr(t, e, "admin", "PUT", "/api/dvswitch/tgif/enabled", map[string]any{}, 400, "invalid_field")
+	// enable / disable: that network only, no other field
+	if code := e.do("admin", "PUT", "/api/dvswitch/networks/TGIF/enabled", map[string]any{"enabled": true}, nil); code != 200 || f.last.Network == nil ||
+		f.last.Network.ID != "TGIF" || f.last.Network.Action != helper.DVNetEnable || f.last.Modes != nil {
+		t.Fatalf("enable: %d %+v", code, f.last)
+	}
+	if code := e.do("admin", "PUT", "/api/dvswitch/networks/DMR/enabled", map[string]any{"enabled": false}, nil); code != 200 || f.last.Network.ID != "DMR" || f.last.Network.Action != helper.DVNetDisable {
+		t.Fatalf("disable: %d %+v", code, f.last)
+	}
+	expectErr(t, e, "admin", "PUT", "/api/dvswitch/networks/TGIF/enabled", map[string]any{}, 400, "invalid_field")
+	expectErr(t, e, "admin", "PUT", "/api/dvswitch/networks/NOPE", map[string]any{"password": "example-pass"}, 404, "not_found")
+	expectErr(t, e, "admin", "PUT", "/api/dvswitch/networks/NOPE/enabled", map[string]any{"enabled": true}, 404, "not_found")
+	// BrandMeister's id is its own endpoint's
+	if code := e.do("admin", "PUT", "/api/dvswitch/networks/BM/enabled", map[string]any{"enabled": true}, nil); code != 200 || f.last.BM == nil || f.last.BM.Action != helper.DVBMEnable {
+		t.Fatalf("bm: %d %+v", code, f.last)
+	}
 	for _, role := range []string{"viewer", "op"} {
-		if code := e.do(role, "PUT", "/api/dvswitch/tgif/enabled", map[string]any{"enabled": true}, nil); code != 403 {
-			t.Errorf("%s: %d", role, code)
+		for _, p := range []string{"/api/dvswitch/networks/TGIF/enabled", "/api/dvswitch/networks/TGIF"} {
+			if code := e.do(role, "PUT", p, map[string]any{"enabled": true}, nil); code != 403 {
+				t.Errorf("%s %s: %d", role, p, code)
+			}
 		}
 	}
+	// the helper's errors
+	for _, c := range []struct {
+		err  error
+		code int
+		want string
+	}{{helper.ErrDVNetNotConfigured, 409, "net_not_configured"}, {helper.ErrDVNetMaster, 400, "net_master"}, {helper.ErrDVModeDisabled, 409, "mode_disabled"}} {
+		f.cfgErr = c.err
+		expectErr(t, e, "admin", "PUT", "/api/dvswitch/networks/DMR/enabled", map[string]any{"enabled": true}, c.code, c.want)
+	}
+	f.cfgErr = nil
 	aud, _ := e.st.ListAudit(50)
 	var saw []string
 	for _, a := range aud {
@@ -747,7 +781,7 @@ func TestDVSwitchTGIF(t *testing.T) {
 		}
 		saw = append(saw, a.Action)
 	}
-	for _, w := range []string{"dvswitch.tgif", "dvswitch.tgif.enabled"} {
+	for _, w := range []string{"dvswitch.network.tgif", "dvswitch.network.tgif.enable", "dvswitch.network.dmr", "dvswitch.network.dmr.disable"} {
 		if !strings.Contains(strings.Join(saw, ","), w) {
 			t.Errorf("audit lacks %s: %v", w, saw)
 		}
