@@ -1,5 +1,5 @@
 {
-  "version": "1.3.9",
-  "notes": "### Fixed\n- Now Calling no longer shows DVSwitch traffic while the DVSwitch node is not linked to a local node.",
+  "version": "1.4.0",
+  "notes": "1.4.0: per-mode DVSwitch cards, TGIF, no startup modes (#18)\n\nEach mode has its own card with Enable/Disable. BrandMeister, TGIF and DMR - Other are separate modes with their own settings (networks.json, backed up). TGIF has a new card whose master comes from DMR_Hosts.txt. Startup modes and links are removed, and DVSwitch boots in the last mode used.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01WyFLnHQojhM4Jvfwzs5euQ",
   "date": "2026-11-21"
 }
