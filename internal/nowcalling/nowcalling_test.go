@@ -143,10 +143,101 @@ func TestYSFEndsWithBridgeUnkey(t *testing.T) {
 		t.Fatal("ended while the bridge link is keyed")
 	}
 	c.add(4 * time.Second)
+	unkey := c.t
 	tr.UpdateAllStar("1998", nil, true, false, false)
+	if tr.Snapshot().Current == nil {
+		t.Fatal("ended at the unkey, want the hangover")
+	}
+	c.add(dvHangover)
+	tr.Tick()
 	s := tr.Snapshot()
-	if s.Current != nil || len(s.Recent) != 1 || s.Recent[0].End != c.t.Format(time.RFC3339) {
+	if s.Current != nil || len(s.Recent) != 1 || s.Recent[0].End != unkey.Format(time.RFC3339) {
 		t.Fatalf("after unkey = %+v", s)
+	}
+}
+
+func ysfTalk(start time.Time) Talk {
+	return Talk{Kind: KindYSF, Via: "analog_bridge", Call: "N1CALL", Start: start}
+}
+
+func TestYSFBridgeDropAndRekeyIsOneCall(t *testing.T) {
+	c := &clk{t0}
+	tr, _ := newT(c)
+	tr.UpdateAllStar("1998", nil, true, true, false)
+	tr.UpdateDV([]Talk{ysfTalk(t0)})
+	first := tr.Snapshot().Current
+	if first == nil {
+		t.Fatal("not shown")
+	}
+	c.add(10 * time.Second)
+	tr.UpdateAllStar("1998", nil, true, false, false) // choppy: unkey
+	c.add(2 * time.Second)
+	tr.Tick()
+	cur := tr.Snapshot().Current
+	if cur == nil || !cur.Active || cur.ID != first.ID || cur.Start != first.Start {
+		t.Fatalf("in the gap = %+v", cur)
+	}
+	tr.UpdateAllStar("1998", nil, true, true, false) // audio resumes
+	c.add(8 * time.Second)
+	tr.UpdateAllStar("1998", nil, true, true, false)
+	cur = tr.Snapshot().Current
+	if cur == nil || cur.ID != first.ID || !cur.Active {
+		t.Fatalf("after rekey = %+v", cur)
+	}
+	unkey := c.t
+	tr.UpdateAllStar("1998", nil, true, false, false) // final unkey
+	c.add(4 * time.Second)
+	tr.Tick()
+	if tr.Snapshot().Current == nil {
+		t.Fatal("ended inside the hangover")
+	}
+	c.add(1100 * time.Millisecond)
+	tr.Tick()
+	s := tr.Snapshot()
+	if s.Current != nil || len(s.Recent) != 1 || s.Recent[0].ID != first.ID || s.Recent[0].End != unkey.Format(time.RFC3339) {
+		t.Fatalf("after final unkey = %+v", s)
+	}
+	if d := s.Recent[0].end.Sub(s.Recent[0].start); d != 20*time.Second {
+		t.Fatalf("duration = %v, want 20s", d)
+	}
+}
+
+func TestYSFBridgeDropNeverRekeys(t *testing.T) {
+	c := &clk{t0}
+	tr, _ := newT(c)
+	tr.UpdateAllStar("1998", nil, true, true, false)
+	tr.UpdateDV([]Talk{ysfTalk(t0)})
+	c.add(3 * time.Second)
+	unkey := c.t
+	tr.UpdateAllStar("1998", nil, true, false, false)
+	c.add(4 * time.Second)
+	tr.Tick()
+	if cur := tr.Snapshot().Current; cur == nil || !cur.Active {
+		t.Fatalf("at +4s = %+v", cur)
+	}
+	c.add(1100 * time.Millisecond)
+	tr.Tick()
+	s := tr.Snapshot()
+	if s.Current != nil || len(s.Recent) != 1 || s.Recent[0].End != unkey.Format(time.RFC3339) {
+		t.Fatalf("at +5s = %+v", s)
+	}
+}
+
+func TestYSFNewBeginTxDuringHangoverReplaces(t *testing.T) {
+	c := &clk{t0}
+	tr, _ := newT(c)
+	tr.UpdateAllStar("1998", nil, true, true, false)
+	tr.UpdateDV([]Talk{ysfTalk(t0)})
+	c.add(3 * time.Second)
+	tr.UpdateAllStar("1998", nil, true, false, false)
+	c.add(time.Second)
+	second := ysfTalk(c.t)
+	second.Call = "N2CALL"
+	tr.UpdateAllStar("1998", nil, true, true, false)
+	tr.UpdateDV([]Talk{ysfTalk(t0), second})
+	s := tr.Snapshot()
+	if s.Current == nil || s.Current.Call != "N2CALL" || len(s.Recent) != 1 || s.Recent[0].Call != "N1CALL" {
+		t.Fatalf("snapshot = %+v", s)
 	}
 }
 

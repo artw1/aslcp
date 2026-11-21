@@ -29,6 +29,12 @@ const (
 	// maxOpen is how long a DVSwitch call without an end line may stay
 	// "talking" on the bridge link's keyed state alone.
 	maxOpen = 15 * time.Minute
+	// dvHangover is how long an open DVSwitch call without an end line is
+	// held open after the bridge link unkeys. A choppy YSF or DMR stream
+	// makes Analog_Bridge stop sending audio for a moment, ASL unkeys the
+	// link, and when audio resumes there is no new "Begin TX" line: without
+	// the hangover the call would end and the strip stay empty.
+	dvHangover = 5 * time.Second
 	// bridgeLag is how long an STFU call may wait for the bridge link to key.
 	bridgeLag = 5 * time.Second
 	// dmrMax is the longest an STFU call without an end line counts as talking
@@ -135,6 +141,7 @@ type Tracker struct {
 	mu      sync.Mutex
 	as      map[string]*Call // active AllStar calls by "local/node"
 	dv      *Call            // active DVSwitch call
+	dvDown  time.Time        // when the bridge link first unkeyed under dv (zero: keyed)
 	dvDone  map[string]bool  // DVSwitch calls already finished
 	talks   []Talk
 	bridge  map[string]bool // local node -> bridge link keyed
@@ -314,6 +321,7 @@ func (t *Tracker) syncDV(now time.Time) {
 		if latest != nil && talkID(*latest) != t.dv.ID {
 			old := t.dv
 			t.dv = nil
+			t.dvDown = time.Time{}
 			t.dvDone[old.ID] = true
 			t.finish(old, time.Time{}, true)
 		}
@@ -378,12 +386,27 @@ func (t *Tracker) endDV(now time.Time, bridgeKeyed bool) {
 		}
 	}
 	if k != nil && t.talking(*k, now, bridgeKeyed) {
+		t.dvDown = time.Time{} // keyed again: the same call goes on
 		return
 	}
+	// A call without an end line that was keyed on the bridge link and now
+	// is not: hold it open for dvHangover (it is still reported as talking,
+	// so the strip stays red) and end it at the moment the link unkeyed.
+	down := now
+	if k != nil && k.End.IsZero() && k.Via != "stfu" && t.bridgeK && !bridgeKeyed && now.Sub(k.Start) <= maxOpen {
+		if t.dvDown.IsZero() {
+			t.dvDown = now
+		}
+		if now.Sub(t.dvDown) < dvHangover {
+			return
+		}
+		down = t.dvDown
+	}
+	t.dvDown = time.Time{}
 	c := t.dv
 	t.dv = nil
 	t.dvDone[c.ID] = true
-	end := now
+	end := down
 	if k != nil && !k.End.IsZero() {
 		end = k.End
 	} else if k != nil && !t.bridgeK && end.Sub(k.Start) > noBridgeGrace {
