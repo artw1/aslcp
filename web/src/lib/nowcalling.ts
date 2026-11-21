@@ -42,8 +42,9 @@ export function who(c: Pick<NowCall, 'call' | 'dmrId' | 'node'>): string {
   return (c.call ?? '').trim() || (c.dmrId ? `ID ${c.dmrId}` : c.node ? `Node ${c.node}` : 'Unknown');
 }
 
-/** "N0CALL · Alex · Springfield, IL" with the empty parts left out. */
+/** "N0CALL · Alex · Springfield, IL" with the empty parts left out. AllStar: "N0CALL · description · location" (the node list, no person). */
 export function mainLine(c: NowCall): string {
+  if (c.kind === 'allstar') return [who(c), (c.desc ?? '').trim(), (c.location ?? '').trim()].filter(Boolean).join(' · ');
   return [who(c), firstName(c), placeText(c)].filter(Boolean).join(' · ');
 }
 

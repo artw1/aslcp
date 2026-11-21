@@ -144,10 +144,12 @@ func (s *Server) ncDV(info helper.DVSwitchInfo, sn DVSnapshot) {
 	s.nc.tr.UpdateDV(talks)
 }
 
-// ncResolve fills the name and place of a new call: AllStar from the node
-// list (callsign, description, location), then everything from the radioid.net
-// list by DMR ID or callsign. Without the list a DMR caller keeps the callsign
-// of the DMR ID list and a YSF caller the bare callsign.
+// ncResolve fills the details of a new call. An AllStar call gets its callsign,
+// description and location from the node list and nothing else: the radioid.net
+// list is never consulted for it (a node's callsign is not a person). DMR and
+// YSF callers get name and place from the radioid.net list by DMR ID or
+// callsign. Without the list a DMR caller keeps the callsign of the DMR ID list
+// and a YSF caller the bare callsign.
 func (s *Server) ncResolve(c *nowcalling.Call) {
 	switch c.Kind {
 	case nowcalling.KindAllStar:
@@ -157,6 +159,7 @@ func (s *Server) ncResolve(c *nowcalling.Call) {
 				c.Desc, c.Location = in.Description, in.Location
 			}
 		}
+		return
 	case nowcalling.KindYSF:
 		if b, ok := s.nc.br.Load().(DVBridge); ok && b.Mode == "YSF" {
 			c.Room = b.TargetName
@@ -185,9 +188,6 @@ func (s *Server) ncResolve(c *nowcalling.Call) {
 		c.Call = u.Callsign
 	}
 	c.First, c.Name, c.City, c.State, c.Country = u.First, u.Name(), u.City, u.State, u.Country
-	if c.Kind == nowcalling.KindAllStar {
-		c.Location = "" // the list knows the person; the node's location is theirs
-	}
 }
 
 // ncTGName is the name of a talkgroup from the DVSwitch favourites ("" when unknown).
