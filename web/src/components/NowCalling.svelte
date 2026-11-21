@@ -28,8 +28,8 @@
 
 {#if st.mode !== 'none'}
   <button type="button" onclick={() => (open = true)} aria-label={ariaLabel(st, now)} aria-haspopup="dialog"
-    class="nc-strip block w-full text-left {st.mode === 'talking' ? 'nc-tx' : 'border-t border-line bg-surface text-muted hover:text-fg'}">
-    <span class="mx-auto flex max-w-[1100px] items-center gap-3 px-3 sm:px-4 {st.mode === 'talking' ? 'min-h-[52px] py-1.5' : 'min-h-[44px]'}">
+    class="nc-strip block w-full text-left border-t {st.mode === 'talking' ? 'nc-tx border-transparent' : 'border-line bg-surface text-muted hover:text-fg'}">
+    <span class="mx-auto flex max-w-[1100px] items-center gap-3 px-3 sm:px-4 h-[52px] {st.mode === 'talking' ? 'py-1.5' : ''}">
       {#if st.mode === 'talking'}
         <span class="nc-dot shrink-0" aria-hidden="true"></span>
         <span class="min-w-0 flex-1">

@@ -3,6 +3,11 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [1.3.8] - 2026-11-21
+
+### Fixed
+- The page no longer jumps when the Now Calling strip changes from a call to Last heard.
+
 ## [1.3.7] - 2026-11-21
 
 ### Fixed
