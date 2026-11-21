@@ -31,6 +31,7 @@ import (
 	"github.com/artw1/aslcp/internal/favstats"
 	"github.com/artw1/aslcp/internal/helper"
 	"github.com/artw1/aslcp/internal/nodelist"
+	"github.com/artw1/aslcp/internal/radioid"
 	"github.com/artw1/aslcp/internal/rpt"
 	"github.com/artw1/aslcp/internal/schedules"
 	"github.com/artw1/aslcp/internal/store"
@@ -136,6 +137,11 @@ func run(cfgPath string, dev, demoMode bool) error {
 		go func() { defer wg.Done(); f() }()
 	}
 
+	ridOpts := radioid.Options{Dir: cfg.DataDir, Version: version, Settings: st, Logger: logger}
+	if demoMode {
+		ridOpts.Client, ridOpts.FirstDelay = demo.RadioIDClient(), time.Second
+	}
+	rid := radioid.New(ridOpts)
 	nl := nodelist.New(nodelist.Options{URL: cfg.NodelistURL, DataDir: cfg.DataDir, Interval: cfg.NodelistRefresh, Logger: logger})
 	proxy := &lateAMI{}
 	setTuneSave := func(func(string)) {}
@@ -297,7 +303,9 @@ func run(cfgPath string, dev, demoMode bool) error {
 	if demoMode {
 		dvLink.StartDelay, dvLink.Tick = 3*time.Second, 5*time.Second
 	}
+	bg(func() { rid.Run(ctx) })
 	srv := api.New(api.Deps{
+		RadioID:      rid,
 		FavStats:     favScan,
 		Schedules:    sched,
 		DVLink:       dvLink,

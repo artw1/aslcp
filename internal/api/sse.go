@@ -202,6 +202,7 @@ func (s *Server) AttachMonitor(ctx context.Context, m *rpt.Monitor) {
 				return
 			}
 			s.rec.Process(u)
+			s.ncRPT(u)
 			s.pub.HandleUpdate(u)
 			if u.Changes.Recovered || u.Changes.Resync || u.Changes.Added || u.Changes.Removed {
 				// Full state after an AMI reconnect, a dropped-update resync or a
@@ -265,6 +266,9 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request, u store.Us
 	priv := c.priv.Load()
 	if !write(frame("hello", map[string]any{"user": userJSON(u), "version": s.d.Version, "instance": s.instance, "settings": s.settings()})) ||
 		!write(frame("nodes", s.allNodes(priv))) {
+		return
+	}
+	if !write(frame("nowcalling", s.nc.tr.Snapshot())) {
 		return
 	}
 	if c.admin.Load() && s.d.Updates != nil && !write(frame("updates", s.updatesBadge())) {

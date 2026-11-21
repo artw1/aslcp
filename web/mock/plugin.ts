@@ -5,6 +5,7 @@ import { handleConfig } from './config.ts';
 import { handleBackup, downUntil } from './backup.ts';
 import { handleRadio } from './radio.ts';
 import { dvNodeLink, handleDVSwitch } from './dvswitch.ts';
+import { BRIDGE_NODE, handleNowCalling, nowCalling, talkerLink } from './nowcalling.ts';
 import { createSchedules } from './schedules.ts';
 import { handleSystem } from './system.ts';
 import { handleWifi } from './wifi.ts';
@@ -36,6 +37,8 @@ addLink('2001', '2000', 'transceive', 'OUT', 5400);
 addLink('2001', '2037', 'monitor', 'OUT', 1200);
 addLink('2001', '2074', 'transceive', 'IN', 300);
 addLink('2001', '2111', 'transceive', 'IN', 61);
+addLink('2001', BRIDGE_NODE, 'transceive', 'OUT', 3600);
+addLink('2001', '1998', 'transceive', 'OUT', 3000);
 addLink('51755', '2148', 'transceive', 'OUT', 800);
 addLink('1999', '2000', 'transceive', 'OUT', 900);
 
@@ -73,7 +76,7 @@ const favActivity = () => {
     if (c != null) { checkedAt[node] = new Date(c).toISOString(); if (c >= favPassStart) checked++; }
     if (c == null || favOffline(n)) continue;
     const t = Math.floor(Date.now() / 1000);
-    stats[node] = { rxPct: n % 4 === 0 ? null : (n % 23) + 1, linkCnt: n % 7, active: n % 5 !== 0, webTx: n % 3 === 0, keyed: (t + n) % 40 < 8, txAvg: 0, lastSeen: new Date().toISOString() };
+    stats[node] = { rxPct: n % 4 === 0 ? null : (n % 23) + 1, linkCnt: n % 7, active: n % 5 !== 0, webTx: n % 3 === 0, keyed: false, txAvg: 0, lastSeen: new Date().toISOString() };
   }
   return { enabled: favScan, rate: 20, effRate: 20, backoff: false, backoffReason: '', retryAt: null, updated: favScan && Object.keys(favCheckedAt).length ? new Date().toISOString() : null, stats,
     checking: favScan ? favChecking : '', next: favScan ? favNext() : '', nextAt: favScan && list.length ? new Date(favNextAt || Date.now()).toISOString() : null, checked, total: list.length, checkedAt };
@@ -91,7 +94,20 @@ function favStep(broadcast: (ev: string, f: (role: string) => unknown) => void) 
 let setupNeeded = process.env.MOCK_SETUP === '1';
 let nodelistUpdated: string | null = new Date().toISOString();
 
+// At most one link in the whole mock is keyed: the talker of the Now Calling timeline. Idempotent, so status() and the tick agree.
+function syncKeyed(t: number) {
+  const tk = talkerLink(t);
+  for (const id of Object.keys(locals)) for (const l of locals[id].links) {
+    const on = !!tk && tk.local === id && tk.node === l.node;
+    if (on && l.keyedUntil <= t) {
+      l.keyedUntil = Infinity; l.lastKey = t;
+      activity.push({ node: id, link: l.node, at: t, duration: tk!.len });
+      activity.splice(0, Math.max(0, activity.length - 200));
+    } else if (!on && l.keyedUntil > t) { l.keyedUntil = 0; l.lastUnkey = t; }
+  }
+}
 function status(id: string, role = 'admin') {
+  syncKeyed(now());
   const s = locals[id], t = now();
   const sec = (ms: number | null) => (ms == null ? null : Math.floor((t - ms) / 1000));
   const links = s.links.map((l) => {
@@ -189,13 +205,10 @@ export function mockApi(): Plugin {
         const t = now();
         for (const id of Object.keys(locals)) {
           const s = locals[id];
-          for (const l of s.links) {
-            if (l.keyedUntil > t) { if (l.keyedUntil - t < 1000) { l.lastUnkey = t; } continue; }
-            if (Math.random() < 0.12) { l.keyedUntil = t + 2500 + Math.random() * 6000; l.lastKey = t; activity.push({ node: id, link: l.node, at: t, duration: Math.round((l.keyedUntil - t) / 1000) }); activity.splice(0, Math.max(0, activity.length - 200)); }
-          }
           if (Math.random() < 0.05) s.rx = t + 2000;
         }
         broadcast('nodes', (r) => Object.keys(locals).map((id) => status(id, r)));
+        broadcast('nowcalling', () => nowCalling());
         if (pubCfg.enabled) pubClients.forEach((res) => res.write(`event: snapshot\ndata: ${JSON.stringify(pubSnapshot())}\n\n`));
         if (tick % 10 === 0) broadcast('system', system);
       }, 1000);
@@ -243,6 +256,7 @@ export function mockApi(): Plugin {
         if (handleRadio({ m, p, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }), links: (n) => locals[n]?.links.map((l) => l.node) ?? [] })) return;
         if (handleWifi({ m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleSystem({ m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }), file: (name, text) => { res.statusCode = 200; res.setHeader('Content-Type', 'application/gzip'); res.setHeader('Content-Disposition', `attachment; filename="${name}"`); res.end(text); } })) return;
+        if (handleNowCalling({ m, p, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleDVSwitch({ push: (ev, d) => broadcast(ev, () => d), m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleConfig({ m, p, body, url, user, json: (c, b) => json(res, c, b), err: (c, msg, code, extra) => json(res, c, { error: msg, code, ...extra }) })) return;
 
@@ -254,6 +268,7 @@ export function mockApi(): Plugin {
           clients.add(c); req.on('close', () => clients.delete(c));
           sse(c, 'hello', { user, version: mockVersion, instance: mockInstance, settings: { favoritesScan: favScan } });
           sse(c, 'nodes', Object.keys(locals).map((id) => status(id, user.role)));
+          sse(c, 'nowcalling', nowCalling());
           if (user.role === 'admin') sse(c, 'updates', osBadge());
           sse(c, 'system', system()); sse(c, 'favorites', sortedFavs()); sse(c, 'schedules', sched.snapshot()); if (favScan) sse(c, 'favstats', favActivity());
           return;

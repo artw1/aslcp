@@ -46,6 +46,9 @@ type DVCaller struct {
 type DVCallers struct {
 	Current *DVCaller  `json:"current,omitempty"`
 	Recent  []DVCaller `json:"recent"`
+	// Talks are the calls of both logs with start and end times, oldest
+	// first (dvswitch_talks.go).
+	Talks []DVTalk `json:"talks,omitempty"`
 }
 
 // DVCallerEvent is one parsed line: a call begins (Caller set) or ends.
@@ -199,6 +202,7 @@ func (o *Ops) dvInfoOp(ctx context.Context) (DVSwitchInfo, error) {
 	info, err := o.DVSwitchInfo(ctx)
 	if err == nil && (info.Found || info.Started != "") {
 		c := o.dvCollectCallers(info.GatewayID)
+		c.Talks = o.dvCollectTalks(info.Panel, info.GatewayID)
 		info.Callers = &c
 	}
 	return info, err

@@ -1,5 +1,5 @@
 import { api, probeServer, setUnauthorizedHandler } from './api';
-import type { DVSnapshot, ManualAction, SchedulesSnapshot, UpdatesBadge, FavActivity, FavStatsUpdate, Favorite, NodeStatus, SystemInfo, TuneDevice, User } from './types';
+import type { DVSnapshot, NowCalling, ManualAction, SchedulesSnapshot, UpdatesBadge, FavActivity, FavStatsUpdate, Favorite, NodeStatus, SystemInfo, TuneDevice, User } from './types';
 import { navigate } from './router.svelte';
 import { applySettings } from './settings.svelte';
 import { toast, toastError } from './toast.svelte';
@@ -9,7 +9,7 @@ export const app = $state<{
   ready: boolean; setupNeeded: boolean; user: User | null;
   /** Id of the server process (SSE hello); changes when the panel restarts. */
   instance: string;
-  nodes: NodeStatus[]; favorites: Favorite[]; schedules: SchedulesSnapshot | null; dvswitch: DVSnapshot | null; system: SystemInfo | null;
+  nodes: NodeStatus[]; favorites: Favorite[]; schedules: SchedulesSnapshot | null; dvswitch: DVSnapshot | null; nowcalling: NowCalling | null; system: SystemInfo | null;
   conn: 'connecting' | 'live' | 'reconnecting' | 'offline'; stateAt: number; version: string;
   selectedNode: string; haveNodes: boolean; haveFavorites: boolean;
   /** Set while an ASLCP update is installing; cleared when the server returns with a new version. */
@@ -27,7 +27,7 @@ export const app = $state<{
   /** Favorites activity scan: switch, state and the latest values per node. */
   favstats: { enabled: boolean; rate: number; effRate: number; backoff: boolean; backoffReason: string; retryAt: number | null; updated: number | null; stats: Record<string, FavActivity>; checking: string; next: string; nextAt: number | null; checked: number; total: number | null; checkedAt: Record<string, number> };
 }>({
-  ready: false, setupNeeded: false, user: null, instance: '', nodes: [], favorites: [], schedules: null, dvswitch: null, system: null,
+  ready: false, setupNeeded: false, user: null, instance: '', nodes: [], favorites: [], schedules: null, dvswitch: null, nowcalling: null, system: null,
   conn: 'offline', stateAt: Date.now(), version: '', selectedNode: '', haveNodes: false, haveFavorites: false, updating: null,
   updates: { aslcp: false, aslcpVersion: '', os: 0, security: 0, reboot: false }, restarting: null,
   favstats: { enabled: false, rate: 20, effRate: 20, backoff: false, backoffReason: '', retryAt: null, updated: null, stats: {}, checking: '', next: '', nextAt: null, checked: 0, total: null, checkedAt: {} },
@@ -147,6 +147,7 @@ export function startEvents() {
   es.addEventListener('favorites', (e) => { app.favorites = parse<Favorite[]>(e); app.haveFavorites = true; });
   es.addEventListener('schedules', (e) => { app.schedules = parse<SchedulesSnapshot>(e); });
   es.addEventListener('dvswitch', (e) => { app.dvswitch = parse<DVSnapshot>(e); });
+  es.addEventListener('nowcalling', (e) => { app.nowcalling = parse<NowCalling>(e); });
   es.onerror = () => {
     es?.close(); es = null;
     app.conn = 'reconnecting';
@@ -182,7 +183,7 @@ export async function refreshFavorites() { app.favorites = await api.favorites()
 
 export async function logout() {
   try { await api.logout(); } catch { /* ignore */ }
-  stopEvents(); app.user = null; app.nodes = []; app.favorites = []; app.schedules = null; app.dvswitch = null; app.haveNodes = false; app.haveFavorites = false; app.tune = { loaded: false, devices: [], reason: '' };
+  stopEvents(); app.user = null; app.nodes = []; app.favorites = []; app.schedules = null; app.dvswitch = null; app.nowcalling = null; app.haveNodes = false; app.haveFavorites = false; app.tune = { loaded: false, devices: [], reason: '' };
   app.favstats = { enabled: false, rate: 20, effRate: 20, backoff: false, backoffReason: '', retryAt: null, updated: null, stats: {}, checking: '', next: '', nextAt: null, checked: 0, total: null, checkedAt: {} };
   navigate('/login');
 }
@@ -192,6 +193,7 @@ export function onLoggedIn(u: User) {
   api.favorites().then((f) => { app.favorites = f; app.haveFavorites = true; }).catch(() => {});
   api.schedules().then((s) => { app.schedules = s; }).catch(() => {});
   api.dvswitchSnapshot().then((s) => { app.dvswitch = s; }).catch(() => {});
+  api.nowcalling().then((n) => { app.nowcalling = n; }).catch(() => {});
   api.nodes().then(setNodes).catch(() => {});
   api.settings().then(applySettings).catch(() => {});
   void refreshTune();

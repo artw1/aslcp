@@ -521,6 +521,17 @@ func (s *Sim) run(ctx context.Context) {
 func (s *Sim) step(now time.Time) {
 	var events []string
 	s.mu.Lock()
+	// Only one node transmits at a time (two keyed at once would be a
+	// crosslink fault), so a link may key only while no link is keyed on
+	// any local node. This also keeps the Now Calling talker unique.
+	busy := false
+	for _, id := range LocalNodes {
+		for _, l := range s.nodes[id].links {
+			if l.keyed {
+				busy = true
+			}
+		}
+	}
 	for _, id := range LocalNodes {
 		n := s.nodes[id]
 		linkChanged := false
@@ -532,12 +543,13 @@ func (s *Sim) step(now time.Time) {
 			if l.mode == 'T' && now.After(l.nextFlip) {
 				if l.keyed {
 					l.keyed, l.lastUnkey = false, now
+					busy, linkChanged = false, true
 					l.nextFlip = now.Add(time.Duration(3+s.rng.IntN(6)) * time.Second)
-				} else {
+				} else if !busy {
+					busy, linkChanged = true, true
 					l.keyed, l.lastKey = true, now
 					l.nextFlip = now.Add(time.Duration(2+s.rng.IntN(5)) * time.Second)
 				}
-				linkChanged = true
 			}
 			if l.keyed {
 				anyKeyed = true
