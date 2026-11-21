@@ -62,8 +62,13 @@
           <dt class="text-muted">Source</dt>
           <dd class="break-words">{sourceDetail(c)}</dd>
           <dt class="text-muted">Callsign</dt><dd class="font-semibold">{who(c)}</dd>
-          {#if c.name}<dt class="text-muted">Name</dt><dd>{c.name}</dd>{/if}
-          {#if placeFull(c) || c.location}<dt class="text-muted">Place</dt><dd>{placeFull(c) || c.location}</dd>{/if}
+          {#if c.kind === 'allstar'}
+            {#if c.desc}<dt class="text-muted">Description</dt><dd class="break-words">{c.desc}</dd>{/if}
+            {#if c.location}<dt class="text-muted">Place</dt><dd class="break-words">{c.location}</dd>{/if}
+          {:else}
+            {#if c.name}<dt class="text-muted">Name</dt><dd>{c.name}</dd>{/if}
+            {#if placeFull(c) || c.location}<dt class="text-muted">Place</dt><dd>{placeFull(c) || c.location}</dd>{/if}
+          {/if}
           {#if c.dmrId}<dt class="text-muted">DMR ID</dt><dd class="font-mono">{c.dmrId}</dd>{/if}
           <dt class="text-muted">Started</dt><dd>{startedAt(c)}</dd>
           <dt class="text-muted">Duration</dt><dd class="tabular-nums">{c.active ? mmss(durationSec(c, now) ?? 0) : lenOf(c) || 'unknown'}</dd>

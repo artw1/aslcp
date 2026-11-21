@@ -25,6 +25,12 @@ test('place: city, ST in the US, city, country elsewhere', () => {
 test('main line leaves out what is unknown', () => {
   assert.equal(mainLine(base), 'N0CALL · Alex · Springfield, IL');
   assert.equal(mainLine({ id: 'x', kind: 'allstar', node: '2001', start: base.start, active: true }), 'Node 2001');
+  const asl = { id: 'x', kind: 'allstar' as const, call: 'N0CALL', node: '1998', start: base.start, active: true };
+  assert.equal(mainLine({ ...asl, desc: 'Example hub', location: 'Example Hill' }), 'N0CALL · Example hub · Example Hill');
+  assert.equal(mainLine({ ...asl, desc: 'Example hub' }), 'N0CALL · Example hub');
+  assert.equal(mainLine({ ...asl, location: 'Example Hill' }), 'N0CALL · Example Hill');
+  // an AllStar call never shows a person's first name or city, even if the data has them
+  assert.equal(mainLine({ ...asl, desc: 'Example hub', location: 'Example Hill', first: 'Alex', city: 'Springfield', state: 'IL' }), 'N0CALL · Example hub · Example Hill');
   assert.equal(mainLine({ ...base, call: '', city: '', state: '', country: '', first: '', name: '' }), 'ID 1234567');
 });
 
