@@ -22,7 +22,7 @@
     {#if shown.length === 0}<p class="py-3 text-center text-sm text-muted">{node.network.length === 0 ? 'No linked network.' : 'No matching nodes.'}</p>
     {:else}
       <ul class="grid grid-cols-2 gap-x-3 sm:grid-cols-3 lg:grid-cols-4">
-        {#each shown as n (n.node)}
+        {#each shown as n, i (n.node + '/' + i)}
           <li class="min-w-0">
             <button type="button" class="flex w-full min-w-0 items-baseline gap-1.5 rounded-sm px-0.5 py-px text-left text-[13px] hover:bg-surface-2" title="{n.node} {infoLine(n.info)} ({KIND_LABEL[n.kind]}, {n.mode})" onclick={() => openNode(n.node, node.node)}>
               <span class="shrink-0 font-mono font-semibold">{n.node}</span>

@@ -11,6 +11,7 @@ import (
 
 	"github.com/artw1/aslcp/internal/nodelist"
 	"github.com/artw1/aslcp/internal/rpt"
+	"github.com/artw1/aslcp/internal/store"
 )
 
 var ipLike = regexp.MustCompile(`\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|[0-9a-f]{1,4}(:[0-9a-f]{0,4}){3,}`)
@@ -199,5 +200,47 @@ func TestSettingsValidate(t *testing.T) {
 	bad.Title = strings.Repeat("é", 81)
 	if bad.Validate() == nil {
 		t.Fatal("title")
+	}
+}
+
+func TestBuildNetworkDedupesScrubbed(t *testing.T) {
+	st := rpt.NodeStatus{Node: "1997", Network: []rpt.LinkedNode{
+		{Node: "1998", Mode: rpt.ModeTransceive},
+		{Node: "192.0.2.10", Mode: rpt.ModeTransceive},
+		{Node: "192.0.2.11", Mode: rpt.ModeTransceive},
+		{Node: "1999", Mode: rpt.ModeTransceive},
+	}}
+	got := BuildNetwork(st, nil, View{})
+	seen := map[string]bool{}
+	for _, n := range got {
+		if seen[n.Node] {
+			t.Fatalf("duplicate %q in %+v", n.Node, got)
+		}
+		seen[n.Node] = true
+	}
+	if len(got) != 3 {
+		t.Fatalf("want 3 entries, got %+v", got)
+	}
+}
+
+func TestBridgeNodeLabelled(t *testing.T) {
+	now := time.Now()
+	v := View{Callsigns: false, Network: true, Now: now, Bridge: "1999", BridgeName: "DVSwitch linked node"}
+	st := rpt.NodeStatus{Node: "1997", Updated: now,
+		Links:   []rpt.Link{{Node: "1999", Kind: rpt.KindAllStar, State: rpt.StateEstablished, Mode: rpt.ModeTransceive}, {Node: "1998", Kind: rpt.KindAllStar, State: rpt.StateEstablished, Mode: rpt.ModeTransceive}},
+		Network: []rpt.LinkedNode{{Node: "1999", Mode: rpt.ModeTransceive}, {Node: "1998", Mode: rpt.ModeTransceive}}}
+	n := BuildNode(st, nil, v, true)
+	if n.Links[0].Node != "1999" || n.Links[0].Label != "DVSwitch linked node" || n.Links[1].Label != "" {
+		t.Fatalf("links: %+v", n.Links)
+	}
+	if n.Network[0].Label != "DVSwitch linked node" || n.Network[1].Label != "" {
+		t.Fatalf("network: %+v", n.Network)
+	}
+	act := BuildActivity([]store.Activity{{Node: "1997", Link: "1999", Start: now, Duration: time.Second}, {Node: "1997", Link: "1998", Start: now, Duration: time.Second}}, nil, v)
+	if act[0].Label != "DVSwitch linked node" || act[1].Label != "" {
+		t.Fatalf("activity: %+v", act)
+	}
+	if got := BuildNode(st, nil, View{Now: now}, false).Links[0].Label; got != "" {
+		t.Fatalf("no bridge configured but label %q", got)
 	}
 }

@@ -30,7 +30,10 @@ type Options struct {
 	// OnClients is called with the number of connected SSE clients whenever
 	// it changes (the monitor polls fast while anyone watches).
 	OnClients func(n int)
-	Now       func() time.Time
+	// Bridge returns the private DVSwitch bridge node and its display name,
+	// or "" when there is none. Optional.
+	Bridge func() (node, name string)
+	Now    func() time.Time
 }
 
 // Service serves the public status data.
@@ -136,7 +139,7 @@ func (s *Service) Snapshot() Snapshot { return s.build(true) }
 func (s *Service) build(withActivity bool) Snapshot {
 	cfg := s.cfg.Load()
 	now := s.opt.Now()
-	v := View{Callsigns: cfg.ShowCallsigns, Network: cfg.ShowNetwork, Now: now}
+	v := s.view(cfg, now)
 	snap := Snapshot{Now: now.Unix(), Callsigns: cfg.ShowCallsigns, ShowNetwork: cfg.ShowNetwork, ShowActivity: cfg.ShowActivity, Nodes: []Node{}}
 	m := s.mon.Load()
 	ids := s.nodeIDs(cfg, m)
@@ -197,7 +200,7 @@ func (s *Service) HandleUpdate(u rpt.Update) {
 		s.hub.broadcast(frame("snapshot", s.Snapshot()))
 		return
 	}
-	v := View{Callsigns: cfg.ShowCallsigns, Network: cfg.ShowNetwork, Now: s.opt.Now()}
+	v := s.view(cfg, s.opt.Now())
 	s.hub.broadcast(frame("node", BuildNode(u.Status, s.opt.Lookup, v, false)))
 	if c.Network && cfg.ShowNetwork {
 		s.hub.broadcast(frame("network", NetworkEvent{Node: scrubNode(u.Node), Network: BuildNetwork(u.Status, s.opt.Lookup, v)}))
@@ -214,7 +217,7 @@ func (s *Service) ActivityRecorded(a store.Activity) {
 		return
 	}
 	now := s.opt.Now()
-	v := View{Callsigns: cfg.ShowCallsigns, Network: cfg.ShowNetwork, Now: now}
+	v := s.view(cfg, now)
 	s.hub.broadcast(frame("activity", ActivityEvent{Now: now.Unix(), Activity: s.activity(cfg, s.nodeIDs(cfg, s.mon.Load()), v)}))
 }
 
@@ -551,4 +554,13 @@ func (l *limiter) allow(key string, now time.Time) bool {
 	}
 	b.tokens--
 	return true
+}
+
+// view is the build configuration for the current settings.
+func (s *Service) view(cfg *Settings, now time.Time) View {
+	v := View{Callsigns: cfg.ShowCallsigns, Network: cfg.ShowNetwork, Now: now}
+	if s.opt.Bridge != nil {
+		v.Bridge, v.BridgeName = s.opt.Bridge()
+	}
+	return v
 }

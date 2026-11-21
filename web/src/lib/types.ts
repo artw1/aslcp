@@ -57,15 +57,15 @@ export interface ImportPreview { found: boolean; path: string; items: { node: st
 // Public status view (GET /api/public/*): never contains IPs or system info.
 export interface PubInfo { callsign: string; description: string; location: string }
 export interface PubLink {
-  node: string; kind: LinkKind; info?: PubInfo; direction: 'IN' | 'OUT'; mode: LinkMode;
+  node: string; label?: string; kind: LinkKind; info?: PubInfo; direction: 'IN' | 'OUT'; mode: LinkMode;
   connected: number; keyed: boolean; sinceKey: number | null; sinceUnkey: number | null;
 }
-export interface PubNetNode { node: string; callsign?: string }
+export interface PubNetNode { node: string; label?: string; callsign?: string }
 export interface PubNode {
   node: string; info: PubInfo | null; stale: boolean; txKeyed: boolean; rxKeyed: boolean; numLinks: number;
   links: PubLink[]; network?: PubNetNode[];
 }
-export interface PubActivity { node: string; link: string; callsign?: string; at: number; duration: number; kerchunk: boolean }
+export interface PubActivity { node: string; link: string; label?: string; callsign?: string; at: number; duration: number; kerchunk: boolean }
 export interface PubSnapshot {
   title: string; now: number; callsigns: boolean; showNetwork: boolean; showActivity: boolean;
   nodes: PubNode[]; activity?: PubActivity[];

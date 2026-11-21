@@ -14,13 +14,13 @@
       <table class="tbl">
         <thead><tr><th scope="col" class="w-24">When</th><th scope="col">Station</th>{#if multi}<th scope="col" class="w-16">Node</th>{/if}<th scope="col" class="w-20 text-right">Duration</th></tr></thead>
         <tbody>
-          {#each items as a (a.node + '/' + a.link + '/' + a.at)}
+          {#each items as a, i (a.node + '/' + a.link + '/' + a.at + '/' + i)}
             <tr>
               <td class="whitespace-nowrap">{ago(a)}</td>
               <td class="max-w-0">
                 <span class="block truncate">
                   {#if a.link === 'local'}<span class="font-semibold">Local receiver</span>
-                  {:else}<span class="num font-semibold">{a.link}</span>{#if a.callsign}&nbsp;<span class="text-muted">{a.callsign}</span>{/if}{/if}
+                  {:else}<span class="num font-semibold">{a.link}</span>{#if a.label || a.callsign}&nbsp;<span class="text-muted">{a.label || a.callsign}</span>{/if}{/if}
                   {#if a.kerchunk}<span class="badge ml-1" title="Very short transmission">kerchunk</span>{/if}
                 </span>
               </td>

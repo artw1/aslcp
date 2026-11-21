@@ -7,7 +7,7 @@
   const shown = $derived.by(() => {
     const t = q.trim().toLowerCase();
     if (!t) return all;
-    return all.filter((n) => n.node.includes(t) || n.callsign?.toLowerCase().includes(t));
+    return all.filter((n) => n.node.includes(t) || n.callsign?.toLowerCase().includes(t) || n.label?.toLowerCase().includes(t));
   });
   const id = $derived(`net-filter-${node.node}`);
 </script>
@@ -21,10 +21,10 @@
     {#if shown.length === 0}<p class="py-3 text-center text-sm text-muted">{all.length === 0 ? 'No linked network.' : 'No matching nodes.'}</p>
     {:else}
       <ul class="grid grid-cols-2 gap-x-3 sm:grid-cols-3 lg:grid-cols-4">
-        {#each shown as n (n.node)}
+        {#each shown as n, i (n.node + '/' + i)}
           <li class="flex min-w-0 items-baseline gap-1.5 px-0.5 py-px text-[13px]">
             <span class="shrink-0 font-mono font-semibold">{n.node}</span>
-            <span class="min-w-0 truncate text-muted">{n.callsign ?? ''}</span>
+            <span class="min-w-0 truncate text-muted">{n.label || n.callsign || ''}</span>
           </li>
         {/each}
       </ul>

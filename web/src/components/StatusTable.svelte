@@ -85,7 +85,7 @@
         </div>
       </td>
     </tr>
-    {#each links as l (l.node)}
+    {#each links as l, i (l.node + '/' + i)}
       <tr class={l.keyed ? 'row-tx' : ''}>
         <td class="num font-semibold" title={l.ip ? `${KIND_LABEL[l.kind]} · ${l.ip}` : KIND_LABEL[l.kind]}><button type="button" class="font-mono font-semibold underline decoration-dotted underline-offset-2 hover:decoration-solid" onclick={() => openNode(l.node, node.node)} aria-label="Connect options for node {l.node}">{l.node}</button></td>
         <td class="max-w-0">
