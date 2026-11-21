@@ -8,6 +8,9 @@ Release notes are taken from the section of the tag being released
 ### Fixed
 - Now Calling shows an AllStar node's callsign, description and location instead of looking the callsign up as a person. The radioid.net user list now applies to DMR and YSF talkers only.
 
+### Changed
+- The Now Calling strip is shown on every page, not only the dashboard.
+
 ## [1.3.6] - 2026-11-21
 
 ### Fixed

@@ -140,5 +140,5 @@
     </div>
   {/if}
   </div>
-  {#if app.user && router.path === '/'}<NowCalling />{/if}
+  {#if app.user}<NowCalling />{/if}
 </header>
