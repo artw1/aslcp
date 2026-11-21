@@ -60,7 +60,7 @@
     {:else if snap.nodes.length === 0}
       <p class="py-10 text-center text-sm text-muted" role="status">No node data yet.</p>
     {:else}
-      {#each snap.nodes as n (n.node)}
+      {#each snap.nodes as n, i (n.node + '/' + i)}
         <div class="space-y-3">
           <div class="overflow-hidden rounded-md border border-line bg-surface"><PublicStatusTable node={n} /></div>
           {#if snap.showNetwork && n.network && n.network.length > 0}<PublicNetwork node={n} showNode={snap.nodes.length > 1} />{/if}

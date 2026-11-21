@@ -14,7 +14,7 @@
       <table class="tbl">
         <thead><tr><th scope="col" class="w-24">When</th><th scope="col">Station</th>{#if multi}<th scope="col" class="w-16">Node</th>{/if}<th scope="col" class="w-20 text-right">Duration</th></tr></thead>
         <tbody>
-          {#each items as a (a.node + '/' + a.link + '/' + a.at)}
+          {#each items as a, i (a.node + '/' + a.link + '/' + a.at + '/' + i)}
             <tr>
               <td class="whitespace-nowrap">{ago(a)}</td>
               <td class="max-w-0">

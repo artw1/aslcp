@@ -193,8 +193,15 @@ func BuildNode(st rpt.NodeStatus, l Lookup, v View, withNetwork bool) Node {
 // BuildNetwork converts the linked-network list.
 func BuildNetwork(st rpt.NodeStatus, l Lookup, v View) []NetNode {
 	out := make([]NetNode, 0, len(st.Network))
+	seen := make(map[string]bool, len(st.Network))
 	for _, nn := range st.Network {
 		e := NetNode{Node: scrubNode(nn.Node)}
+		// Several entries that were scrubbed to "unknown" (addresses) must not
+		// be listed more than once.
+		if seen[e.Node] {
+			continue
+		}
+		seen[e.Node] = true
 		if v.Callsigns {
 			if in := infoOf(l, nn.Node); in != nil {
 				e.Callsign = in.Callsign

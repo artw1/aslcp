@@ -3,6 +3,11 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [1.3.6] - 2026-11-21
+
+### Fixed
+- The public status page no longer gets stuck on "Loading..." when a node, link or transmission is listed twice, for example several unidentified links. The linked-network list shows such entries once.
+
 ## [1.3.5] - 2026-11-21
 
 ### Added

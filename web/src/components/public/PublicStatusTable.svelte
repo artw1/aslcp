@@ -59,7 +59,7 @@
         </div>
       </td>
     </tr>
-    {#each links as l (l.node)}
+    {#each links as l, i (l.node + '/' + i)}
       <tr class={l.keyed ? 'row-tx' : ''}>
         <td class="num font-semibold" title={KIND_LABEL[l.kind]}>{l.node}</td>
         <td class="max-w-0">

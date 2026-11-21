@@ -201,3 +201,23 @@ func TestSettingsValidate(t *testing.T) {
 		t.Fatal("title")
 	}
 }
+
+func TestBuildNetworkDedupesScrubbed(t *testing.T) {
+	st := rpt.NodeStatus{Node: "1997", Network: []rpt.LinkedNode{
+		{Node: "1998", Mode: rpt.ModeTransceive},
+		{Node: "192.0.2.10", Mode: rpt.ModeTransceive},
+		{Node: "192.0.2.11", Mode: rpt.ModeTransceive},
+		{Node: "1999", Mode: rpt.ModeTransceive},
+	}}
+	got := BuildNetwork(st, nil, View{})
+	seen := map[string]bool{}
+	for _, n := range got {
+		if seen[n.Node] {
+			t.Fatalf("duplicate %q in %+v", n.Node, got)
+		}
+		seen[n.Node] = true
+	}
+	if len(got) != 3 {
+		t.Fatalf("want 3 entries, got %+v", got)
+	}
+}
