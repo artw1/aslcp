@@ -51,7 +51,7 @@ BrandMeister is a native client of the Rewind protocol: the engine logs in to a 
 
 **Settings** (Digital modes tab, admin; docs/API.md "Digital modes networks and identity"):
 
-- *Identity*: callsign, DMR ID and an optional repeater ID. The DMR networks log in with it. Clearing it disables them.
+- *Identity*: callsign, DMR ID and an optional ESSID (2 digits, 01–99; the repeater ID is your DMR ID followed by it). The DMR networks log in with it. Clearing it disables them.
 - *Master address* and *port* (default 54006). There is no default address: pick the master from your BrandMeister account (the closest one) and enter it.
 - *Password*: the password set in your BrandMeister SelfCare (hotspot security). It is write-only; the page shows only "Password set" and a Change button, and the password is never logged or returned.
 - *Options*: all under "advanced": the client version and the keep-alive, timeout and back-off timers. A blank option uses the engine default.

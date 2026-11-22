@@ -482,7 +482,7 @@ Design: docs/DV.md "BrandMeister". Admin only (`403 forbidden`), `X-ASLCP: 1` on
 | GET | `/api/dv/networks/{mode}` | | `200` NetView; `404 not_found` for a mode without settings |
 | PUT | `/api/dv/networks/{mode}` | any of `{"enabled","address","port","password","clearPassword","options":{}}` | `200` NetView plus `applied` and `applyError?`. `options`, when sent, replaces all options; an empty value drops a key. `port` 0 restores the default. A `password` of `""` keeps the stored one |
 | GET | `/api/dv/identity` | | `200` `{callsign, dmrId, repeaterId?}` |
-| PUT | `/api/dv/identity` | `{"callsign","dmrId","repeaterId"?}` | `200` the identity plus `applied`. An empty callsign and DMR ID clear it, which also disables the networks that need one |
+| PUT | `/api/dv/identity` | `{"callsign","dmrId","repeaterId"?}` | `200` the identity plus `applied`. An empty callsign and DMR ID clear it, which also disables the networks that need one. The panel sets `repeaterId` to DMR ID × 100 + the ESSID it shows, and omits it when the ESSID is empty. |
 
 ```json
 NetView = {

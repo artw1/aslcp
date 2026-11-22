@@ -135,7 +135,7 @@ func hbOptions(optionsHelp string) []OptSpec {
 		{Key: "slot", Label: "Timeslot", Kind: KindInt, Default: "2", Min: 1, Max: 2,
 			Help: "The timeslot of your calls. Hotspot style networks, TGIF included, use slot 2."},
 		{Key: "repeater_id", Label: "Repeater ID", Kind: KindInt, Min: 1, Max: MaxRepeaterID, Advanced: true,
-			Help: "Default: the repeater ID of the identity, else the DMR ID."},
+			Help: "Default: your DMR ID followed by the ESSID of the identity, else the DMR ID."},
 		{Key: "colour_code", Label: "Colour code", Kind: KindInt, Default: "1", Min: 0, Max: 15, Advanced: true},
 		{Key: "tune_kerchunk", Label: "Link by short key-up", Kind: KindBool, Default: "true", Advanced: true,
 			Help: "Tuning a talkgroup sends a short transmission to it, which links it on most masters."},

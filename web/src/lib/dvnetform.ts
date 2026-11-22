@@ -102,16 +102,26 @@ export function loginTone(login: DVLogin | undefined): 'ok' | 'warn' | 'err' | '
   return login === 'ok' ? 'ok' : login === 'pending' ? 'warn' : login === 'failed' ? 'err' : 'off';
 }
 
-/** Identity form checks, the server's rules. */
-export function identityError(callsign: string, dmrId: string, repeaterId: string): string {
+/** Identity form checks, the server's rules. The ESSID is optional: 2 digits, 01 to 99. */
+export function identityError(callsign: string, dmrId: string, essid: string): string {
   if (!/^[A-Za-z0-9]{3,8}$/.test(callsign.trim())) return 'Callsign: 3 to 8 letters and digits';
   const n = Number(dmrId);
   if (!/^\d{7}$/.test(dmrId.trim()) || n < 1000000 || n > 9999999) return 'DMR ID: 7 digits';
-  if (repeaterId.trim() !== '') {
-    const r = Number(repeaterId);
-    if (!/^\d+$/.test(repeaterId.trim()) || r < 1000000 || r > 999999999) return 'Repeater ID: 7 to 9 digits, or empty';
-  }
+  const e = essid.trim();
+  if (e !== '' && (!/^\d{2}$/.test(e) || e === '00')) return 'ESSID: 2 digits (01–99), or empty';
   return '';
+}
+
+/** The repeater ID the API takes for an ESSID: the DMR ID × 100 + the ESSID, or undefined when there is no ESSID. */
+export function essidToRepeaterId(dmrId: string, essid: string): number | undefined {
+  if (essid.trim() === '') return undefined;
+  return Number(dmrId) * 100 + Number(essid);
+}
+
+/** The ESSID shown for a stored repeater ID: '' when there is none or it is not this DMR ID's (DMR ID × 100 + ESSID). */
+export function repeaterIdToEssid(dmrId: number, repeaterId?: number): string {
+  if (!repeaterId || Math.floor(repeaterId / 100) !== dmrId) return '';
+  return String(repeaterId % 100).padStart(2, '0');
 }
 
 /** The BM help line (also in the network's `help`). */

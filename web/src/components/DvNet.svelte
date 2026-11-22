@@ -48,7 +48,7 @@
 <div class="space-y-3" data-testid="{id}-form">
   <div class="flex flex-wrap items-center gap-2">
     <span class="inline-flex items-center gap-2 text-sm"><Toggle checked={f.enabled} disabled={busy} label="Enable {v.label}" onchange={(on) => (f.enabled = on)} />Enable</span>
-    {#if login}<span class="badge {loginTone(v.login) === 'ok' ? 'border-ok text-ok' : loginTone(v.login) === 'err' ? 'border-err text-err' : ''}" role="status" data-testid="{id}-login">{login}</span>{/if}
+    {#if login}<span class="badge {loginTone(v.login) === 'ok' ? 'border-ok text-ok' : loginTone(v.login) === 'err' ? 'border-danger text-danger' : ''}" role="status" data-testid="{id}-login">{login}</span>{/if}
   </div>
   {#if v.help}<p class="text-xs text-muted" data-testid="{id}-help">{v.help}</p>{/if}
   <div class="grid grid-cols-2 gap-3">
@@ -82,6 +82,6 @@
     <button type="button" class="btn btn-sm" aria-expanded={showAdv} onclick={() => (showAdv = !showAdv)}>{showAdv ? 'Hide' : 'Show'} advanced options</button>
     {#if showAdv}<div class="grid grid-cols-2 gap-3">{#each adv as o (o.key)}<div class="col-span-2 sm:col-span-1">{@render opt(o)}</div>{/each}</div>{/if}
   {/if}
-  {#if err}<p class="text-sm text-err" role="alert">{err}</p>{:else if block}<p class="text-sm text-warn" data-testid="{id}-block">{block}</p>{/if}
+  {#if err}<p class="text-sm text-danger" role="alert">{err}</p>{:else if block}<p class="text-sm text-warn" data-testid="{id}-block">{block}</p>{/if}
   <button type="button" class="btn btn-primary" disabled={busy || !!err || !!block || !hasChanges(put)} onclick={save} data-testid="{id}-save">Save</button>
 </div>

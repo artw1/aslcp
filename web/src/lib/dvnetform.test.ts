@@ -1,7 +1,7 @@
 // Run with `npm test`. The generic network form and the availability helpers.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BM_HELP, buildPut, enableBlock, formError, formOf, hasChanges, identityError, loginText, modeAvailable, passwordUx, validAddress } from './dvnetform.ts';
+import { BM_HELP, buildPut, enableBlock, essidToRepeaterId, formError, formOf, hasChanges, identityError, loginText, modeAvailable, passwordUx, repeaterIdToEssid, validAddress } from './dvnetform.ts';
 import { cardState } from './dvmodes.ts';
 import type { DVNetView } from './types';
 
@@ -79,7 +79,18 @@ test('login text and identity checks', () => {
   assert.equal(identityError('N0CALL', '1234567', ''), '');
   assert.match(identityError('N0', '1234567', ''), /^Callsign/);
   assert.match(identityError('N0CALL', '123', ''), /^DMR ID/);
-  assert.match(identityError('N0CALL', '1234567', 'abc'), /^Repeater ID/);
+});
+
+test('identity ESSID: 2 digits 01-99 or empty', () => {
+  assert.equal(identityError('N0CALL', '1234567', '41'), '');
+  assert.equal(identityError('N0CALL', '1234567', ''), '');
+  for (const bad of ['00', '1', 'abc', '123']) assert.match(identityError('N0CALL', '1234567', bad), /^ESSID/);
+  assert.equal(essidToRepeaterId('1234567', '41'), 123456741);
+  assert.equal(essidToRepeaterId('1234567', ''), undefined);
+  assert.equal(repeaterIdToEssid(1234567, 123456741), '41');
+  assert.equal(repeaterIdToEssid(1234567, 999999901), '');
+  assert.equal(repeaterIdToEssid(1234567, undefined), '');
+  assert.equal(repeaterIdToEssid(1234567, 123456705), '05');
 });
 
 test('TGIF, DMR and NXDN forms', () => {
