@@ -65,6 +65,7 @@ type Net struct {
 	rxTO       time.Duration
 	missedMax  int
 	srcDefault uint32
+	rxAnySlot  bool // deliver calls of both slots (DMR - Other; TGIF filters on slot)
 
 	mu       sync.Mutex
 	conn     net.Conn
@@ -85,6 +86,7 @@ type Net struct {
 
 type rxState struct {
 	stream uint32
+	slot   int
 	id     uint64
 	seq    uint32
 	rx     *dmr.RX
@@ -147,6 +149,7 @@ func New(cfg ctl.NetConfig, id ctl.Identity) (*Net, error) {
 	n.bkMin = optMS(o, "backoff_min_ms", 1000)
 	n.bkMax = optMS(o, "backoff_max_ms", 60000)
 	n.rxTO = optMS(o, "rx_timeout_ms", 1500)
+	n.rxAnySlot = optBool(o, "rx_any_slot", n.mode == ctl.ModeDMR)
 	n.missedMax = optInt(o, "missed_pongs", 3)
 	n.stream = rand.Uint32()
 	n.info = rptcInfo{

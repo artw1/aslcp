@@ -28,6 +28,7 @@ Release notes are taken from the section of the tag being released
 - `GET/PUT /api/dv/networks/{mode}`, `GET /api/dv/networks` and `GET/PUT /api/dv/identity`; the dv snapshot carries each network's login state.
 - New Echo test (Digital modes setup, Test audio) echoes your transmission back through the bridge node a second later, so you can check the audio path of the node, the engine and the vocoder both ways without a network or an account. It plays back as a call from "Echo test".
 - ASLCP downloads the YSF, P25, NXDN and DMR host lists itself, once a day, while digital modes are enabled.
+- **DMR - Other works with DMR+ masters.** Calls of the tuned talkgroup are heard on either timeslot (masters may move a talkgroup to its own slot), Now calling and Last heard show the slot (TS1 or TS2), and after 15 minutes without a call on the tuned talkgroup the dashboard offers a Retune button, because the master drops an idle talkgroup.
 
 ### Fixed
 - Open dashboard tabs reload by themselves when the panel comes back on a new version, however it was installed.

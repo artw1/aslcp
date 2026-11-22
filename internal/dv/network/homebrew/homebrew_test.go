@@ -662,3 +662,53 @@ func TestDMRDefaultPassword(t *testing.T) {
 		t.Errorf("TGIF has no default password: %q", got)
 	}
 }
+
+func TestRXAnySlotDMR(t *testing.T) {
+	m := newMaster(t)
+	_, s, _, _ := start(t, ctl.ModeDMR, m, testPW, nil) // card slot 2
+	waitFor(t, "ok", func() bool { return s.hasLogin(ctl.LoginOK) })
+	sendCall(m, 1, 77, 759, 6, true) // the master moved the TG to its own slot
+	waitFor(t, "end1", func() bool { return s.nEnd() == 1 })
+	sendCall(m, 2, 78, 759, 6, true)
+	waitFor(t, "end2", func() bool { return s.nEnd() == 2 })
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.hdrs) != 2 || s.hdrs[0].Slot != 1 || s.hdrs[1].Slot != 2 || s.hdrs[0].TG != 759 {
+		t.Fatalf("hdrs %+v", s.hdrs)
+	}
+}
+
+func TestRXTGIFStillFiltersSlot(t *testing.T) {
+	m := newMaster(t)
+	_, s, _, _ := start(t, ctl.ModeTGIF, m, testPW, nil)
+	waitFor(t, "ok", func() bool { return s.hasLogin(ctl.LoginOK) })
+	sendCall(m, 1, 77, 1998, 6, true)
+	time.Sleep(50 * time.Millisecond)
+	if s.nHdr() != 0 {
+		t.Fatal("TGIF delivered slot 1")
+	}
+}
+
+func TestRXOtherSlotDoesNotCutCall(t *testing.T) {
+	m := newMaster(t)
+	_, s, _, _ := start(t, ctl.ModeDMR, m, testPW, nil)
+	waitFor(t, "ok", func() bool { return s.hasLogin(ctl.LoginOK) })
+	sendCall(m, 1, 80, 759, 6, false) // call in progress on slot 1
+	waitFor(t, "hdr", func() bool { return s.nHdr() == 1 })
+	sendCall(m, 2, 81, 3181, 3, true) // stray stream on slot 2
+	time.Sleep(50 * time.Millisecond)
+	if s.nHdr() != 1 || s.nEnd() != 0 {
+		t.Fatalf("stray slot disturbed the call: hdr %d end %d", s.nHdr(), s.nEnd())
+	}
+}
+
+func TestRXAnySlotOptionOff(t *testing.T) {
+	m := newMaster(t)
+	_, s, _, _ := start(t, ctl.ModeDMR, m, testPW, map[string]string{"rx_any_slot": "false"})
+	waitFor(t, "ok", func() bool { return s.hasLogin(ctl.LoginOK) })
+	sendCall(m, 1, 77, 759, 6, true)
+	time.Sleep(50 * time.Millisecond)
+	if s.nHdr() != 0 {
+		t.Fatal("slot 1 delivered with rx_any_slot=false")
+	}
+}

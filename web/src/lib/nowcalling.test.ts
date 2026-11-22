@@ -34,6 +34,14 @@ test('main line leaves out what is unknown', () => {
   assert.equal(mainLine({ ...base, call: '', city: '', state: '', country: '', first: '', name: '' }), 'ID 1234567');
 });
 
+test('DMR source label shows the slot when known', () => {
+  assert.equal(sourceLabel({ ...base, slot: 1 }), 'DMR · TG 91 · TS1');
+  assert.equal(sourceLabel({ ...base, slot: 2 }), 'DMR · TG 91 · TS2');
+  assert.equal(sourceLabel({ ...base, slot: 0 }), 'DMR · TG 91');
+  assert.equal(sourceLabel({ ...base, slot: undefined }), 'DMR · TG 91');
+  assert.equal(sourceLabel({ ...base, kind: 'ysf', room: 'Example Room', slot: 2 }), 'YSF · Example Room');
+});
+
 test('source labels', () => {
   assert.equal(sourceLabel(base), 'DMR · TG 91');
   assert.equal(sourceLabel({ ...base, tgName: '' }), 'DMR · TG 91');

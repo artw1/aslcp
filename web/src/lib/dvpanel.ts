@@ -2,6 +2,7 @@
 // favourite and tune validation (the same rules as the server), and the pending/confirm logic.
 import { ECHO_RUNNING } from './dvecho.ts';
 import { isDVNetwork, networkLabel } from './dvnetworks.ts';
+import { slotLabel } from './nowcalling.ts';
 import type { DVBridge, DVCaller, DVFavorite, DVSnapshot, DVTuneMode, NodeStatus } from './types';
 
 export { PANEL_MODES } from './dvnetworks.ts';
@@ -190,7 +191,7 @@ export function callerLabel(c: DVCaller): string {
 
 /** "N0CALL" or "N0CALL (1234567)" for the Last heard list, with the target ("TG 91") and the log time. */
 export function heardLine(c: DVCaller): string {
-  return [callerLabel(c), c.dst ? `TG ${c.dst}` : '', c.at ? c.at.slice(11, 19) : ''].filter(Boolean).join(' · ');
+  return [callerLabel(c), c.dst ? `TG ${c.dst}` : '', slotLabel(c.slot), c.at ? c.at.slice(11, 19) : ''].filter(Boolean).join(' · ');
 }
 
 /** The Frequency field in MHz as Hz (an integer), or null when it is not a number in the 30 to 3000 MHz range the server accepts. Hz input (30000000 to 3000000000) is taken as it is. */
@@ -215,3 +216,18 @@ export function validCoord(v: string, max: number): boolean {
 export const validInfoText = (v: string, max: number): boolean => v.length >= 1 && v.length <= max && /^[A-Za-z0-9][\x20-\x7e]*$/.test(v) && v === v.trimEnd() && !/[;#="]/.test(v);
 /** [Info] URL: empty, or http(s) with no space, quote, ; or #, at most 124 characters. */
 export const validInfoUrl = (v: string): boolean => v === '' || (v.length <= 124 && /^https?:\/\/[A-Za-z0-9._~:/?&=%+-]{1,116}$/.test(v));
+
+/** How long a DMR - Other talkgroup may stay quiet before the card suggests a retune (DMR+ masters drop an idle key-up talkgroup after about 15 minutes). */
+export const QUIET_MS = 15 * 60 * 1000;
+/** How often the card re-checks quietHint (no server frame is needed). */
+export const QUIET_TICK_MS = 30_000;
+export const QUIET_TEXT = 'No traffic for 15 min, the master may have dropped this talkgroup';
+
+/** The retune hint of DMR - Other: the tune to resend when that mode is active, a (non-private) talkgroup is tuned and the snapshot's quietSince is 15 minutes old at `nowMs`; else null. */
+export function quietHint(s: Pick<DVSnapshot, 'bridge' | 'modes'> | null | undefined, nowMs: number): { text: string; tune: string } | null {
+  const b = s?.bridge;
+  if (!s || !b || b.source === 'none' || b.mode !== 'DMR' || !b.tune || b.private) return null;
+  const since = Date.parse(s.modes?.find((m) => m.id === 'DMR')?.quietSince ?? '');
+  if (!Number.isFinite(since) || nowMs - since < QUIET_MS) return null;
+  return { text: QUIET_TEXT, tune: b.tune };
+}

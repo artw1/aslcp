@@ -17,7 +17,13 @@ func (n *Net) handleDMRD(p []byte) {
 	}
 	n.mu.Lock()
 	sink := n.sink
-	if sink == nil || d.Slot != n.slot {
+	if sink == nil || (d.Slot != n.slot && !n.rxAnySlot) {
+		n.mu.Unlock()
+		return
+	}
+	if n.rxCall != nil && n.rxCall.slot != d.Slot {
+		// a call is in progress on the other slot: a stray packet must not
+		// end or replace it
 		n.mu.Unlock()
 		return
 	}
@@ -25,7 +31,7 @@ func (n *Net) handleDMRD(p []byte) {
 	if n.rxCall == nil || n.rxCall.stream != d.Stream {
 		old := n.rxCall
 		n.nextCall++
-		n.rxCall = &rxState{stream: d.Stream, id: n.nextCall, rx: dmr.NewRX()}
+		n.rxCall = &rxState{stream: d.Stream, slot: d.Slot, id: n.nextCall, rx: dmr.NewRX()}
 		if old != nil {
 			n.mu.Unlock()
 			sink.End(old.id)

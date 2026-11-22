@@ -79,6 +79,11 @@ type DVModeView struct {
 	// Silent: the YSF, P25 or NXDN reflector of the tuned target does not answer
 	// (the engine's lost state, ctl.NotAnswering); the dashboard says so.
 	Silent bool `json:"silent,omitempty"`
+	// QuietSince (DMR - Other only, RFC 3339) is the later of the tune of the
+	// current talkgroup and the last call on it; absent while a call is in
+	// progress or when no talkgroup is tuned. The web shows its "no traffic"
+	// hint when it is 15 minutes old (DMR+ masters drop an idle key-up TG).
+	QuietSince string `json:"quietSince,omitempty"`
 }
 
 // DVServiceView is one systemd unit of the digital modes stack.
@@ -137,6 +142,10 @@ type dvSnapper struct {
 	talks     []ctl.Talk // newest first, at most dvRing, the call in progress first
 	heard     []dvpanel.Caller
 	key       string
+	// quietKey identifies the tuned DMR - Other talkgroup ("" when none:
+	// other mode, private call, unlinked); quietAt is when it last had traffic.
+	quietKey string
+	quietAt  time.Time
 
 	hstatus dvCache[helper.DVStatus]
 	node    dvCache[DVBridgeNode]
@@ -257,8 +266,25 @@ func (d *dvSnapper) setStatus(st ctl.Status) {
 	d.mu.Unlock()
 }
 
+// quietKeyOf is the identity of the DMR - Other talkgroup a status tunes, ""
+// when there is none. The engine's Updated time is part of it, so a retune of
+// the same talkgroup counts as a new tune.
+func quietKeyOf(st ctl.Status) string {
+	if st.Mode != ctl.ModeDMR || st.Target == nil || st.Target.TG == 0 || st.Target.Private {
+		return ""
+	}
+	return strconv.FormatUint(uint64(st.Target.TG), 10) + "|" + strconv.FormatInt(st.Updated.UnixNano(), 10)
+}
+
 func (d *dvSnapper) applyLocked(st ctl.Status) {
 	d.st = st
+	if k := quietKeyOf(st); k != d.quietKey {
+		d.quietKey = k
+		d.quietAt = time.Time{}
+		if k != "" {
+			d.quietAt = d.now()
+		}
+	}
 	if st.Talk != nil {
 		d.noteTalkLocked(*st.Talk)
 	} else if d.talk != nil {
@@ -311,6 +337,7 @@ func (d *dvSnapper) down() {
 		d.endTalkLocked(*d.talk, d.now())
 	}
 	d.st = ctl.Status{}
+	d.quietKey, d.quietAt = "", time.Time{}
 	d.mu.Unlock()
 	if was {
 		d.refresh()
@@ -319,6 +346,7 @@ func (d *dvSnapper) down() {
 
 func (d *dvSnapper) noteTalkLocked(t ctl.Talk) {
 	d.talk = &t
+	d.quietCallLocked(t)
 	for i := range d.talks {
 		if d.talks[i].ID == t.ID {
 			d.talks[i] = t
@@ -328,6 +356,18 @@ func (d *dvSnapper) noteTalkLocked(t ctl.Talk) {
 	d.talks = append([]ctl.Talk{t}, d.talks...)
 	if len(d.talks) > dvRing {
 		d.talks = d.talks[:dvRing]
+	}
+}
+
+// quietCallLocked restarts the quiet time on a call of DMR - Other (a call
+// starting or ending, received or sent).
+func (d *dvSnapper) quietCallLocked(t ctl.Talk) {
+	if d.quietKey == "" || t.Mode != ctl.ModeDMR {
+		return
+	}
+	d.quietAt = d.now()
+	if !t.End.IsZero() {
+		d.quietAt = t.End
 	}
 }
 
@@ -343,6 +383,7 @@ func (d *dvSnapper) endTalkLocked(t ctl.Talk, at time.Time) {
 	}
 	d.noteTalkLocked(t)
 	d.talk = nil
+	d.quietCallLocked(t) // after noteTalkLocked: the end time counts
 	c := dvCaller(t)
 	out := []dvpanel.Caller{c}
 	for _, h := range d.heard {
@@ -401,6 +442,10 @@ func (d *dvSnapper) snapshot(ctx context.Context) DVSnapshot {
 		talk = &t
 	}
 	heard := append([]dvpanel.Caller(nil), d.heard...)
+	quiet := time.Time{}
+	if d.quietKey != "" && d.talk == nil {
+		quiet = d.quietAt
+	}
 	d.mu.Unlock()
 
 	sn.Installed = true
@@ -421,6 +466,9 @@ func (d *dvSnapper) snapshot(ctx context.Context) DVSnapshot {
 			if n.Enabled && n.Available {
 				mv.Login, mv.Detail = string(n.Login), n.Detail
 				mv.Silent = ctl.NotAnswering(n.Login, n.Detail)
+			}
+			if m == dvpanel.ModeDMR && !quiet.IsZero() {
+				mv.QuietSince = quiet.UTC().Format(time.RFC3339)
 			}
 		} else {
 			mv.Enabled, mv.Available = m == dvpanel.ModeLoop, dvpanel.NativeMode(m)

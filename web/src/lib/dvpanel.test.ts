@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIRM_MS, dashboardModes, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, pendingOutcome, rxCaller, reflectorSilent, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate } from './dvpanel.ts';
+import { CONFIRM_MS, dashboardModes, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, quietHint, QUIET_MS, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, pendingOutcome, rxCaller, reflectorSilent, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate } from './dvpanel.ts';
 import type { DVFavorite, DVSnapshot } from './types';
 
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
@@ -308,4 +308,27 @@ test('the echo test has no mode button and the state line says it runs', () => {
   assert.equal(stateLine({ mode: 'LOOP', tune: '9990', targetName: 'Parrot', source: 'aslcp-dv' }), 'Echo test running');
   assert.equal(stateLine({ mode: 'LOOP', tune: '', source: 'none' }), 'Mode unknown');
   assert.equal(modeLabel('LOOP'), 'Echo test');
+});
+
+test('heard line shows the DMR slot only when known', () => {
+  assert.equal(heardLine({ call: 'N0CALL', dst: '759', slot: 1, at: '2026-11-18 10:00:01' }), 'N0CALL · TG 759 · TS1 · 10:00:01');
+  assert.equal(heardLine({ call: 'N0CALL', dst: '759', slot: 2 }), 'N0CALL · TG 759 · TS2');
+  assert.equal(heardLine({ call: 'N0CALL', dst: '759', slot: 0 }), 'N0CALL · TG 759');
+});
+
+test('quiet hint: shown after 15 minutes of DMR - Other quiet, never otherwise', () => {
+  const t0 = Date.parse('2026-11-22T10:00:00Z');
+  const snap = (mode: string, tune: string, quietSince?: string, priv = false) => ({
+    bridge: { mode, tune, slot: 2, muted: false, private: priv, source: 'aslcp-dv' as const, updated: '' },
+    modes: [{ id: mode as 'DMR', enabled: true, available: true, unlink: '4000', quietSince }],
+  });
+  const since = '2026-11-22T10:00:00Z';
+  assert.equal(quietHint(snap('DMR', '759', since), t0 + QUIET_MS - 1000), null);
+  assert.deepEqual(quietHint(snap('DMR', '759', since), t0 + QUIET_MS), { text: 'No traffic for 15 min, the master may have dropped this talkgroup', tune: '759' });
+  assert.equal(quietHint(snap('DMR', '759'), t0 + 2 * QUIET_MS), null); // during a call, or nothing known
+  assert.equal(quietHint(snap('DMR', '', since), t0 + 2 * QUIET_MS), null); // nothing tuned
+  assert.equal(quietHint(snap('DMR', '1234567#', since, true), t0 + 2 * QUIET_MS), null); // private call
+  assert.equal(quietHint(snap('TGIF', '759', since), t0 + 2 * QUIET_MS), null);
+  assert.equal(quietHint(snap('BM', '759', since), t0 + 2 * QUIET_MS), null);
+  assert.equal(quietHint(null, t0), null);
 });

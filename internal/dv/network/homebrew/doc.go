@@ -34,10 +34,15 @@
 //	login_timeout_ms      default 5000, per login step
 //	backoff_min_ms/backoff_max_ms  default 1000 / 60000
 //	rx_timeout_ms         default 1500, lost-end timeout of a received call
+//	rx_any_slot           default true for DMR, false for TGIF: deliver received calls of both
+//	                      slots (DMR+ masters move a talkgroup to its own slot); TX stays on slot
 //	missed_pongs          default 3
 //
 // The password is never logged and never appears in Status.
 // Received calls: the source is reported as its decimal DMR ID in
 // CallHeader.Src (no ID database here). For TGIF any TG on the slot is
-// delivered; CallHeader.TG reports it.
+// delivered; CallHeader.TG reports it. With rx_any_slot (DMR) both slots are
+// delivered and CallHeader.Slot is the slot the call arrived on; while a call
+// is in progress, packets of another slot are ignored, so one call is never
+// cut by a stray stream.
 package homebrew

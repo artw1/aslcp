@@ -6,7 +6,7 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-    import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes } from '../lib/dvpanel';
+    import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes, quietHint, QUIET_TICK_MS } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import { exclusiveHint, linkButton, linkExclusiveOnClick, linkLine, pausedHint } from '../lib/dvbridge';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
@@ -84,6 +84,11 @@
       return true;
     } catch (e) { toastError(e); } finally { busy = false; }
   }
+  // The DMR - Other "no traffic" hint: the server sends when the talkgroup was last used, the clock decides when it is 15 minutes old.
+  let nowMs = $state(Date.now());
+  $effect(() => { const t = setInterval(() => { nowMs = Date.now(); }, QUIET_TICK_MS); return () => clearInterval(t); });
+  const quiet = $derived(quietHint(snap, nowMs));
+
   async function go() { if (tuneOk && (await tune(sendValue))) tuneValue = ''; }
   // BM Parrot (9990) only answers a private call.
   const parrot = () => tune(PARROT_ID + PRIVATE_MARK);
@@ -166,6 +171,10 @@
 
     {#if !snap.running}
       <p class="text-warn">The digital modes engine is not running.{admin ? ' Start it from the Digital modes tab.' : ''}</p>
+    {/if}
+    {#if quiet}
+      <p class="flex flex-wrap items-center gap-2 text-warn" role="status" data-testid="dv-quiet">{quiet.text}
+        <button type="button" class="btn btn-sm" disabled={locked || busy} onclick={() => tune(quiet.tune)}>Retune</button></p>
     {/if}
     {#if outcome === 'unconfirmed' && pending}
       <p class="flex flex-wrap items-center gap-2 text-warn" role="status">Not confirmed: the bridge still reports {b?.mode || 'no mode'}, not {pending.mode}.
