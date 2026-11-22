@@ -35,22 +35,23 @@ type DVNetFields struct {
 // engine (the static dvpanel.NativeModes while it is down); Login and Detail
 // are the engine's login state.
 type DVNetView struct {
-	Mode          string            `json:"mode"`
-	Label         string            `json:"label"`
-	Available     bool              `json:"available"`
-	Enabled       bool              `json:"enabled"`
-	Address       string            `json:"address"`
-	Port          int               `json:"port"`
-	DefaultPort   int               `json:"defaultPort,omitempty"`
-	DefaultAddr   string            `json:"defaultAddress,omitempty"`
-	PasswordSet   bool              `json:"passwordSet"`
-	Fields        DVNetFields       `json:"fields"`
-	NeedsIdentity bool              `json:"needsIdentity"`
-	Help          string            `json:"help,omitempty"`
-	Options       []dvpanel.OptSpec `json:"options"`
-	Values        map[string]string `json:"values"`
-	Login         string            `json:"login,omitempty"`
-	Detail        string            `json:"detail,omitempty"`
+	Mode            string            `json:"mode"`
+	Label           string            `json:"label"`
+	Available       bool              `json:"available"`
+	Enabled         bool              `json:"enabled"`
+	Address         string            `json:"address"`
+	Port            int               `json:"port"`
+	DefaultPort     int               `json:"defaultPort,omitempty"`
+	DefaultAddr     string            `json:"defaultAddress,omitempty"`
+	PasswordSet     bool              `json:"passwordSet"`
+	DefaultPassword string            `json:"defaultPassword,omitempty"`
+	Fields          DVNetFields       `json:"fields"`
+	NeedsIdentity   bool              `json:"needsIdentity"`
+	Help            string            `json:"help,omitempty"`
+	Options         []dvpanel.OptSpec `json:"options"`
+	Values          map[string]string `json:"values"`
+	Login           string            `json:"login,omitempty"`
+	Detail          string            `json:"detail,omitempty"`
 }
 
 // DVIdentity is the node's DMR identity.
@@ -95,7 +96,7 @@ func dvNetViewOf(sp dvpanel.NetSpec, v helper.DVNetworkView, eng ctl.NetStatus) 
 	}
 	out := DVNetView{
 		Mode: sp.Mode, Label: sp.Label, Available: eng.Available, Enabled: v.Enabled, Address: v.Address, Port: v.Port,
-		DefaultPort: sp.DefaultPort, DefaultAddr: sp.DefaultAddress, PasswordSet: v.PasswordSet, NeedsIdentity: sp.NeedsIdentity, Help: sp.Help,
+		DefaultPort: sp.DefaultPort, DefaultAddr: sp.DefaultAddress, PasswordSet: v.PasswordSet, DefaultPassword: sp.DefaultPassword, NeedsIdentity: sp.NeedsIdentity, Help: sp.Help,
 		Fields:  DVNetFields{Address: sp.Address, Port: sp.Port, Password: sp.Password},
 		Options: dvpanel.OptSpecs(sp.Mode), Values: vals,
 	}

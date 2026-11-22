@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/artw1/aslcp/internal/dv/ctl"
 )
 
 // Per-network settings of the digital modes (docs/DV.md): which modes this
@@ -67,6 +69,9 @@ type NetSpec struct {
 	// DefaultAddress is the master used when no address is set (TGIF's public
 	// master); a network with one can be enabled without an address.
 	DefaultAddress string `json:"defaultAddress,omitempty"`
+	// DefaultPassword is the login password used when none is stored (DMR -
+	// Other); a network with one can be enabled without a password.
+	DefaultPassword string `json:"defaultPassword,omitempty"`
 	// NeedsIdentity: the callsign and DMR ID must be set before it can be
 	// enabled.
 	NeedsIdentity bool   `json:"needsIdentity"`
@@ -169,8 +174,8 @@ var NetSpecs = []NetSpec{
 		Help: "Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security). Pick the master closest to you."},
 	{Mode: ModeTGIF, Label: "TGIF", Address: true, Port: true, Password: true, DefaultAddress: "tgif.network", DefaultPort: 62031, NeedsIdentity: true,
 		Help: "The password is the hotspot security password of your TGIF profile. The public master tgif.network:62031 is used unless you set another."},
-	{Mode: ModeDMR, Label: "DMR - Other", Address: true, Port: true, Password: true, DefaultPort: 62031, NeedsIdentity: true,
-		Help: "A Homebrew (MMDVM) master such as FreeDMR, DMR+ or an hblink3 server. Ask its operator for the address, port and password."},
+	{Mode: ModeDMR, Label: "DMR - Other", Address: true, Port: true, Password: true, DefaultPort: 62031, DefaultPassword: ctl.DefaultHomebrewPassword, NeedsIdentity: true,
+		Help: "A Homebrew (MMDVM) master such as FreeDMR, DMR+ or an hblink3 server. Pick one from the list (BrandMeister and TGIF have their own cards), or choose Other and enter its address and port. The password is only needed when the master asks for a different one than passw0rd."},
 	{Mode: ModeYSF, Label: "System Fusion (YSF)", NeedsIdentity: true,
 		Help: "Enable it, then tune a reflector on the dashboard."},
 	{Mode: ModeP25, Label: "P25", NeedsIdentity: true,
@@ -369,7 +374,7 @@ func EnableBlock(sp NetSpec, st NetState, id IdentityState) string {
 	switch {
 	case sp.Address && st.Address == "" && sp.DefaultAddress == "":
 		return "set the master address first"
-	case sp.Password && !st.PasswordSet:
+	case sp.Password && sp.DefaultPassword == "" && !st.PasswordSet:
 		return "set the password first"
 	case sp.NeedsIdentity && (id.Callsign == "" || id.DMRID == 0):
 		return "set the callsign and DMR ID in the identity first"

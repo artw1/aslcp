@@ -112,6 +112,9 @@ func New(cfg ctl.NetConfig, id ctl.Identity) (*Net, error) {
 			port = TGIFPort
 		}
 	}
+	if n.mode == ctl.ModeDMR && n.cfg.Password == "" {
+		n.cfg.Password = ctl.DefaultHomebrewPassword
+	}
 	if host == "" {
 		return nil, errors.New("homebrew: address required")
 	}

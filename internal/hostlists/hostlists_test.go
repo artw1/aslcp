@@ -244,3 +244,26 @@ func TestBMMasters(t *testing.T) {
 		t.Error("nil list must give no masters")
 	}
 }
+
+func TestOtherDMRMasters(t *testing.T) {
+	data := []byte("# comment\n" +
+		"BM_3104_United_States\t\t0000\t\t3104.master.example.net\t\tpassw0rd\t\t62031\n" +
+		"TGIF_Network\t\t0000\t\ttgif.example.net\t\tpassw0rd\t\t62031\n" +
+		"tgif_lower\t\t0000\t\ttgif2.example.net\t\tpassw0rd\t\t62031\n" +
+		"XLX_Example\t\t0000\t\t192.0.2.30\t\texample-pass\t\t62030\n" +
+		"FreeDMR_Example\t\t0000\t\tfree.example.net\t\tpassw0rd\t\t62031\n" +
+		"FreeDMR_Again\t\t0000\t\tfree.example.net\t\tpassw0rd\t\t62031\n")
+	got := OtherDMRMasters(ParseDMR(data))
+	if len(got) != 2 {
+		t.Fatalf("got %d: %+v", len(got), got)
+	}
+	if got[0].Name != "XLX_Example" || got[0].Value != "192.0.2.30" || got[0].Port != 62030 || got[0].Password != "example-pass" {
+		t.Errorf("first: %+v", got[0])
+	}
+	if got[1].Name != "FreeDMR_Example" || got[1].Port != 62031 || got[1].Password != "passw0rd" {
+		t.Errorf("second: %+v", got[1])
+	}
+	if len(OtherDMRMasters(nil)) != 0 {
+		t.Error("nil list must give no masters")
+	}
+}

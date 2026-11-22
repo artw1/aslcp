@@ -175,16 +175,17 @@ func (s *Server) handleDVSetup(w http.ResponseWriter, r *http.Request, _ store.U
 	writeJSON(w, 200, out)
 }
 
-// handleDVLists: GET lists?mode=dmr|ysf|p25|nxdn|bm, a host list for the
-// pickers. bm is the BrandMeister masters of the DMR list (hostlists.BMMasters).
+// handleDVLists: GET lists?mode=dmr|ysf|p25|nxdn|bm|dmr-other, a host list for the
+// pickers. bm is the BrandMeister masters of the DMR list (hostlists.BMMasters). dmr-other is the rest
+// of it, without BrandMeister and TGIF (hostlists.OtherDMRMasters).
 func (s *Server) handleDVLists(w http.ResponseWriter, r *http.Request, _ store.User) {
 	mode := strings.ToLower(r.URL.Query().Get("mode"))
-	bm := mode == "bm"
-	if bm {
+	bm, other := mode == "bm", mode == "dmr-other"
+	if bm || other {
 		mode = "dmr"
 	}
 	if !hostlists.ValidMode(mode) {
-		writeErr(w, http.StatusBadRequest, "bad_request", "mode must be dmr, ysf, p25, nxdn or bm")
+		writeErr(w, http.StatusBadRequest, "bad_request", "mode must be dmr, ysf, p25, nxdn, bm or dmr-other")
 		return
 	}
 	if s.d.HostLists == nil {
@@ -199,6 +200,10 @@ func (s *Server) handleDVLists(w http.ResponseWriter, r *http.Request, _ store.U
 	if bm {
 		l = hostlists.List{Mode: "bm", Items: hostlists.BMMasters(l.Items), ETag: l.ETag}
 		mode = "bm"
+	}
+	if other {
+		l = hostlists.List{Mode: "dmr-other", Items: hostlists.OtherDMRMasters(l.Items), ETag: l.ETag}
+		mode = "dmr-other"
 	}
 	tag := `"` + mode + "-" + l.ETag + `"`
 	w.Header().Set("ETag", tag)

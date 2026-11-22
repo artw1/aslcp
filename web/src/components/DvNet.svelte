@@ -1,11 +1,11 @@
 <script lang="ts">
   // The settings of one available network, built from the server's option specs (lib/dvnetform.ts):
-  // Enable switch, master address (BrandMeister: picked from the master list), port, password (write-only: "Set" or "Change"), options, login state.
+  // Enable switch, master address (BrandMeister and DMR - Other: picked from the master list), port, password (write-only: "Set" or "Change"), options, login state.
   import { untrack } from 'svelte';
   import { api } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
   import type { DVIdentity, DVListItem, DVNetView } from '../lib/types';
-  import { buildPut, enableBlock, formError, formOf, hasChanges, loginText, loginTone, MASTER_OTHER, masterChoice, passwordUx } from '../lib/dvnetform';
+  import { buildPut, enableBlock, formError, formOf, hasChanges, loginText, loginTone, MASTER_OTHER, applyMaster, masterChoice, masterListMode, passwordUx } from '../lib/dvnetform';
   import Toggle from './Toggle.svelte';
 
   let { v, identity, onsaved }: { v: DVNetView; identity: DVIdentity | null; onsaved: (n: DVNetView) => void } = $props();
@@ -14,19 +14,23 @@
   // a refreshed view (after a save, or another admin's change) resets the form
   $effect(() => { if (v !== seen) { seen = v; f = formOf(v); editPw = false; choice = masterChoice(f.address, untrack(() => masters) ?? []); } });
 
-  // BrandMeister: the master comes from the BrandMeister master list (server side, the DMR host list). null: not loaded yet.
+  // BrandMeister and DMR - Other: the master comes from a master list (server side, the DMR host list). null: not loaded yet.
   let masters = $state<DVListItem[] | null>(null), choice = $state('');
-  const isBM = $derived(v.mode === 'BM');
+  const listMode = untrack(() => masterListMode(v.mode));
+  const isDMR = untrack(() => v.mode === 'DMR');
+  const hasPicker = listMode !== null;
   const listed = $derived(masters !== null && masters.length > 0);
   $effect(() => {
-    if (!untrack(() => v.mode === 'BM')) return;
-    api.dvList('bm').then((l) => { masters = l.items; choice = masterChoice(f.address, l.items); }).catch(() => { masters = []; });
+    if (!listMode) return;
+    api.dvList(listMode).then((l) => { masters = l.items; choice = masterChoice(f.address, l.items); }).catch(() => { masters = []; });
   });
   function pick(c: string) {
     choice = c;
-    if (c === MASTER_OTHER) { if ((masters ?? []).some((m) => m.value === f.address)) f.address = ''; } else f.address = c;
+    if (c === MASTER_OTHER) { if ((masters ?? []).some((m) => m.value === f.address)) f.address = ''; return; }
+    const m = (masters ?? []).find((x) => x.value === c);
+    if (m) f = applyMaster(v, f, m); else f.address = c;
   }
-  const showOther = $derived(isBM && masters !== null && (!listed || choice === MASTER_OTHER));
+  const showOther = $derived(hasPicker && masters !== null && (!listed || choice === MASTER_OTHER));
 
   const id = $derived(`dvn-${v.mode.toLowerCase()}`);
   const pw = $derived(passwordUx(v.passwordSet, editPw));
@@ -66,7 +70,7 @@
   </div>
   {#if v.help}<p class="text-xs text-muted" data-testid="{id}-help">{v.help}</p>{/if}
   <div class="grid grid-cols-2 gap-3">
-    {#if v.fields.address && isBM}
+    {#if v.fields.address && hasPicker}
       <div class="col-span-2 space-y-2">
         {#if listed}
           <div><label class="label" for="{id}-master">Master</label>
@@ -76,7 +80,7 @@
               <option value={MASTER_OTHER}>Other...</option>
             </select></div>
         {:else if masters !== null}
-          <p class="text-xs text-muted" data-testid="{id}-nolist">The BrandMeister master list has not been downloaded yet.</p>
+          <p class="text-xs text-muted" data-testid="{id}-nolist">The {isDMR ? 'DMR' : 'BrandMeister'} master list has not been downloaded yet.</p>
         {/if}
         {#if showOther}
           <div><label class="label" for="{id}-address">Other address</label>
@@ -87,7 +91,7 @@
       <div class="col-span-2 sm:col-span-1"><label class="label" for="{id}-address">Master address</label>
         <input id="{id}-address" class="input font-mono" bind:value={f.address} placeholder={v.defaultAddress ?? ''} autocomplete="off" spellcheck="false" /></div>
     {/if}
-    {#if v.fields.port}
+    {#if v.fields.port && (!isDMR || showOther)}
       <div class="col-span-2 sm:col-span-1"><label class="label" for="{id}-port">Port</label>
         <input id="{id}-port" class="input font-mono" bind:value={f.port} inputmode="numeric" maxlength="5" placeholder={v.defaultPort ? String(v.defaultPort) : ''} /></div>
     {/if}
@@ -96,7 +100,7 @@
         <label class="label" for="{id}-password">Password</label>
         <div class="flex flex-wrap items-center gap-2">
           {#if pw.show}
-            <input id="{id}-password" type="password" class="input min-w-0 flex-1 font-mono" bind:value={f.password} autocomplete="new-password" maxlength="64" placeholder={v.passwordSet ? 'New password' : ''} />
+            <input id="{id}-password" type="password" class="input min-w-0 flex-1 font-mono" bind:value={f.password} autocomplete="new-password" maxlength="64" placeholder={v.passwordSet ? 'New password' : (v.defaultPassword ?? '')} />
           {:else}
             <span class="text-sm text-muted" id="{id}-password" data-testid="{id}-pw-state">{pw.status}</span>
           {/if}

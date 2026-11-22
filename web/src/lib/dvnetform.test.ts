@@ -1,9 +1,9 @@
 // Run with `npm test`. The generic network form and the availability helpers.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BM_HELP, MASTER_OTHER, masterChoice, buildPut, enableBlock, essidToRepeaterId, formError, formOf, hasChanges, identityError, loginText, modeAvailable, passwordUx, repeaterIdToEssid, validAddress } from './dvnetform.ts';
+import { BM_HELP, MASTER_OTHER, applyMaster, masterChoice, masterListMode, buildPut, enableBlock, essidToRepeaterId, formError, formOf, hasChanges, identityError, loginText, modeAvailable, passwordUx, repeaterIdToEssid, validAddress } from './dvnetform.ts';
 import { cardState } from './dvmodes.ts';
-import type { DVNetView } from './types';
+import type { DVListItem, DVNetView } from './types';
 
 const bm: DVNetView = {
   mode: 'BM', label: 'BrandMeister', available: true, enabled: false, address: '', port: 0, passwordSet: false,
@@ -165,4 +165,49 @@ test('masterChoice picks the list entry, Other or nothing', () => {
   assert.equal(masterChoice('3104.MASTER.example.net', items), '3104.master.example.net');
   assert.equal(masterChoice('192.0.2.10', items), MASTER_OTHER);
   assert.equal(masterChoice('192.0.2.10', []), MASTER_OTHER);
+});
+
+const dmr: DVNetView = {
+  mode: 'DMR', label: 'DMR - Other', available: true, enabled: false, address: '', port: 0, defaultPort: 62031, defaultPassword: 'passw0rd', passwordSet: false,
+  fields: { address: true, port: true, password: true }, needsIdentity: true, options: [], values: {},
+};
+const dmrItems: DVListItem[] = [
+  { value: 'freedmr.example.net', name: 'FreeDMR_Example', address: 'freedmr.example.net', port: 62031, password: 'passw0rd' },
+  { value: '192.0.2.30', name: 'XLX_Example', address: '192.0.2.30', port: 62030, password: 'example-pass' },
+  { value: '203.0.113.40', name: 'Plain_Example', address: '203.0.113.40', port: 55555 },
+];
+
+test('master list mode: BM and DMR - Other have a dropdown', () => {
+  assert.equal(masterListMode('BM'), 'bm');
+  assert.equal(masterListMode('DMR'), 'dmr-other');
+  assert.equal(masterListMode('TGIF'), null);
+});
+
+test('DMR - Other: saved addresses select their entry, others are Other', () => {
+  assert.equal(masterChoice('192.0.2.30', dmrItems), '192.0.2.30');
+  assert.equal(masterChoice('FreeDMR.example.net', dmrItems), 'freedmr.example.net');
+  assert.equal(masterChoice('192.0.2.99', dmrItems), MASTER_OTHER);
+  assert.equal(masterChoice('', dmrItems), '');
+});
+
+test('DMR - Other: picking fills address and port, the list password only into an empty field', () => {
+  const f = formOf(dmr);
+  const a = applyMaster(dmr, f, dmrItems[1]);
+  assert.deepEqual([a.address, a.port, a.password], ['192.0.2.30', '62030', 'example-pass']);
+  // the same as the default: nothing to store
+  assert.equal(applyMaster(dmr, f, dmrItems[0]).password, '');
+  // no password in the list: the field stays empty (the default applies)
+  assert.deepEqual([applyMaster(dmr, f, dmrItems[2]).port, applyMaster(dmr, f, dmrItems[2]).password], ['55555', '']);
+  // a typed password wins, a stored one is kept
+  assert.equal(applyMaster(dmr, { ...f, password: 'typed-pass' }, dmrItems[1]).password, 'typed-pass');
+  assert.equal(applyMaster({ ...dmr, passwordSet: true }, f, dmrItems[1]).password, '');
+  // the BrandMeister list has no port: it is left alone
+  assert.equal(applyMaster(bm, { ...f, port: '' }, { value: '2001.master.example.net', name: '2001', address: '2001.master.example.net', port: 0 }).port, '');
+});
+
+test('DMR - Other: no password needed to enable (the default applies); TGIF and BM still need one', () => {
+  const f = { ...formOf(dmr), address: '192.0.2.30' };
+  assert.equal(enableBlock(dmr, f, id), '');
+  assert.equal(enableBlock({ ...dmr, defaultPassword: undefined }, f, id), 'Set the password first');
+  assert.equal(buildPut(dmr, f).password, undefined);
 });

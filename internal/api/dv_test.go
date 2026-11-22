@@ -422,6 +422,18 @@ func TestDVLists(t *testing.T) {
 	if len(bm.Items) != 2 || bm.Items[0].Name != "2001 \u2013 Netherlands" || bm.Items[1].Value != "3104.master.example.net" || bm.Items[1].Port != 0 {
 		t.Errorf("bm items: %+v", bm.Items)
 	}
+	var other struct {
+		Mode  string
+		Items []struct{ Value, Name string }
+	}
+	if c := e.do("op", "GET", "/api/dv/lists?mode=dmr-other", nil, &other); c != 200 || other.Mode != "dmr-other" {
+		t.Fatalf("dmr-other list: %d %+v", c, other)
+	}
+	for _, it := range other.Items {
+		if strings.HasPrefix(it.Name, "BM_") || strings.HasPrefix(strings.ToUpper(it.Name), "TGIF") {
+			t.Errorf("dmr-other holds %q", it.Name)
+		}
+	}
 	expectErr(t, e, "op", "GET", "/api/dv/lists?mode=bogus", nil, 400, "bad_request")
 	expectErr(t, e, "viewer", "GET", "/api/dv/lists?mode=dmr", nil, 403, "forbidden")
 }

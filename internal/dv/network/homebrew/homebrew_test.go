@@ -643,3 +643,22 @@ func TestDMRDCodec(t *testing.T) {
 		t.Fatal("short accepted")
 	}
 }
+
+func TestDMRDefaultPassword(t *testing.T) {
+	mk := func(mode, pw string) string {
+		n, err := New(ctl.NetConfig{Mode: mode, Address: "192.0.2.10", Port: 62031, Password: pw}, testID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n.cfg.Password
+	}
+	if got := mk(ctl.ModeDMR, ""); got != "passw0rd" {
+		t.Errorf("DMR empty password: %q", got)
+	}
+	if got := mk(ctl.ModeDMR, testPW); got != testPW {
+		t.Errorf("DMR typed password must win: %q", got)
+	}
+	if got := mk(ctl.ModeTGIF, ""); got != "" {
+		t.Errorf("TGIF has no default password: %q", got)
+	}
+}

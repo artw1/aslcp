@@ -63,6 +63,11 @@ const (
 	ModeNXDN = "NXDN"
 )
 
+// DefaultHomebrewPassword is the login password of a DMR - Other master when
+// none is set: the value most Homebrew masters ship with. BrandMeister and
+// TGIF have no such default.
+const DefaultHomebrewPassword = "passw0rd"
+
 // EchoTestCall is the source callsign of the echo test's playback call (mode
 // LOOP, shown as "Echo test" in the panel). It is not a valid callsign (a space),
 // so it never collides with a station.

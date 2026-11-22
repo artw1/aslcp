@@ -84,7 +84,7 @@ export function passwordUx(passwordSet: boolean, editing: boolean): { status: st
 /** What blocks the Enable switch (the same checks the server makes), or ''. */
 export function enableBlock(v: DVNetView, f: NetForm, identity: DVIdentity | null): string {
   if (v.fields.address && !v.defaultAddress && f.address.trim() === '') return 'Set the master address first';
-  if (v.fields.password && !v.passwordSet && f.password === '') return 'Set the password first';
+  if (v.fields.password && !v.defaultPassword && !v.passwordSet && f.password === '') return 'Set the password first';
   if (v.needsIdentity && (!identity || !identity.callsign || !identity.dmrId)) return 'Set the callsign and DMR ID in the identity first';
   return '';
 }
@@ -136,4 +136,20 @@ export function masterChoice(address: string, items: readonly DVListItem[]): str
   if (a === '') return '';
   const hit = items.find((i) => i.value.toLowerCase() === a);
   return hit ? hit.value : MASTER_OTHER;
+}
+
+/** The list a network's master dropdown is filled from (GET /api/dv/lists?mode=): BrandMeister and DMR - Other have one. */
+export function masterListMode(mode: string): 'bm' | 'dmr-other' | null {
+  return mode === 'BM' ? 'bm' : mode === 'DMR' ? 'dmr-other' : null;
+}
+
+/**
+ * Picking a list entry: fills the address and the port (the BrandMeister list carries none: the port is left alone).
+ * The list's password is filled only when the password field is empty, nothing is stored and it is not the default anyway.
+ */
+export function applyMaster(v: DVNetView, f: NetForm, item: DVListItem): NetForm {
+  const g: NetForm = { ...f, address: item.value };
+  if (item.port) g.port = String(item.port);
+  if (v.fields.password && f.password === '' && !v.passwordSet && !f.clearPassword && item.password && item.password !== v.defaultPassword) g.password = item.password;
+  return g;
 }

@@ -214,9 +214,9 @@ export interface DVRollbackResult { rolledBack: boolean; problems: string[]; ste
 export interface DVSetup { bridgeNode: DVBridgeSetup; files?: DVFileView[] }
 
 /** GET /api/dv/lists?mode=... (operator and admin; docs/API.md "Digital modes host lists"). 404 `no_list` when the node has no file for the mode. */
-export type DVListMode = 'dmr' | 'ysf' | 'p25' | 'nxdn' | 'bm';
+export type DVListMode = 'dmr' | 'ysf' | 'p25' | 'nxdn' | 'bm' | 'dmr-other';
 /** `value` is what gets written: the master address (dmr), the 5-digit reflector ID (ysf) or the TG (p25, nxdn). `port` is the master port for dmr. The DMR list never carries a password. */
-export interface DVListItem { value: string; name: string; detail?: string; address: string; port: number }
+export interface DVListItem { value: string; name: string; detail?: string; address: string; port: number; password?: string }
 export interface DVList { mode: DVListMode; items: DVListItem[]; truncated?: boolean; etag: string }
 
 /** GET and PUT /api/dv/resume (docs/API.md "Digital modes tune and resume"): the last tune of each mode and the toggle. */
@@ -253,7 +253,7 @@ export type DVLogin = 'off' | 'pending' | 'ok' | 'failed';
 export interface DVOptSpec { key: string; label: string; kind: 'text' | 'int' | 'bool'; default: string; help?: string; min?: number; max?: number; maxLen?: number; advanced?: boolean }
 /** One network of GET /api/dv/networks and the reply of PUT /api/dv/networks/{mode}. The password is write-only: only `passwordSet` comes back. */
 export interface DVNetView {
-  mode: DVTuneMode; label: string; available: boolean; enabled: boolean; address: string; port: number; defaultPort?: number; defaultAddress?: string; passwordSet: boolean;
+  mode: DVTuneMode; label: string; available: boolean; enabled: boolean; address: string; port: number; defaultPort?: number; defaultAddress?: string; defaultPassword?: string; passwordSet: boolean;
   fields: { address: boolean; port: boolean; password: boolean }; needsIdentity: boolean; help?: string;
   options: DVOptSpec[]; values: Record<string, string>; login?: DVLogin; detail?: string;
   /** PUT only: the engine took the new settings; otherwise `applyError` says why not. */

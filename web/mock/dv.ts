@@ -145,7 +145,12 @@ export interface DVCtx {
 }
 
 // Placeholder host and TG lists (RFC 5737 addresses, made-up names) for GET /dv/lists.
-const LISTS: Record<string, { value: string; name: string; detail?: string; address: string; port: number }[]> = {
+const LISTS: Record<string, { value: string; name: string; detail?: string; address: string; port: number; password?: string }[]> = {
+  'dmr-other': [
+    { value: 'freedmr.example.net', name: 'FreeDMR_Example', detail: 'ID 1234', address: 'freedmr.example.net', port: 62031, password: 'passw0rd' },
+    { value: '192.0.2.30', name: 'XLX_Example', address: '192.0.2.30', port: 62030, password: 'example-pass' },
+    { value: '203.0.113.40', name: 'DMRPlus_Example', address: '203.0.113.40', port: 55555 },
+  ],
   bm: [
     { value: '2001.master.example.net', name: '2001 – Netherlands', address: '2001.master.example.net', port: 0 },
     { value: '3104.master.example.net', name: '3104 – United States', address: '3104.master.example.net', port: 0 },
@@ -228,12 +233,12 @@ const NXDN_OPTS = [
   intOpt('poll_interval_ms', 'Poll period (ms)', '5000', 1000, 60000, true),
   intOpt('missed_polls', 'Missed polls', '3', 1, 20, true),
 ];
-const NETSPEC: Record<NetId, { label: string; fields: { address: boolean; port: boolean; password: boolean }; defaultPort?: number; defaultAddress?: string; help?: string; options: unknown[] }> = {
+const NETSPEC: Record<NetId, { label: string; fields: { address: boolean; port: boolean; password: boolean }; defaultPort?: number; defaultAddress?: string; defaultPassword?: string; help?: string; options: unknown[] }> = {
   BM: { label: 'BrandMeister', fields: { address: true, port: false, password: true }, help: BM_HELP, options: BM_OPTS },
   TGIF: { label: 'TGIF', fields: { address: true, port: true, password: true }, defaultPort: 62031, defaultAddress: 'tgif.network', options: HB_OPTS('Static talkgroups, for example TS2=1997; Without it the talkgroup you tune is linked on demand.'),
     help: 'The password is the hotspot security password of your TGIF profile. The public master tgif.network:62031 is used unless you set another.' },
-  DMR: { label: 'DMR - Other', fields: { address: true, port: true, password: true }, defaultPort: 62031, options: HB_OPTS('Sent to the master after login, for example static talkgroups. Leave empty if unsure.'),
-    help: 'A Homebrew (MMDVM) master such as FreeDMR, DMR+ or an hblink3 server. Ask its operator for the address, port and password.' },
+  DMR: { label: 'DMR - Other', fields: { address: true, port: true, password: true }, defaultPort: 62031, defaultPassword: 'passw0rd', options: HB_OPTS('Sent to the master after login, for example static talkgroups. Leave empty if unsure.'),
+    help: 'A Homebrew (MMDVM) master such as FreeDMR, DMR+ or an hblink3 server. Pick one from the list (BrandMeister and TGIF have their own cards), or choose Other and enter its address and port. The password is only needed when the master asks for a different one than passw0rd.' },
   YSF: { label: 'System Fusion (YSF)', fields: { address: false, port: false, password: false }, options: YSF_OPTS,
     help: 'YSF has no password and no login: tune a reflector on the dashboard. The address is optional; a reflector set here is linked when the engine starts. Calls are carried in V/D mode 2 (DN) and Voice FR (VW) is heard; your transmissions are sent in DN. The callsign of the identity is the node callsign.' },
   P25: { label: 'P25', fields: { address: false, port: false, password: false }, options: P25_OPTS,
@@ -245,7 +250,7 @@ const netOf = (m: NetId) => (m === 'BM' ? bmNet : otherNets[m]);
 function netView(m: NetId) {
   const n = netOf(m), sp = NETSPEC[m], avail = NATIVE.includes(m);
   return {
-    mode: m, label: sp.label, available: avail, enabled: n.enabled, address: n.address, port: n.port, ...(sp.defaultPort ? { defaultPort: sp.defaultPort } : {}), ...(sp.defaultAddress ? { defaultAddress: sp.defaultAddress } : {}),
+    mode: m, label: sp.label, available: avail, enabled: n.enabled, address: n.address, port: n.port, ...(sp.defaultPort ? { defaultPort: sp.defaultPort } : {}), ...(sp.defaultAddress ? { defaultAddress: sp.defaultAddress } : {}), ...(sp.defaultPassword ? { defaultPassword: sp.defaultPassword } : {}),
     passwordSet: n.password !== '', fields: sp.fields, needsIdentity: true, ...(sp.help ? { help: sp.help } : {}), options: sp.options, values: { ...n.options },
     ...(avail && n.enabled && snapshot().running ? { login: m === 'BM' ? bmLogin() : 'off', detail: m === 'BM' ? bmDetail() : '' } : {}),
   };
@@ -289,7 +294,7 @@ function netsHandler(c: DVCtx): boolean {
   }
   const sp = NETSPEC[mode];
   if (next.enabled) {
-    const why = sp.fields.address && !sp.defaultAddress && !next.address ? 'set the master address first' : sp.fields.password && !next.password ? 'set the password first' : !ident.callsign ? 'set the callsign and DMR ID in the identity first' : '';
+    const why = sp.fields.address && !sp.defaultAddress && !next.address ? 'set the master address first' : sp.fields.password && !sp.defaultPassword && !next.password ? 'set the password first' : !ident.callsign ? 'set the callsign and DMR ID in the identity first' : '';
     if (why) return c.err(422, `incomplete: ${why}`, 'incomplete'), true;
   }
   Object.assign(n, next);

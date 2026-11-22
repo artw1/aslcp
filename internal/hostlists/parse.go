@@ -15,6 +15,7 @@ const Max = 5000
 
 var (
 	reHost  = regexp.MustCompile(`^[A-Za-z0-9.-]{1,253}$`)
+	rePass  = regexp.MustCompile(`^[\x21-\x7e]{1,64}$`)
 	reYSFID = regexp.MustCompile(`^[0-9]{5}$`)
 	reRefl  = regexp.MustCompile(`^[0-9]{1,5}$`)
 )
@@ -28,6 +29,9 @@ type Item struct {
 	Detail  string `json:"detail,omitempty"`
 	Address string `json:"address"`
 	Port    int    `json:"port"`
+	// Password is the login password the DMR host list carries for the master
+	// (a shared public value such as passw0rd); empty for other lists.
+	Password string `json:"password,omitempty"`
 }
 
 // List is one list as served. ETag is a hash of the file content.
@@ -78,12 +82,12 @@ func ParseDMR(data []byte) []Item {
 	var out []Item
 	eachLine(data, func(l string) {
 		f := strings.Fields(l)
-		var name, id, host, port string
+		var name, id, host, port, pass string
 		switch len(f) {
 		case 5:
-			name, id, host, port = f[0], f[1], f[2], f[4]
+			name, id, host, pass, port = f[0], f[1], f[2], f[3], f[4]
 		case 4:
-			name, host, port = f[0], f[1], f[3]
+			name, host, pass, port = f[0], f[1], f[2], f[3]
 		default:
 			return
 		}
@@ -92,6 +96,9 @@ func ParseDMR(data []byte) []Item {
 			return
 		}
 		it := Item{Value: host, Name: cleanText(name, 64), Address: host, Port: p}
+		if rePass.MatchString(pass) {
+			it.Password = pass
+		}
 		if id != "" && strings.Trim(id, "0") != "" && len(id) <= 10 && strings.Trim(id, "0123456789") == "" {
 			it.Detail = "ID " + id
 		}
@@ -188,6 +195,24 @@ func BMMasters(items []Item) []Item {
 	out := make([]Item, len(ms))
 	for i, x := range ms {
 		out[i] = x.it
+	}
+	return out
+}
+
+// OtherDMRMasters picks the masters for the "DMR - Other" card out of a parsed
+// DMR list: everything except BrandMeister (names starting BM_) and TGIF (names
+// starting TGIF, any case), which have their own cards. List order is kept;
+// repeated hosts are dropped. Value and Address are the host, Port and Password
+// come from the list.
+func OtherDMRMasters(items []Item) []Item {
+	out := []Item{}
+	seen := map[string]bool{}
+	for _, it := range items {
+		if strings.HasPrefix(it.Name, "BM_") || strings.HasPrefix(strings.ToUpper(it.Name), "TGIF") || seen[it.Value] {
+			continue
+		}
+		seen[it.Value] = true
+		out = append(out, it)
 	}
 	return out
 }

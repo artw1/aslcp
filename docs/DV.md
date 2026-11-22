@@ -131,7 +131,7 @@ On the dashboard, choose TGIF, type a talkgroup and press Tune, or pick a favour
 
 ## DMR - Other (Homebrew master)
 
-DMR - Other connects to any Homebrew (MMDVM) master, for example a FreeDMR, DMR+ or hblink3 server. It has the same settings as TGIF, but there is no default: enter the master address, port (default 62031) and the password the operator gave you. *Enable* needs the address, the password and the identity. TGIF and DMR - Other can be enabled at the same time; each has its own login.
+DMR - Other connects to any Homebrew (MMDVM) master, for example a FreeDMR, DMR+ or hblink3 server. It has the same settings as TGIF, but there is no default master. Pick one from the *Master* list (the DMR host list, without the BrandMeister and TGIF entries, which have their own cards); the address and port are filled in, and so is the list's password when the password field is empty and none is stored. Choose *Other...* to type the address and port (default 62031) yourself. A master address you saved earlier selects its list entry, or *Other...* when it is not in the list. When no password is set, `passw0rd` is used to log in (the field shows it as a hint); a password you type always wins. *Enable* needs the address and the identity. TGIF and DMR - Other can be enabled at the same time; each has its own login.
 
 ## NXDN
 
