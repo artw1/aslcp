@@ -222,3 +222,25 @@ func TestBaseURLInvalidFallsBack(t *testing.T) {
 		t.Fatal(m.baseURL())
 	}
 }
+
+func TestBMMasters(t *testing.T) {
+	data := []byte("# comment\n" +
+		"BM_3104_United_States\t\t0000\t\t3104.master.example.net\t\tpassw0rd\t\t62031\n" +
+		"BM_2001_Netherlands\t\t0000\t\t2001.master.example.net\t\tpassw0rd\t\t62031\n" +
+		"BM_Bad_Name\t\t0000\t\tbad.master.example.net\t\tpassw0rd\t\t62031\n" +
+		"BM_3104_Again\t\t0000\t\t3104.master.example.net\t\tpassw0rd\t\t62031\n" +
+		"FreeDMR_Example\t\t0000\t\tfree.example.net\t\tpassw0rd\t\t62031\n")
+	got := BMMasters(ParseDMR(data))
+	if len(got) != 2 {
+		t.Fatalf("got %d masters: %+v", len(got), got)
+	}
+	if got[0].Value != "2001.master.example.net" || got[0].Name != "2001 – Netherlands" {
+		t.Errorf("first: %+v", got[0])
+	}
+	if got[1].Value != "3104.master.example.net" || got[1].Name != "3104 – United States" || got[1].Port != 0 {
+		t.Errorf("second: %+v", got[1])
+	}
+	if len(BMMasters(nil)) != 0 {
+		t.Error("nil list must give no masters")
+	}
+}

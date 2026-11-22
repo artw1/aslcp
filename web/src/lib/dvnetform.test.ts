@@ -1,13 +1,13 @@
 // Run with `npm test`. The generic network form and the availability helpers.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BM_HELP, buildPut, enableBlock, essidToRepeaterId, formError, formOf, hasChanges, identityError, loginText, modeAvailable, passwordUx, repeaterIdToEssid, validAddress } from './dvnetform.ts';
+import { BM_HELP, MASTER_OTHER, masterChoice, buildPut, enableBlock, essidToRepeaterId, formError, formOf, hasChanges, identityError, loginText, modeAvailable, passwordUx, repeaterIdToEssid, validAddress } from './dvnetform.ts';
 import { cardState } from './dvmodes.ts';
 import type { DVNetView } from './types';
 
 const bm: DVNetView = {
-  mode: 'BM', label: 'BrandMeister', available: true, enabled: false, address: '', port: 0, defaultPort: 54006, passwordSet: false,
-  fields: { address: true, port: true, password: true }, needsIdentity: true, help: BM_HELP,
+  mode: 'BM', label: 'BrandMeister', available: true, enabled: false, address: '', port: 0, passwordSet: false,
+  fields: { address: true, port: false, password: true }, needsIdentity: true, help: BM_HELP,
   options: [
     { key: 'keepalive_ms', label: 'Keep-alive (ms)', kind: 'int', default: '5000', min: 500, max: 60000 },
     { key: 'client_version', label: 'Client version', kind: 'text', default: 'aslcp-dv' },
@@ -17,7 +17,7 @@ const bm: DVNetView = {
 const id = { callsign: 'N0CALL', dmrId: 1234567 };
 
 test('help line is the exact BrandMeister text', () => {
-  assert.equal(BM_HELP, 'Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security).');
+  assert.equal(BM_HELP, 'Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security). Pick the master closest to you.');
 });
 
 test('availability: the engine wins, the static native list is the fallback', () => {
@@ -33,11 +33,15 @@ test('availability: the engine wins, the static native list is the fallback', ()
   assert.deepEqual(cardState(undefined, 'BM'), { available: false, enabled: false });
 });
 
+// a network with a port field (TGIF, DMR, YSF, P25 have one; BrandMeister does not)
+const withPort: DVNetView = { ...bm, fields: { ...bm.fields, port: true }, defaultPort: 54006 };
+
 test('address, port, password and option checks', () => {
   assert.ok(validAddress('192.0.2.10') && validAddress('master.example.net') && !validAddress('bad host') && !validAddress('300.1.1.1') && !validAddress(''));
   const f = formOf(bm);
   assert.equal(formError(bm, f), '');
-  assert.match(formError(bm, { ...f, port: '70000' }), /^Port/);
+  assert.match(formError(withPort, { ...f, port: '70000' }), /^Port/);
+  assert.equal(formError(bm, { ...f, port: '70000' }), ''); // BM has no port field: ignored
   assert.match(formError(bm, { ...f, address: 'a b' }), /^Master address/);
   assert.match(formError(bm, { ...f, password: 'has space' }), /^Password/);
   assert.match(formError(bm, { ...f, options: { keepalive_ms: 'x' } }), /Keep-alive/);
@@ -45,12 +49,13 @@ test('address, port, password and option checks', () => {
 });
 
 test('buildPut sends only what changed, and the password only when typed', () => {
-  const f = formOf(bm);
-  assert.deepEqual(buildPut(bm, f), {});
-  assert.equal(hasChanges(buildPut(bm, f)), false);
-  const b = buildPut(bm, { ...f, enabled: true, address: ' 192.0.2.10 ', port: '62031', password: 'example-pass', options: { keepalive_ms: '1000', client_version: '' } });
+  const f = formOf(withPort);
+  assert.deepEqual(buildPut(withPort, f), {});
+  assert.equal(hasChanges(buildPut(withPort, f)), false);
+  assert.deepEqual(buildPut(bm, { ...formOf(bm), port: '62031' }), {}); // BM: the port is never sent
+  const b = buildPut(withPort, { ...f, enabled: true, address: ' 192.0.2.10 ', port: '62031', password: 'example-pass', options: { keepalive_ms: '1000', client_version: '' } });
   assert.deepEqual(b, { enabled: true, address: '192.0.2.10', port: 62031, password: 'example-pass', options: { keepalive_ms: '1000' } });
-  const set = { ...bm, passwordSet: true, address: '192.0.2.10', port: 62031, values: { keepalive_ms: '1000' } };
+  const set = { ...withPort, passwordSet: true, address: '192.0.2.10', port: 62031, values: { keepalive_ms: '1000' } };
   assert.deepEqual(buildPut(set, formOf(set)), {});
   assert.deepEqual(buildPut(set, { ...formOf(set), clearPassword: true }), { clearPassword: true });
   assert.deepEqual(buildPut(set, { ...formOf(set), port: '' }), { port: 0 });
@@ -74,6 +79,7 @@ test('what blocks Enable', () => {
 test('login text and identity checks', () => {
   assert.equal(loginText('ok', ''), 'Logged in');
   assert.equal(loginText('pending', ''), 'Logging in...');
+  assert.equal(loginText('pending', 'no answer from the master'), 'Logging in... (no answer from the master)');
   assert.equal(loginText('failed', 'bad password'), 'Login failed: bad password');
   assert.equal(loginText('off', ''), '');
   assert.equal(identityError('N0CALL', '1234567', ''), '');
@@ -151,4 +157,13 @@ test('P25 form: unit ID range and optional address', () => {
   assert.equal(enableBlock(p25, f, null), 'Set the callsign and DMR ID in the identity first');
   assert.match(formError(p25, { ...f, options: { p25_id: '16777216' } }), /1 to 16777215/);
   assert.deepEqual(buildPut(p25, { ...f, enabled: true, options: { p25_id: '1999' } }), { enabled: true, options: { p25_id: '1999' } });
+});
+
+test('masterChoice picks the list entry, Other or nothing', () => {
+  const items = [{ value: '3104.master.example.net', name: '3104 – United States', address: '3104.master.example.net', port: 0 }];
+  assert.equal(masterChoice('', items), '');
+  assert.equal(masterChoice('3104.master.example.net', items), '3104.master.example.net');
+  assert.equal(masterChoice('3104.MASTER.example.net', items), '3104.master.example.net');
+  assert.equal(masterChoice('192.0.2.10', items), MASTER_OTHER);
+  assert.equal(masterChoice('192.0.2.10', []), MASTER_OTHER);
 });

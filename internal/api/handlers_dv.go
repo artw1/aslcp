@@ -175,11 +175,16 @@ func (s *Server) handleDVSetup(w http.ResponseWriter, r *http.Request, _ store.U
 	writeJSON(w, 200, out)
 }
 
-// handleDVLists: GET lists?mode=dmr|ysf|p25|nxdn, a host list for the pickers.
+// handleDVLists: GET lists?mode=dmr|ysf|p25|nxdn|bm, a host list for the
+// pickers. bm is the BrandMeister masters of the DMR list (hostlists.BMMasters).
 func (s *Server) handleDVLists(w http.ResponseWriter, r *http.Request, _ store.User) {
 	mode := strings.ToLower(r.URL.Query().Get("mode"))
+	bm := mode == "bm"
+	if bm {
+		mode = "dmr"
+	}
 	if !hostlists.ValidMode(mode) {
-		writeErr(w, http.StatusBadRequest, "bad_request", "mode must be dmr, ysf, p25 or nxdn")
+		writeErr(w, http.StatusBadRequest, "bad_request", "mode must be dmr, ysf, p25, nxdn or bm")
 		return
 	}
 	if s.d.HostLists == nil {
@@ -190,6 +195,10 @@ func (s *Server) handleDVLists(w http.ResponseWriter, r *http.Request, _ store.U
 	if err != nil {
 		s.dvError(w, err)
 		return
+	}
+	if bm {
+		l = hostlists.List{Mode: "bm", Items: hostlists.BMMasters(l.Items), ETag: l.ETag}
+		mode = "bm"
 	}
 	tag := `"` + mode + "-" + l.ETag + `"`
 	w.Header().Set("ETag", tag)

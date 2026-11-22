@@ -55,6 +55,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"strconv"
 	"sync"
@@ -64,6 +65,13 @@ import (
 	"github.com/artw1/aslcp/internal/dv/dmr"
 	"github.com/artw1/aslcp/internal/dv/network"
 )
+
+// logf writes the engine's log lines (stderr, so the journal); a variable so
+// tests can capture it.
+var logf = log.Printf
+
+// logRepeat is the least time between two log lines with the same reason.
+const logRepeat = time.Minute
 
 // ParrotTG is BrandMeister's echo test target (a private call).
 const ParrotTG = 9990
@@ -233,11 +241,20 @@ func (n *Net) Run(ctx context.Context, s network.Sink) error {
 		n.setLogin(ctl.LoginOff, nil)
 	}()
 	backoff := n.bMin
+	var lastMsg string
+	var lastAt time.Time
 	for ctx.Err() == nil {
 		n.setLogin(ctl.LoginPending, nil)
 		ok, err := n.session(ctx, s)
 		if ctx.Err() != nil {
 			break
+		}
+		if err != nil {
+			// one line per failed attempt; the same reason at most once a minute
+			if msg := err.Error(); msg != lastMsg || time.Since(lastAt) >= logRepeat {
+				logf("bm: session to %s failed: %v", n.addr, err)
+				lastMsg, lastAt = msg, time.Now()
+			}
 		}
 		if ok {
 			backoff = n.bMin

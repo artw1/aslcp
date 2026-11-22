@@ -2,6 +2,7 @@ package hostlists
 
 import (
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -151,4 +152,42 @@ func parse(mode string, data []byte) []Item {
 	default:
 		return ParseTG(data, "NXDN")
 	}
+}
+
+// BMMasters picks the BrandMeister masters out of a parsed DMR list (Pi-Star
+// names them BM_<id>_<Country_or_Region>, for example BM_3104_United_States)
+// and returns them sorted by master id. Value is the host name, Name the label
+// "3104 – United States". The Homebrew port the file carries is not used by
+// the native client, so Port is 0. Entries without a numeric id and repeated
+// hosts are dropped.
+func BMMasters(items []Item) []Item {
+	type m struct {
+		id int
+		it Item
+	}
+	var ms []m
+	seen := map[string]bool{}
+	for _, it := range items {
+		rest, ok := strings.CutPrefix(it.Name, "BM_")
+		if !ok || seen[it.Value] {
+			continue
+		}
+		tok := strings.Split(rest, "_")
+		id, err := strconv.Atoi(tok[0])
+		if err != nil || id < 0 || len(tok[0]) > 6 {
+			continue
+		}
+		label := tok[0]
+		if r := strings.TrimSpace(strings.Join(tok[1:], " ")); r != "" {
+			label += " – " + r
+		}
+		seen[it.Value] = true
+		ms = append(ms, m{id, Item{Value: it.Value, Name: label, Address: it.Address}})
+	}
+	sort.SliceStable(ms, func(i, j int) bool { return ms[i].id < ms[j].id })
+	out := make([]Item, len(ms))
+	for i, x := range ms {
+		out[i] = x.it
+	}
+	return out
 }

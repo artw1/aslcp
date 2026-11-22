@@ -160,8 +160,8 @@ func hbOptions(optionsHelp string) []OptSpec {
 
 // NetSpecs lists the modes with settings, in display order.
 var NetSpecs = []NetSpec{
-	{Mode: ModeBM, Label: "BrandMeister", Address: true, Port: true, Password: true, DefaultPort: 54006, NeedsIdentity: true,
-		Help: "Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security)."},
+	{Mode: ModeBM, Label: "BrandMeister", Address: true, Password: true, NeedsIdentity: true,
+		Help: "Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security). Pick the master closest to you."},
 	{Mode: ModeTGIF, Label: "TGIF", Address: true, Port: true, Password: true, DefaultAddress: "tgif.network", DefaultPort: 62031, NeedsIdentity: true,
 		Help: "The password is the hotspot security password of your TGIF profile. The public master tgif.network:62031 is used unless you set another."},
 	{Mode: ModeDMR, Label: "DMR - Other", Address: true, Port: true, Password: true, DefaultPort: 62031, NeedsIdentity: true,

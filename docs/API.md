@@ -487,8 +487,8 @@ Design: docs/DV.md "BrandMeister". Admin only (`403 forbidden`), `X-ASLCP: 1` on
 ```json
 NetView = {
   "mode": "BM", "label": "BrandMeister", "available": true, "enabled": true,
-  "address": "192.0.2.10", "port": 54006, "defaultPort": 54006, "defaultAddress": "", "addressOptional": false, "passwordSet": true,
-  "fields": {"address": true, "port": true, "password": true}, "needsIdentity": true, "help": "...",
+  "address": "3104.master.example.net", "port": 0, "defaultAddress": "", "addressOptional": false, "passwordSet": true,
+  "fields": {"address": true, "port": false, "password": true}, "needsIdentity": true, "help": "...",
   "options": [{"key": "client_version", "label": "Software description", "kind": "text", "default": "aslcp-dv", "advanced": true, "help": "..."}],
   "values": {"client_version": "aslcp-dv"},
   "login": "ok", "detail": ""               // engine login state of an enabled, available mode: off, pending, ok, failed
@@ -497,13 +497,13 @@ NetView = {
 
 Validation (`422 invalid_field`, the message names the field, never a value): callsign 3 to 8 letters and digits (stored upper case); DMR ID 7 digits (1000000 to 9999999); repeater ID 0 or 1000000 to 999999999; port 1 to 65535; address a host name or an IP address; password 1 to 64 printable characters without blanks; option keys only from the per-mode table (`dvpanel.NetOptions`) and values within the spec. `422 incomplete`: enabling a network needs its address (unless the mode has a `defaultAddress`, as TGIF has), its password (not NXDN, which has none) and, for a DMR or NXDN network, the identity. Text options carry an optional `maxLen`; bool options take `true` or `false`. `applied: false` with `applyError`: the settings are saved but the engine did not take them (digital modes off, or the engine refused the file).
 
-`addressOptional` is true when the network can be enabled without an address (YSF and P25: the reflector is picked by tune). The snapshot's `modes[]` gains `login` and `detail` (an enabled, available network's login state). `available` comes from the engine (`Status.networks[].available`); while the engine is down it falls back to the static list of native modes in the build (`LOOP`, `BM`, `TGIF`, `DMR`, `YSF`, `P25`, `NXDN`). Audit: `dv.network` (mode and the names of the changed fields) and `dv.identity`.
+`BM` has `fields.port: false`: a `port` in `PUT /api/dv/networks/BM` is refused (`422 invalid_field`) and a port stored by an earlier version is dropped on load. `addressOptional` is true when the network can be enabled without an address (YSF and P25: the reflector is picked by tune). The snapshot's `modes[]` gains `login` and `detail` (an enabled, available network's login state). `available` comes from the engine (`Status.networks[].available`); while the engine is down it falls back to the static list of native modes in the build (`LOOP`, `BM`, `TGIF`, `DMR`, `YSF`, `P25`, `NXDN`). Audit: `dv.network` (mode and the names of the changed fields) and `dv.identity`.
 
 ### Digital modes host lists (operator)
 
 | Method | Path | Reply |
 |---|---|---|
-| GET | `/api/dv/lists?mode=dmr\|ysf\|p25\|nxdn` | `200` DVList `{"mode","items":[{"value","name","detail"?,"address","port"}],"truncated"?,"etag"}`, `ETag` header, `304` on `If-None-Match`. `404 no_list` when the list is not downloaded yet. operator and admin |
+| GET | `/api/dv/lists?mode=dmr\|ysf\|p25\|nxdn\|bm` | `200` DVList `{"mode","items":[{"value","name","detail"?,"address","port"}],"truncated"?,"etag"}`, `ETag` header, `304` on `If-None-Match`. `404 no_list` when the list is not downloaded yet. operator and admin. `mode=bm` is the BrandMeister masters of the DMR list (names `BM_<id>_<Country>`), sorted by id: `value` is the master host name, `name` the label (`3104 – United States`), `port` is 0 (BrandMeister has no port setting: the engine uses 54006) |
 | POST | `/api/dv/lists/refresh` | admin: starts a download now. `200` the list status; `429 too_soon`, `409 busy`, `409 not_enabled` |
 
 ASLCP downloads the four lists itself, once a day, only while digital modes are enabled. `value` is what a pick writes: the master address (dmr), the 5-digit reflector id (ysf) or the TG (p25, nxdn).

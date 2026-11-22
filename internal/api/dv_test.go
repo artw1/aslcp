@@ -114,6 +114,12 @@ func dvEnv(t *testing.T, avail ...string) (*env, *fakeEngine, *ctltest.Fake) {
 			t.Fatal(err)
 		}
 	}
+	f, err := os.OpenFile(filepath.Join(dir, "DMR_Hosts.txt"), os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString("BM_3104_United_States\t0000\t3104.master.example.net\texample-pass\t62031\nBM_2001_Netherlands\t0000\t2001.master.example.net\texample-pass\t62031\n")
+	f.Close()
 	hl := hostlists.New(hostlists.Options{Dir: dir, Enabled: func() bool { return true }})
 	hl.Load()
 	e := newEnv(t, opts{dvengine: fe, dvctl: ctl.NewClient(fc.Path()), hostlists: hl, dvEnabled: func() bool { return true }})
@@ -361,6 +367,19 @@ func TestDVLists(t *testing.T) {
 	}
 	if c, _, _ := e.raw("GET", "/api/dv/lists?mode=ysf", nil, e.ck["op"], map[string]string{"If-None-Match": tag}); c != 304 {
 		t.Fatalf("conditional: %d", c)
+	}
+	var bm struct {
+		Mode  string
+		Items []struct {
+			Value, Name string
+			Port        int
+		}
+	}
+	if c := e.do("op", "GET", "/api/dv/lists?mode=bm", nil, &bm); c != 200 || bm.Mode != "bm" {
+		t.Fatalf("bm list: %d %+v", c, bm)
+	}
+	if len(bm.Items) != 2 || bm.Items[0].Name != "2001 \u2013 Netherlands" || bm.Items[1].Value != "3104.master.example.net" || bm.Items[1].Port != 0 {
+		t.Errorf("bm items: %+v", bm.Items)
 	}
 	expectErr(t, e, "op", "GET", "/api/dv/lists?mode=bogus", nil, 400, "bad_request")
 	expectErr(t, e, "viewer", "GET", "/api/dv/lists?mode=dmr", nil, 403, "forbidden")

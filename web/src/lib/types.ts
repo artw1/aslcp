@@ -214,7 +214,7 @@ export interface DVRollbackResult { rolledBack: boolean; problems: string[]; ste
 export interface DVSetup { bridgeNode: DVBridgeSetup; files?: DVFileView[] }
 
 /** GET /api/dv/lists?mode=... (operator and admin; docs/API.md "Digital modes host lists"). 404 `no_list` when the node has no file for the mode. */
-export type DVListMode = 'dmr' | 'ysf' | 'p25' | 'nxdn';
+export type DVListMode = 'dmr' | 'ysf' | 'p25' | 'nxdn' | 'bm';
 /** `value` is what gets written: the master address (dmr), the 5-digit reflector ID (ysf) or the TG (p25, nxdn). `port` is the master port for dmr. The DMR list never carries a password. */
 export interface DVListItem { value: string; name: string; detail?: string; address: string; port: number }
 export interface DVList { mode: DVListMode; items: DVListItem[]; truncated?: boolean; etag: string }

@@ -146,6 +146,11 @@ export interface DVCtx {
 
 // Placeholder host and TG lists (RFC 5737 addresses, made-up names) for GET /dv/lists.
 const LISTS: Record<string, { value: string; name: string; detail?: string; address: string; port: number }[]> = {
+  bm: [
+    { value: '2001.master.example.net', name: '2001 – Netherlands', address: '2001.master.example.net', port: 0 },
+    { value: '3104.master.example.net', name: '3104 – United States', address: '3104.master.example.net', port: 0 },
+    { value: '5051.master.example.net', name: '5051 – Australia', address: '5051.master.example.net', port: 0 },
+  ],
   ysf: [
     { value: '00001', name: 'US-Example', detail: 'Example reflector', address: '192.0.2.21', port: 42000 },
     { value: '00002', name: 'XX-Europe-Example', detail: 'Example link', address: '198.51.100.22', port: 42000 },
@@ -181,7 +186,7 @@ const otherNets: Record<'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN', MockNet> = { TG
 let ident: { callsign: string; dmrId: number; repeaterId?: number } = { callsign: '', dmrId: 0 };
 const bmLogin = () => (ident.dmrId ? 'ok' : 'failed');
 const bmDetail = () => (ident.dmrId ? '' : 'the master refused the login: no DMR ID set');
-const BM_HELP = 'Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security).';
+const BM_HELP = 'Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security). Pick the master closest to you.';
 const intOpt = (key: string, label: string, def: string, min: number, max: number, advanced = false) => ({ key, label, kind: 'int', default: def, min, max, ...(advanced ? { advanced } : {}) });
 const BM_OPTS = [
   { key: 'client_version', label: 'Client version', kind: 'text', default: 'ASLCP', advanced: true },
@@ -225,7 +230,7 @@ const NXDN_OPTS = [
   intOpt('missed_polls', 'Missed polls', '3', 1, 20, true),
 ];
 const NETSPEC: Record<NetId, { label: string; fields: { address: boolean; port: boolean; password: boolean }; defaultPort?: number; defaultAddress?: string; addressOptional?: boolean; help?: string; options: unknown[] }> = {
-  BM: { label: 'BrandMeister', fields: { address: true, port: true, password: true }, defaultPort: 54006, help: BM_HELP, options: BM_OPTS },
+  BM: { label: 'BrandMeister', fields: { address: true, port: false, password: true }, help: BM_HELP, options: BM_OPTS },
   TGIF: { label: 'TGIF', fields: { address: true, port: true, password: true }, defaultPort: 62031, defaultAddress: 'tgif.network', options: HB_OPTS('Static talkgroups, for example TS2=1997; Without it the talkgroup you tune is linked on demand.'),
     help: 'The password is the hotspot security password of your TGIF profile. The public master tgif.network:62031 is used unless you set another.' },
   DMR: { label: 'DMR - Other', fields: { address: true, port: true, password: true }, defaultPort: 62031, options: HB_OPTS('Sent to the master after login, for example static talkgroups. Leave empty if unsure.'),

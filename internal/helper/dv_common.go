@@ -384,8 +384,13 @@ func parseDVNetworks(data []byte) (dvNetworksState, error) {
 		if !ok {
 			continue
 		}
+		if !sp.Port {
+			// a port stored while the network had a port setting (BrandMeister
+			// before 2.0) is dropped: the engine uses its default
+			s.Port = 0
+		}
 		if s.Address != "" && (!sp.Address || !dvpanel.ValidAddress(s.Address)) ||
-			s.Port != 0 && (!sp.Port || !dvpanel.ValidNetPort(s.Port)) ||
+			s.Port != 0 && !dvpanel.ValidNetPort(s.Port) ||
 			s.Password != "" && (!sp.Password || !dvpanel.ValidPassword(s.Password)) {
 			return dvNetworksState{}, bad
 		}

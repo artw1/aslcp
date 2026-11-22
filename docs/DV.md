@@ -52,7 +52,7 @@ BrandMeister is a native client of the Rewind protocol: the engine logs in to a 
 **Settings** (Digital modes tab, admin; docs/API.md "Digital modes networks and identity"):
 
 - *Identity*: callsign, DMR ID and an optional ESSID (2 digits, 01–99; the repeater ID is your DMR ID followed by it). The DMR networks log in with it. Clearing it disables them.
-- *Master address* and *port* (default 54006). There is no default address: pick the master from your BrandMeister account (the closest one) and enter it.
+- *Master*: picked from a dropdown of the BrandMeister masters (entries named `BM_<id>_<Country>` in the DMR host list the node downloads daily, shown as "3104 – United States", sorted by id); pick the one closest to you. There is no port setting: the engine always uses 54006 (the port in the host list is the Homebrew port and is not used), and a port stored by an earlier version is ignored. If the list has not been downloaded yet, the card says so and shows an *Other address* field instead; *Other…* in the dropdown does the same for a master that is not in the list.
 - *Password*: the password set in your BrandMeister SelfCare (hotspot security). It is write-only; the page shows only "Password set" and a Change button, and the password is never logged or returned.
 - *Options*: all under "advanced": the client version and the keep-alive, timeout and back-off timers. A blank option uses the engine default.
 - *Enable* needs the address, the password and the identity; the page says which one is missing. Saving renders the engine config and reloads the engine, so a login attempt starts at once; the card shows the login state (pending, logged in, or refused with the master's reason).
@@ -61,7 +61,7 @@ BrandMeister is a native client of the Rewind protocol: the engine logs in to a 
 
 **Using it.** On the dashboard, choose BrandMeister, type a talkgroup and press Tune, or pick a favourite. The *Private call* switch (or a trailing `#`) calls the number as a private call. **Parrot** calls 9990 as a private call: key up, release, and the master plays your transmission back as a private call from 9990 to you. That tests the whole path over the real network without disturbing a talkgroup. **Unlink** tunes TG 4000, BrandMeister's disconnect talkgroup.
 
-**Upgrade from 1.x.** Nothing of the old bridge program is imported: enter the master address and password once on the BrandMeister card.
+**Upgrade from 1.x.** Nothing of the old bridge program is imported: pick the master and enter the password once on the BrandMeister card.
 
 ## Private bridge node and USRP
 

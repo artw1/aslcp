@@ -1,6 +1,6 @@
 // The generic settings form of a digital modes network (docs/DV.md "BrandMeister"): the form is built from the
 // option specs the server sends, so a new network needs no web change. Pure helpers so node --test covers them.
-import type { DVIdentity, DVLogin, DVNetPut, DVNetView, DVOptSpec, DVSnapshot, DVTuneMode } from './types';
+import type { DVIdentity, DVListItem, DVLogin, DVNetPut, DVNetView, DVOptSpec, DVSnapshot, DVTuneMode } from './types';
 
 /** The modes the build implements natively. Only the fallback when the snapshot does not list a mode; the engine's `available` wins. */
 export const NATIVE_MODES: readonly string[] = ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN'];
@@ -93,7 +93,7 @@ export function enableBlock(v: DVNetView, f: NetForm, identity: DVIdentity | nul
 export function loginText(login: DVLogin | undefined, detail: string | undefined): string {
   switch (login) {
     case 'ok': return 'Logged in';
-    case 'pending': return 'Logging in...';
+    case 'pending': return detail ? `Logging in... (${detail})` : 'Logging in...';
     case 'failed': return detail ? `Login failed: ${detail}` : 'Login failed';
     default: return '';
   }
@@ -125,4 +125,15 @@ export function repeaterIdToEssid(dmrId: number, repeaterId?: number): string {
 }
 
 /** The BM help line (also in the network's `help`). */
-export const BM_HELP = 'Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security).';
+export const BM_HELP = 'Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security). Pick the master closest to you.';
+
+/** The value of the master dropdown's "Other…" entry: the address is typed instead of picked. */
+export const MASTER_OTHER = '__other__';
+
+/** The dropdown choice for a stored address: the list entry it matches, '' when none is set yet, else "Other…". */
+export function masterChoice(address: string, items: readonly DVListItem[]): string {
+  const a = address.trim().toLowerCase();
+  if (a === '') return '';
+  const hit = items.find((i) => i.value.toLowerCase() === a);
+  return hit ? hit.value : MASTER_OTHER;
+}

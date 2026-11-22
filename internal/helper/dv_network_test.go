@@ -41,7 +41,7 @@ func TestDVNetworkRendersIdentityAndBM(t *testing.T) {
 	if _, err := dvNetDo(o, DVNetworkRequest{Identity: &DVIdentityView{Callsign: "n0call", DMRID: 1234567}}); err != nil {
 		t.Fatal(err)
 	}
-	rep, err := dvNetDo(o, DVNetworkRequest{Mode: "BM", Address: sp("192.0.2.10"), Port: ip(62031), Password: sp("example-pass"),
+	rep, err := dvNetDo(o, DVNetworkRequest{Mode: "BM", Address: sp("192.0.2.10"), Password: sp("example-pass"),
 		Options: map[string]string{"keepalive_ms": "1000", "client_version": ""}, Enabled: bp(true)})
 	if err != nil || !rep.Rendered {
 		t.Fatalf("%+v %v", rep, err)
@@ -64,7 +64,7 @@ func TestDVNetworkRendersIdentityAndBM(t *testing.T) {
 			bm = &cfg.Networks[i]
 		}
 	}
-	if bm == nil || !bm.Enabled || bm.Address != "192.0.2.10" || bm.Port != 62031 || bm.Password != "example-pass" || bm.Options["keepalive_ms"] != "1000" {
+	if bm == nil || !bm.Enabled || bm.Address != "192.0.2.10" || bm.Port != 0 || bm.Password != "example-pass" || bm.Options["keepalive_ms"] != "1000" {
 		t.Fatalf("bm %+v", bm)
 	}
 	// a later read never returns it either
@@ -82,7 +82,7 @@ func TestDVNetworkIncompleteAndInvalid(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 	for name, r := range map[string]DVNetworkRequest{
-		"port":    {Mode: "BM", Port: ip(70000)},
+		"port":    {Mode: "BM", Port: ip(54006)}, // BM has no port setting
 		"address": {Mode: "BM", Address: sp("bad host!")},
 		"option":  {Mode: "BM", Options: map[string]string{"nope": "1"}},
 		"mode":    {Mode: "XYZ"},
@@ -342,5 +342,16 @@ func TestDVNetworkP25(t *testing.T) {
 	}
 	if n := renderedNet(t, o, "P25"); !n.Enabled || n.Address != "192.0.2.30" || n.Port != 41001 {
 		t.Fatalf("%+v", n)
+	}
+}
+
+// A port stored for BrandMeister by an older version is dropped on load.
+func TestParseDVNetworksDropsBMPort(t *testing.T) {
+	st, err := parseDVNetworks([]byte(`{"version":1,"networks":{"BM":{"enabled":true,"address":"192.0.2.10","port":62031,"password":"example-pass"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Networks["BM"].Port != 0 || st.Networks["BM"].Address != "192.0.2.10" {
+		t.Fatalf("%+v", st.Networks["BM"])
 	}
 }

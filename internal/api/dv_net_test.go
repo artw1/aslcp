@@ -64,7 +64,7 @@ func TestDVNetworksGetPut(t *testing.T) {
 	}
 
 	// not valid input is refused with 422 and changes nothing
-	expectErr(t, e, "admin", "PUT", "/api/dv/networks/BM", map[string]any{"port": 99999}, 422, "invalid_field")
+	expectErr(t, e, "admin", "PUT", "/api/dv/networks/BM", map[string]any{"port": 54006}, 422, "invalid_field") // BM has no port setting
 	expectErr(t, e, "admin", "PUT", "/api/dv/networks/BM", map[string]any{"options": map[string]string{"nope": "1"}}, 422, "invalid_field")
 	expectErr(t, e, "admin", "PUT", "/api/dv/networks/NOPE", map[string]any{}, 404, "not_found")
 	expectErr(t, e, "admin", "PUT", "/api/dv/identity", map[string]any{"callsign": "bad call", "dmrId": 1234567}, 422, "invalid_field")
@@ -82,11 +82,11 @@ func TestDVNetworksGetPut(t *testing.T) {
 		t.Fatalf("%d %+v", c, id)
 	}
 	var v netView
-	if c := e.do("admin", "PUT", "/api/dv/networks/BM", map[string]any{"address": "192.0.2.10", "port": 62031,
+	if c := e.do("admin", "PUT", "/api/dv/networks/BM", map[string]any{"address": "192.0.2.10",
 		"password": "example-pass", "options": map[string]string{"keepalive_ms": "1000"}, "enabled": true}, &v); c != 200 {
 		t.Fatalf("%d", c)
 	}
-	if !v.PasswordSet || v.Address != "192.0.2.10" || v.Port != 62031 || !v.Enabled || v.Values["keepalive_ms"] != "1000" {
+	if !v.PasswordSet || v.Address != "192.0.2.10" || v.Port != 0 || !v.Enabled || v.Values["keepalive_ms"] != "1000" {
 		t.Fatalf("%+v", v)
 	}
 	// the password never comes back, in any reply
@@ -103,7 +103,7 @@ func TestDVNetworksGetPut(t *testing.T) {
 		t.Fatalf("password in audit: %s", audit)
 	}
 	// a write without a password keeps the stored one; clearPassword drops it
-	if c := e.do("admin", "PUT", "/api/dv/networks/BM", map[string]any{"port": 54006}, &v); c != 200 || !v.PasswordSet {
+	if c := e.do("admin", "PUT", "/api/dv/networks/BM", map[string]any{"address": "192.0.2.11"}, &v); c != 200 || !v.PasswordSet {
 		t.Fatalf("%d %+v", c, v)
 	}
 	if c := e.do("admin", "PUT", "/api/dv/networks/BM", map[string]any{"clearPassword": true}, &v); c != 200 || v.PasswordSet {
