@@ -233,7 +233,7 @@ export interface DVSnapshot {
   installed: boolean; running: boolean; configured: boolean;
   bridge: DVBridge;
   /** `label`: the button's name when it is not the id (a DMR network's registry label: "BrandMeister", "TGIF", "DMR - Other"). `available`: the engine implements the mode (LOOP and BM in this build). */
-  modes: { id: DVTuneMode; enabled: boolean; available: boolean; unlink: string; label?: string; /** The engine's login state of an enabled network (`off`, `pending`, `ok`, `failed`) and its detail. */ login?: DVLogin; detail?: string }[];
+  modes: { id: DVTuneMode; enabled: boolean; available: boolean; unlink: string; label?: string; /** The engine's login state of an enabled network (`off`, `pending`, `ok`, `failed`) and its detail. */ login?: DVLogin; detail?: string; /** A tuned YSF, P25 or NXDN reflector sends nothing back (the engine's lost state). */ silent?: boolean }[];
   /** M1: aslcp-dv and md380-emu. */
   services: { unit: string; active: boolean }[];
   /** md380 vocoder health (`ok`; `timeouts` counts the calls that timed out) and the engine's version and uptime in seconds; absent while the engine is not reachable. */

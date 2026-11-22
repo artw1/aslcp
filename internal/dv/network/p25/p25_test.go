@@ -205,11 +205,19 @@ func kind(k string) func(event) bool { return func(e event) bool { return e.kind
 
 func start(t *testing.T, opts map[string]string) (*Net, *fakeRef, *sink) {
 	t.Helper()
+	return startReply(t, opts, true)
+}
+
+// startReply tunes to a fake reflector that answers polls only when reply is set;
+// it waits for the link only when it does.
+func startReply(t *testing.T, opts map[string]string, reply bool) (*Net, *fakeRef, *sink) {
+	t.Helper()
 	o := map[string]string{OptPollMS: "20", OptTimeoutMS: "120", OptRxTimeoutMS: "80", OptTickMS: "5"}
 	for k, v := range opts {
 		o[k] = v
 	}
 	ref := newFakeRef(t)
+	ref.setReply(reply)
 	n, err := New(ctl.NetConfig{Mode: ctl.ModeP25, Enabled: true, Options: o},
 		ctl.Identity{Callsign: "N0CALL", DMRID: 1234567})
 	if err != nil {
@@ -223,7 +231,9 @@ func start(t *testing.T, opts map[string]string) (*Net, *fakeRef, *sink) {
 	if err := n.Tune(ctx, ctl.Target{Room: "1997", Host: "127.0.0.1", Port: ref.port()}); err != nil {
 		t.Fatal(err)
 	}
-	s.wait(t, loginIs(ctl.LoginOK, "TG 1997"), time.Second)
+	if reply {
+		s.wait(t, loginIs(ctl.LoginOK, "TG 1997"), time.Second)
+	}
 	return n, ref, s
 }
 
@@ -274,6 +284,36 @@ func TestTimeoutBackoffReconnect(t *testing.T) {
 	}
 	ref.setReply(true)
 	s.wait(t, loginIs(ctl.LoginOK, ""), 3*time.Second)
+}
+
+// A reflector that never answers: after the grace (timeout_ms) the login says so.
+func TestNotAnsweringAfterTune(t *testing.T) {
+	n, ref, s := startReply(t, nil, false)
+	e := s.wait(t, loginIs(ctl.LoginPending, "no reply from"), time.Second)
+	if !ctl.NotAnswering(e.login, e.det) {
+		t.Fatalf("event %+v is not 'not answering'", e)
+	}
+	if st := n.Status(); !ctl.NotAnswering(st.Login, st.Detail) {
+		t.Fatalf("status %+v", st)
+	}
+	ref.setReply(true) // a reply clears it
+	s.wait(t, loginIs(ctl.LoginOK, ""), 3*time.Second)
+	if st := n.Status(); ctl.NotAnswering(st.Login, st.Detail) {
+		t.Fatalf("status %+v after reply", st)
+	}
+}
+
+// A reflector that answers never reports it, and nothing tuned never does.
+func TestAnsweringNeverNotAnswering(t *testing.T) {
+	n, _, _ := start(t, nil)
+	time.Sleep(300 * time.Millisecond) // well past the 120 ms grace
+	if st := n.Status(); st.Login != ctl.LoginOK || ctl.NotAnswering(st.Login, st.Detail) {
+		t.Fatalf("status %+v", st)
+	}
+	n.Tune(context.Background(), ctl.Target{TG: UnlinkTG})
+	if st := n.Status(); ctl.NotAnswering(st.Login, st.Detail) {
+		t.Fatalf("unlinked: %+v", st)
+	}
 }
 
 func TestRXCall(t *testing.T) {

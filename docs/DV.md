@@ -138,7 +138,7 @@ YSF is a native reflector client for System Fusion reflectors (YSFReflector styl
 - Voice is received in **DN (V/D mode 2)** and in **Voice FR (VW)**; a call may use either. Your transmissions are always sent in DN. Wires-X is not supported.
 - VW is IMBE-coded and decoded by the built-in pure-Go IMBE codec (see "Voice codecs"); DN uses the md380-emu vocoder.
 
-On the dashboard, choose YSF, pick a reflector from the list (or type a 5-digit id or `host:port`) and press Tune; unlink is `disconnect`. The card shows "retrying" while the reflector does not answer.
+On the dashboard, choose YSF, pick a reflector from the list (or type a 5-digit id or `host:port`) and press Tune; unlink is `disconnect`. The card shows "Reflector not answering" (a warning) when the reflector has sent nothing back, not even a poll reply, for the link timeout (15 s by default), and clears it as soon as anything arrives.
 
 ## P25
 
@@ -149,7 +149,7 @@ P25 is a native reflector client for P25Reflector style reflectors (UDP, the lin
 - Under "advanced": the poll period, the link timeout and the call end timeout.
 - Voice is IMBE (full-rate Phase 1), carried in both directions. The source callsign is not sent on P25, so a received call shows the unit ID.
 
-On the dashboard, choose P25, pick a talkgroup from the list (or type up to five digits) and press Tune; unlink is `9999`. The card shows "retrying" while the reflector does not answer.
+On the dashboard, choose P25, pick a talkgroup from the list (or type up to five digits) and press Tune; unlink is `9999`. The card shows "Reflector not answering" in the same way.
 
 ## Voice codecs
 

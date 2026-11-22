@@ -4,6 +4,7 @@ package ctl
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -97,6 +98,17 @@ const (
 	LoginOK      LoginState = "ok"
 	LoginFailed  LoginState = "failed"
 )
+
+// DetailNoReply starts the Detail of a pending or failed network login whose
+// reflector (YSF, P25, NXDN) has sent nothing for the link timeout: no poll
+// reply, no voice. The dashboard shows it as "Reflector not answering".
+const DetailNoReply = "no reply from "
+
+// NotAnswering reports whether a network's login and detail say that its
+// reflector does not answer (the engine's lost state, DetailNoReply).
+func NotAnswering(l LoginState, detail string) bool {
+	return (l == LoginPending || l == LoginFailed) && strings.HasPrefix(detail, DetailNoReply)
+}
 
 type NetStatus struct {
 	Mode      string     `json:"mode"`

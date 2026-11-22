@@ -48,8 +48,8 @@
 //
 // Login state: NXDN has no authentication, so "login" means the reflector
 // answers. Pending from Tune until the first NXDNP (poll echo) or NXDND from
-// the reflector; OK from then on; Pending again ("reflector silent") when
-// nothing was heard for missed_polls poll intervals, and Failed ("no reply")
+// the reflector; OK from then on; Pending again ("no reply from reflector, retrying") when
+// nothing was heard for missed_polls poll intervals, and Failed ("no reply from reflector, retrying")
 // when the first reply is still missing after that time. While not OK polls
 // are retried with exponential backoff (backoff_min_ms doubling up to
 // backoff_max_ms), then every poll_interval_ms once OK. Polling never stops

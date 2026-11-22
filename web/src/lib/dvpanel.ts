@@ -15,12 +15,20 @@ export const CONFIRM_MS = 5000;
 export const FAV_NAME_MAX = 40;
 export const FAV_PER_MODE = 50;
 
-/** "Mode YSF, tuned to Example room (192.0.2.10:42000)", "Mode DMR, tuned to 91", "Mode P25", or "Mode unknown". */
-export function stateLine(b: Pick<DVBridge, 'mode' | 'tune' | 'targetName' | 'source'> | null | undefined): string {
+/** True when a YSF, P25 or NXDN reflector is tuned and sends nothing back (the engine's `silent` flag of that mode). Nothing tuned never counts. */
+export function reflectorSilent(s: Pick<DVSnapshot, 'bridge' | 'modes'> | null | undefined): boolean {
+  const b = s?.bridge;
+  if (!s || !b || b.source === 'none' || !b.mode || !b.tune) return false;
+  return !!s.modes?.some((m) => m.id === b.mode && m.silent);
+}
+
+/** "Mode YSF, tuned to Example room (192.0.2.10:42000)", "Mode DMR, tuned to 91", "Mode P25", or "Mode unknown"; "..., Reflector not answering" when `silent` (see reflectorSilent). */
+export function stateLine(b: Pick<DVBridge, 'mode' | 'tune' | 'targetName' | 'source'> | null | undefined, silent = false): string {
   if (!b || b.source === 'none' || !b.mode) return 'Mode unknown';
   const m = modeLabel(b.mode);
   if (!b.tune) return `Mode ${m}`;
-  return b.targetName ? `Mode ${m}, tuned to ${b.targetName} (${b.tune})` : `Mode ${m}, tuned to ${b.tune}`;
+  const line = b.targetName ? `Mode ${m}, tuned to ${b.targetName} (${b.tune})` : `Mode ${m}, tuned to ${b.tune}`;
+  return silent ? `${line}, Reflector not answering` : line;
 }
 
 /** The unit dots: a unit that is down, or no snapshot of the bridge at all, is amber. */
@@ -31,9 +39,10 @@ export function serviceDots(s: DVSnapshot | null | undefined): { unit: string; o
 }
 export const allOk = (s: DVSnapshot | null | undefined): boolean => !!s && s.bridge.source !== 'none' && serviceDots(s).every((d) => d.ok);
 
-/** Colour of the state line: warn when a service is down or the state is unknown, ok when all is well and a target is tuned, else neutral. */
+/** Colour of the state line: warn when a service is down, the state is unknown or the reflector does not answer, ok when all is well and a target is tuned, else neutral. */
 export function stateTone(s: DVSnapshot | null | undefined): 'ok' | 'warn' | '' {
   if (!s || !allOk(s) || !s.bridge.mode) return 'warn';
+  if (reflectorSilent(s)) return 'warn';
   return s.bridge.tune ? 'ok' : '';
 }
 
@@ -43,6 +52,7 @@ export function stateTitle(s: DVSnapshot | null | undefined): string {
   const down = serviceDots(s).filter((d) => !d.ok).map((d) => `${d.unit}: not running`);
   if (down.length) return down.join(', ');
   if (s.bridge.source === 'none' || !s.bridge.mode) return 'The bridge state is unknown';
+  if (reflectorSilent(s)) return 'The reflector has sent nothing back for a while';
   return s.services.length ? 'All services running' : 'No service state';
 }
 

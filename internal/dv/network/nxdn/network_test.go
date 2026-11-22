@@ -235,6 +235,34 @@ func TestKeepaliveLossAndReconnect(t *testing.T) {
 	}
 }
 
+func notAnswering(n *Net) bool { st := n.Status(); return ctl.NotAnswering(st.Login, st.Detail) }
+
+// A reflector that never answers: after the grace (missed_polls * poll) the
+// status says so, a reply clears it, a reflector that answers never shows it.
+func TestNotAnswering(t *testing.T) {
+	r := newReflector(t, false)
+	n, _, cancel, done := start(t, opts(nil))
+	defer func() { cancel(); <-done }()
+	if notAnswering(n) {
+		t.Fatal("not answering before any tune")
+	}
+	tune(t, n, r, 1999)
+	eventually(t, "not answering", func() bool { return notAnswering(n) })
+	r.setEcho(true)
+	eventually(t, "cleared", func() bool { return n.Status().Login == ctl.LoginOK })
+	if notAnswering(n) {
+		t.Fatal("still not answering after a reply")
+	}
+	time.Sleep(300 * time.Millisecond) // well past the 180 ms grace
+	if n.Status().Login != ctl.LoginOK || notAnswering(n) {
+		t.Fatalf("answering reflector reported silent: %+v", n.Status())
+	}
+	r.setEcho(false) // goes silent later
+	eventually(t, "silent again", func() bool { return notAnswering(n) })
+	n.Unlink(context.Background())
+	eventually(t, "unlinked", func() bool { return !notAnswering(n) })
+}
+
 func TestUnlinkAndRetune(t *testing.T) {
 	r := newReflector(t, true)
 	n, _, cancel, done := start(t, opts(nil))

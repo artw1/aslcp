@@ -137,6 +137,7 @@ type dvSnap struct {
 		ID                 string
 		Enabled, Available bool
 		Unlink, Label      string
+		Silent             bool
 	}
 	Services []struct {
 		Unit   string
@@ -201,6 +202,29 @@ func TestDVSnapshotLive(t *testing.T) {
 	}
 	if len(sn.Services) != 2 || sn.Services[0].Unit != "aslcp-dv" || !sn.Services[0].Active || sn.Services[1].Unit != "md380-emu" || !sn.Services[1].Active {
 		t.Fatalf("services %+v", sn.Services)
+	}
+}
+
+// A YSF, P25 or NXDN reflector that does not answer is flagged silent in the
+// snapshot; an answering one, or any other login state, is not.
+func TestDVSnapshotReflectorSilent(t *testing.T) {
+	e, _, fc := dvEnv(t, ctl.ModeYSF, ctl.ModeP25, ctl.ModeNXDN)
+	waitDV(t, e, func(s dvSnap) bool { return s.Running })
+	silent := func(s dvSnap, mode string) bool {
+		for _, m := range s.Modes {
+			if m.ID == mode {
+				return m.Silent
+			}
+		}
+		return false
+	}
+	for _, mode := range []string{ctl.ModeYSF, ctl.ModeP25, ctl.ModeNXDN} {
+		fc.Emit(ctl.Event{Type: ctl.EvLogin, Login: &ctl.LoginEvent{Mode: mode, State: ctl.LoginPending, Detail: ctl.DetailNoReply + "Example room, retrying"}})
+		waitDV(t, e, func(s dvSnap) bool { return silent(s, mode) })
+		fc.Emit(ctl.Event{Type: ctl.EvLogin, Login: &ctl.LoginEvent{Mode: mode, State: ctl.LoginOK, Detail: "linked to Example room"}})
+		waitDV(t, e, func(s dvSnap) bool { return !silent(s, mode) })
+		fc.Emit(ctl.Event{Type: ctl.EvLogin, Login: &ctl.LoginEvent{Mode: mode, State: ctl.LoginPending, Detail: "linking"}})
+		waitDV(t, e, func(s dvSnap) bool { return !silent(s, mode) })
 	}
 }
 

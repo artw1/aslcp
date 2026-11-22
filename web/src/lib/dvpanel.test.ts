@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIRM_MS, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, pendingOutcome, rxCaller, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate } from './dvpanel.ts';
+import { CONFIRM_MS, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, pendingOutcome, rxCaller, reflectorSilent, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate } from './dvpanel.ts';
 import type { DVFavorite, DVSnapshot } from './types';
 
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
@@ -275,4 +275,23 @@ test('the DMR networks: all DMR on the air, each its own mode with its own label
   assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, mode: 'TGIF', tune: '31665', targetName: undefined } })), 'TGIF TG 31665');
   assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, mode: 'DMR', tune: '1', targetName: undefined } })), 'DMR - Other TG 1');
   assert.equal(bridgeRxTarget(snap({ bridge: { ...bridge, mode: 'BM', tune: '1234567', targetName: undefined, private: true } })), 'BrandMeister private call');
+});
+
+test('reflector not answering: warning state line, tone and title; nothing tuned never warns', () => {
+  const mode = (silent?: boolean) => [{ id: 'YSF' as const, enabled: true, available: true, unlink: 'disconnect', login: 'pending' as const, silent }];
+  const quiet = snap({ modes: mode(true) });
+  assert.equal(reflectorSilent(quiet), true);
+  assert.equal(stateLine(bridge, true), 'Mode YSF, tuned to Example room (192.0.2.10:42000), Reflector not answering');
+  assert.equal(stateLine(bridge), 'Mode YSF, tuned to Example room (192.0.2.10:42000)');
+  assert.equal(stateTone(quiet), 'warn');
+  assert.equal(stateTitle(quiet), 'The reflector has sent nothing back for a while');
+  // answering again: back to ok
+  assert.equal(reflectorSilent(snap({ modes: mode(false) })), false);
+  assert.equal(stateTone(snap({ modes: mode(undefined) })), 'ok');
+  // nothing tuned, no snapshot, another mode: no warning
+  assert.equal(reflectorSilent(snap({ modes: mode(true), bridge: { ...bridge, tune: '' } })), false);
+  assert.equal(stateLine({ ...bridge, tune: '' }, reflectorSilent(snap({ modes: mode(true), bridge: { ...bridge, tune: '' } }))), 'Mode YSF');
+  assert.equal(stateTone(snap({ modes: mode(true), bridge: { ...bridge, tune: '' } })), '');
+  assert.equal(reflectorSilent(snap({ modes: mode(true), bridge: { ...bridge, mode: 'P25', tune: '1997' } })), false);
+  assert.equal(reflectorSilent(null), false);
 });

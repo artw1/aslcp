@@ -6,7 +6,7 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-    import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, isDMRFamily, modeButtonLabel, modeLabel } from '../lib/dvpanel';
+    import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, isDMRFamily, modeButtonLabel, modeLabel } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import { exclusiveHint, linkButton, linkExclusiveOnClick, linkLine, pausedHint } from '../lib/dvbridge';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
@@ -157,7 +157,7 @@
   <section class="space-y-2 rounded-md border px-2 py-1.5 text-sm {linked ? 'border-ok/50 bg-ok/10' : 'border-line bg-surface'}" aria-label="Digital modes" data-linked={linked}>
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
       <span class="inline-flex items-center gap-1.5 font-medium"><RadioTower size={15} class="text-accent" aria-hidden="true" />Digital modes</span>
-      <span class={tone === 'warn' ? 'text-warn' : tone === 'ok' ? 'text-ok' : ''} title={stateTitle(snap)} data-tone={tone}>{stateLine(b)}</span>
+      <span class={tone === 'warn' ? 'text-warn' : tone === 'ok' ? 'text-ok' : ''} title={stateTitle(snap)} data-tone={tone}>{stateLine(b, reflectorSilent(snap))}</span>
       <span class="sr-only">{ok ? 'All services running' : 'A service is down or the state is unknown'}</span>
       {#if linked}<span class="sr-only">Bridge node linked</span>{/if}
       {#if admin}<a href="#/digital" class="ml-auto text-xs text-accent underline hover:no-underline">Setup</a>{/if}

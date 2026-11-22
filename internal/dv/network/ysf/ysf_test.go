@@ -147,7 +147,14 @@ var fastOpts = map[string]string{
 
 func start(t *testing.T) (*Net, *fakeRef, *sink) {
 	t.Helper()
+	return startReply(t, true)
+}
+
+// startReply tunes to a fake reflector that answers polls only when reply is set.
+func startReply(t *testing.T, reply bool) (*Net, *fakeRef, *sink) {
+	t.Helper()
 	ref := newFakeRef(t)
+	ref.setReply(reply)
 	n, err := New(ctl.NetConfig{Mode: ctl.ModeYSF, Enabled: true, Options: fastOpts},
 		ctl.Identity{Callsign: "N0CALL", DMRID: 1234567})
 	if err != nil {
@@ -212,6 +219,37 @@ func TestTimeoutBackoffReconnect(t *testing.T) {
 	}
 	ref.setReply(true)
 	s.wait(t, loginIs(ctl.LoginOK, ""), 3*time.Second)
+}
+
+// A reflector that never answers: after the grace (timeout_ms) the login says so.
+func TestNotAnsweringAfterTune(t *testing.T) {
+	n, ref, s := startReply(t, false)
+	e := s.wait(t, loginIs(ctl.LoginPending, "no reply from"), time.Second)
+	if !ctl.NotAnswering(e.login, e.det) {
+		t.Fatalf("event %+v is not 'not answering'", e)
+	}
+	if st := n.Status(); !ctl.NotAnswering(st.Login, st.Detail) {
+		t.Fatalf("status %+v", st)
+	}
+	ref.setReply(true) // a reply clears it
+	s.wait(t, loginIs(ctl.LoginOK, ""), 3*time.Second)
+	if st := n.Status(); ctl.NotAnswering(st.Login, st.Detail) {
+		t.Fatalf("status %+v after reply", st)
+	}
+}
+
+// A reflector that answers never reports it, and nothing tuned never does.
+func TestAnsweringNeverNotAnswering(t *testing.T) {
+	n, _, s := start(t)
+	s.wait(t, loginIs(ctl.LoginOK, ""), time.Second)
+	time.Sleep(300 * time.Millisecond) // well past the 120 ms grace
+	if st := n.Status(); st.Login != ctl.LoginOK || ctl.NotAnswering(st.Login, st.Detail) {
+		t.Fatalf("status %+v", st)
+	}
+	n.Unlink(context.Background())
+	if st := n.Status(); ctl.NotAnswering(st.Login, st.Detail) {
+		t.Fatalf("unlinked: %+v", st)
+	}
 }
 
 func TestTuneNoHost(t *testing.T) {

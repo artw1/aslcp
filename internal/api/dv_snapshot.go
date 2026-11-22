@@ -76,6 +76,9 @@ type DVModeView struct {
 	// Login and Detail are the engine's login state of an enabled mode.
 	Login  string `json:"login,omitempty"`
 	Detail string `json:"detail,omitempty"`
+	// Silent: the YSF, P25 or NXDN reflector of the tuned target does not answer
+	// (the engine's lost state, ctl.NotAnswering); the dashboard says so.
+	Silent bool `json:"silent,omitempty"`
 }
 
 // DVServiceView is one systemd unit of the digital modes stack.
@@ -414,6 +417,7 @@ func (d *dvSnapper) snapshot(ctx context.Context) DVSnapshot {
 			mv.Enabled, mv.Available = n.Enabled, n.Available
 			if n.Enabled && n.Available {
 				mv.Login, mv.Detail = string(n.Login), n.Detail
+				mv.Silent = ctl.NotAnswering(n.Login, n.Detail)
 			}
 		} else {
 			mv.Enabled, mv.Available = m == dvpanel.ModeLoop, dvpanel.NativeMode(m)

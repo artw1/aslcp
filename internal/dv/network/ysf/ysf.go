@@ -422,7 +422,7 @@ func (n *Net) housekeeping(ctx context.Context, now time.Time) {
 			n.endRX()
 			n.backoff = n.poll
 		}
-		n.setLogin(ctl.LoginPending, "no reply from "+n.target.Name+", retrying")
+		n.setLogin(ctl.LoginPending, ctl.DetailNoReply+n.target.Name+", retrying")
 		n.retryLater(now)
 	} else {
 		n.next = now.Add(n.poll)

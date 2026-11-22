@@ -293,12 +293,12 @@ func (n *Net) onTick() {
 	if n.linked {
 		switch {
 		case n.login == ctl.LoginOK && now.Sub(n.lastRx) > n.timeout:
-			n.loginLocked(&ev, ctl.LoginPending, "reflector silent")
+			n.loginLocked(&ev, ctl.LoginPending, ctl.DetailNoReply+"reflector, retrying")
 			n.linkAt = now
 			n.backoff = n.bMin
 			n.nextPoll = now
 		case n.login == ctl.LoginPending && now.Sub(n.linkAt) > n.timeout:
-			n.loginLocked(&ev, ctl.LoginFailed, "no reply from reflector")
+			n.loginLocked(&ev, ctl.LoginFailed, ctl.DetailNoReply+"reflector, retrying")
 		}
 		if !now.Before(n.nextPoll) {
 			n.writeLocked(n.ctlPacket('P', n.tg), n.addr)
