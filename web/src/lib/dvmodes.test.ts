@@ -36,7 +36,7 @@ test('last used names the actual DMR network', () => {
   assert.equal(lastUsed({ resume: true, lastMode: 'DMR', perMode }, now), 'Last used: DMR - Other TG 1 (3 h ago)');
   assert.equal(lastUsed({ resume: true, lastMode: 'BM', perMode }, now), 'Last used: BrandMeister');
   assert.deepEqual(Object.keys(MODE_NAME), ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN']);
-  assert.equal(MODE_NAME.LOOP, 'Parrot (test)');
+  assert.equal(MODE_NAME.LOOP, 'Echo test');
   assert.equal(lastUsed({ resume: true, lastMode: 'toString', perMode }, now), '');
 });
 

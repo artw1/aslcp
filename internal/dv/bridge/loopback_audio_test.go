@@ -91,7 +91,7 @@ func TestLoopbackAudio(t *testing.T) {
 	if text == nil {
 		t.Fatal("no TEXT packet")
 	}
-	if v, ok := usrp.ParseTLV(text.p.Text, usrp.TLVSetInfo); !ok || string(v) != "PARROT 9990" {
+	if v, ok := usrp.ParseTLV(text.p.Text, usrp.TLVSetInfo); !ok || string(v) != "ECHO TEST" {
 		t.Fatalf("text %q", v)
 	}
 
@@ -101,7 +101,7 @@ func TestLoopbackAudio(t *testing.T) {
 		t.Fatalf("events %v", got)
 	}
 	end := g.ev.find("talk_end", "rx")
-	if end.Duration < 700*time.Millisecond || end.Duration > 1600*time.Millisecond || end.Call != "PARROT" || end.TG != 9990 {
+	if end.Duration < 700*time.Millisecond || end.Duration > 1600*time.Millisecond || end.Call != "ECHO TEST" || end.TG != 0 {
 		t.Fatalf("rx talk %+v", end)
 	}
 	txEnd := g.ev.find("talk_end", "tx")

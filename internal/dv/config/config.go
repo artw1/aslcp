@@ -30,7 +30,7 @@ var knownModes = map[string]bool{
 }
 
 // Default is the config used when no file exists: the standard USRP ports,
-// md380-emu on loopback and the parrot network.
+// md380-emu on loopback and the echo test network.
 func Default() ctl.Config {
 	c := ctl.Config{Version: ctl.ConfigVersion}
 	applyDefaults(&c)
@@ -127,12 +127,26 @@ func Validate(c *ctl.Config) error {
 			return fmt.Errorf("config: networks[%d]: bad port %d", i, n.Port)
 		}
 	}
+	ensureEchoTest(c)
 	for _, u := range c.Ctl.AllowUIDs {
 		if u < 0 {
 			return errors.New("config: ctl.allowUids: negative uid")
 		}
 	}
 	return nil
+}
+
+// ensureEchoTest makes LOOP (the echo test, a local test with no account) part
+// of every config and always enabled: a file without it, or with it switched
+// off (older settings could do both), still has it.
+func ensureEchoTest(c *ctl.Config) {
+	for i := range c.Networks {
+		if c.Networks[i].Mode == ctl.ModeLoop {
+			c.Networks[i].Enabled = true
+			return
+		}
+	}
+	c.Networks = append([]ctl.NetConfig{{Mode: ctl.ModeLoop, Enabled: true}}, c.Networks...)
 }
 
 func hostPort(s string) error {

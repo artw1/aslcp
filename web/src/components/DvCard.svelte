@@ -6,7 +6,7 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-    import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, isDMRFamily, modeButtonLabel, modeLabel } from '../lib/dvpanel';
+    import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import { exclusiveHint, linkButton, linkExclusiveOnClick, linkLine, pausedHint } from '../lib/dvbridge';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
@@ -158,6 +158,7 @@
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
       <span class="inline-flex items-center gap-1.5 font-medium"><RadioTower size={15} class="text-accent" aria-hidden="true" />Digital modes</span>
       <span class={tone === 'warn' ? 'text-warn' : tone === 'ok' ? 'text-ok' : ''} title={stateTitle(snap)} data-tone={tone}>{stateLine(b, reflectorSilent(snap))}</span>
+      {#if mode === 'LOOP'}<a href="#/digital" class="text-xs text-accent underline hover:no-underline" data-testid="dv-echo-link">{admin ? 'Stop it in Digital modes setup' : 'Pick a mode to stop it'}</a>{/if}
       <span class="sr-only">{ok ? 'All services running' : 'A service is down or the state is unknown'}</span>
       {#if linked}<span class="sr-only">Bridge node linked</span>{/if}
       {#if admin}<a href="#/digital" class="ml-auto text-xs text-accent underline hover:no-underline">Setup</a>{/if}
@@ -185,17 +186,17 @@
 
     {#if op && live}
       <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Mode">
-        {#each snap.modes.filter((x) => !isDMRFamily(x.id) || x.enabled) as m (m.id)}
+        {#each dashboardModes(snap.modes) as m (m.id)}
           <button type="button" class="btn btn-sm {shown === m.id ? 'btn-primary' : ''}" aria-pressed={shown === m.id}
             disabled={!m.enabled || locked}
             title={m.enabled ? undefined : `${modeButtonLabel(m)} is disabled${admin ? ' (Digital modes tab)' : ''}`}
             onclick={() => setMode(m.id)}>{modeButtonLabel(m)}{#if pending?.mode === m.id && outcome === 'waiting'}…{/if}</button>
         {/each}
-        <button type="button" class="btn btn-sm ml-auto" disabled={locked || !mode || !unlinkValue} title={mode ? `Unlink the ${modeLabel(mode)} talkgroup or reflector: send ${unlinkValue} to ${modeLabel(mode)}. The bridge node link is not changed.` : 'Mode unknown'} onclick={unlink}><Unlink size={13} aria-hidden="true" />Unlink {mode ? modeLabel(mode) + ' target' : ''}</button>
+        {#if mode !== 'LOOP'}<button type="button" class="btn btn-sm ml-auto" disabled={locked || !mode || !unlinkValue} title={mode ? `Unlink the ${modeLabel(mode)} talkgroup or reflector: send ${unlinkValue} to ${modeLabel(mode)}. The bridge node link is not changed.` : 'Mode unknown'} onclick={unlink}><Unlink size={13} aria-hidden="true" />Unlink {mode ? modeLabel(mode) + ' target' : ''}</button>{/if}
       </div>
 
 
-      {#if mode}
+      {#if mode && mode !== 'LOOP'}
         <form class="flex flex-wrap items-center gap-1.5" onsubmit={(e) => { e.preventDefault(); void go(); }}>
           <div class="min-w-40 flex-1">
             {#if pickable}

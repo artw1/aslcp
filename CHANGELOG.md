@@ -17,6 +17,7 @@ Release notes are taken from the section of the tag being released
 - The YSF and P25 cards are enable/disable only: the reflector address and port fields are gone, and nothing is linked when the engine starts; tune a reflector or talkgroup on the dashboard. Addresses and ports stored earlier are ignored.
 - P25 no longer has a "P25 unit ID" option: the DMR ID of the identity is always used. A stored value is ignored.
 - The NXDN option "NXDN unit ID" is now called "NXDN ID".
+- The local Parrot test mode is now the Echo test in Digital modes setup (Test audio), and no longer appears as a mode on the dashboard. It was easily mistaken for BrandMeister's Parrot, which is a service of the real network (TG 9990) and is unchanged. The echo test is always available while digital modes are enabled, so its Enable card is gone (stored settings for it are ignored), and its playback no longer pretends to be a call on TG 9990.
 
 ### Added
 - **BrandMeister is available again, natively.** The built-in engine logs in to BrandMeister itself: master (picked from the BrandMeister master list), password, identity (callsign and DMR ID) and options are set on the Digital modes tab, with the login state on the card, a private call switch and a Parrot button (TG 9990) on the dashboard. BrandMeister logs in as an Open DMR Terminal with your DMR ID and BrandMeister password; no application ID is needed.
@@ -24,7 +25,7 @@ Release notes are taken from the section of the tag being released
 - **YSF (System Fusion) is available, natively, in DN (V/D mode 2) and Voice FR.** The built-in engine links to a YSF reflector picked from the YSF list on the dashboard (or typed as a 5-digit id or `host:port`); it needs only the identity. The card is enable/disable only (no address or port). Both DN (V/D mode 2) and Voice FR (VW) calls are heard; your transmissions are sent in DN.
 - **P25 is available, natively.** The built-in engine links to a P25 reflector picked by talkgroup from the P25 list on the dashboard (unlink is `9999`); it needs only the identity. The card is enable/disable only (no address, port or unit ID); your DMR ID is the P25 unit ID. Voice is encoded and decoded on the node itself.
 - `GET/PUT /api/dv/networks/{mode}`, `GET /api/dv/networks` and `GET/PUT /api/dv/identity`; the dv snapshot carries each network's login state.
-- New Parrot test mode echoes your transmission back through the bridge node.
+- New Echo test (Digital modes setup, Test audio) echoes your transmission back through the bridge node a second later, so you can check the audio path of the node, the engine and the vocoder both ways without a network or an account. It plays back as a call from "Echo test".
 - ASLCP downloads the YSF, P25, NXDN and DMR host lists itself, once a day, while digital modes are enabled.
 
 ### Fixed

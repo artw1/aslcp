@@ -16,7 +16,7 @@ Services
   aslcp-helper.service  firewalld changes on request from the web server. It accepts
                         a fixed set of operations only, from root and user "aslcp".
 
-  aslcp-dv.service      the digital voice engine (USRP <-> md380-emu, parrot test
+  aslcp-dv.service      the digital voice engine (USRP <-> md380-emu, echo test
                         network), runs as user "aslcp-dv" with no capabilities and
                         loopback-only network access. It is installed but NOT enabled
                         by the package: "Digital modes" in the web UI turns it on.

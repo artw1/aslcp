@@ -509,7 +509,7 @@ func (t *Tracker) setLastModeLocked(mode string) {
 // remember is the shared rule of record and RememberTune.
 //
 //   - Every value must pass the mode's validator before it is stored.
-//   - LOOP is not remembered: the parrot is a test, not a place to return to.
+//   - LOOP is not remembered: the echo test is a test, not a place to return to.
 //   - A DMR private call ("9990#", and the Parrot ID 9990 itself, which only
 //     answers private calls) is never remembered: the remembered tune stays
 //     the last real talkgroup, so a resume does not call a user again.

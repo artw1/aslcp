@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIRM_MS, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, pendingOutcome, rxCaller, reflectorSilent, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate } from './dvpanel.ts';
+import { CONFIRM_MS, dashboardModes, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, pendingOutcome, rxCaller, reflectorSilent, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate } from './dvpanel.ts';
 import type { DVFavorite, DVSnapshot } from './types';
 
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
@@ -294,4 +294,18 @@ test('reflector not answering: warning state line, tone and title; nothing tuned
   assert.equal(stateTone(snap({ modes: mode(true), bridge: { ...bridge, tune: '' } })), '');
   assert.equal(reflectorSilent(snap({ modes: mode(true), bridge: { ...bridge, mode: 'P25', tune: '1997' } })), false);
   assert.equal(reflectorSilent(null), false);
+});
+
+test('the echo test has no mode button and the state line says it runs', () => {
+  const modes = [
+    { id: 'LOOP', enabled: true, available: true, unlink: '' },
+    { id: 'BM', enabled: true, available: true, unlink: '4000' },
+    { id: 'TGIF', enabled: false, available: true, unlink: '4000' },
+    { id: 'YSF', enabled: false, available: false, unlink: 'disconnect' },
+  ];
+  assert.deepEqual(dashboardModes(modes).map((m) => m.id), ['BM', 'YSF']);
+  assert.equal(stateLine({ mode: 'LOOP', tune: '', source: 'aslcp-dv' }), 'Echo test running');
+  assert.equal(stateLine({ mode: 'LOOP', tune: '9990', targetName: 'Parrot', source: 'aslcp-dv' }), 'Echo test running');
+  assert.equal(stateLine({ mode: 'LOOP', tune: '', source: 'none' }), 'Mode unknown');
+  assert.equal(modeLabel('LOOP'), 'Echo test');
 });

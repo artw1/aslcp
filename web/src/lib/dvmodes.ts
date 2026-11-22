@@ -1,6 +1,6 @@
 // The mode cards, the resume notice and the remembered tunes of the digital modes setup page
 // (docs/DV.md). Pure helpers so node --test can cover them.
-import { DV_NETWORKS, isDVNetwork, PARROT_LABEL } from './dvnetworks.ts';
+import { DV_NETWORKS, ECHO_LABEL, isDVNetwork } from './dvnetworks.ts';
 import { modeAvailable } from './dvnetform.ts';
 import type { DVResume, DVSnapshot, DVTuneMode } from './types';
 
@@ -19,9 +19,9 @@ export function resumeToast(on: boolean): string {
   return on ? 'The last talkgroup or reflector is re-tuned after a restart.' : 'After a restart the engine starts in the last mode, without re-tuning.';
 }
 
-/** The name of each mode: the parrot, the DMR networks' registry labels, then the gateways. */
+/** The name of each mode: the echo test, the DMR networks' registry labels, then the gateways. */
 export const MODE_NAME: Record<DVTuneMode, string> = {
-  LOOP: PARROT_LABEL,
+  LOOP: ECHO_LABEL,
   ...(Object.fromEntries(DV_NETWORKS.map((n) => [n.id, n.label])) as Record<'BM' | 'TGIF' | 'DMR', string>),
   YSF: 'System Fusion (YSF)', P25: 'P25', NXDN: 'NXDN',
 };

@@ -1,5 +1,6 @@
 // Pure logic of the dashboard digital modes card (docs/DV.md "Dashboard card"): the state line,
 // favourite and tune validation (the same rules as the server), and the pending/confirm logic.
+import { ECHO_RUNNING } from './dvecho.ts';
 import { isDVNetwork, networkLabel } from './dvnetworks.ts';
 import type { DVBridge, DVCaller, DVFavorite, DVSnapshot, DVTuneMode, NodeStatus } from './types';
 
@@ -10,6 +11,8 @@ export const isDMRFamily = (mode: string): boolean => isDVNetwork(mode);
 export const modeLabel = (mode: string): string => networkLabel(mode);
 /** The name of a panel mode button: the snapshot's label when it has one, else modeLabel. */
 export const modeButtonLabel = (m: { id: string; label?: string }): string => m.label || modeLabel(m.id);
+/** The mode buttons of the dashboard card: the echo test has none (it starts in Digital modes setup), and a disabled DMR network has none. */
+export const dashboardModes = <M extends { id: string; enabled: boolean }>(modes: M[]): M[] => modes.filter((m) => m.id !== 'LOOP' && (!isDMRFamily(m.id) || m.enabled));
 /** How long a mode switch may stay unconfirmed before the card says so. */
 export const CONFIRM_MS = 5000;
 export const FAV_NAME_MAX = 40;
@@ -25,6 +28,7 @@ export function reflectorSilent(s: Pick<DVSnapshot, 'bridge' | 'modes'> | null |
 /** "Mode YSF, tuned to Example room (192.0.2.10:42000)", "Mode DMR, tuned to 91", "Mode P25", or "Mode unknown"; "..., Reflector not answering" when `silent` (see reflectorSilent). */
 export function stateLine(b: Pick<DVBridge, 'mode' | 'tune' | 'targetName' | 'source'> | null | undefined, silent = false): string {
   if (!b || b.source === 'none' || !b.mode) return 'Mode unknown';
+  if (b.mode === 'LOOP') return ECHO_RUNNING;
   const m = modeLabel(b.mode);
   if (!b.tune) return `Mode ${m}`;
   const line = b.targetName ? `Mode ${m}, tuned to ${b.targetName} (${b.tune})` : `Mode ${m}, tuned to ${b.tune}`;

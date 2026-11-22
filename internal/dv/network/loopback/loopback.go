@@ -1,6 +1,7 @@
-// Package loopback is the parrot network: it records the AMBE frames of one
-// transmission, waits, then plays them back as a received call from callsign
-// PARROT on TG 9990. It proves both audio directions on a live node.
+// Package loopback is the echo test network (mode LOOP): it records the AMBE
+// frames of one transmission, waits, then plays them back as a received call
+// from the pseudo callsign "ECHO TEST", with no talkgroup. It proves both
+// audio directions on a live node and never touches a network.
 package loopback
 
 import (
@@ -14,9 +15,10 @@ import (
 )
 
 const (
-	// Callsign and TG of the playback call.
-	Callsign = "PARROT"
-	TG       = 9990
+	// Callsign is the source of the playback call (ctl.EchoTestCall). The
+	// call has no talkgroup and no slot, so it cannot be taken for a real
+	// network's call (BrandMeister's Parrot is TG 9990 there).
+	Callsign = ctl.EchoTestCall
 
 	// MaxFrames caps one recording (60 s of 20 ms frames).
 	MaxFrames = 3000
@@ -36,7 +38,7 @@ func init() {
 	})
 }
 
-// Loopback is the parrot network.
+// Loopback is the echo test network.
 type Loopback struct {
 	enabled bool
 	delay   time.Duration
@@ -53,7 +55,7 @@ type Loopback struct {
 	wg      sync.WaitGroup
 }
 
-// New builds the parrot from its config.
+// New builds the echo test from its config.
 func New(cfg ctl.NetConfig) *Loopback {
 	l := &Loopback{enabled: cfg.Enabled, delay: DefaultDelay, nextID: 1 << 32}
 	if v, err := strconv.Atoi(cfg.Options[OptPlaybackDelayMS]); err == nil && v >= 0 {
@@ -75,7 +77,7 @@ func (l *Loopback) Unlink(context.Context) error {
 	return nil
 }
 
-// Status reports the parrot; it needs no login.
+// Status reports the echo test; it needs no login.
 func (l *Loopback) Status() ctl.NetStatus {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -150,7 +152,7 @@ func (l *Loopback) play(ctx context.Context, sink network.Sink, id uint64, frame
 	if !sleep(ctx, l.delay) {
 		return
 	}
-	sink.Header(network.CallHeader{Call: id, Src: Callsign, TG: TG, Slot: 2})
+	sink.Header(network.CallHeader{Call: id, Src: Callsign})
 	t := time.NewTicker(FrameInterval)
 	defer t.Stop()
 	for i, f := range frames {

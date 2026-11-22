@@ -48,7 +48,7 @@ func start(t *testing.T) (*Loopback, *sink, context.CancelFunc) {
 	return l, s, func() { cancel(); <-fin }
 }
 
-func TestParrot(t *testing.T) {
+func TestEchoTest(t *testing.T) {
 	l, s, stop := start(t)
 	defer stop()
 	l.StartTX(network.CallHeader{Call: 7})
@@ -63,7 +63,7 @@ func TestParrot(t *testing.T) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.hdr) != 1 || s.hdr[0].Src != "PARROT" || s.hdr[0].TG != 9990 {
+	if len(s.hdr) != 1 || s.hdr[0].Src != "ECHO TEST" || s.hdr[0].TG != 0 || s.hdr[0].Private {
 		t.Fatalf("%+v", s.hdr)
 	}
 	if len(s.frames) != 10 {

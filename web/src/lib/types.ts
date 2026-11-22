@@ -220,13 +220,13 @@ export interface DVListItem { value: string; name: string; detail?: string; addr
 export interface DVList { mode: DVListMode; items: DVListItem[]; truncated?: boolean; etag: string }
 
 /** GET and PUT /api/dv/resume (docs/API.md "Digital modes tune and resume"): the last tune of each mode and the toggle. */
-/** LOOP is the parrot (test) network of the native engine; BM, TGIF, DMR, YSF, P25 and NXDN are carried but marked unavailable in M1. */
+/** LOOP is the echo test (the local test network) of the native engine; BM, TGIF, DMR, YSF, P25 and NXDN are carried but marked unavailable in M1. */
 export type DVTuneMode = 'LOOP' | 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN';
 export interface DVRemembered { tune: string; ts?: string; at: string }
 export interface DVResume { resume: boolean; lastMode?: string; perMode: Partial<Record<DVTuneMode, DVRemembered>> }
 
 /** GET /api/dv/snapshot and the SSE `dv` event (all roles; docs/API.md "Digital modes panel"). No install log, no identity, no secret. */
-export interface DVBridge { mode: string; tune: string; targetName?: string; slot: number; muted: boolean; /** The last tune was a DMR private call (the Parrot): `tune` is empty then. */ private?: boolean; source: 'aslcp-dv' | 'abinfo' | 'none'; updated: string }
+export interface DVBridge { mode: string; tune: string; targetName?: string; slot: number; muted: boolean; /** The last tune was a DMR private call (the BrandMeister Parrot): `tune` is empty then. */ private?: boolean; source: 'aslcp-dv' | 'abinfo' | 'none'; updated: string }
 /** One talker from the Analog_Bridge log. `at` is the log's own time, no zone. */
 export interface DVCaller { call?: string; private?: boolean; dmrId?: string; dst?: string; slot?: number; at?: string }
 export interface DVSnapshot {

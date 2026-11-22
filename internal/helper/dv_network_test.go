@@ -369,3 +369,29 @@ func TestParseDVNetworksDropsRetiredYSFP25Fields(t *testing.T) {
 		t.Fatal("p25_id accepted on YSF")
 	}
 }
+
+// The echo test (LOOP) used to have an Enable switch and a networks.json entry:
+// an old file with one (on or off, with options) still loads and the entry is
+// dropped; the engine config has LOOP enabled either way.
+func TestParseDVNetworksDropsLoop(t *testing.T) {
+	for _, loop := range []string{`{"enabled":true}`, `{"enabled":false}`, `{"enabled":true,"address":"192.0.2.1","options":{"playback_delay_ms":"10"}}`} {
+		st, err := parseDVNetworks([]byte(`{"version":1,"networks":{"LOOP":` + loop + `,"BM":{"enabled":true}}}`))
+		if err != nil {
+			t.Fatalf("%s: %v", loop, err)
+		}
+		if _, ok := st.Networks["LOOP"]; ok || !st.Networks["BM"].Enabled {
+			t.Fatalf("%s: %+v", loop, st.Networks)
+		}
+	}
+	for _, off := range []bool{true, false} {
+		doc := map[bool]string{true: `{"enabled":true}`, false: `{"enabled":false}`}[off]
+		st, err := parseDVNetworks([]byte(`{"version":1,"networks":{"LOOP":` + doc + `}}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := renderDVConfig(34001, 32001, st)
+		if len(cfg.Networks) != 7 || cfg.Networks[0].Mode != dvctl.ModeLoop || !cfg.Networks[0].Enabled {
+			t.Fatalf("%+v", cfg.Networks)
+		}
+	}
+}

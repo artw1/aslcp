@@ -4,7 +4,7 @@ Digital modes (DMR, YSF, P25, NXDN) run on the ASLCP engine, `aslcp-dv`, a small
 
 > **You have to redo the digital-modes configuration in 2.0.** The BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN settings and your identity (callsign and DMR ID) are not carried over from the previous stack, and nothing is imported from its ini files. The previous stack is removed on upgrade, except md380-emu. See "Upgrading from 1.x" below.
 
-Status in 2.0.0: the engine, the control socket, the vocoder link, the **Parrot** test mode (`LOOP`), **BrandMeister** (`BM`, a native Rewind client), **TGIF** and **DMR - Other** (native Homebrew clients), **NXDN**, **YSF** and **P25** (native reflector clients) are all in. YSF carries voice in DN (V/D mode 2) and Voice FR (VW); P25 carries IMBE. All modes are available.
+Status in 2.0.0: the engine, the control socket, the vocoder link, the **Echo test** (`LOOP`, a local audio test), **BrandMeister** (`BM`, a native Rewind client), **TGIF** and **DMR - Other** (native Homebrew clients), **NXDN**, **YSF** and **P25** (native reflector clients) are all in. YSF carries voice in DN (V/D mode 2) and Voice FR (VW); P25 carries IMBE. All modes are available.
 
 ## Parts
 
@@ -36,14 +36,20 @@ Supported: Debian bookworm and trixie on amd64, arm64 and armhf (ARMv7). **ARMv6
 
 | Mode | Id | In 2.0.0 | Tune value | Unlink |
 |---|---|---|---|---|
-| Parrot | `LOOP` | available | parrot id (default 9990, private call) | `disconnect` |
+| Echo test | `LOOP` | available, always on | none (started from setup, not tuned) | none |
 | BrandMeister | `BM` | available | talkgroup (a trailing `#` makes a private call) | `4000` |
 | TGIF, DMR - Other | `TGIF`, `DMR` | available | talkgroup | `4000` |
 | YSF | `YSF` | available (DN, VW) | reflector id or `host:port` | `disconnect` |
 | P25 | `P25` | available | talkgroup | `9999` |
 | NXDN | `NXDN` | available | talkgroup | `9999` |
 
-Availability comes from the engine (which modes the running build implements); while the engine is down the page falls back to a fixed list (Parrot, BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN). A mode that is not available answers `409 not_available` to mode and tune; an available one that is not set up answers `409 mode_disabled`. Parrot echoes what you transmit back through the bridge node, which tests the whole path (node, USRP, engine, vocoder) without a network account.
+Availability comes from the engine (which modes the running build implements); while the engine is down the page falls back to a fixed list (Echo test, BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN). A mode that is not available answers `409 not_available` to mode and tune; an available one that is not set up answers `409 mode_disabled`. The Echo test is described below.
+
+## Echo test
+
+The Echo test is a local test with no network and no account: the engine records one transmission, waits about a second and plays it back through the bridge node as a received call from the pseudo callsign "ECHO TEST" (no talkgroup, no DMR ID). It proves the audio path of the node, USRP, the engine and the md380 vocoder in both directions. Its engine mode id is `LOOP`; it is always enabled while digital modes are enabled, so it has no Enable card, and a `LOOP` entry in an older `networks.json` is ignored. Not to be confused with the **BrandMeister Parrot** (TG 9990 on BrandMeister), a service of the real network that is called from the BrandMeister mode on the dashboard.
+
+**Using it.** Digital modes setup, *Test audio*: press *Start echo test*, key up, talk, unkey, and you hear yourself back a second later. While it runs the dashboard card says "Echo test running" (it has no mode button there) and *Now calling* and *Last heard* show the playback as "Echo test". *Stop* switches back to the mode that was in effect before you started (the page remembers it; failing that, the last mode from `GET /api/dv/resume`, then the first enabled mode), and that mode's remembered talkgroup or reflector is tuned again, as when you switch modes on the dashboard. The Echo test is never remembered as the last mode, so a restart does not come back in it. Starting and stopping use `POST /api/dv/mode` (operator or admin).
 
 ## BrandMeister
 
@@ -59,7 +65,7 @@ BrandMeister is a native client of the Rewind protocol: the engine logs in to a 
 
 **Login.** The engine logs in to BrandMeister as an Open DMR Terminal with your DMR ID and your BrandMeister password; no application ID is needed. A refusal (wrong password) shows on the card as "Login failed".
 
-**Using it.** On the dashboard, choose BrandMeister, type a talkgroup and press Tune, or pick a favourite. The *Private call* switch (or a trailing `#`) calls the number as a private call. **Parrot** calls 9990 as a private call: key up, release, and the master plays your transmission back as a private call from 9990 to you. That tests the whole path over the real network without disturbing a talkgroup. **Unlink** tunes TG 4000, BrandMeister's disconnect talkgroup.
+**Using it.** On the dashboard, choose BrandMeister, type a talkgroup and press Tune, or pick a favourite. The *Private call* switch (or a trailing `#`) calls the number as a private call. The dashboard's **Parrot** button (BrandMeister's Parrot, not the Echo test) calls 9990 as a private call: key up, release, and the master plays your transmission back as a private call from 9990 to you. That tests the whole path over the real network without disturbing a talkgroup. **Unlink** tunes TG 4000, BrandMeister's disconnect talkgroup.
 
 **Upgrade from 1.x.** Nothing of the old bridge program is imported: pick the master and enter the password once on the BrandMeister card.
 

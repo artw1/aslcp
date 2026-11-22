@@ -276,6 +276,15 @@ func TestDVTuneLoop(t *testing.T) {
 	if !found {
 		t.Fatalf("no tune request: %+v", fc.Requests())
 	}
+	// the echo test has no target: nothing is shown as tuned, and it is labelled
+	if r.Snapshot.Bridge.Tune != "" || r.Snapshot.Bridge.Private {
+		t.Errorf("echo test bridge: %+v", r.Snapshot.Bridge)
+	}
+	for _, m := range r.Snapshot.Modes {
+		if m.ID == "LOOP" && (m.Label != "Echo test" || !m.Enabled) {
+			t.Errorf("LOOP mode view: %+v", m)
+		}
+	}
 	// the unlink value is an unlink
 	if c := e.do("op", "POST", "/api/dv/tune", map[string]string{"mode": "LOOP", "tune": "disconnect"}, nil); c != 200 {
 		t.Fatalf("unlink %d", c)

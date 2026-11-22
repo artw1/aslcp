@@ -56,7 +56,7 @@ func dvUSRPPorts(rpt []byte, node string) (listen, peer int, ok bool) {
 	return l, p, true
 }
 
-// renderDVConfig builds the engine config: the parrot, every network this
+// renderDVConfig builds the engine config: the echo test (LOOP, always on), every network this
 // build carries natively (disabled until set up) and, from networks.json, the
 // settings of the networks that are not in this build yet (carried so the
 // operator's settings are not lost). The identity comes from networks.json.

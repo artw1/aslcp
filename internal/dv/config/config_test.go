@@ -62,3 +62,30 @@ func TestStrict(t *testing.T) {
 		t.Errorf("err %v", err)
 	}
 }
+
+// The echo test (LOOP) is part of every config and always on, whatever the
+// file says.
+func TestEchoTestAlwaysOn(t *testing.T) {
+	for name, doc := range map[string]string{
+		"absent":   `{"version":1,"networks":[{"mode":"BM","enabled":true}]}`,
+		"disabled": `{"version":1,"networks":[{"mode":"BM"},{"mode":"LOOP","enabled":false}]}`,
+		"no list":  `{"version":1}`,
+	} {
+		c, err := Parse([]byte(doc))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		n := 0
+		for _, nc := range c.Networks {
+			if nc.Mode == ctl.ModeLoop {
+				n++
+				if !nc.Enabled {
+					t.Errorf("%s: LOOP disabled", name)
+				}
+			}
+		}
+		if n != 1 {
+			t.Errorf("%s: %d LOOP entries in %+v", name, n, c.Networks)
+		}
+	}
+}

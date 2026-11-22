@@ -48,7 +48,7 @@ type DVSnapshot struct {
 }
 
 // DVBridge: Mode is a panel mode (dvpanel.PanelModes; "" when none is set);
-// Tune is the target as text (the parrot ID for LOOP, the talkgroup for a DMR
+// Tune is the target as text (empty for LOOP, the echo test; the talkgroup for a DMR
 // network, the reflector id or host:port for YSF); Slot is the DMR slot (0
 // when unknown); Source is "aslcp-dv" or "none".
 type DVBridge struct {
@@ -122,7 +122,7 @@ const (
 	dvVocoder    = "md380-emu"
 )
 
-var dvModeLabels = map[string]string{ctl.ModeBM: "BrandMeister", ctl.ModeTGIF: "TGIF", ctl.ModeDMR: "DMR - Other"}
+var dvModeLabels = map[string]string{ctl.ModeLoop: ctl.EchoTestName, ctl.ModeBM: "BrandMeister", ctl.ModeTGIF: "TGIF", ctl.ModeDMR: "DMR - Other"}
 
 // dvSnapper keeps the engine's state (from its event stream), builds
 // snapshots and publishes the changes.
@@ -360,6 +360,9 @@ func (d *dvSnapper) endTalkLocked(t ctl.Talk, at time.Time) {
 // dvCaller is a call as the panel shows it.
 func dvCaller(t ctl.Talk) dvpanel.Caller {
 	c := dvpanel.Caller{Call: t.Call, Private: t.Private, Slot: t.Slot, At: t.Start.Local().Format("2006-01-02T15:04:05")}
+	if ctl.IsEchoTest(t) {
+		c.Call = ctl.EchoTestName
+	}
 	if t.DMRID != 0 {
 		c.DMRID = strconv.FormatUint(uint64(t.DMRID), 10)
 	}
@@ -461,7 +464,9 @@ func (d *dvSnapper) fillBridge(sn *DVSnapshot, st ctl.Status) {
 	b.Source, b.Updated, b.Mode, b.Tune, b.Private = "aslcp-dv", in.Updated, in.Mode, in.Tune, in.Private
 	b.Slot, _ = strconv.Atoi(in.Slot)
 	if b.Mode == dvpanel.ModeLoop {
-		b.Private = false
+		// the echo test has no target: nothing is "tuned" (the engine reports the
+		// parrot id of the old tune API)
+		b.Private, b.Tune = false, ""
 	}
 	if b.Tune != "" {
 		b.TargetName = d.targetName(st, b.Mode, b.Tune)
@@ -604,6 +609,9 @@ func dvNowTalks(talks []ctl.Talk) []nowcalling.Talk {
 		if t.Mode == ctl.ModeYSF {
 			k.Kind = nowcalling.KindYSF
 		}
+		if ctl.IsEchoTest(t) {
+			k.Call = ctl.EchoTestName
+		}
 		if t.DMRID != 0 {
 			k.DMRID = strconv.FormatUint(uint64(t.DMRID), 10)
 		}
@@ -626,7 +634,7 @@ func dvNowTalks(talks []ctl.Talk) []nowcalling.Talk {
 func dvNetworkName(mode string) string {
 	switch mode {
 	case ctl.ModeLoop:
-		return "Parrot"
+		return ctl.EchoTestName
 	case ctl.ModeBM:
 		return "BrandMeister"
 	case ctl.ModeDMR:

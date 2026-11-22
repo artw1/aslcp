@@ -382,6 +382,9 @@ func parseDVNetworks(data []byte) (dvNetworksState, error) {
 	for id, s := range st.Networks {
 		sp, ok := dvpanel.NetSpecFor(id)
 		if !ok {
+			// a network this version does not know, and LOOP: the echo test
+			// has no settings and is always on, but an earlier version could
+			// store an entry for it (its Enable switch); dropped silently
 			continue
 		}
 		if !sp.Port {

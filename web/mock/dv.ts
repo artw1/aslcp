@@ -132,8 +132,8 @@ function removeNode(c: DVCtx, body: Body): boolean {
   return true;
 }
 
-// Remembered tunes (GET /dv/resume). Only the parrot exists in M1.
-let resume = false, lastMode = 'LOOP';
+// Remembered tunes (GET /dv/resume). The echo test (LOOP) is never remembered, so lastMode stays '' until a network is used.
+let resume = false, lastMode = '';
 const remembered: Record<string, { tune: string; ts?: string; at: string }> = {};
 const resumeView = () => ({ resume, lastMode, perMode: remembered });
 
@@ -168,13 +168,13 @@ const LISTS: Record<string, { value: string; name: string; detail?: string; addr
   ],
 };
 
-// Dashboard panel (GET /dv/snapshot, /mode, /unlink, /tune, favourites). LOOP (the parrot, shown as
-// "Parrot (test)") and BM are available; the other modes answer 409 not_available, and BM answers 409
+// Dashboard panel (GET /dv/snapshot, /mode, /unlink, /tune, favourites). LOOP (the echo test, always on, shown as
+// "Echo test", started from Digital modes setup) and BM are available; the other modes answer 409 not_available, and BM answers 409
 // mode_disabled until it is set up (PUT /dv/networks/BM with the identity set).
 type PMode = 'LOOP' | 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN';
 const ALL: PMode[] = ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN'];
 const UNLINK: Record<PMode, string> = { LOOP: '', BM: '4000', TGIF: '4000', DMR: '4000', YSF: 'disconnect', P25: '9999', NXDN: '9999' };
-const LABEL: Partial<Record<PMode, string>> = { LOOP: 'Parrot (test)', BM: 'BrandMeister', TGIF: 'TGIF', DMR: 'DMR - Other' };
+const LABEL: Partial<Record<PMode, string>> = { LOOP: 'Echo test', BM: 'BrandMeister', TGIF: 'TGIF', DMR: 'DMR - Other' };
 const NATIVE: PMode[] = ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN'];
 // BrandMeister settings and the node identity (GET/PUT /dv/networks, /dv/identity). The password is write-only.
 // Placeholder master 192.0.2.10. The login state follows the identity: no DMR ID -> the master refuses.
@@ -300,12 +300,14 @@ function netsHandler(c: DVCtx): boolean {
 const bridge: { mode: PMode; tune: string; slot: number; muted: boolean } = { mode: 'LOOP', tune: '', slot: 2, muted: false };
 const started = Date.now();
 function bootLastMode() { bridge.mode = 'LOOP'; bridge.tune = ''; }
-// Placeholder talkers: the parrot plays back whoever last keyed.
+// Placeholder talkers (the echo test plays you back to yourself, as "Echo test" with no talkgroup).
 const TALKERS = [{ call: 'N0CALL', dmrId: '1234567' }, { call: 'N0DEMO', dmrId: '1234568' }, { call: 'N0TEST', dmrId: '1234569' }];
 function callers() {
   const n = Math.floor(Date.now() / 30_000);
   const at = (k: number) => new Date(Date.now() - k * 30_000).toISOString().slice(0, 19).replace('T', ' ');
-  const heard = [0, 1, 2].map((k) => ({ ...TALKERS[(n - k + 3 * 100) % 3], dst: 'parrot', slot: 2, at: at(k) }));
+  const heard = bridge.mode === 'LOOP'
+    ? [0, 1, 2].map((k) => ({ call: 'Echo test', at: at(k) }))
+    : [0, 1, 2].map((k) => ({ ...TALKERS[(n - k + 3 * 100) % 3], dst: '91', slot: 2, at: at(k) }));
   return { caller: heard[0], heard };
 }
 function snapshot() {
@@ -346,7 +348,7 @@ function panelHandler(c: DVCtx): boolean {
     if (!NATIVE.includes(m)) return unavailable(m), true;
     if (modeOff(m)) return true;
     const switched = bridge.mode !== m;
-    bridge.mode = m; lastMode = m;
+    bridge.mode = m; if (m !== 'LOOP') lastMode = m;
     reply(m, switched);
     c.push?.('dv', snapshot());
     return true;
@@ -365,7 +367,7 @@ function panelHandler(c: DVCtx): boolean {
     if (!NATIVE.includes(mode)) return unavailable(mode), true;
     if (modeOff(mode)) return true;
     const switched = bridge.mode !== mode;
-    bridge.mode = mode; bridge.tune = mode === 'LOOP' ? '' : tune.replace(/#$/, ''); lastMode = mode;
+    bridge.mode = mode; bridge.tune = mode === 'LOOP' ? '' : tune.replace(/#$/, ''); if (mode !== 'LOOP') lastMode = mode;
     reply(mode, switched);
     c.push?.('dv', snapshot());
     return true;

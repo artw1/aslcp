@@ -412,23 +412,22 @@ DVStatus = {
 |---|---|---|---|---|
 | GET | `/api/dv` | viewer and up | | `200` DVSnapshot (`installed`, `modes`, ...) |
 | POST | `/api/dv/mode` | operator, admin | `{"mode":"LOOP\|BM\|TGIF\|DMR\|YSF\|P25\|NXDN","force"?}` | `200` `{mode, switched, confirmed, left?, snapshot}`. Switches the mode; the remembered tune of that mode is sent again, if there is one |
-| POST | `/api/dv/tune` | operator, admin | `{"mode":"LOOP","tune":"9990","force"?}` | `200` as mode. DMR networks take a talkgroup, YSF a reflector id (or `host:port`), P25 and NXDN a talkgroup, LOOP the parrot id |
-| POST | `/api/dv/unlink` | operator, admin | `{}` | `200` as mode. LOOP and YSF `disconnect`, DMR networks `4000`, P25 and NXDN `9999` |
+| POST | `/api/dv/tune` | operator, admin | `{"mode":"LOOP","tune":"9990","force"?}` | `200` as mode. DMR networks take a talkgroup, YSF a reflector id (or `host:port`), P25 and NXDN a talkgroup. `LOOP` (the Echo test) has no tune: switch to it with `/api/dv/mode`; the old `9990` value is still accepted |
+| POST | `/api/dv/unlink` | operator, admin | `{}` | `200` as mode. YSF `disconnect`, DMR networks `4000`, P25 and NXDN `9999` |
 | GET | `/api/dv/favorites` | viewer and up | | `200` `[{id,mode,value,name,sort}]` |
 | POST | `/api/dv/favorites` | operator, admin | `{mode,value,name}` | `201` favourite; `400 bad_request` |
 | PUT | `/api/dv/favorites/{id}` | operator, admin | `{name?,sort?}` | `200` favourite; `404 not_found` |
 | DELETE | `/api/dv/favorites/{id}` | operator, admin | | `204`; `404 not_found` |
-| GET | `/api/dv/resume` | operator, admin | | `200` `{"resume":false,"lastMode":"LOOP","perMode":{...}}` |
+| GET | `/api/dv/resume` | operator, admin | | `200` `{"resume":false,"lastMode":"BM","perMode":{...}}` |
 | PUT | `/api/dv/resume` | admin | `{"resume":true}` | `200` as GET; `400 bad_request` |
 
-In this build only `LOOP` (Parrot, an echo test through the bridge node) is available. The other modes answer `409 not_available` to mode and tune, and their `available` flag in the snapshot is `false`; their settings and favourites are kept. A mode switched off in the engine config answers `409 mode_disabled`.
+`LOOP` is the Echo test (docs/DV.md "Echo test"), a local audio test through the bridge node: it is always enabled and available, the snapshot's `bridge.tune` is empty while it runs, and its playback is a call from "Echo test" with no `dst`. The Digital modes setup page starts it with `POST /api/dv/mode` and stops it by switching back to the previous mode. A mode the engine does not implement answers `409 not_available` to mode and tune, and its `available` flag in the snapshot is `false`; their settings and favourites are kept. A mode switched off in the engine config answers `409 mode_disabled`.
 
 ```json
 DVSnapshot = {
   "installed": true, "running": true, "configured": true,
-  "bridge": {"mode": "LOOP", "tune": "9990", "targetName": "Parrot", "slot": 0, "muted": false,
-             "private": true, "source": "aslcp-dv", "updated": "2026-11-22T00:49:17Z"},   // source "none" while disabled
-  "modes": [{"id": "LOOP", "enabled": true, "available": true, "unlink": "disconnect"},
+  "bridge": {"mode": "BM", "tune": "91", "slot": 2, "muted": false, "source": "aslcp-dv", "updated": "2026-11-22T00:49:17Z"},   // source "none" while disabled
+  "modes": [{"id": "LOOP", "enabled": true, "available": true, "unlink": "disconnect", "label": "Echo test"},
             {"id": "BM", "enabled": true, "available": false, "unlink": "4000", "label": "BrandMeister"}],
   "services": [{"unit": "aslcp-dv", "active": true}, {"unit": "md380-emu", "active": true}],
   "vocoder": {"ok": true, "timeouts": 0},

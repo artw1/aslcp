@@ -7,7 +7,7 @@ import (
 	"unicode/utf8"
 )
 
-// Panel modes in display order. LOOP is the engine's own parrot (the loopback
+// Panel modes in display order. LOOP is the engine's echo test (the loopback
 // test); BM, TGIF and DMR are the DMR networks, which carry talkgroups, private
 // calls and a slot.
 const (
