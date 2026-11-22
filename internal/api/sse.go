@@ -204,6 +204,11 @@ func (s *Server) AttachMonitor(ctx context.Context, m *rpt.Monitor) {
 			s.rec.Process(u)
 			s.ncRPT(u)
 			s.pub.HandleUpdate(u)
+			if linkStateChanged(u.Changes) {
+				// The dv snapshot carries the bridge node's link (Link.Linked, read from
+				// this monitor); without this it only changed when something else did.
+				s.dvLinkChanged()
+			}
 			if u.Changes.Recovered || u.Changes.Resync || u.Changes.Added || u.Changes.Removed {
 				// Full state after an AMI reconnect, a dropped-update resync or a
 				// change of the node set (the client drops nodes missing from it).
@@ -329,4 +334,10 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request, u store.Us
 			}
 		}
 	}
+}
+
+// linkStateChanged says whether an update can change a node's direct links,
+// which the dv snapshot reports as link.linked.
+func linkStateChanged(c rpt.Changes) bool {
+	return len(c.LinksAdded) > 0 || len(c.LinksRemoved) > 0 || c.Initial || c.Added || c.Removed || c.Stale || c.Recovered || c.Resync
 }

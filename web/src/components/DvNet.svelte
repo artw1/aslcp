@@ -5,7 +5,8 @@
   import { api } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
   import type { DVIdentity, DVListItem, DVNetView } from '../lib/types';
-  import { buildPut, enableBlock, formError, formOf, hasChanges, loginText, loginTone, MASTER_OTHER, applyMaster, masterChoice, masterListMode, passwordUx } from '../lib/dvnetform';
+  import { buildPut, enableBlock, formError, formOf, hasChanges, loginText, loginTone, MASTER_OTHER, applyMaster, masterChoice, masterListMode, passwordUx, liveLogin, savedMessage } from '../lib/dvnetform';
+  import { app } from '../lib/store.svelte';
   import Toggle from './Toggle.svelte';
 
   let { v, identity, onsaved }: { v: DVNetView; identity: DVIdentity | null; onsaved: (n: DVNetView) => void } = $props();
@@ -37,16 +38,18 @@
   const err = $derived(formError(v, f));
   const block = $derived(f.enabled ? enableBlock(v, f, identity) : '');
   const put = $derived(buildPut(v, f));
-  const login = $derived(v.enabled ? loginText(v.login, v.detail) : '');
+  const live = $derived(liveLogin(v, app.dv?.modes));
+  const login = $derived(v.enabled ? loginText(live.login, live.detail) : '');
   const basic = $derived(v.options.filter((o) => !o.advanced));
   const adv = $derived(v.options.filter((o) => o.advanced));
 
   async function save() {
     busy = true;
     try {
-      const r = await api.dvNetworkPut(v.mode, put);
+      const sent = put;
+      const r = await api.dvNetworkPut(v.mode, sent);
       onsaved(r);
-      toast(r.applied === false && r.applyError ? `${v.label} saved. ${r.applyError}` : `${v.label} settings saved`, 'info');
+      toast(savedMessage(v.label, sent, r.applied === false ? r.applyError : undefined), 'info');
     } catch (e) { toastError(e); } finally { busy = false; }
   }
 </script>
@@ -66,7 +69,7 @@
 <div class="space-y-3" data-testid="{id}-form">
   <div class="flex flex-wrap items-center gap-2">
     <span class="inline-flex items-center gap-2 text-sm"><Toggle checked={f.enabled} disabled={busy} label="Enable {v.label}" onchange={(on) => (f.enabled = on)} />Enable</span>
-    {#if login}<span class="badge {loginTone(v.login) === 'ok' ? 'border-ok text-ok' : loginTone(v.login) === 'err' ? 'border-danger text-danger' : ''}" role="status" data-testid="{id}-login">{login}</span>{/if}
+    {#if login}<span class="badge {loginTone(live.login) === 'ok' ? 'border-ok text-ok' : loginTone(live.login) === 'err' ? 'border-danger text-danger' : ''}" role="status" data-testid="{id}-login">{login}</span>{/if}
   </div>
   {#if v.help}<p class="text-xs text-muted" data-testid="{id}-help">{v.help}</p>{/if}
   <div class="grid grid-cols-2 gap-3">

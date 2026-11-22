@@ -153,3 +153,20 @@ export function applyMaster(v: DVNetView, f: NetForm, item: DVListItem): NetForm
   if (v.fields.password && f.password === '' && !v.passwordSet && !f.clearPassword && item.password && item.password !== v.defaultPassword) g.password = item.password;
   return g;
 }
+
+/**
+ * The login state a network card shows: the live one from the dashboard snapshot (SSE `dv`) when it lists the mode,
+ * else the one stored in the settings view. The view is read once, right after a save, while the engine is still
+ * logging in, so it alone would stay on "Logging in..." for good.
+ */
+export function liveLogin(v: Pick<DVNetView, 'mode' | 'login' | 'detail'>, modes: DVSnapshot['modes'] | undefined): { login: DVLogin | undefined; detail: string | undefined } {
+  const m = modes?.find((x) => x.id === v.mode);
+  return m && m.login ? { login: m.login, detail: m.detail } : { login: v.login, detail: v.detail };
+}
+
+/** The toast after a save: names the password when one was stored or removed, so the operator sees it was taken. */
+export function savedMessage(label: string, put: DVNetPut, applyError?: string): string {
+  const pw = put.clearPassword ? 'password removed' : put.password ? 'password saved' : '';
+  const base = pw ? `${label} settings saved, ${pw}` : `${label} settings saved`;
+  return applyError ? `${base}. ${applyError}` : base;
+}

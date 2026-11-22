@@ -1,7 +1,7 @@
 // Run with `npm test`. The generic network form and the availability helpers.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BM_HELP, MASTER_OTHER, applyMaster, masterChoice, masterListMode, buildPut, enableBlock, essidToRepeaterId, formError, formOf, hasChanges, identityError, loginText, modeAvailable, passwordUx, repeaterIdToEssid, validAddress } from './dvnetform.ts';
+import { BM_HELP, MASTER_OTHER, applyMaster, masterChoice, masterListMode, buildPut, enableBlock, essidToRepeaterId, formError, formOf, hasChanges, identityError, loginText, liveLogin, savedMessage, modeAvailable, passwordUx, repeaterIdToEssid, validAddress } from './dvnetform.ts';
 import { cardState } from './dvmodes.ts';
 import type { DVListItem, DVNetView } from './types';
 
@@ -210,4 +210,18 @@ test('DMR - Other: no password needed to enable (the default applies); TGIF and 
   assert.equal(enableBlock(dmr, f, id), '');
   assert.equal(enableBlock({ ...dmr, defaultPassword: undefined }, f, id), 'Set the password first');
   assert.equal(buildPut(dmr, f).password, undefined);
+});
+
+test('login line follows the live snapshot, not the view read right after a save', () => {
+  const v = { mode: 'DMR' as const, login: 'pending' as const, detail: undefined };
+  const modes = [{ id: 'DMR' as const, enabled: true, available: true, unlink: '4000', login: 'ok' as const }];
+  assert.deepEqual(liveLogin(v, modes), { login: 'ok', detail: undefined });
+  assert.equal(liveLogin(v, undefined).login, 'pending');
+  assert.equal(liveLogin(v, [{ id: 'DMR' as const, enabled: true, available: true, unlink: '4000' }]).login, 'pending');
+});
+
+test('save toast says when a password was stored or removed', () => {
+  assert.equal(savedMessage('DMR - Other', { password: 'example-pass' }), 'DMR - Other settings saved, password saved');
+  assert.equal(savedMessage('DMR - Other', { clearPassword: true }), 'DMR - Other settings saved, password removed');
+  assert.equal(savedMessage('DMR - Other', { port: 1 }, 'engine down'), 'DMR - Other settings saved. engine down');
 });
