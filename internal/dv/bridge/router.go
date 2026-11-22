@@ -293,8 +293,11 @@ func (r *Router) newEntry(c ctl.NetConfig) *netEntry {
 	}
 	n, err := network.New(c, r.cfg.Identity)
 	if err != nil {
-		r.log.Printf("network %s: %v", c.Mode, err)
-		e.detail = err.Error()
+		// a network that is switched off and not set up is not an error
+		if c.Enabled {
+			r.log.Printf("network %s: %v", c.Mode, err)
+			e.detail = err.Error()
+		}
 		return e
 	}
 	e.n = n
@@ -570,9 +573,10 @@ func (r *Router) status() ctl.Status {
 		st.Target = &t
 	}
 	for _, e := range r.nets {
-		ns := ctl.NetStatus{Mode: e.cfg.Mode, Enabled: e.cfg.Enabled, Login: e.login, Detail: e.detail}
+		// Available: this build implements the mode, whether or not its
+		// settings are complete (a misconfigured network reports why in Detail).
+		ns := ctl.NetStatus{Mode: e.cfg.Mode, Available: network.Available(e.cfg.Mode), Enabled: e.cfg.Enabled, Login: e.login, Detail: e.detail}
 		if e.n != nil {
-			ns.Available = true
 			if s := e.n.Status(); s.Detail != "" && ns.Detail == "" {
 				ns.Detail = s.Detail
 			}
@@ -640,6 +644,8 @@ func (r *Router) checkMode(mode string) (*netEntry, error) {
 	switch {
 	case e == nil && network.Available(mode):
 		return nil, cerr(ctl.CodeNotEnabled, "network %s is not configured", mode)
+	case e != nil && e.n == nil && network.Available(mode):
+		return nil, cerr(ctl.CodeNotEnabled, "network %s is not configured: %s", mode, e.detail)
 	case e == nil || e.n == nil:
 		return nil, cerr(ctl.CodeNotAvailable, "network %s is not available in this build", mode)
 	case !e.cfg.Enabled:

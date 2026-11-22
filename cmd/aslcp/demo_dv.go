@@ -15,13 +15,15 @@ import (
 
 // demoDV is the in-memory digital modes of demo mode: a stand-in for the
 // root helper's dv ops (api.DVEngine) and for the engine's control socket
-// (ctl.Handler). Only LOOP is available, like the first engine build.
+// (ctl.Handler). LOOP and BM are available.
 type demoDV struct {
 	mu      sync.Mutex
 	enabled bool
 	rec     *helper.DVPrivateRecord
 	status  ctl.Status
 	srv     *ctl.Server
+	ident   helper.DVIdentityView
+	nets    map[string]helper.DVNetworkView
 }
 
 func newDemoDV() *demoDV {
@@ -34,7 +36,7 @@ func newDemoDV() *demoDV {
 	}
 	for _, m := range []string{ctl.ModeLoop, ctl.ModeBM, ctl.ModeTGIF, ctl.ModeDMR, ctl.ModeYSF, ctl.ModeP25, ctl.ModeNXDN} {
 		d.status.Networks = append(d.status.Networks, ctl.NetStatus{
-			Mode: m, Available: m == ctl.ModeLoop, Enabled: true, Login: ctl.LoginOff})
+			Mode: m, Available: m == ctl.ModeLoop || m == ctl.ModeBM, Enabled: m == ctl.ModeLoop, Login: ctl.LoginOff})
 	}
 	return d
 }
@@ -161,4 +163,60 @@ func (d *demoDV) DVPrivateClear(context.Context) (helper.DVPrivateReply, error) 
 	defer d.mu.Unlock()
 	d.rec = nil
 	return helper.DVPrivateReply{}, nil
+}
+
+// DVNetworkGet and DVNetworkSet keep the network settings in memory. The
+// password is only remembered as set or not.
+func (d *demoDV) DVNetworkGet(context.Context) (helper.DVNetworkReply, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.netReply(false), nil
+}
+
+func (d *demoDV) netReply(changed bool) helper.DVNetworkReply {
+	r := helper.DVNetworkReply{Identity: d.ident, Rendered: true, Changed: changed}
+	for _, m := range []string{ctl.ModeBM, ctl.ModeTGIF, ctl.ModeDMR} {
+		if v, ok := d.nets[m]; ok {
+			r.Networks = append(r.Networks, v)
+		}
+	}
+	return r
+}
+
+func (d *demoDV) DVNetworkSet(_ context.Context, q helper.DVNetworkRequest) (helper.DVNetworkReply, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if q.Identity != nil {
+		d.ident = *q.Identity
+	}
+	if q.Mode != "" {
+		if d.nets == nil {
+			d.nets = map[string]helper.DVNetworkView{}
+		}
+		v := d.nets[q.Mode]
+		v.Mode = q.Mode
+		if q.Enabled != nil {
+			v.Enabled = *q.Enabled
+		}
+		if q.Address != nil {
+			v.Address = *q.Address
+		}
+		if q.Port != nil {
+			v.Port = *q.Port
+		}
+		if q.Password != nil && *q.Password != "" {
+			v.PasswordSet = true
+		}
+		if q.ClearPassword {
+			v.PasswordSet = false
+		}
+		if q.Options != nil {
+			v.Options = q.Options
+		}
+		d.nets[q.Mode] = v
+		if n := d.net(q.Mode); n != nil && n.Available && q.Enabled != nil {
+			n.Enabled = *q.Enabled
+		}
+	}
+	return d.netReply(true), nil
 }

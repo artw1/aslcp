@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/artw1/aslcp/internal/dvpanel"
 	"github.com/artw1/aslcp/internal/legacy"
 )
 
@@ -53,13 +54,6 @@ const (
 	dvUSRPAddress   = "127.0.0.1"
 	dvDefaultRxPort = 34001
 	dvDefaultTxPort = 32001
-)
-
-// Panel modes the helper knows (the mode ids of the web panel).
-const (
-	DVModeBM   = "BM"
-	DVModeTGIF = "TGIF"
-	DVModeDMR  = "DMR"
 )
 
 var (
@@ -372,48 +366,33 @@ func (o *Ops) dvBusy(ctx context.Context) bool {
 
 // ---- DMR network state (networks.json)
 
-// dvNetState is one network's settings. The password is stored as typed.
+// dvNetState is one network's settings. The password is stored as typed;
+// it is never logged and never leaves the helper (dv-network reports only
+// whether one is set).
 type dvNetState struct {
-	Enabled  bool   `json:"enabled"`
-	Address  string `json:"address,omitempty"`
-	Port     int    `json:"port,omitempty"`
-	Password string `json:"password,omitempty"`
+	Enabled  bool              `json:"enabled"`
+	Address  string            `json:"address,omitempty"`
+	Port     int               `json:"port,omitempty"`
+	Password string            `json:"password,omitempty"`
+	Options  map[string]string `json:"options,omitempty"`
 }
 
-// dvNetworksState is networks.json: every DMR network's settings and
-// enabled state. The file is carried in a backup and read by dv-config.
+// dvIdentity is the node's DMR identity (rendered into the engine config).
+type dvIdentity struct {
+	Callsign   string `json:"callsign,omitempty"`
+	DMRID      uint32 `json:"dmrId,omitempty"`
+	RepeaterID uint32 `json:"repeaterId,omitempty"`
+}
+
+// dvNetworksState is networks.json: every network's settings and enabled
+// state, and the identity. The file is carried in a backup and read by
+// dv-config. A 1.4.0 file (enabled, address, port, password per network, and
+// the unused stfuStay) reads as it is: the new fields are optional.
 type dvNetworksState struct {
 	Version  int                   `json:"version"`
-	STFUStay bool                  `json:"stfuStay,omitempty"`
+	STFUStay bool                  `json:"stfuStay,omitempty"` // 1.x, kept so the file round-trips
+	Identity *dvIdentity           `json:"identity,omitempty"`
 	Networks map[string]dvNetState `json:"networks"`
-}
-
-// dvNetFields are the settings each network id may carry.
-var dvNetFields = map[string][]string{
-	DVModeBM:   {},
-	DVModeTGIF: {"password"},
-	DVModeDMR:  {"address", "port", "password"},
-}
-
-func dvNetHas(id, field string) bool {
-	for _, f := range dvNetFields[id] {
-		if f == field {
-			return true
-		}
-	}
-	return false
-}
-
-func vDVPassword(s string) bool {
-	if len(s) < 1 || len(s) > 64 {
-		return false
-	}
-	for _, c := range []byte(s) {
-		if c < 0x21 || c > 0x7e || c == '"' || c == '#' || c == ';' {
-			return false
-		}
-	}
-	return true
 }
 
 // dvNetMu serialises the read-modify-write of networks.json.
@@ -426,7 +405,7 @@ func dvEmptyNetworks() dvNetworksState {
 // parseDVNetworks reads networks.json strictly: version 1, valid values.
 // Networks this version does not know are dropped (a newer backup).
 func parseDVNetworks(data []byte) (dvNetworksState, error) {
-	bad := errors.New("the DMR network settings are unreadable")
+	bad := errors.New("the network settings are unreadable")
 	if len(data) > dvNetworksMax {
 		return dvNetworksState{}, bad
 	}
@@ -438,14 +417,33 @@ func parseDVNetworks(data []byte) (dvNetworksState, error) {
 	}
 	out := dvEmptyNetworks()
 	out.STFUStay = st.STFUStay
+	if id := st.Identity; id != nil {
+		v, err := dvpanel.ValidateIdentity(dvpanel.IdentityState{Callsign: id.Callsign, DMRID: id.DMRID, RepeaterID: id.RepeaterID})
+		if err != nil {
+			return dvNetworksState{}, bad
+		}
+		if v.Callsign != "" || v.DMRID != 0 || v.RepeaterID != 0 {
+			out.Identity = &dvIdentity{Callsign: v.Callsign, DMRID: v.DMRID, RepeaterID: v.RepeaterID}
+		}
+	}
 	for id, s := range st.Networks {
-		if _, ok := dvNetFields[id]; !ok {
+		sp, ok := dvpanel.NetSpecFor(id)
+		if !ok {
 			continue
 		}
-		if s.Address != "" && (!dvNetHas(id, "address") || !reDVHost.MatchString(s.Address)) ||
-			s.Port != 0 && (!dvNetHas(id, "port") || s.Port < 1 || s.Port > 65535) ||
-			s.Password != "" && (!dvNetHas(id, "password") || !vDVPassword(s.Password)) {
+		if s.Address != "" && (!sp.Address || !dvpanel.ValidAddress(s.Address)) ||
+			s.Port != 0 && (!sp.Port || !dvpanel.ValidNetPort(s.Port)) ||
+			s.Password != "" && (!sp.Password || !dvpanel.ValidPassword(s.Password)) {
 			return dvNetworksState{}, bad
+		}
+		if len(s.Options) > 0 {
+			o, err := dvpanel.CleanOptions(id, s.Options)
+			if err != nil {
+				return dvNetworksState{}, bad
+			}
+			s.Options = o
+		} else {
+			s.Options = nil
 		}
 		out.Networks[id] = s
 	}

@@ -26,7 +26,7 @@ type IMBE interface {
 
 // SilenceAMBE is the AMBE+2 frame that decodes to silence; it replaces a
 // frame whose encode timed out.
-var SilenceAMBE = [AMBEBytes]byte{0xb9, 0xe8, 0x81, 0x52, 0x61, 0x73, 0x00}
+var SilenceAMBE = [AMBEBytes]byte{0xf8, 0x01, 0xa9, 0x9f, 0x8c, 0xe0, 0x80}
 
 // Stats are the md380 client counters, summed over both directions.
 type Stats struct {

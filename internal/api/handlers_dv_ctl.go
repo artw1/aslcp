@@ -116,8 +116,12 @@ func (s *Server) dvGate(w http.ResponseWriter, mode string) bool {
 		}
 		return true
 	}
-	if mode != dvpanel.ModeLoop {
+	if !dvpanel.NativeMode(mode) {
 		writeErr(w, http.StatusConflict, "not_available", mode+" is not yet available in this build")
+		return false
+	}
+	if mode != dvpanel.ModeLoop {
+		writeErr(w, http.StatusConflict, "mode_disabled", mode+" is not set up")
 		return false
 	}
 	return true

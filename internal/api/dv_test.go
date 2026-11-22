@@ -26,6 +26,10 @@ type fakeEngine struct {
 	enableE error
 	rec     *helper.DVPrivateRecord
 	calls   []string
+	ident   helper.DVIdentityView
+	nets    map[string]helper.DVNetworkView
+	pw      map[string]string
+	netErr  error
 }
 
 func (f *fakeEngine) note(s string) { f.mu.Lock(); f.calls = append(f.calls, s); f.mu.Unlock() }
@@ -346,8 +350,8 @@ func TestDVRestorePending(t *testing.T) {
 
 func TestDVRemovedEndpoints(t *testing.T) {
 	e, _, _ := dvEnv(t, ctl.ModeLoop)
-	for _, r := range [][2]string{{"POST", "install"}, {"POST", "uninstall"}, {"PUT", "identity"}, {"PUT", "credentials"}, {"PUT", "modes"},
-		{"PUT", "brandmeister"}, {"PUT", "brandmeister/enabled"}, {"PUT", "networks/TGIF"}, {"POST", "stfu/install"}, {"GET", "dmr-status"}, {"POST", "restart"}} {
+	for _, r := range [][2]string{{"POST", "install"}, {"POST", "uninstall"}, {"PUT", "credentials"}, {"PUT", "modes"},
+		{"PUT", "brandmeister"}, {"PUT", "brandmeister/enabled"}, {"POST", "stfu/install"}, {"GET", "dmr-status"}, {"POST", "restart"}} {
 		if c := e.do("admin", r[0], "/api/dv/"+r[1], map[string]string{}, nil); c != 404 && c != 405 {
 			t.Errorf("%s %s: %d", r[0], r[1], c)
 		}
@@ -565,4 +569,62 @@ func TestDVBareGetIsSnapshot(t *testing.T) {
 	if _, ok := bare["supported"]; ok {
 		t.Error("bare reply is the status")
 	}
+}
+
+// DVNetworkGet and DVNetworkSet keep the settings in memory; the password is
+// held in pw and never in a view.
+func (f *fakeEngine) DVNetworkGet(context.Context) (helper.DVNetworkReply, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.netReply(false), nil
+}
+
+func (f *fakeEngine) netReply(changed bool) helper.DVNetworkReply {
+	r := helper.DVNetworkReply{Identity: f.ident, Rendered: true, Changed: changed}
+	for _, m := range []string{"BM", "TGIF", "DMR"} {
+		if v, ok := f.nets[m]; ok {
+			v.PasswordSet = f.pw[m] != ""
+			r.Networks = append(r.Networks, v)
+		}
+	}
+	return r
+}
+
+func (f *fakeEngine) DVNetworkSet(_ context.Context, q helper.DVNetworkRequest) (helper.DVNetworkReply, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "network:"+q.Mode)
+	if f.netErr != nil {
+		return helper.DVNetworkReply{}, f.netErr
+	}
+	if q.Identity != nil {
+		f.ident = *q.Identity
+	}
+	if q.Mode != "" {
+		if f.nets == nil {
+			f.nets, f.pw = map[string]helper.DVNetworkView{}, map[string]string{}
+		}
+		v := f.nets[q.Mode]
+		v.Mode = q.Mode
+		if q.Enabled != nil {
+			v.Enabled = *q.Enabled
+		}
+		if q.Address != nil {
+			v.Address = *q.Address
+		}
+		if q.Port != nil {
+			v.Port = *q.Port
+		}
+		if q.Password != nil && *q.Password != "" {
+			f.pw[q.Mode] = *q.Password
+		}
+		if q.ClearPassword {
+			delete(f.pw, q.Mode)
+		}
+		if q.Options != nil {
+			v.Options = q.Options
+		}
+		f.nets[q.Mode] = v
+	}
+	return f.netReply(true), nil
 }

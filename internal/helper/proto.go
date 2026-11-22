@@ -51,6 +51,7 @@ const (
 	OpDVJob            = "dv-job"             // state and log of the enable unit
 	OpDVConfig         = "dv-config"          // render the engine's config.json
 	OpDVPrivate        = "dv-private"         // get, set or clear the private node record
+	OpDVNetwork        = "dv-network"         // read or change the network settings and identity, render the engine config
 	OpDVRestart        = "dv-restart"         // restart aslcp-dv (when its control socket is unreachable)
 	OpDVRestoreDiscard = "dv-restore-discard" // delete the settings a backup restore saved
 )
@@ -82,7 +83,7 @@ type Request struct {
 	// only (see backup_proto.go).
 	Backup  *BackupRequest  `json:"backup,omitempty"`
 	Restore *RestoreRequest `json:"restore,omitempty"`
-	// DV is accepted by dv-private only (dv.go).
+	// DV is accepted by dv-private and dv-network only (dv.go).
 	DV *DVRequest `json:"dv,omitempty"`
 	// Sys is accepted by the System tab ops only (sys.go).
 	Sys *SysRequest `json:"sys,omitempty"`

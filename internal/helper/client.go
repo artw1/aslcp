@@ -374,6 +374,18 @@ func (c *Client) DVConfig(ctx context.Context) (DVConfigResult, error) {
 	return r, c.Do(ctx, OpDVConfig, &r)
 }
 
+// DVNetworkGet calls dv-network without an argument: it reads.
+func (c *Client) DVNetworkGet(ctx context.Context) (DVNetworkReply, error) {
+	var r DVNetworkReply
+	return r, c.Do(ctx, OpDVNetwork, &r)
+}
+
+// DVNetworkSet calls dv-network with an update of one network or the identity.
+func (c *Client) DVNetworkSet(ctx context.Context, req DVNetworkRequest) (DVNetworkReply, error) {
+	var r DVNetworkReply
+	return r, c.do(ctx, Request{Op: OpDVNetwork, DV: &DVRequest{Network: &req}}, &r, 1<<20)
+}
+
 // DVRestart calls dv-restart.
 func (c *Client) DVRestart(ctx context.Context) (DVStatus, error) {
 	var s DVStatus

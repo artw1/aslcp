@@ -163,12 +163,95 @@ const LISTS: Record<string, { value: string; name: string; detail?: string; addr
   ],
 };
 
-// Dashboard panel (GET /dv/snapshot, /mode, /unlink, /tune, favourites). Only LOOP (the parrot, shown as
-// "Parrot (test)") is available in M1; every other mode answers 409 not_available.
+// Dashboard panel (GET /dv/snapshot, /mode, /unlink, /tune, favourites). LOOP (the parrot, shown as
+// "Parrot (test)") and BM are available; the other modes answer 409 not_available, and BM answers 409
+// mode_disabled until it is set up (PUT /dv/networks/BM with the identity set).
 type PMode = 'LOOP' | 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN';
 const ALL: PMode[] = ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN'];
 const UNLINK: Record<PMode, string> = { LOOP: '', BM: '4000', TGIF: '4000', DMR: '4000', YSF: 'disconnect', P25: '9999', NXDN: '9999' };
 const LABEL: Partial<Record<PMode, string>> = { LOOP: 'Parrot (test)', BM: 'BrandMeister', TGIF: 'TGIF', DMR: 'DMR - Other' };
+const NATIVE: PMode[] = ['LOOP', 'BM'];
+// BrandMeister settings and the node identity (GET/PUT /dv/networks, /dv/identity). The password is write-only.
+// Placeholder master 192.0.2.10. The login state follows the application ID: none set -> the master refuses.
+interface MockNet { enabled: boolean; address: string; port: number; password: string; options: Record<string, string> }
+const bmNet: MockNet = { enabled: false, address: '', port: 0, password: '', options: {} };
+const otherNets: Record<'TGIF' | 'DMR', MockNet> = { TGIF: { enabled: false, address: '', port: 0, password: '', options: {} }, DMR: { enabled: false, address: '', port: 0, password: '', options: {} } };
+let ident: { callsign: string; dmrId: number; repeaterId?: number } = { callsign: '', dmrId: 0 };
+const bmLogin = () => (bmNet.options.client_id ? 'ok' : 'failed');
+const bmDetail = () => (bmNet.options.client_id ? '' : 'the master refused the login: no registered application ID');
+const BM_HELP = 'BrandMeister requires a registered application ID for this client; until one is set in Options, logins may be refused.';
+const intOpt = (key: string, label: string, def: string, min: number, max: number, advanced = false) => ({ key, label, kind: 'int', default: def, min, max, ...(advanced ? { advanced } : {}) });
+const BM_OPTS = [
+  intOpt('client_id', 'Application ID', '0', 0, 4294967295),
+  intOpt('repeater_id', 'Repeater ID', '', 0, 999999999),
+  intOpt('slot', 'Time slot', '2', 1, 2),
+  intOpt('colour_code', 'Colour code', '1', 0, 15),
+  { key: 'super_header', label: 'Super header', kind: 'bool', default: '1' },
+  { key: 'client_version', label: 'Client version', kind: 'text', default: 'ASLCP', advanced: true },
+  intOpt('keepalive_ms', 'Keep-alive (ms)', '5000', 100, 60000, true),
+  intOpt('timeout_ms', 'Timeout (ms)', '15000', 500, 120000, true),
+];
+const NETSPEC: Record<'BM' | 'TGIF' | 'DMR', { label: string; fields: { address: boolean; port: boolean; password: boolean }; defaultPort?: number; help?: string; options: unknown[] }> = {
+  BM: { label: 'BrandMeister', fields: { address: true, port: true, password: true }, defaultPort: 54005, help: BM_HELP, options: BM_OPTS },
+  TGIF: { label: 'TGIF', fields: { address: false, port: false, password: true }, options: [] },
+  DMR: { label: 'DMR - Other', fields: { address: true, port: true, password: true }, options: [] },
+};
+const netOf = (m: 'BM' | 'TGIF' | 'DMR') => (m === 'BM' ? bmNet : otherNets[m]);
+function netView(m: 'BM' | 'TGIF' | 'DMR') {
+  const n = netOf(m), sp = NETSPEC[m], avail = NATIVE.includes(m);
+  return {
+    mode: m, label: sp.label, available: avail, enabled: n.enabled, address: n.address, port: n.port, ...(sp.defaultPort ? { defaultPort: sp.defaultPort } : {}),
+    passwordSet: n.password !== '', fields: sp.fields, needsIdentity: true, ...(sp.help ? { help: sp.help } : {}), options: sp.options, values: { ...n.options },
+    ...(avail && n.enabled && snapshot().running ? { login: m === 'BM' ? bmLogin() : 'off', detail: m === 'BM' ? bmDetail() : '' } : {}),
+  };
+}
+function netsHandler(c: DVCtx): boolean {
+  const admin = c.user!.role === 'admin';
+  if (c.p !== '/dv/networks' && c.p !== '/dv/identity' && !c.p.startsWith('/dv/networks/')) return false;
+  if (!admin) return c.err(403, 'insufficient permissions', 'forbidden'), true;
+  const body = (c.body ?? {}) as Record<string, unknown>;
+  const invalid = (what: string) => (c.err(422, `invalid_field: ${what}`, 'invalid_field'), true);
+  if (c.p === '/dv/networks' && c.m === 'GET') { c.json(200, { identity: ident, modes: (['BM', 'TGIF', 'DMR'] as const).map(netView) }); return true; }
+  if (c.p === '/dv/identity') {
+    if (c.m === 'GET') { c.json(200, ident); return true; }
+    if (c.m !== 'PUT') return false;
+    const call = String(body.callsign ?? '').trim().toUpperCase(), id = Number(body.dmrId);
+    if (!/^[A-Z0-9]{3,8}$/.test(call)) return invalid('callsign'), true;
+    if (!Number.isInteger(id) || id < 1000000 || id > 9999999) return invalid('dmrId'), true;
+    ident = { callsign: call, dmrId: id, ...(Number(body.repeaterId) ? { repeaterId: Number(body.repeaterId) } : {}) };
+    c.json(200, { ...ident, applied: true });
+    c.push?.('dv', snapshot());
+    return true;
+  }
+  const m = /^\/dv\/networks\/(BM|TGIF|DMR)$/.exec(c.p);
+  if (!m) return c.err(404, 'not_found: no settings for this mode', 'not_found'), true;
+  const mode = m[1] as 'BM' | 'TGIF' | 'DMR', n = netOf(mode);
+  if (c.m === 'GET') { c.json(200, netView(mode)); return true; }
+  if (c.m !== 'PUT') return false;
+  const next: MockNet = { ...n, options: { ...n.options } };
+  if (typeof body.enabled === 'boolean') next.enabled = body.enabled;
+  if (typeof body.address === 'string') {
+    if (body.address !== '' && !/^[A-Za-z0-9.-]{1,253}$/.test(body.address)) return invalid('address'), true;
+    next.address = body.address;
+  }
+  if (typeof body.port === 'number') { if (body.port !== 0 && (!Number.isInteger(body.port) || body.port < 1 || body.port > 65535)) return invalid('port'), true; next.port = body.port; }
+  if (typeof body.password === 'string' && body.password !== '') next.password = body.password;
+  if (body.clearPassword === true) next.password = '';
+  if (body.options && typeof body.options === 'object') {
+    const keys = NETSPEC[mode].options.map((o) => (o as { key: string }).key);
+    for (const k of Object.keys(body.options)) if (!keys.includes(k)) return invalid(`option ${k}`), true;
+    next.options = Object.fromEntries(Object.entries(body.options as Record<string, string>).filter(([, v]) => String(v) !== ''));
+  }
+  const sp = NETSPEC[mode];
+  if (next.enabled) {
+    const why = sp.fields.address && !next.address ? 'set the master address first' : sp.fields.password && !next.password ? 'set the password first' : !ident.callsign ? 'set the callsign and DMR ID in the identity first' : '';
+    if (why) return c.err(422, `incomplete: ${why}`, 'incomplete'), true;
+  }
+  Object.assign(n, next);
+  c.json(200, { ...netView(mode), applied: snapshot().running, ...(snapshot().running ? {} : { applyError: 'digital modes are not enabled: the settings apply when you enable them' }) });
+  c.push?.('dv', snapshot());
+  return true;
+}
 const bridge: { mode: PMode; tune: string; slot: number; muted: boolean } = { mode: 'LOOP', tune: '', slot: 2, muted: false };
 const started = Date.now();
 function bootLastMode() { bridge.mode = 'LOOP'; bridge.tune = ''; }
@@ -188,7 +271,7 @@ function snapshot() {
     bridge: running
       ? { mode: bridge.mode, tune: bridge.tune, slot: bridge.slot, muted: bridge.muted, source: 'aslcp-dv', updated: new Date().toISOString() }
       : { mode: '', tune: '', slot: 0, muted: false, source: 'none', updated: '' },
-    modes: ALL.map((id) => ({ id, enabled: id === 'LOOP' && running, available: id === 'LOOP', unlink: UNLINK[id], ...(LABEL[id] ? { label: LABEL[id] } : {}) })),
+    modes: ALL.map((id) => ({ id, enabled: running && (id === 'LOOP' || (id === 'BM' && bmNet.enabled)), available: NATIVE.includes(id), unlink: UNLINK[id], ...(LABEL[id] ? { label: LABEL[id] } : {}), ...(running && id === 'BM' && bmNet.enabled ? { login: bmLogin(), detail: bmDetail() } : {}) })),
     services: enabled ? [{ unit: 'aslcp-dv', active: true }, { unit: 'md380-emu', active: true }] : [],
     ...(running ? { vocoder: { ok: true, timeouts: 0 }, engine: { version: '2.0.0-m1', uptime: Math.floor((Date.now() - started) / 1000) } } : {}),
     bridgeNode: pb.node ? { present: true, node: pb.node, name: pb.name || NODE_NAME } : { present: false },
@@ -208,13 +291,15 @@ function panelHandler(c: DVCtx): boolean {
   if (c.m === 'GET' && c.p === '/dv/favorites') { c.json(200, favs.map(favView)); return true; }
   if (!op) return forbid();
   const body = (c.body ?? {}) as Record<string, unknown>;
+  const modeOff = (m: PMode) => (m === 'BM' && !bmNet.enabled ? (c.err(409, 'mode_disabled: BM is not set up', 'mode_disabled'), true) : false);
   const running = () => snapshot().running;
   const unavailable = (m: PMode) => c.err(409, `not_available: ${m} is not yet available in this build`, 'not_available');
   if (c.m === 'POST' && c.p === '/dv/mode') {
     const m = String(body.mode ?? '').toUpperCase() as PMode;
     if (!ALL.includes(m)) return c.err(400, 'mode must be LOOP, BM, TGIF, DMR, YSF, P25 or NXDN', 'bad_request'), true;
     if (!running()) return c.err(409, 'not_enabled: digital modes are not enabled', 'not_enabled'), true;
-    if (m !== 'LOOP') return unavailable(m), true;
+    if (!NATIVE.includes(m)) return unavailable(m), true;
+    if (modeOff(m)) return true;
     const switched = bridge.mode !== m;
     bridge.mode = m; lastMode = m;
     reply(m, switched);
@@ -232,9 +317,10 @@ function panelHandler(c: DVCtx): boolean {
     const mode = String(body.mode ?? '').toUpperCase() as PMode, tune = body.tune;
     if (!(mode in tuneRe) || typeof tune !== 'string' || !tuneRe[mode].test(tune)) return bad(c, 'tune'), true;
     if (!running()) return c.err(409, 'not_enabled: digital modes are not enabled', 'not_enabled'), true;
-    if (mode !== 'LOOP') return unavailable(mode), true;
+    if (!NATIVE.includes(mode)) return unavailable(mode), true;
+    if (modeOff(mode)) return true;
     const switched = bridge.mode !== mode;
-    bridge.mode = mode; bridge.tune = ''; lastMode = mode;
+    bridge.mode = mode; bridge.tune = mode === 'LOOP' ? '' : tune.replace(/#$/, ''); lastMode = mode;
     reply(mode, switched);
     c.push?.('dv', snapshot());
     return true;
@@ -301,6 +387,7 @@ export function handleDV(c: DVCtx): boolean {
     c.json(200, { exclusive: x });
     return true;
   }
+  if (netsHandler(c)) return true;
   if (panelHandler(c)) return true;
   if (c.p === '/dv/private-node/adopt' && c.m === 'POST') {
     if (!admin) return deny();

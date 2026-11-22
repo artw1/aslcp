@@ -55,5 +55,5 @@ test('cards: only a mode the build carries can be on', () => {
 test('removed setup endpoints are gone from the client', async () => {
   const { readFileSync } = await import('node:fs');
   const src = ['./api.ts', './dvmodes.ts', './types.ts', '../components/DvSetup.svelte', '../components/DvCard.svelte'].map((f) => readFileSync(new URL(f, import.meta.url), 'utf8')).join('\n');
-  assert.ok(!/\/dv\/(install|uninstall|identity|credentials|modes|brandmeister|networks|stfu|restart|rollback|dmr-status)/.test(src));
+  assert.ok(!/\/dv\/(install|uninstall|credentials|modes|brandmeister|stfu|restart|rollback|dmr-status)/.test(src));
 });

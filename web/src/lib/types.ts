@@ -234,8 +234,8 @@ export interface DVCaller { call?: string; private?: boolean; dmrId?: string; ds
 export interface DVSnapshot {
   installed: boolean; running: boolean; configured: boolean;
   bridge: DVBridge;
-  /** `label`: the button's name when it is not the id (a DMR network's registry label: "BrandMeister", "TGIF", "DMR - Other"). `available`: the build implements the mode (M1: only LOOP). */
-  modes: { id: DVTuneMode; enabled: boolean; available: boolean; unlink: string; label?: string }[];
+  /** `label`: the button's name when it is not the id (a DMR network's registry label: "BrandMeister", "TGIF", "DMR - Other"). `available`: the engine implements the mode (LOOP and BM in this build). */
+  modes: { id: DVTuneMode; enabled: boolean; available: boolean; unlink: string; label?: string; /** The engine's login state of an enabled network (`off`, `pending`, `ok`, `failed`) and its detail. */ login?: DVLogin; detail?: string }[];
   /** M1: aslcp-dv and md380-emu. */
   services: { unit: string; active: boolean }[];
   /** md380 vocoder health (`ok`; `timeouts` counts the calls that timed out) and the engine's version and uptime in seconds; absent while the engine is not reachable. */
@@ -250,6 +250,21 @@ export interface DVSnapshot {
   /** The last few distinct callers, newest first. */
   heard: DVCaller[];
 }
+export type DVLogin = 'off' | 'pending' | 'ok' | 'failed';
+/** One option of a network (GET /api/dv/networks): `kind` text, int or bool; `default` is what the engine uses when it is unset. */
+export interface DVOptSpec { key: string; label: string; kind: 'text' | 'int' | 'bool'; default: string; help?: string; min?: number; max?: number; advanced?: boolean }
+/** One network of GET /api/dv/networks and the reply of PUT /api/dv/networks/{mode}. The password is write-only: only `passwordSet` comes back. */
+export interface DVNetView {
+  mode: DVTuneMode; label: string; available: boolean; enabled: boolean; address: string; port: number; defaultPort?: number; passwordSet: boolean;
+  fields: { address: boolean; port: boolean; password: boolean }; needsIdentity: boolean; help?: string;
+  options: DVOptSpec[]; values: Record<string, string>; login?: DVLogin; detail?: string;
+  /** PUT only: the engine took the new settings; otherwise `applyError` says why not. */
+  applied?: boolean; applyError?: string;
+}
+export interface DVIdentity { callsign: string; dmrId: number; repeaterId?: number; applied?: boolean; applyError?: string }
+export interface DVNetworks { identity: DVIdentity; modes: DVNetView[] }
+/** PUT /api/dv/networks/{mode}: only the fields that change. `password` sets, `clearPassword` removes. */
+export interface DVNetPut { enabled?: boolean; address?: string; port?: number; password?: string; clearPassword?: boolean; options?: Record<string, string> }
 export type DVLinkMode = 'ondemand' | 'permanent';
 /** `exclusive` is the saved "Disconnect other links first" (dv.link_exclusive). */
 export interface DVLink { mode: DVLinkMode; localNode: string; linked: boolean; paused: boolean; exclusive: boolean }

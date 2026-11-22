@@ -1,6 +1,7 @@
 // The mode cards, the resume notice and the remembered tunes of the digital modes setup page
 // (docs/DV.md). Pure helpers so node --test can cover them.
 import { DV_NETWORKS, isDVNetwork, PARROT_LABEL } from './dvnetworks.ts';
+import { modeAvailable } from './dvnetform.ts';
 import type { DVResume, DVSnapshot, DVTuneMode } from './types';
 
 /** The notice card above the mode cards. */
@@ -47,12 +48,13 @@ export function lastUsed(r: DVResume | null, now: number): string {
   return `Last used: ${MODE_NAME[m]} ${what}${ago ? ` (${ago})` : ''}`;
 }
 
-/** The cards of the setup page, in order: the parrot first, then the networks the build does not carry yet. */
+/** The cards of the setup page, in order. */
 export type DVCard = DVTuneMode;
 export const UNAVAILABLE_TEXT = 'Not yet available in this build';
 
-/** The snapshot's view of one mode: whether the build carries it and whether it is on. A mode the snapshot does not list is unavailable. */
+/** The snapshot's view of one mode: whether the engine carries it and whether it is on. Without a snapshot nothing is available; a mode the list omits follows the static native list. */
 export function cardState(modes: Pick<DVSnapshot, 'modes'>['modes'] | undefined, id: DVTuneMode): { available: boolean; enabled: boolean } {
   const m = modes?.find((x) => x.id === id);
-  return { available: !!m?.available, enabled: !!m?.available && !!m.enabled };
+  const available = !!modes && modeAvailable(modes, id);
+  return { available, enabled: available && !!m?.enabled };
 }

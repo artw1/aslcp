@@ -20,6 +20,10 @@ type DVEngine interface {
 	DVDisable(ctx context.Context) (helper.DVStatus, error)
 	// DVConfig renders the engine's config file.
 	DVConfig(ctx context.Context) (helper.DVConfigResult, error)
+	// DVNetworkGet and DVNetworkSet read and change the network settings and the
+	// identity (the helper renders the engine config).
+	DVNetworkGet(ctx context.Context) (helper.DVNetworkReply, error)
+	DVNetworkSet(ctx context.Context, req helper.DVNetworkRequest) (helper.DVNetworkReply, error)
 	// DVRestart restarts the engine unit (the fallback of a reload).
 	DVRestart(ctx context.Context) (helper.DVStatus, error)
 	// DVRestoreDiscard deletes the settings a backup restore saved.

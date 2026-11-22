@@ -474,6 +474,33 @@ Design: docs/DV.md "Private node and USRP". Admin only (`403 forbidden`), `X-ASL
 
 The rollback state is `{available, before?, ini?}`. The engine config is rendered by the helper (`dv-config`) and the engine re-reads it with a `reload` on its control socket; if the socket does not answer, the helper restarts the unit.
 
+### Digital modes networks and identity (admin)
+
+Design: docs/DV.md "BrandMeister". Admin only (`403 forbidden`), `X-ASLCP: 1` on writes. The root helper (`dv-network`) writes `networks.json`, renders the engine config and the server then sends `reload` to the engine. The password is write-only: no reply, log line or audit entry carries it; the views say only `passwordSet`.
+
+| Method | Path | Body | Reply |
+|---|---|---|---|
+| GET | `/api/dv/networks` | | `200` `{identity, modes:[NetView]}` in display order (`BM`, `TGIF`, `DMR`) |
+| GET | `/api/dv/networks/{mode}` | | `200` NetView; `404 not_found` for a mode without settings |
+| PUT | `/api/dv/networks/{mode}` | any of `{"enabled","address","port","password","clearPassword","options":{}}` | `200` NetView plus `applied` and `applyError?`. `options`, when sent, replaces all options; an empty value drops a key. `port` 0 restores the default. A `password` of `""` keeps the stored one |
+| GET | `/api/dv/identity` | | `200` `{callsign, dmrId, repeaterId?}` |
+| PUT | `/api/dv/identity` | `{"callsign","dmrId","repeaterId"?}` | `200` the identity plus `applied`. An empty callsign and DMR ID clear it, which also disables the networks that need one |
+
+```json
+NetView = {
+  "mode": "BM", "label": "BrandMeister", "available": true, "enabled": true,
+  "address": "192.0.2.10", "port": 54005, "defaultPort": 54005, "passwordSet": true,
+  "fields": {"address": true, "port": true, "password": true}, "needsIdentity": true, "help": "...",
+  "options": [{"key": "client_id", "label": "Application ID", "kind": "int", "default": "0", "min": 0, "max": 4294967295, "advanced": false, "help": "..."}],
+  "values": {"client_id": "4321"},
+  "login": "ok", "detail": ""               // engine login state of an enabled, available mode: off, pending, ok, failed
+}
+```
+
+Validation (`422 invalid_field`, the message names the field, never a value): callsign 3 to 8 letters and digits (stored upper case); DMR ID 7 digits (1000000 to 9999999); repeater ID 0 or 1000000 to 999999999; port 1 to 65535; address a host name or an IP address; password 1 to 64 printable characters without blanks; option keys only from the per-mode table (`dvpanel.NetOptions`) and values within the spec. `422 incomplete`: enabling a network needs its address, its password and, for a DMR network, the identity. `applied: false` with `applyError`: the settings are saved but the engine did not take them (digital modes off, or the engine refused the file).
+
+The snapshot's `modes[]` gains `login` and `detail` (an enabled, available network's login state). `available` comes from the engine (`Status.networks[].available`); while the engine is down it falls back to the static list of native modes in the build (`LOOP`, `BM`). Audit: `dv.network` (mode and the names of the changed fields) and `dv.identity`.
+
 ### Digital modes host lists (operator)
 
 | Method | Path | Reply |

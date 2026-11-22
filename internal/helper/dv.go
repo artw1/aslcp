@@ -82,6 +82,8 @@ var dvErrors = []error{ErrDVUnsupported, ErrDVClockUnset, ErrDVKeyMismatch, ErrD
 type DVRequest struct {
 	Private *DVPrivateRecord `json:"private,omitempty"`
 	Clear   bool             `json:"clear,omitempty"`
+	// Network is dv-network's argument (dv_network.go).
+	Network *DVNetworkRequest `json:"network,omitempty"`
 }
 
 // DVStatus is the reply of dv-status, dv-enable, dv-disable, dv-restart and
@@ -117,7 +119,7 @@ type DVConfigResult struct {
 }
 
 // isDVOp reports whether op may carry the dv field.
-func isDVOp(op string) bool { return op == OpDVPrivate }
+func isDVOp(op string) bool { return op == OpDVPrivate || op == OpDVNetwork }
 
 // ---- package rules
 

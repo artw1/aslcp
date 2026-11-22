@@ -127,7 +127,8 @@ func TestDVConfigDefaultsAndWrite(t *testing.T) {
 	if cfg.USRP.Listen != "127.0.0.1:34001" || cfg.USRP.Peer != "127.0.0.1:32001" || cfg.Vocoder.MD380 != "127.0.0.1:2470" {
 		t.Fatalf("%+v", cfg)
 	}
-	if len(cfg.Networks) != 1 || cfg.Networks[0].Mode != dvctl.ModeLoop || !cfg.Networks[0].Enabled {
+	if len(cfg.Networks) != 2 || cfg.Networks[0].Mode != dvctl.ModeLoop || !cfg.Networks[0].Enabled ||
+		cfg.Networks[1].Mode != dvctl.ModeBM || cfg.Networks[1].Enabled {
 		t.Fatalf("%+v", cfg.Networks)
 	}
 	if fi, _ := os.Stat(res.Path); fi.Mode().Perm() != 0o600 {

@@ -14,6 +14,7 @@ import (
 	"github.com/artw1/aslcp/internal/dv/bridge"
 	"github.com/artw1/aslcp/internal/dv/config"
 	"github.com/artw1/aslcp/internal/dv/ctl"
+	_ "github.com/artw1/aslcp/internal/dv/network/bm"       // registers BM
 	_ "github.com/artw1/aslcp/internal/dv/network/loopback" // registers LOOP
 	"github.com/artw1/aslcp/internal/dv/usrp"
 	"github.com/artw1/aslcp/internal/dv/vocoder"

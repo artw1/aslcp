@@ -13,6 +13,7 @@ import (
 
 	"github.com/artw1/aslcp/internal/astconf"
 	dvctl "github.com/artw1/aslcp/internal/dv/ctl"
+	"github.com/artw1/aslcp/internal/dvpanel"
 )
 
 // The engine's config.json (docs/DV.md): rendered by the helper only, from the
@@ -55,9 +56,10 @@ func dvUSRPPorts(rpt []byte, node string) (listen, peer int, ok bool) {
 	return l, p, true
 }
 
-// renderDVConfig builds the engine config. Only the loopback network is
-// available in this version; the others are carried from networks.json so the
-// operator's settings are not lost.
+// renderDVConfig builds the engine config: the parrot, every network this
+// build carries natively (disabled until set up) and, from networks.json, the
+// settings of the networks that are not in this build yet (carried so the
+// operator's settings are not lost). The identity comes from networks.json.
 func renderDVConfig(listen, peer int, nets dvNetworksState) dvctl.Config {
 	cfg := dvctl.Config{
 		Version: dvctl.ConfigVersion,
@@ -67,12 +69,19 @@ func renderDVConfig(listen, peer int, nets dvNetworksState) dvctl.Config {
 			{Mode: dvctl.ModeLoop, Enabled: true},
 		},
 	}
-	for _, id := range []string{dvctl.ModeBM, dvctl.ModeTGIF, dvctl.ModeDMR} {
-		s, ok := nets.Networks[id]
-		if !ok {
+	if id := nets.Identity; id != nil {
+		cfg.Identity = dvctl.Identity{Callsign: id.Callsign, DMRID: id.DMRID, RepeaterID: id.RepeaterID}
+	}
+	for _, sp := range dvpanel.NetSpecs {
+		s, ok := nets.Networks[sp.Mode]
+		if !ok && !dvpanel.NativeMode(sp.Mode) {
 			continue
 		}
-		cfg.Networks = append(cfg.Networks, dvctl.NetConfig{Mode: id, Enabled: s.Enabled, Address: s.Address, Port: s.Port, Password: s.Password})
+		nc := dvctl.NetConfig{Mode: sp.Mode, Enabled: s.Enabled, Address: s.Address, Port: s.Port, Password: s.Password}
+		if len(s.Options) > 0 {
+			nc.Options = s.Options
+		}
+		cfg.Networks = append(cfg.Networks, nc)
 	}
 	return cfg
 }

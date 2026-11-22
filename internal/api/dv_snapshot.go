@@ -65,7 +65,7 @@ type DVBridge struct {
 }
 
 // DVModeView: Enabled is the mode's switch in the engine's config, Available
-// says the build implements the mode (this version: LOOP only), Unlink is
+// says the build implements the mode (from the engine; the static dvpanel.NativeModes while it is down), Unlink is
 // the tune value the unlink button sends. Label names a DMR network's button.
 type DVModeView struct {
 	ID        string `json:"id"`
@@ -73,6 +73,9 @@ type DVModeView struct {
 	Available bool   `json:"available"`
 	Unlink    string `json:"unlink"`
 	Label     string `json:"label,omitempty"`
+	// Login and Detail are the engine's login state of an enabled mode.
+	Login  string `json:"login,omitempty"`
+	Detail string `json:"detail,omitempty"`
 }
 
 // DVServiceView is one systemd unit of the digital modes stack.
@@ -409,8 +412,11 @@ func (d *dvSnapper) snapshot(ctx context.Context) DVSnapshot {
 		mv := DVModeView{ID: m, Unlink: dvpanel.UnlinkTune(m), Label: dvModeLabels[m]}
 		if n, ok := nets[m]; ok && connected {
 			mv.Enabled, mv.Available = n.Enabled, n.Available
+			if n.Enabled && n.Available {
+				mv.Login, mv.Detail = string(n.Login), n.Detail
+			}
 		} else {
-			mv.Enabled, mv.Available = m == dvpanel.ModeLoop, m == dvpanel.ModeLoop
+			mv.Enabled, mv.Available = m == dvpanel.ModeLoop, dvpanel.NativeMode(m)
 		}
 		sn.Modes = append(sn.Modes, mv)
 	}

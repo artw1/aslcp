@@ -2,7 +2,7 @@
 
 Digital modes (DMR, YSF, P25, NXDN) run on the ASLCP engine, `aslcp-dv`, a small service that ships in the ASLCP package. ASLCP 2.0 replaces the previous third-party digital voice stack with it: that stack is no longer installed, configured or restarted by ASLCP.
 
-Status in 2.0 milestone 1: the engine, the control socket, the vocoder link and the **Parrot** test mode (`LOOP`) are in. BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN show "Not yet available in this build"; their settings and favourites are kept and they are not lost on upgrade.
+Status in 2.0 milestone 2: the engine, the control socket, the vocoder link, the **Parrot** test mode (`LOOP`) and **BrandMeister** (`BM`, a native Rewind client) are in. TGIF, DMR - Other, YSF, P25 and NXDN show "Not yet available in this build"; their settings and favourites are kept and they are not lost on upgrade.
 
 ## Parts
 
@@ -32,14 +32,33 @@ Supported: Debian bookworm and trixie on amd64, arm64 and armhf (ARMv7). **ARMv6
 
 ## Modes
 
-| Mode | Id | In 2.0 M1 | Tune value | Unlink |
+| Mode | Id | In 2.0 M2 | Tune value | Unlink |
 |---|---|---|---|---|
 | Parrot | `LOOP` | available | parrot id (default 9990, private call) | `disconnect` |
-| BrandMeister, TGIF, DMR - Other | `BM`, `TGIF`, `DMR` | not available | talkgroup | `4000` |
+| BrandMeister | `BM` | available | talkgroup (a trailing `#` makes a private call) | `4000` |
+| TGIF, DMR - Other | `TGIF`, `DMR` | not available | talkgroup | `4000` |
 | YSF | `YSF` | not available | reflector id or `host:port` | `disconnect` |
 | P25, NXDN | `P25`, `NXDN` | not available | talkgroup | `9999` |
 
-A mode that is not available answers `409 not_available` to mode and tune. Parrot echoes what you transmit back through the bridge node, which tests the whole path (node, USRP, engine, vocoder) without a network account.
+Availability comes from the engine (which modes the running build implements); while the engine is down the page falls back to a fixed list (Parrot and BrandMeister). A mode that is not available answers `409 not_available` to mode and tune; an available one that is not set up answers `409 mode_disabled`. Parrot echoes what you transmit back through the bridge node, which tests the whole path (node, USRP, engine, vocoder) without a network account.
+
+## BrandMeister
+
+BrandMeister is a native client of the Rewind protocol: the engine logs in to a BrandMeister master with your DMR ID and a hotspot password, and carries the audio between the bridge node and the network. There is no separate bridge program and no ini file to edit.
+
+**Settings** (Digital modes tab, admin; docs/API.md "Digital modes networks and identity"):
+
+- *Identity*: callsign, DMR ID and an optional repeater ID. The DMR networks log in with it. Clearing it disables them.
+- *Master address* and *port* (default 54005). There is no default address: pick the master from your BrandMeister account (the closest one) and enter it.
+- *Password*: the hotspot password of your BrandMeister account. It is write-only; the page shows only "Password set" and a Change button, and the password is never logged or returned.
+- *Options*: application ID (`client_id`), repeater ID, time slot, colour code, super header, and under "advanced" the client version and the keep-alive, timeout and back-off timers. A blank option uses the engine default.
+- *Enable* needs the address, the password and the identity; the page says which one is missing. Saving renders the engine config and reloads the engine, so a login attempt starts at once; the card shows the login state (pending, logged in, or refused with the master's reason).
+
+**Application ID.** BrandMeister requires a registered application ID for this client; until one is set in Options, logins may be refused. A refusal shows on the card as "Login failed".
+
+**Using it.** On the dashboard, choose BrandMeister, type a talkgroup and press Tune, or pick a favourite. The *Private call* switch (or a trailing `#`) calls the number as a private call. **Parrot** calls TG 9990 as a private call: key up, release, and the master plays your transmission back. That tests the whole path over the real network without disturbing a talkgroup.
+
+**Upgrade from 1.x.** The BrandMeister enable state in the 1.x `networks.json` is kept. The master address, password and application ID of the old bridge program's ini are not read from it: enter them once on the BrandMeister card.
 
 ## Private bridge node and USRP
 
@@ -72,6 +91,6 @@ Enabling digital modes stops the previous stack's units but leaves its files, pa
 
 ## Audit
 
-Writes are audited as `dv.enable`, `dv.disable`, `dv.mode`, `dv.tune`, `dv.unlink`, `dv.favorite.*`, `dv.private.*`, `dv.node_name`, `dv.link`, `dv.restore_discard`, `dv.resume` and `dv.lists.refresh`. Audit lines never contain a password, key or token.
+Writes are audited as `dv.enable`, `dv.disable`, `dv.mode`, `dv.tune`, `dv.unlink`, `dv.favorite.*`, `dv.network`, `dv.identity`, `dv.private.*`, `dv.node_name`, `dv.link`, `dv.restore_discard`, `dv.resume` and `dv.lists.refresh`. Audit lines never contain a password, key or token.
 
 REST paths, the SSE event name and the settings keys keep their 1.x names for now; see docs/API.md.

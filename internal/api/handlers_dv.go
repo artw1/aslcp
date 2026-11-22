@@ -27,6 +27,7 @@ type DVResume interface {
 func (s *Server) dvRoutes() {
 	s.dvCtlRoutes()
 	s.dvPrivateRoutes()
+	s.dvNetRoutes()
 	m := s.mux
 	m.HandleFunc("GET /api/dv", s.authed(store.RoleViewer, s.handleDVSnapshot))
 	m.HandleFunc("GET /api/dv/status", s.authed(store.RoleAdmin, s.handleDVStatus))
@@ -299,6 +300,8 @@ func (s *Server) dvError(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusConflict, "not_enabled", err.Error())
 	case errors.Is(err, helper.ErrDVUnexpectedDe):
 		writeErr(w, http.StatusConflict, "unexpected_deps", err.Error())
+	case errors.Is(err, helper.ErrDVNetIncomplete):
+		writeErr(w, http.StatusUnprocessableEntity, "incomplete", err.Error())
 	case errors.Is(err, helper.ErrDVBadRequest):
 		writeErr(w, http.StatusBadRequest, "invalid_field", err.Error())
 	case errors.Is(err, helper.ErrDVKeyMismatch):

@@ -165,6 +165,8 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return o.DVPrivate(ctx, req.DV)
 	case OpDVConfig:
 		return o.DVConfig(ctx)
+	case OpDVNetwork:
+		return o.DVNetwork(ctx, req.DV)
 	case OpDVRestart:
 		return o.DVRestart(ctx)
 	case OpBackupInfo:
