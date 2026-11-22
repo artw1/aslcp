@@ -42,7 +42,7 @@ func TestEndToEndParrot(t *testing.T) {
 	md := vocoder.NewMD380(srv.Addr(), 500*time.Millisecond)
 	t.Cleanup(func() { md.Close() })
 
-	opts := map[string]string{"client_id": "4321", "client_version": "test 1.0"}
+	opts := map[string]string{"client_version": "test 1.0"}
 	for k, v := range fastOpts {
 		opts[k] = v
 	}

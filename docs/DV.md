@@ -2,7 +2,7 @@
 
 Digital modes (DMR, YSF, P25, NXDN) run on the ASLCP engine, `aslcp-dv`, a small service that ships in the ASLCP package. ASLCP 2.0 replaces the previous third-party digital voice stack with it: that stack is no longer installed, configured or restarted by ASLCP.
 
-> **You have to redo the digital-modes configuration in 2.0.** The BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN settings, your identity (callsign and DMR ID) and the BrandMeister application ID are not carried over from the previous stack, and nothing is imported from its ini files. The previous stack is removed on upgrade, except md380-emu. See "Upgrading from 1.x" below.
+> **You have to redo the digital-modes configuration in 2.0.** The BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN settings and your identity (callsign and DMR ID) are not carried over from the previous stack, and nothing is imported from its ini files. The previous stack is removed on upgrade, except md380-emu. See "Upgrading from 1.x" below.
 
 Status in 2.0.0: the engine, the control socket, the vocoder link, the **Parrot** test mode (`LOOP`), **BrandMeister** (`BM`, a native Rewind client), **TGIF** and **DMR - Other** (native Homebrew clients), **NXDN**, **YSF** and **P25** (native reflector clients) are all in. YSF carries voice in DN (V/D mode 2) and Voice FR (VW); P25 carries IMBE. All modes are available.
 
@@ -52,16 +52,16 @@ BrandMeister is a native client of the Rewind protocol: the engine logs in to a 
 **Settings** (Digital modes tab, admin; docs/API.md "Digital modes networks and identity"):
 
 - *Identity*: callsign, DMR ID and an optional repeater ID. The DMR networks log in with it. Clearing it disables them.
-- *Master address* and *port* (default 54005). There is no default address: pick the master from your BrandMeister account (the closest one) and enter it.
-- *Password*: the hotspot password of your BrandMeister account. It is write-only; the page shows only "Password set" and a Change button, and the password is never logged or returned.
-- *Options*: application ID (`client_id`), repeater ID, time slot, colour code, super header, and under "advanced" the client version and the keep-alive, timeout and back-off timers. A blank option uses the engine default.
+- *Master address* and *port* (default 54006). There is no default address: pick the master from your BrandMeister account (the closest one) and enter it.
+- *Password*: the password set in your BrandMeister SelfCare (hotspot security). It is write-only; the page shows only "Password set" and a Change button, and the password is never logged or returned.
+- *Options*: time slot, colour code, super header, and under "advanced" the client version and the keep-alive, timeout and back-off timers. A blank option uses the engine default.
 - *Enable* needs the address, the password and the identity; the page says which one is missing. Saving renders the engine config and reloads the engine, so a login attempt starts at once; the card shows the login state (pending, logged in, or refused with the master's reason).
 
-**Application ID.** BrandMeister requires a registered application ID for this client; until one is set in Options, logins may be refused. A refusal shows on the card as "Login failed".
+**Login.** The engine logs in to BrandMeister as an Open DMR Terminal with your DMR ID and your BrandMeister password; no application ID is needed. A refusal (wrong password) shows on the card as "Login failed".
 
 **Using it.** On the dashboard, choose BrandMeister, type a talkgroup and press Tune, or pick a favourite. The *Private call* switch (or a trailing `#`) calls the number as a private call. **Parrot** calls TG 9990 as a private call: key up, release, and the master plays your transmission back. That tests the whole path over the real network without disturbing a talkgroup.
 
-**Upgrade from 1.x.** Nothing of the old bridge program is imported: enter the master address, password and application ID once on the BrandMeister card.
+**Upgrade from 1.x.** Nothing of the old bridge program is imported: enter the master address and password once on the BrandMeister card.
 
 ## Private bridge node and USRP
 
@@ -90,7 +90,7 @@ With "Resume after restart" on, a tracker re-sends the last mode and tune after 
 
 ## Upgrading from 1.x
 
-**You have to redo the digital-modes configuration in 2.0.** Settings of the previous stack (BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN, the identity and the BrandMeister application ID) are not carried over and nothing is imported from its ini files, or from the ini files in a 1.x backup. Whatever the 1.4.0 panel itself stored in its own `networks.json` (enable switches, TGIF and DMR - Other address, port and password) is still read, so cards may show it filled in: check every card.
+**You have to redo the digital-modes configuration in 2.0.** Settings of the previous stack (BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN, and the identity) are not carried over and nothing is imported from its ini files, or from the ini files in a 1.x backup. Whatever the 1.4.0 panel itself stored in its own `networks.json` (enable switches, TGIF and DMR - Other address, port and password) is still read, so cards may show it filled in: check every card.
 
 On upgrade from a version before 2.0.0 the package starts the transient unit `aslcp-dv-purge` once the upgrade has finished (`journalctl -u aslcp-dv-purge`; `aslcp dv enable` repeats it). It acts only on what ASLCP installed, which the root-only install marker in `/var/lib/aslcp-dvstate` records, and does nothing on a node where ASLCP did not install the old stack:
 

@@ -6,10 +6,10 @@ import { cardState } from './dvmodes.ts';
 import type { DVNetView } from './types';
 
 const bm: DVNetView = {
-  mode: 'BM', label: 'BrandMeister', available: true, enabled: false, address: '', port: 0, defaultPort: 54005, passwordSet: false,
+  mode: 'BM', label: 'BrandMeister', available: true, enabled: false, address: '', port: 0, defaultPort: 54006, passwordSet: false,
   fields: { address: true, port: true, password: true }, needsIdentity: true, help: BM_HELP,
   options: [
-    { key: 'client_id', label: 'Application ID', kind: 'int', default: '0', min: 0, max: 4294967295 },
+    { key: 'slot', label: 'Time slot', kind: 'int', default: '2', min: 1, max: 2 },
     { key: 'super_header', label: 'Super header', kind: 'bool', default: 'true' },
   ],
   values: {},
@@ -17,7 +17,7 @@ const bm: DVNetView = {
 const id = { callsign: 'N0CALL', dmrId: 1234567 };
 
 test('help line is the exact BrandMeister text', () => {
-  assert.equal(BM_HELP, 'BrandMeister requires a registered application ID for this client; until one is set in Options, logins may be refused.');
+  assert.equal(BM_HELP, 'Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security).');
 });
 
 test('availability: the engine wins, the static native list is the fallback', () => {
@@ -40,7 +40,7 @@ test('address, port, password and option checks', () => {
   assert.match(formError(bm, { ...f, port: '70000' }), /^Port/);
   assert.match(formError(bm, { ...f, address: 'a b' }), /^Master address/);
   assert.match(formError(bm, { ...f, password: 'has space' }), /^Password/);
-  assert.match(formError(bm, { ...f, options: { client_id: 'x' } }), /Application ID/);
+  assert.match(formError(bm, { ...f, options: { slot: 'x' } }), /Time slot/);
   assert.match(formError(bm, { ...f, options: { super_header: '2' } }), /Super header/);
 });
 
@@ -48,9 +48,9 @@ test('buildPut sends only what changed, and the password only when typed', () =>
   const f = formOf(bm);
   assert.deepEqual(buildPut(bm, f), {});
   assert.equal(hasChanges(buildPut(bm, f)), false);
-  const b = buildPut(bm, { ...f, enabled: true, address: ' 192.0.2.10 ', port: '62031', password: 'example-pass', options: { client_id: '4321', super_header: '' } });
-  assert.deepEqual(b, { enabled: true, address: '192.0.2.10', port: 62031, password: 'example-pass', options: { client_id: '4321' } });
-  const set = { ...bm, passwordSet: true, address: '192.0.2.10', port: 62031, values: { client_id: '4321' } };
+  const b = buildPut(bm, { ...f, enabled: true, address: ' 192.0.2.10 ', port: '62031', password: 'example-pass', options: { slot: '1', super_header: '' } });
+  assert.deepEqual(b, { enabled: true, address: '192.0.2.10', port: 62031, password: 'example-pass', options: { slot: '1' } });
+  const set = { ...bm, passwordSet: true, address: '192.0.2.10', port: 62031, values: { slot: '1' } };
   assert.deepEqual(buildPut(set, formOf(set)), {});
   assert.deepEqual(buildPut(set, { ...formOf(set), clearPassword: true }), { clearPassword: true });
   assert.deepEqual(buildPut(set, { ...formOf(set), port: '' }), { port: 0 });

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/artw1/aslcp/internal/dv/ctl"
+	"github.com/artw1/aslcp/internal/dv/dmr"
 	"github.com/artw1/aslcp/internal/dv/network"
 )
 
@@ -255,7 +256,7 @@ func start(t *testing.T, m *fakeMaster, pass string, extra map[string]string) (*
 
 func login(t *testing.T) (*fakeMaster, *Net, *testSink) {
 	m := newMaster(t)
-	n, s := start(t, m, testPass, map[string]string{"client_id": "4321", "client_version": "test 1.0"})
+	n, s := start(t, m, testPass, map[string]string{"client_version": "test 1.0"})
 	waitFor(t, "login", func() bool { return s.loginIs(ctl.LoginOK) })
 	return m, n, s
 }
@@ -266,11 +267,11 @@ func TestLoginSuccess(t *testing.T) {
 		t.Fatalf("status %+v", st)
 	}
 	ka := m.packets(typKeepAlive)[0].payload
-	if binary.LittleEndian.Uint32(ka) != 4321 || ka[4] != serviceSimpleApp || string(ka[5:]) != "test 1.0" {
+	if binary.LittleEndian.Uint32(ka) != testID || ka[4] != 0x21 || string(ka[5:]) != "test 1.0" {
 		t.Fatalf("keepalive payload % x", ka)
 	}
 	cfg := m.packets(typConfig)[0].payload
-	if binary.LittleEndian.Uint32(cfg) != optSuperHeader|optLinearFrame {
+	if binary.LittleEndian.Uint32(cfg) != optSuperHeader {
 		t.Fatalf("config % x", cfg)
 	}
 	if s.count(ctl.LoginPending) == 0 {
@@ -408,6 +409,7 @@ func frames(n int, base byte) [][]byte {
 		for j := range f {
 			f[j] = base + byte(i*7+j)
 		}
+		f[6] &= 0x80 // 49 bits: only the top bit of the last byte is used
 		out = append(out, f)
 	}
 	return out
@@ -475,15 +477,35 @@ func TestRXLostEnd(t *testing.T) {
 	}
 }
 
-func TestRXMode33Dropped(t *testing.T) {
-	m, n, s := login(t)
-	m.sendCall(m.lastAddr(), 7654321, 1999, "N0CALL", false, [][]byte{make([]byte, 27)}, true)
+// RX framing is unconfirmed: 27 byte 72-bit audio and 21 byte linear audio
+// are both accepted and delivered as 49-bit frames.
+func TestRXBothFramings(t *testing.T) {
+	m, _, s := login(t)
+	fs := frames(3, 1)
+	var p72 []byte
+	for _, f := range fs {
+		var a dmr.AMBE
+		copy(a[:], f)
+		e := dmr.EncodeAMBE(a)
+		p72 = append(p72, e[:]...)
+	}
+	if len(p72) != 27 {
+		t.Fatal(len(p72))
+	}
+	m.sendCall(m.lastAddr(), 7654321, 1999, "N0CALL", false, [][]byte{p72, cat(fs), make([]byte, 5)}, true)
 	waitFor(t, "end", func() bool { return s.nEnds() == 1 })
-	n.mu.Lock()
-	d := n.dropped
-	n.mu.Unlock()
-	if s.nFrames() != 0 || d != 1 {
-		t.Fatal(s.nFrames(), d)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.frames) != 6 {
+		t.Fatalf("%d frames", len(s.frames))
+	}
+	for i, f := range s.frames {
+		want := fs[i%3]
+		// the AMBE frame goes through Golay: the 49 bits come back unchanged
+		// (a, b parts are protected, c, d are carried as is).
+		if string(f.Data) != string(want) {
+			t.Fatalf("frame %d: % x want % x", i, f.Data, want)
+		}
 	}
 }
 
@@ -516,18 +538,31 @@ func TestTXFraming(t *testing.T) {
 	if h.typ != sessionGroup || h.src != testID || h.dst != 1999 || h.srcCall != "N0CALL" {
 		t.Fatalf("%+v", h)
 	}
+	lc := m.packets(typVoiceHeader)
+	if len(lc) != 3 {
+		t.Fatalf("%d LC headers", len(lc))
+	}
+	if pr, dst, src, _ := parseLC(lc[0].payload); pr || dst != 1999 || src != testID {
+		t.Fatal(pr, dst, src)
+	}
 	au := m.packets(typAudio)
 	if len(au) != 3 {
 		t.Fatalf("%d audio packets", len(au))
 	}
-	want := cat(fs)
-	want = append(want, fs[6]...) // pad with the last frame
-	want = append(want, fs[6]...)
+	var want []byte
+	for _, f := range fs {
+		var a dmr.AMBE
+		copy(a[:], f)
+		e := dmr.EncodeAMBE(a)
+		want = append(want, e[:]...)
+	}
+	want = append(want, dmr.SilenceAMBE72[:]...) // pad with silence
+	want = append(want, dmr.SilenceAMBE72[:]...)
 	if string(cat([][]byte{au[0].payload, au[1].payload, au[2].payload})) != string(want) {
 		t.Fatal("audio mismatch")
 	}
 	for i, p := range au {
-		if p.flags != flagRealTime1 || len(p.payload) != 21 || p.seq != sh[0].seq+1+uint32(i) {
+		if p.flags != flagRealTime1 || len(p.payload) != 27 || p.seq != lc[0].seq+1+uint32(i) {
 			t.Fatalf("audio %d: %+v", i, p)
 		}
 	}
@@ -603,23 +638,22 @@ func TestFactoryAndOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n.addr != "node2001.example.net:54005" || n.clientID != testID*100+1 || n.slot != 2 || n.version == "" {
+	if n.addr != "node2001.example.net:54006" || n.slot != 2 || n.version == "" {
 		t.Fatalf("%+v", n)
 	}
 	if n.Mode() != ctl.ModeBM || n.Codec() != network.CodecAMBE {
 		t.Fatal("mode/codec")
 	}
 	n, _ = New(ctl.NetConfig{Address: "192.0.2.1", Port: 1234, Options: map[string]string{
-		"repeater_id": "123456701", "slot": "1", "colour_code": "3", "super_header": "false"}}, id)
-	if n.addr != "192.0.2.1:1234" || n.clientID != 123456701 || n.slot != 1 || n.options != optLinearFrame {
+		"slot": "1", "colour_code": "3", "super_header": "false"}}, id)
+	if n.addr != "192.0.2.1:1234" || n.slot != 1 || n.options != 0 {
 		t.Fatalf("%+v", n)
 	}
-	n, _ = New(ctl.NetConfig{Address: "192.0.2.1", Options: map[string]string{"repeater_id": "5", "client_id": "9"}}, id)
-	if n.clientID != 9 {
-		t.Fatal(n.clientID)
+	if _, err := New(ctl.NetConfig{Address: "192.0.2.1"}, ctl.Identity{Callsign: "N0CALL"}); err == nil {
+		t.Fatal("DMR ID 0 accepted")
 	}
-	for _, bad := range []map[string]string{{"slot": "3"}, {"colour_code": "16"}, {"client_id": "x"},
-		{"keepalive_ms": "0"}, {"repeater_id": "-1"}} {
+	for _, bad := range []map[string]string{{"slot": "3"}, {"colour_code": "16"},
+		{"keepalive_ms": "0"}} {
 		if _, err := New(ctl.NetConfig{Address: "192.0.2.1", Options: bad}, id); err == nil {
 			t.Fatalf("accepted %v", bad)
 		}

@@ -83,10 +83,10 @@ func TestDVNetworksGetPut(t *testing.T) {
 	}
 	var v netView
 	if c := e.do("admin", "PUT", "/api/dv/networks/BM", map[string]any{"address": "192.0.2.10", "port": 62031,
-		"password": "example-pass", "options": map[string]string{"client_id": "4321"}, "enabled": true}, &v); c != 200 {
+		"password": "example-pass", "options": map[string]string{"slot": "1"}, "enabled": true}, &v); c != 200 {
 		t.Fatalf("%d", c)
 	}
-	if !v.PasswordSet || v.Address != "192.0.2.10" || v.Port != 62031 || !v.Enabled || v.Values["client_id"] != "4321" {
+	if !v.PasswordSet || v.Address != "192.0.2.10" || v.Port != 62031 || !v.Enabled || v.Values["slot"] != "1" {
 		t.Fatalf("%+v", v)
 	}
 	// the password never comes back, in any reply
@@ -103,7 +103,7 @@ func TestDVNetworksGetPut(t *testing.T) {
 		t.Fatalf("password in audit: %s", audit)
 	}
 	// a write without a password keeps the stored one; clearPassword drops it
-	if c := e.do("admin", "PUT", "/api/dv/networks/BM", map[string]any{"port": 54005}, &v); c != 200 || !v.PasswordSet {
+	if c := e.do("admin", "PUT", "/api/dv/networks/BM", map[string]any{"port": 54006}, &v); c != 200 || !v.PasswordSet {
 		t.Fatalf("%d %+v", c, v)
 	}
 	if c := e.do("admin", "PUT", "/api/dv/networks/BM", map[string]any{"clearPassword": true}, &v); c != 200 || v.PasswordSet {

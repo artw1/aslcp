@@ -5,10 +5,12 @@ import (
 	"errors"
 )
 
-// Rewind wire format. Sources: BrandMeister wiki "Simple External
-// Application" and the protocol header Rewind.h of BrandMeister/DigestPlay
-// (MIT), cross-checked with BrandMeister/go-brandmeister (MIT, used as
-// reference only). All integers are little-endian.
+// Rewind wire format, as used by Open DMR Terminal (service 0x21). Sources:
+// BrandMeister wiki "Simple External Application" and the protocol header
+// Rewind.h of BrandMeister/DigestPlay (MIT), cross-checked with
+// BrandMeister/go-brandmeister (MIT, used as reference only); the Open DMR
+// Terminal differences were confirmed from the published ODMRTP protocol
+// description and implemented independently. All integers are little-endian.
 //
 //	0   8  signature "REWIND01"
 //	8   2  type
@@ -23,8 +25,9 @@ const (
 	superLen  = 12 + 2*callLen // type, srcID, dstID, srcCall, dstCall
 	lcLen     = 12             // DMR voice header Full LC incl. CRC
 	frameLen  = 7              // linear AMBE frame (49 bits, MSB first)
-	frameLen3 = 3 * frameLen   // linear audio packet
-	mode33Len = 27             // 3 x 9 byte FEC coded frames (not decoded)
+	frameLen3 = 3 * frameLen   // linear audio packet (RX only, see typAudio handling)
+	frame72   = 9              // FEC coded AMBE+2 frame (72 bits, "mode 33")
+	audioLen  = 3 * frame72    // DMR_AUDIO_FRAME: 3 x 72-bit frames = 60 ms
 )
 
 // Packet types.
@@ -48,12 +51,11 @@ const (
 	typFailureCode    uint16 = 0x0929
 	flagRealTime1     uint16 = 1
 	optSuperHeader    uint32 = 1 << 0
-	optLinearFrame    uint32 = 1 << 1
-	serviceSimpleApp  byte   = 0x20
+	serviceOpenTerm   byte   = 0x21 // OPEN_TERMINAL (0x20 is the Simple External Application)
 	sessionPrivate    uint32 = 5
 	sessionGroup      uint32 = 7
 	maxPacket                = 512
-	defaultPort              = 54005
+	defaultPort              = 54006
 	maxDescriptionLen        = 96
 )
 
@@ -93,14 +95,15 @@ func unmarshal(b []byte) (packet, error) {
 	}, nil
 }
 
-// versionData is the keep-alive payload: application id, service, text.
+// versionData is the keep-alive payload: the operator's DMR ID, service,
+// description text.
 func versionData(id uint32, desc string) []byte {
 	if len(desc) > maxDescriptionLen {
 		desc = desc[:maxDescriptionLen]
 	}
 	b := make([]byte, 5+len(desc))
 	binary.LittleEndian.PutUint32(b, id)
-	b[4] = serviceSimpleApp
+	b[4] = serviceOpenTerm
 	copy(b[5:], desc)
 	return b
 }

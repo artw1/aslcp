@@ -115,7 +115,7 @@ Either of:
 
 ### Upgrading to 2.0
 
-**You have to redo the digital-modes configuration in 2.0.** The BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN settings, your identity (callsign and DMR ID) and the BrandMeister application ID are not carried over, and nothing is imported from the previous stack. Enter them again on the Digital modes page. The previous digital voice stack is removed on upgrade, except md380-emu, which stays installed and working. Only what ASLCP installed is removed. See docs/DV.md.
+**You have to redo the digital-modes configuration in 2.0.** The BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN settings and your identity (callsign and DMR ID) are not carried over, and nothing is imported from the previous stack. Enter them again on the Digital modes page. The previous digital voice stack is removed on upgrade, except md380-emu, which stays installed and working. Only what ASLCP installed is removed. See docs/DV.md.
 
 ## WiFi
 

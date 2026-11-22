@@ -487,10 +487,10 @@ Design: docs/DV.md "BrandMeister". Admin only (`403 forbidden`), `X-ASLCP: 1` on
 ```json
 NetView = {
   "mode": "BM", "label": "BrandMeister", "available": true, "enabled": true,
-  "address": "192.0.2.10", "port": 54005, "defaultPort": 54005, "defaultAddress": "", "addressOptional": false, "passwordSet": true,
+  "address": "192.0.2.10", "port": 54006, "defaultPort": 54006, "defaultAddress": "", "addressOptional": false, "passwordSet": true,
   "fields": {"address": true, "port": true, "password": true}, "needsIdentity": true, "help": "...",
-  "options": [{"key": "client_id", "label": "Application ID", "kind": "int", "default": "0", "min": 0, "max": 4294967295, "advanced": false, "help": "..."}],
-  "values": {"client_id": "4321"},
+  "options": [{"key": "slot", "label": "Timeslot", "kind": "int", "default": "2", "min": 1, "max": 2, "advanced": false, "help": "..."}],
+  "values": {"slot": "1"},
   "login": "ok", "detail": ""               // engine login state of an enabled, available mode: off, pending, ok, failed
 }
 ```

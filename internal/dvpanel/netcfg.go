@@ -79,10 +79,6 @@ type NetSpec struct {
 // NetOptions is the allowlist of option keys per mode.
 var NetOptions = map[string][]OptSpec{
 	ModeBM: {
-		{Key: "client_id", Label: "Application ID", Kind: KindInt, Min: 1, Max: 4294967295,
-			Help: "The Rewind application ID BrandMeister registered for this client. Default: the repeater ID."},
-		{Key: "repeater_id", Label: "Repeater ID", Kind: KindInt, Min: 1, Max: 999999999,
-			Help: "Default for the application ID. Default: the repeater ID of the identity, else the DMR ID followed by 01."},
 		{Key: "slot", Label: "Timeslot", Kind: KindInt, Default: "2", Min: 1, Max: 2,
 			Help: "Rewind has no timeslots; the number is only shown with calls."},
 		{Key: "colour_code", Label: "Colour code", Kind: KindInt, Default: "1", Min: 0, Max: 15, Advanced: true,
@@ -170,8 +166,8 @@ func hbOptions(optionsHelp string) []OptSpec {
 
 // NetSpecs lists the modes with settings, in display order.
 var NetSpecs = []NetSpec{
-	{Mode: ModeBM, Label: "BrandMeister", Address: true, Port: true, Password: true, DefaultPort: 54005, NeedsIdentity: true,
-		Help: "BrandMeister requires a registered application ID for this client; until one is set in Options, logins may be refused."},
+	{Mode: ModeBM, Label: "BrandMeister", Address: true, Port: true, Password: true, DefaultPort: 54006, NeedsIdentity: true,
+		Help: "Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security)."},
 	{Mode: ModeTGIF, Label: "TGIF", Address: true, Port: true, Password: true, DefaultAddress: "tgif.network", DefaultPort: 62031, NeedsIdentity: true,
 		Help: "The password is the hotspot security password of your TGIF profile. The public master tgif.network:62031 is used unless you set another."},
 	{Mode: ModeDMR, Label: "DMR - Other", Address: true, Port: true, Password: true, DefaultPort: 62031, NeedsIdentity: true,

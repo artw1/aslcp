@@ -115,4 +115,4 @@ export function identityError(callsign: string, dmrId: string, repeaterId: strin
 }
 
 /** The BM help line (also in the network's `help`). */
-export const BM_HELP = 'BrandMeister requires a registered application ID for this client; until one is set in Options, logins may be refused.';
+export const BM_HELP = 'Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security).';

@@ -172,20 +172,18 @@ const UNLINK: Record<PMode, string> = { LOOP: '', BM: '4000', TGIF: '4000', DMR:
 const LABEL: Partial<Record<PMode, string>> = { LOOP: 'Parrot (test)', BM: 'BrandMeister', TGIF: 'TGIF', DMR: 'DMR - Other' };
 const NATIVE: PMode[] = ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN'];
 // BrandMeister settings and the node identity (GET/PUT /dv/networks, /dv/identity). The password is write-only.
-// Placeholder master 192.0.2.10. The login state follows the application ID: none set -> the master refuses.
+// Placeholder master 192.0.2.10. The login state follows the identity: no DMR ID -> the master refuses.
 interface MockNet { enabled: boolean; address: string; port: number; password: string; options: Record<string, string> }
 const bmNet: MockNet = { enabled: false, address: '', port: 0, password: '', options: {} };
 type NetId = 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN';
 const blank = (): MockNet => ({ enabled: false, address: '', port: 0, password: '', options: {} });
 const otherNets: Record<'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN', MockNet> = { TGIF: blank(), DMR: blank(), YSF: blank(), P25: blank(), NXDN: blank() };
 let ident: { callsign: string; dmrId: number; repeaterId?: number } = { callsign: '', dmrId: 0 };
-const bmLogin = () => (bmNet.options.client_id ? 'ok' : 'failed');
-const bmDetail = () => (bmNet.options.client_id ? '' : 'the master refused the login: no registered application ID');
-const BM_HELP = 'BrandMeister requires a registered application ID for this client; until one is set in Options, logins may be refused.';
+const bmLogin = () => (ident.dmrId ? 'ok' : 'failed');
+const bmDetail = () => (ident.dmrId ? '' : 'the master refused the login: no DMR ID set');
+const BM_HELP = 'Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security).';
 const intOpt = (key: string, label: string, def: string, min: number, max: number, advanced = false) => ({ key, label, kind: 'int', default: def, min, max, ...(advanced ? { advanced } : {}) });
 const BM_OPTS = [
-  intOpt('client_id', 'Application ID', '0', 0, 4294967295),
-  intOpt('repeater_id', 'Repeater ID', '', 0, 999999999),
   intOpt('slot', 'Time slot', '2', 1, 2),
   intOpt('colour_code', 'Colour code', '1', 0, 15),
   { key: 'super_header', label: 'Super header', kind: 'bool', default: 'true' },
@@ -230,7 +228,7 @@ const NXDN_OPTS = [
   intOpt('missed_polls', 'Missed polls', '3', 1, 20, true),
 ];
 const NETSPEC: Record<NetId, { label: string; fields: { address: boolean; port: boolean; password: boolean }; defaultPort?: number; defaultAddress?: string; addressOptional?: boolean; help?: string; options: unknown[] }> = {
-  BM: { label: 'BrandMeister', fields: { address: true, port: true, password: true }, defaultPort: 54005, help: BM_HELP, options: BM_OPTS },
+  BM: { label: 'BrandMeister', fields: { address: true, port: true, password: true }, defaultPort: 54006, help: BM_HELP, options: BM_OPTS },
   TGIF: { label: 'TGIF', fields: { address: true, port: true, password: true }, defaultPort: 62031, defaultAddress: 'tgif.network', options: HB_OPTS('Static talkgroups, for example TS2=1997; Without it the talkgroup you tune is linked on demand.'),
     help: 'The password is the hotspot security password of your TGIF profile. The public master tgif.network:62031 is used unless you set another.' },
   DMR: { label: 'DMR - Other', fields: { address: true, port: true, password: true }, defaultPort: 62031, options: HB_OPTS('Sent to the master after login, for example static talkgroups. Leave empty if unsure.'),

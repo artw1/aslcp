@@ -1,31 +1,28 @@
 // Package bm is the BrandMeister network (ctl.ModeBM). It speaks BrandMeister's
-// Rewind protocol ("REWIND01", the Simple External Application interface,
-// UDP, default port 54005), not the Homebrew/MMDVM protocol. The wire format
-// is documented in rewind.go; the implementation is original (go-brandmeister
+// Rewind protocol ("REWIND01") as an Open DMR Terminal (service 0x21, UDP,
+// default port 54006), not the Homebrew/MMDVM protocol. The wire format is
+// documented in rewind.go; the implementation is original (go-brandmeister
 // and DigestPlay, both MIT, were used as protocol references only).
 //
 // Rewind carries no DMR bursts: a call is a super header (source and
-// destination ID plus callsigns), optionally a 12 byte voice header LC, audio
-// packets of three AMBE frames, and a terminator. This package asks the
-// server for linear frames (option bit 1: 49-bit AMBE without FEC), which are
-// exactly the 7-byte md380 frames the bridge uses, so no FEC code is needed
-// and the internal/dv/dmr package is not used. A server that sends FEC coded
-// "mode 33" frames (27 byte audio packets) is not supported: those packets
-// are counted and dropped.
+// destination ID plus callsigns), voice header LCs, audio packets of three
+// AMBE frames, and a terminator. TX audio packets are 27 bytes: three
+// FEC coded 72-bit AMBE+2 frames (internal/dv/dmr EncodeAMBE from the 49-bit
+// md380 frames) per 60 ms. RX accepts the same 27 byte packets (decoded to
+// 49 bits with dmr.DecodeAMBE) and also 21 byte linear packets (three 49-bit
+// frames); which framing the server really sends is not confirmed, so both
+// are handled. The linear-frame option is not requested.
 //
-// Login: keep-alive (carries client id and software description) -> server
-// challenge (salt) -> authentication = SHA-256(salt || password) -> empty
-// keep-alive -> configuration (options) -> configuration reply = logged in.
-// Failed or lost sessions are retried with exponential backoff 1 s .. 60 s.
+// Login: keep-alive (carries the operator's DMR ID, the service and a
+// software description) -> server challenge (salt) -> authentication =
+// SHA-256(salt || password) -> keep-alive -> configuration (options) ->
+// configuration reply = logged in. No registered application ID is needed:
+// the keep-alive number is Identity.DMRID. Failed or lost sessions are
+// retried with exponential backoff 1 s .. 60 s.
 //
 // Network options (ctl.NetConfig.Options), all optional:
 //
-//	client_id        Rewind application id sent in every keep-alive. BrandMeister
-//	                 allocates these to software authors: an unregistered id is
-//	                 likely to be refused. Default: repeater_id.
 //	client_version   software description text (default "aslcp-dv").
-//	repeater_id      default for client_id; default Identity.RepeaterID, else
-//	                 Identity.DMRID*100+1.
 //	slot             1 or 2 (default 2). Rewind has no timeslots; reported in
 //	                 call headers only.
 //	colour_code      0..15 (default 1). Not carried by Rewind; accepted for
@@ -40,14 +37,17 @@
 //	                 (default 1500).
 //
 // NetConfig.Address is required (there is no default host; use the master
-// host name BrandMeister gave you); Port defaults to 54005. The password is
-// never logged and never reported in Status.
+// host name BrandMeister gave you); Port defaults to 54006. Identity.DMRID
+// is required. The password (the one set in BrandMeister SelfCare, hotspot
+// security) is never logged and never reported in Status.
 //
 // Tune: a group target subscribes to the talkgroup (session type 7). TG 9990
 // (the parrot) and Private targets are private calls: the node subscribes to
 // private voice for its own DMR ID (type 5) so replies reach it, and TX goes
-// to the target ID as a private call. Unlink cancels the subscription (Rewind
-// has no TG 4000 "disconnect" concept; cancelling is the unlink).
+// to the target ID as a private call. The private subscription type and
+// target are inferred, not confirmed against the server. Unlink cancels the
+// subscription (Rewind has no TG 4000 "disconnect" concept; cancelling is
+// the unlink).
 package bm
 
 import (
@@ -62,6 +62,7 @@ import (
 	"time"
 
 	"github.com/artw1/aslcp/internal/dv/ctl"
+	"github.com/artw1/aslcp/internal/dv/dmr"
 	"github.com/artw1/aslcp/internal/dv/network"
 )
 
@@ -96,7 +97,6 @@ type Net struct {
 	addr     string
 	password string
 	id       ctl.Identity
-	clientID uint32
 	version  string
 	slot     int
 	options  uint32
@@ -118,8 +118,6 @@ type Net struct {
 	txActive bool
 	txBuf    []byte
 	txDst    uint32
-
-	dropped uint64 // mode 33 packets
 }
 
 type subscription struct {
@@ -133,6 +131,9 @@ func New(cfg ctl.NetConfig, id ctl.Identity) (*Net, error) {
 	if cfg.Address == "" {
 		return nil, errors.New("bm: address (master host) is required")
 	}
+	if id.DMRID == 0 {
+		return nil, errors.New("bm: your DMR ID is not set (needed to log in as an Open DMR Terminal)")
+	}
 	port := cfg.Port
 	if port == 0 {
 		port = defaultPort
@@ -144,29 +145,10 @@ func New(cfg ctl.NetConfig, id ctl.Identity) (*Net, error) {
 	n := &Net{
 		enabled: cfg.Enabled, password: cfg.Password, id: id,
 		addr:    net.JoinHostPort(cfg.Address, strconv.Itoa(port)),
-		version: "aslcp-dv", slot: 2, options: optSuperHeader | optLinearFrame,
+		version: "aslcp-dv", slot: 2, options: optSuperHeader,
 		keepAlive: DefaultKeepAlive, timeout: DefaultTimeout, loginTO: DefaultLoginTimeout,
 		bMin: DefaultBackoffMin, bMax: DefaultBackoffMax, rxTO: DefaultRXTimeout,
 		login: ctl.LoginOff, nextCall: 1 << 33,
-	}
-	rep := id.RepeaterID
-	if v, ok := o["repeater_id"]; ok {
-		u, err := strconv.ParseUint(v, 10, 32)
-		if err != nil {
-			return nil, fmt.Errorf("bm: repeater_id: %v", err)
-		}
-		rep = uint32(u)
-	}
-	if rep == 0 {
-		rep = id.DMRID*100 + 1
-	}
-	n.clientID = rep
-	if v, ok := o["client_id"]; ok {
-		u, err := strconv.ParseUint(v, 10, 32)
-		if err != nil {
-			return nil, fmt.Errorf("bm: client_id: %v", err)
-		}
-		n.clientID = uint32(u)
 	}
 	if v := o["client_version"]; v != "" {
 		n.version = v
@@ -313,7 +295,7 @@ func (n *Net) send(typ, flags uint16, payload []byte) error {
 }
 
 func (n *Net) sendKeepAlive() error {
-	return n.send(typKeepAlive, 0, versionData(n.clientID, n.version))
+	return n.send(typKeepAlive, 0, versionData(n.id.DMRID, n.version))
 }
 
 type rxState struct {
@@ -530,13 +512,20 @@ func (n *Net) rxPacket(s network.Sink, rx *rxState, p packet, now time.Time) {
 			*rx = rxState{}
 		}
 	case typAudio:
-		if len(p.payload) == mode33Len {
-			n.mu.Lock()
-			n.dropped++
-			n.mu.Unlock()
-			return
-		}
-		if len(p.payload) != frameLen3 {
+		var fr [3]network.VoiceFrame
+		switch len(p.payload) {
+		case audioLen: // 3 x 72-bit FEC coded frames
+			for i := range fr {
+				var d dmr.AMBE72
+				copy(d[:], p.payload[i*frame72:])
+				a, _ := dmr.DecodeAMBE(d)
+				fr[i].Data = a[:]
+			}
+		case frameLen3: // 3 x 49-bit linear frames
+			for i := range fr {
+				fr[i].Data = p.payload[i*frameLen : (i+1)*frameLen]
+			}
+		default:
 			return
 		}
 		if rx.pending != nil {
@@ -547,8 +536,9 @@ func (n *Net) rxPacket(s network.Sink, rx *rxState, p packet, now time.Time) {
 			return
 		}
 		rx.last = now
-		for i := 0; i < 3; i++ {
-			s.Voice(network.VoiceFrame{Call: rx.call, Seq: rx.seq, Data: p.payload[i*frameLen : (i+1)*frameLen]})
+		for i := range fr {
+			fr[i].Call, fr[i].Seq = rx.call, rx.seq
+			s.Voice(fr[i])
 			rx.seq++
 		}
 	}
@@ -561,6 +551,8 @@ func (n *Net) Tune(ctx context.Context, t ctl.Target) error {
 	}
 	sub := &subscription{typ: sessionGroup, target: t.TG, tg: t.TG}
 	if t.Private || t.TG == ParrotTG {
+		// Inferred, not confirmed: private voice (type 5) keyed by our own
+		// DMR ID, so replies to a private call (e.g. the parrot) reach us.
 		sub.private, sub.typ, sub.target = true, sessionPrivate, n.id.DMRID
 	}
 	n.mu.Lock()
@@ -616,10 +608,14 @@ func (n *Net) StartTX(h network.CallHeader) error {
 		sh.typ = sessionPrivate
 	}
 	n.txCall, n.txActive, n.txBuf, n.txDst = h.Call, true, n.txBuf[:0], dst
-	return n.sendLocked(typSuperHeader, flagRealTime1, sh.marshal(), 3)
+	if err := n.sendLocked(typSuperHeader, flagRealTime1, sh.marshal(), 3); err != nil {
+		return err
+	}
+	return n.sendLocked(typVoiceHeader, flagRealTime1, voiceHeaderLC(sh.typ == sessionPrivate, dst, src), 3)
 }
 
-// WriteVoice collects frames and sends every third as one audio packet.
+// WriteVoice FEC-encodes a 49-bit frame to 72 bits, collects them and sends
+// every third as one 27 byte audio packet.
 func (n *Net) WriteVoice(f network.VoiceFrame) error {
 	if len(f.Data) != frameLen {
 		return fmt.Errorf("bm: frame must be %d bytes", frameLen)
@@ -629,17 +625,20 @@ func (n *Net) WriteVoice(f network.VoiceFrame) error {
 	if !n.txActive || f.Call != n.txCall {
 		return nil
 	}
-	n.txBuf = append(n.txBuf, f.Data...)
-	if len(n.txBuf) < frameLen3 {
+	var a dmr.AMBE
+	copy(a[:], f.Data)
+	e := dmr.EncodeAMBE(a)
+	n.txBuf = append(n.txBuf, e[:]...)
+	if len(n.txBuf) < audioLen {
 		return nil
 	}
-	err := n.sendLocked(typAudio, flagRealTime1, n.txBuf[:frameLen3], 1)
+	err := n.sendLocked(typAudio, flagRealTime1, n.txBuf[:audioLen], 1)
 	n.txBuf = n.txBuf[:0]
 	return err
 }
 
-// EndTX flushes a partial packet (padded with copies of the last frame) and
-// sends the terminator three times.
+// EndTX flushes a partial packet (padded with AMBE silence) and sends the
+// terminator three times.
 func (n *Net) EndTX(call uint64) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -648,9 +647,8 @@ func (n *Net) EndTX(call uint64) error {
 	}
 	n.txActive = false
 	if len(n.txBuf) > 0 {
-		last := n.txBuf[len(n.txBuf)-frameLen:]
-		for len(n.txBuf) < frameLen3 {
-			n.txBuf = append(n.txBuf, last...)
+		for len(n.txBuf) < audioLen {
+			n.txBuf = append(n.txBuf, dmr.SilenceAMBE72[:]...)
 		}
 		n.sendLocked(typAudio, flagRealTime1, n.txBuf, 1)
 		n.txBuf = n.txBuf[:0]
