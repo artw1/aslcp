@@ -77,7 +77,18 @@ func renderDVConfig(listen, peer int, nets dvNetworksState) dvctl.Config {
 		if !ok && !dvpanel.NativeMode(sp.Mode) {
 			continue
 		}
-		nc := dvctl.NetConfig{Mode: sp.Mode, Enabled: s.Enabled, Address: s.Address, Port: s.Port, Password: s.Password}
+		// a network switched on but not set up (a 1.x file carries only the
+		// switch) stays off in the engine until its settings are complete,
+		// instead of retrying a login that cannot work
+		on := s.Enabled
+		if on {
+			id := dvpanel.IdentityState{}
+			if nets.Identity != nil {
+				id = dvpanel.IdentityState{Callsign: nets.Identity.Callsign, DMRID: nets.Identity.DMRID}
+			}
+			on = dvpanel.EnableBlock(sp, dvpanel.NetState{Enabled: true, Address: s.Address, Port: s.Port, PasswordSet: s.Password != ""}, id) == ""
+		}
+		nc := dvctl.NetConfig{Mode: sp.Mode, Enabled: on, Address: s.Address, Port: s.Port, Password: s.Password}
 		if len(s.Options) > 0 {
 			nc.Options = s.Options
 		}

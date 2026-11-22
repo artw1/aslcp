@@ -3,7 +3,7 @@
 import type { DVIdentity, DVLogin, DVNetPut, DVNetView, DVOptSpec, DVSnapshot, DVTuneMode } from './types';
 
 /** The modes the build implements natively. Only the fallback when the snapshot does not list a mode; the engine's `available` wins. */
-export const NATIVE_MODES: readonly string[] = ['LOOP', 'BM'];
+export const NATIVE_MODES: readonly string[] = ['LOOP', 'BM', 'TGIF', 'DMR', 'NXDN'];
 
 /** Whether a mode is available: the snapshot's (engine's) answer, else the static native list. */
 export function modeAvailable(modes: DVSnapshot['modes'] | undefined, id: DVTuneMode): boolean {
@@ -30,12 +30,13 @@ export function validAddress(s: string): boolean {
 export function optionError(o: DVOptSpec, raw: string): string {
   const v = raw.trim();
   if (v === '') return '';
-  if (o.kind === 'bool') return v === '0' || v === '1' ? '' : `${o.label}: on or off`;
+  if (o.kind === 'bool') return v === 'true' || v === 'false' ? '' : `${o.label}: on or off`;
   if (o.kind === 'int') {
     if (!/^-?\d+$/.test(v)) return `${o.label}: a whole number`;
     const n = Number(v);
     if ((o.min !== undefined && n < o.min) || (o.max !== undefined && o.max > 0 && n > o.max)) return `${o.label}: ${o.min ?? 0} to ${o.max}`;
   }
+  if (o.kind === 'text' && v.length > (o.maxLen ?? 32)) return `${o.label}: at most ${o.maxLen ?? 32} characters`;
   return '';
 }
 
@@ -82,7 +83,7 @@ export function passwordUx(passwordSet: boolean, editing: boolean): { status: st
 
 /** What blocks the Enable switch (the same checks the server makes), or ''. */
 export function enableBlock(v: DVNetView, f: NetForm, identity: DVIdentity | null): string {
-  if (v.fields.address && f.address.trim() === '') return 'Set the master address first';
+  if (v.fields.address && !v.defaultAddress && f.address.trim() === '') return 'Set the master address first';
   if (v.fields.password && !v.passwordSet && f.password === '') return 'Set the password first';
   if (v.needsIdentity && (!identity || !identity.callsign || !identity.dmrId)) return 'Set the callsign and DMR ID in the identity first';
   return '';

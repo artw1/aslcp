@@ -183,7 +183,7 @@ func New(cfg ctl.NetConfig, id ctl.Identity) (*Net, error) {
 			return nil, errors.New("bm: colour_code must be 0..15")
 		}
 	}
-	if strings.EqualFold(o["super_header"], "false") {
+	if v := o["super_header"]; strings.EqualFold(v, "false") || v == "0" {
 		n.options &^= optSuperHeader
 	}
 	for key, dst := range map[string]*time.Duration{

@@ -20,7 +20,7 @@ import (
 // NativeModes are the modes this build implements, in display order. It is the
 // static fallback of the snapshot's availability when the engine is down; the
 // engine's own Status.Networks[].Available wins whenever it answers.
-var NativeModes = []string{ModeLoop, ModeBM}
+var NativeModes = []string{ModeLoop, ModeBM, ModeTGIF, ModeDMR, ModeNXDN}
 
 // NativeMode reports whether mode is in NativeModes.
 func NativeMode(mode string) bool {
@@ -50,6 +50,7 @@ type OptSpec struct {
 	Help     string `json:"help,omitempty"`
 	Min      int64  `json:"min,omitempty"` // KindInt
 	Max      int64  `json:"max,omitempty"`
+	MaxLen   int    `json:"maxLen,omitempty"` // KindText: longest value (0: 32)
 	Advanced bool   `json:"advanced,omitempty"`
 }
 
@@ -63,6 +64,9 @@ type NetSpec struct {
 	Password bool `json:"password"`
 	// DefaultPort is the master's port when none is set (0: none).
 	DefaultPort int `json:"defaultPort,omitempty"`
+	// DefaultAddress is the master used when no address is set (TGIF's public
+	// master); a network with one can be enabled without an address.
+	DefaultAddress string `json:"defaultAddress,omitempty"`
 	// NeedsIdentity: the callsign and DMR ID must be set before it can be
 	// enabled.
 	NeedsIdentity bool   `json:"needsIdentity"`
@@ -93,18 +97,66 @@ var NetOptions = map[string][]OptSpec{
 		{Key: "rx_timeout_ms", Label: "Call end timeout (ms)", Kind: KindInt, Default: "1500", Min: 200, Max: 10000, Advanced: true,
 			Help: "End a received call that has no terminator after this silence."},
 	},
-	ModeTGIF: {},
-	ModeDMR:  {},
+	ModeTGIF: hbOptions("Static talkgroups, one string for the master, for example TS2=1997; (see your TGIF profile). Without it the talkgroup you tune is linked on demand."),
+	ModeDMR:  hbOptions("Sent to the master after login (RPTO), for example static talkgroups on masters that read them. Leave empty if unsure."),
+	ModeNXDN: {
+		{Key: "nxdn_id", Label: "NXDN unit ID", Kind: KindInt, Min: 1, Max: 65535,
+			Help: "Your NXDN unit ID. Needed to transmit; receiving works without it."},
+		{Key: "nxdn_ran", Label: "RAN", Kind: KindInt, Default: "0", Min: 0, Max: 63, Advanced: true,
+			Help: "Radio access number sent with your transmissions."},
+		{Key: "listen", Label: "Local address", Kind: KindText, Default: "0.0.0.0:0", Advanced: true,
+			Help: "Local UDP address to bind, host:port. Port 0 picks one."},
+		{Key: "poll_interval_ms", Label: "Poll period (ms)", Kind: KindInt, Default: "5000", Min: 1000, Max: 60000, Advanced: true},
+		{Key: "missed_polls", Label: "Missed polls", Kind: KindInt, Default: "3", Min: 1, Max: 20, Advanced: true,
+			Help: "The reflector is considered gone after this many silent poll periods."},
+		{Key: "backoff_min_ms", Label: "First retry delay (ms)", Kind: KindInt, Default: "1000", Min: 100, Max: 60000, Advanced: true},
+		{Key: "backoff_max_ms", Label: "Longest retry delay (ms)", Kind: KindInt, Default: "30000", Min: 1000, Max: 600000, Advanced: true},
+		{Key: "rx_timeout_ms", Label: "Call end timeout (ms)", Kind: KindInt, Default: "1500", Min: 200, Max: 10000, Advanced: true,
+			Help: "End a received call that has no terminator after this silence."},
+	},
 }
 
-// NetSpecs lists the modes with settings, in display order. The fields of TGIF
-// and DMR - Other are those of 1.4.0 (their networks are not in this build
-// yet; their settings are kept).
+// hbOptions are the options of the Homebrew client, shared by TGIF and
+// DMR - Other (internal/dv/network/homebrew); only the help of "options" differs.
+func hbOptions(optionsHelp string) []OptSpec {
+	return []OptSpec{
+		{Key: "options", Label: "Master options", Kind: KindText, MaxLen: 200, Help: optionsHelp},
+		{Key: "slot", Label: "Timeslot", Kind: KindInt, Default: "2", Min: 1, Max: 2,
+			Help: "The timeslot of your calls. Hotspot style networks, TGIF included, use slot 2."},
+		{Key: "repeater_id", Label: "Repeater ID", Kind: KindInt, Min: 1, Max: MaxRepeaterID, Advanced: true,
+			Help: "Default: the repeater ID of the identity, else the DMR ID."},
+		{Key: "colour_code", Label: "Colour code", Kind: KindInt, Default: "1", Min: 0, Max: 15, Advanced: true},
+		{Key: "tune_kerchunk", Label: "Link by short key-up", Kind: KindBool, Default: "true", Advanced: true,
+			Help: "Tuning a talkgroup sends a short transmission to it, which links it on most masters."},
+		{Key: "unlink_tg", Label: "Unlink talkgroup", Kind: KindInt, Default: "4000", Min: 0, Max: 16777215, Advanced: true,
+			Help: "Unlink sends a short transmission to this talkgroup. 0: send nothing."},
+		{Key: "rx_freq", Label: "RX frequency (Hz)", Kind: KindInt, Default: "0", Min: 0, Max: 999999999, Advanced: true,
+			Help: "Reported to the master with your repeater details."},
+		{Key: "tx_freq", Label: "TX frequency (Hz)", Kind: KindInt, Default: "0", Min: 0, Max: 999999999, Advanced: true},
+		{Key: "location", Label: "Location", Kind: KindText, MaxLen: 20, Advanced: true, Help: "Shown by the master."},
+		{Key: "description", Label: "Description", Kind: KindText, MaxLen: 19, Advanced: true, Help: "Shown by the master."},
+		{Key: "url", Label: "URL", Kind: KindText, MaxLen: 124, Advanced: true, Help: "Shown by the master."},
+		{Key: "ping_interval_ms", Label: "Keep-alive period (ms)", Kind: KindInt, Default: "5000", Min: 1000, Max: 60000, Advanced: true},
+		{Key: "missed_pongs", Label: "Missed keep-alives", Kind: KindInt, Default: "3", Min: 1, Max: 20, Advanced: true,
+			Help: "The session is considered lost after this many unanswered keep-alives."},
+		{Key: "login_timeout_ms", Label: "Login step timeout (ms)", Kind: KindInt, Default: "5000", Min: 1000, Max: 60000, Advanced: true},
+		{Key: "backoff_min_ms", Label: "First retry delay (ms)", Kind: KindInt, Default: "1000", Min: 100, Max: 60000, Advanced: true},
+		{Key: "backoff_max_ms", Label: "Longest retry delay (ms)", Kind: KindInt, Default: "60000", Min: 1000, Max: 600000, Advanced: true},
+		{Key: "rx_timeout_ms", Label: "Call end timeout (ms)", Kind: KindInt, Default: "1500", Min: 200, Max: 10000, Advanced: true,
+			Help: "End a received call that has no terminator after this silence."},
+	}
+}
+
+// NetSpecs lists the modes with settings, in display order.
 var NetSpecs = []NetSpec{
 	{Mode: ModeBM, Label: "BrandMeister", Address: true, Port: true, Password: true, DefaultPort: 54005, NeedsIdentity: true,
 		Help: "BrandMeister requires a registered application ID for this client; until one is set in Options, logins may be refused."},
-	{Mode: ModeTGIF, Label: "TGIF", Password: true, NeedsIdentity: true},
-	{Mode: ModeDMR, Label: "DMR - Other", Address: true, Port: true, Password: true, NeedsIdentity: true},
+	{Mode: ModeTGIF, Label: "TGIF", Address: true, Port: true, Password: true, DefaultAddress: "tgif.network", DefaultPort: 62031, NeedsIdentity: true,
+		Help: "The password is the hotspot security password of your TGIF profile. The public master tgif.network:62031 is used unless you set another."},
+	{Mode: ModeDMR, Label: "DMR - Other", Address: true, Port: true, Password: true, DefaultPort: 62031, NeedsIdentity: true,
+		Help: "A Homebrew (MMDVM) master such as FreeDMR, DMR+ or an hblink3 server. Ask its operator for the address, port and password."},
+	{Mode: ModeNXDN, Label: "NXDN", NeedsIdentity: true,
+		Help: "NXDN has no login: tune a reflector talkgroup on the dashboard. The callsign of the identity is sent to the reflector; set your NXDN unit ID in Options to transmit."},
 }
 
 // NetSpecFor finds the spec of mode.
@@ -229,13 +281,21 @@ func CleanOptions(mode string, opts map[string]string) (map[string]string, error
 			}
 			v = strconv.FormatInt(n, 10)
 		case KindBool:
-			v = strings.ToLower(v)
-			if v != "true" && v != "false" {
+			switch strings.ToLower(v) {
+			case "true", "1":
+				v = "true"
+			case "false", "0":
+				v = "false"
+			default:
 				return nil, fieldErr("options."+k, "must be true or false")
 			}
 		default:
-			if len(v) > 32 {
-				return nil, fieldErr("options."+k, "at most 32 characters")
+			max := sp.MaxLen
+			if max == 0 {
+				max = 32
+			}
+			if len(v) > max {
+				return nil, fieldErr("options."+k, "at most %d characters", max)
 			}
 			for _, c := range []byte(v) {
 				if c < 0x20 || c > 0x7e {
@@ -287,7 +347,7 @@ func ValidateIdentity(id IdentityState) (IdentityState, error) {
 // it can).
 func EnableBlock(sp NetSpec, st NetState, id IdentityState) string {
 	switch {
-	case sp.Address && st.Address == "":
+	case sp.Address && st.Address == "" && sp.DefaultAddress == "":
 		return "set the master address first"
 	case sp.Password && !st.PasswordSet:
 		return "set the password first"

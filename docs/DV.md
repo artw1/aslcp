@@ -2,7 +2,7 @@
 
 Digital modes (DMR, YSF, P25, NXDN) run on the ASLCP engine, `aslcp-dv`, a small service that ships in the ASLCP package. ASLCP 2.0 replaces the previous third-party digital voice stack with it: that stack is no longer installed, configured or restarted by ASLCP.
 
-Status in 2.0 milestone 2: the engine, the control socket, the vocoder link, the **Parrot** test mode (`LOOP`) and **BrandMeister** (`BM`, a native Rewind client) are in. TGIF, DMR - Other, YSF, P25 and NXDN show "Not yet available in this build"; their settings and favourites are kept and they are not lost on upgrade.
+Status in 2.0 milestone 3: the engine, the control socket, the vocoder link, the **Parrot** test mode (`LOOP`), **BrandMeister** (`BM`, a native Rewind client), **TGIF** and **DMR - Other** (native Homebrew clients) and **NXDN** (a native reflector client) are in. YSF and P25 show "Not yet available in this build"; their settings and favourites are kept and they are not lost on upgrade.
 
 ## Parts
 
@@ -32,15 +32,16 @@ Supported: Debian bookworm and trixie on amd64, arm64 and armhf (ARMv7). **ARMv6
 
 ## Modes
 
-| Mode | Id | In 2.0 M2 | Tune value | Unlink |
+| Mode | Id | In 2.0 M3 | Tune value | Unlink |
 |---|---|---|---|---|
 | Parrot | `LOOP` | available | parrot id (default 9990, private call) | `disconnect` |
 | BrandMeister | `BM` | available | talkgroup (a trailing `#` makes a private call) | `4000` |
-| TGIF, DMR - Other | `TGIF`, `DMR` | not available | talkgroup | `4000` |
+| TGIF, DMR - Other | `TGIF`, `DMR` | available | talkgroup | `4000` |
 | YSF | `YSF` | not available | reflector id or `host:port` | `disconnect` |
-| P25, NXDN | `P25`, `NXDN` | not available | talkgroup | `9999` |
+| P25 | `P25` | not available | talkgroup | `9999` |
+| NXDN | `NXDN` | available | talkgroup | `9999` |
 
-Availability comes from the engine (which modes the running build implements); while the engine is down the page falls back to a fixed list (Parrot and BrandMeister). A mode that is not available answers `409 not_available` to mode and tune; an available one that is not set up answers `409 mode_disabled`. Parrot echoes what you transmit back through the bridge node, which tests the whole path (node, USRP, engine, vocoder) without a network account.
+Availability comes from the engine (which modes the running build implements); while the engine is down the page falls back to a fixed list (Parrot, BrandMeister, TGIF, DMR - Other and NXDN). A mode that is not available answers `409 not_available` to mode and tune; an available one that is not set up answers `409 mode_disabled`. Parrot echoes what you transmit back through the bridge node, which tests the whole path (node, USRP, engine, vocoder) without a network account.
 
 ## BrandMeister
 
@@ -94,3 +95,22 @@ Enabling digital modes stops the previous stack's units but leaves its files, pa
 Writes are audited as `dv.enable`, `dv.disable`, `dv.mode`, `dv.tune`, `dv.unlink`, `dv.favorite.*`, `dv.network`, `dv.identity`, `dv.private.*`, `dv.node_name`, `dv.link`, `dv.restore_discard`, `dv.resume` and `dv.lists.refresh`. Audit lines never contain a password, key or token.
 
 REST paths, the SSE event name and the settings keys keep their 1.x names for now; see docs/API.md.
+
+## TGIF
+
+TGIF is a native Homebrew (MMDVM) client: the engine logs in to a TGIF master with your DMR ID and the hotspot security password of your TGIF profile.
+
+- *Master address* and *port*: optional. Left empty, the public master `tgif.network` port 62031 is used (the address field shows it as a placeholder).
+- *Password*: write-only, like the BrandMeister password; the page shows only "Password set" and a Change button.
+- *Options*: the master options string (for example static talkgroups, sent after login), the time slot (default 2), and under "advanced" the repeater ID, colour code, link by short key-up, unlink talkgroup, frequencies, location, description, URL and the keep-alive, timeout and back-off timers. A blank option uses the engine default.
+- *Enable* needs the password and the identity (callsign and DMR ID). The card shows the login state.
+
+On the dashboard, choose TGIF, type a talkgroup and press Tune, or pick a favourite. With *link by short key-up* on (the default), a short key-up on a talkgroup is enough for the master to link it.
+
+## DMR - Other (Homebrew master)
+
+DMR - Other connects to any Homebrew (MMDVM) master, for example a FreeDMR, DMR+ or hblink3 server. It has the same settings as TGIF, but there is no default: enter the master address, port (default 62031) and the password the operator gave you. *Enable* needs the address, the password and the identity. TGIF and DMR - Other can be enabled at the same time; each has its own login.
+
+## NXDN
+
+NXDN is a native reflector client. It has no password and no login: the engine registers with the reflector by sending polls, using the callsign of the identity. Set your NXDN unit ID (1-65535) in Options to transmit. Under "advanced" are the RAN, the local listen address and the poll and back-off timers. *Enable* needs the identity. On the dashboard, tune a reflector talkgroup; unlink is `9999`.

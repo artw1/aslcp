@@ -10,7 +10,7 @@ const bm: DVNetView = {
   fields: { address: true, port: true, password: true }, needsIdentity: true, help: BM_HELP,
   options: [
     { key: 'client_id', label: 'Application ID', kind: 'int', default: '0', min: 0, max: 4294967295 },
-    { key: 'super_header', label: 'Super header', kind: 'bool', default: '1' },
+    { key: 'super_header', label: 'Super header', kind: 'bool', default: 'true' },
   ],
   values: {},
 };
@@ -80,4 +80,34 @@ test('login text and identity checks', () => {
   assert.match(identityError('N0', '1234567', ''), /^Callsign/);
   assert.match(identityError('N0CALL', '123', ''), /^DMR ID/);
   assert.match(identityError('N0CALL', '1234567', 'abc'), /^Repeater ID/);
+});
+
+test('TGIF, DMR and NXDN forms', () => {
+  const tgif: DVNetView = {
+    mode: 'TGIF', label: 'TGIF', available: true, enabled: false, address: '', port: 0, defaultPort: 62031, defaultAddress: 'tgif.network', passwordSet: false,
+    fields: { address: true, port: true, password: true }, needsIdentity: true,
+    options: [
+      { key: 'options', label: 'Master options', kind: 'text', default: '', maxLen: 200 },
+      { key: 'tune_kerchunk', label: 'Link by short key-up', kind: 'bool', default: 'true', advanced: true },
+    ],
+    values: {},
+  };
+  const f = formOf(tgif);
+  // the public master is the default: no address needed, the password is
+  assert.equal(enableBlock(tgif, f, id), 'Set the password first');
+  assert.equal(enableBlock(tgif, { ...f, password: 'example-pass' }, id), '');
+  assert.equal(enableBlock(tgif, { ...f, password: 'example-pass' }, null), 'Set the callsign and DMR ID in the identity first');
+  // long text option allowed up to its maxLen, bools are true/false
+  assert.equal(formError(tgif, { ...f, options: { options: 'TS2=1997,1998,1999;'.repeat(5) } }), '');
+  assert.match(formError(tgif, { ...f, options: { options: 'x'.repeat(201) } }), /at most 200/);
+  assert.match(formError(tgif, { ...f, options: { tune_kerchunk: '1' } }), /on or off/);
+  assert.deepEqual(buildPut(tgif, { ...f, enabled: true, password: 'example-pass', options: { options: 'TS2=1997;', tune_kerchunk: 'false' } }),
+    { enabled: true, password: 'example-pass', options: { options: 'TS2=1997;', tune_kerchunk: 'false' } });
+  const dmr: DVNetView = { ...tgif, mode: 'DMR', label: 'DMR - Other', defaultAddress: undefined };
+  assert.equal(enableBlock(dmr, formOf(dmr), id), 'Set the master address first');
+  const nxdn: DVNetView = { ...tgif, mode: 'NXDN', label: 'NXDN', fields: { address: false, port: false, password: false }, defaultPort: undefined, defaultAddress: undefined };
+  assert.equal(enableBlock(nxdn, formOf(nxdn), id), '');
+  assert.equal(enableBlock(nxdn, formOf(nxdn), null), 'Set the callsign and DMR ID in the identity first');
+  assert.equal(modeAvailable(undefined, 'TGIF') && modeAvailable(undefined, 'DMR') && modeAvailable(undefined, 'NXDN'), true);
+  assert.equal(modeAvailable(undefined, 'YSF') || modeAvailable(undefined, 'P25'), false);
 });

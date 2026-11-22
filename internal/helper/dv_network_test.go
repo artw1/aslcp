@@ -140,3 +140,138 @@ func TestDVNetworkUpgradeFrom14(t *testing.T) {
 		t.Fatalf("lost stfuStay: %s", raw)
 	}
 }
+
+func renderedNet(t *testing.T, o *Ops, mode string) dvctl.NetConfig {
+	t.Helper()
+	for _, n := range dvRendered(t, o).Networks {
+		if n.Mode == mode {
+			return n
+		}
+	}
+	t.Fatalf("%s not rendered", mode)
+	return dvctl.NetConfig{}
+}
+
+func TestDVNetworkTGIFAndDMR(t *testing.T) {
+	o := dvCfgOps(t)
+	// incomplete: no password, no identity
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "TGIF", Enabled: bp(true)}); !errors.Is(err, ErrDVNetIncomplete) {
+		t.Fatalf("%v", err)
+	}
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "TGIF", Password: sp("example-pass"), Enabled: bp(true)}); !errors.Is(err, ErrDVNetIncomplete) {
+		t.Fatalf("no identity: %v", err)
+	}
+	// DMR needs an address
+	dvNetDo(o, DVNetworkRequest{Identity: &DVIdentityView{Callsign: "N0CALL", DMRID: 1234567}})
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "DMR", Password: sp("example-pass"), Enabled: bp(true)}); !errors.Is(err, ErrDVNetIncomplete) {
+		t.Fatalf("DMR without address: %v", err)
+	}
+	// TGIF needs no address: the public master is the default
+	rep, err := dvNetDo(o, DVNetworkRequest{Mode: "TGIF", Password: sp("example-pass"), Enabled: bp(true),
+		Options: map[string]string{"options": "TS2=1997;", "tune_kerchunk": "0", "slot": ""}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := json.Marshal(rep); strings.Contains(string(b), "example-pass") {
+		t.Fatalf("password in reply: %s", b)
+	}
+	n := renderedNet(t, o, "TGIF")
+	if !n.Enabled || n.Password != "example-pass" || n.Address != "" || n.Options["options"] != "TS2=1997;" || n.Options["tune_kerchunk"] != "false" || len(n.Options) != 2 {
+		t.Fatalf("%+v", n)
+	}
+	// DMR with its own master
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "DMR", Address: sp("192.0.2.10"), Port: ip(62031), Password: sp("example-pass"), Enabled: bp(true)}); err != nil {
+		t.Fatal(err)
+	}
+	if n := renderedNet(t, o, "DMR"); !n.Enabled || n.Address != "192.0.2.10" || n.Port != 62031 {
+		t.Fatalf("%+v", n)
+	}
+	for name, r := range map[string]DVNetworkRequest{
+		"slot":     {Mode: "TGIF", Options: map[string]string{"slot": "3"}},
+		"bool":     {Mode: "DMR", Options: map[string]string{"tune_kerchunk": "maybe"}},
+		"optlen":   {Mode: "DMR", Options: map[string]string{"options": strings.Repeat("x", 201)}},
+		"location": {Mode: "DMR", Options: map[string]string{"location": strings.Repeat("x", 21)}},
+		"nxdnopt":  {Mode: "DMR", Options: map[string]string{"nxdn_id": "1"}},
+	} {
+		if _, err := dvNetDo(o, r); !errors.Is(err, ErrDVBadRequest) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// clearing the identity switches them off
+	rep, _ = dvNetDo(o, DVNetworkRequest{Identity: &DVIdentityView{}})
+	for _, v := range rep.Networks {
+		if v.Enabled {
+			t.Fatalf("still enabled: %+v", v)
+		}
+	}
+	// the password is kept and never returned
+	got, _ := o.DVNetwork(context.Background(), &DVRequest{})
+	for _, v := range got.Networks {
+		if (v.Mode == "TGIF" || v.Mode == "DMR") && !v.PasswordSet {
+			t.Fatalf("%+v", v)
+		}
+	}
+	if b, _ := json.Marshal(got); strings.Contains(string(b), "example-pass") {
+		t.Fatalf("password in read: %s", b)
+	}
+}
+
+func TestDVNetworkNXDN(t *testing.T) {
+	o := dvCfgOps(t)
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "NXDN", Enabled: bp(true)}); !errors.Is(err, ErrDVNetIncomplete) {
+		t.Fatalf("no identity: %v", err)
+	}
+	dvNetDo(o, DVNetworkRequest{Identity: &DVIdentityView{Callsign: "N0CALL", DMRID: 1234567}})
+	for name, r := range map[string]DVNetworkRequest{
+		"password": {Mode: "NXDN", Password: sp("example-pass")},
+		"address":  {Mode: "NXDN", Address: sp("192.0.2.10")},
+		"id":       {Mode: "NXDN", Options: map[string]string{"nxdn_id": "70000"}},
+		"ran":      {Mode: "NXDN", Options: map[string]string{"nxdn_ran": "64"}},
+		"hbopt":    {Mode: "NXDN", Options: map[string]string{"slot": "1"}},
+	} {
+		if _, err := dvNetDo(o, r); !errors.Is(err, ErrDVBadRequest) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "NXDN", Enabled: bp(true), Options: map[string]string{"nxdn_id": "1999", "nxdn_ran": "1"}}); err != nil {
+		t.Fatal(err)
+	}
+	if n := renderedNet(t, o, "NXDN"); !n.Enabled || n.Password != "" || n.Options["nxdn_id"] != "1999" || n.Options["nxdn_ran"] != "1" {
+		t.Fatalf("%+v", n)
+	}
+}
+
+func TestDVNetworkUpgradeFrom14EnabledState(t *testing.T) {
+	// 1.4.0: TGIF and DMR switched on with their settings, no identity yet.
+	o := dvCfgOps(t)
+	os.MkdirAll(o.DVStateDir, 0o700)
+	old := `{"version":1,"networks":{"TGIF":{"enabled":true,"password":"example-pass"},"DMR":{"enabled":true,"address":"192.0.2.10","port":62031,"password":"example-pass"}}}`
+	if err := os.WriteFile(filepath.Join(o.DVStateDir, "networks.json"), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// the switch is kept (shown on), but the engine does not log in until the identity exists
+	rep, err := o.DVNetwork(context.Background(), &DVRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range rep.Networks {
+		if (v.Mode == "TGIF" || v.Mode == "DMR") && (!v.Enabled || !v.PasswordSet) {
+			t.Fatalf("%+v", v)
+		}
+	}
+	if _, err := o.DVConfig(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if renderedNet(t, o, "TGIF").Enabled || renderedNet(t, o, "DMR").Enabled {
+		t.Fatal("an unconfigured network was started")
+	}
+	if _, err := dvNetDo(o, DVNetworkRequest{Identity: &DVIdentityView{Callsign: "N0CALL", DMRID: 1234567}}); err != nil {
+		t.Fatal(err)
+	}
+	if n := renderedNet(t, o, "TGIF"); !n.Enabled || n.Password != "example-pass" {
+		t.Fatalf("%+v", n)
+	}
+	if n := renderedNet(t, o, "DMR"); !n.Enabled || n.Address != "192.0.2.10" {
+		t.Fatalf("%+v", n)
+	}
+}

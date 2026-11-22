@@ -127,9 +127,13 @@ func TestDVConfigDefaultsAndWrite(t *testing.T) {
 	if cfg.USRP.Listen != "127.0.0.1:34001" || cfg.USRP.Peer != "127.0.0.1:32001" || cfg.Vocoder.MD380 != "127.0.0.1:2470" {
 		t.Fatalf("%+v", cfg)
 	}
-	if len(cfg.Networks) != 2 || cfg.Networks[0].Mode != dvctl.ModeLoop || !cfg.Networks[0].Enabled ||
-		cfg.Networks[1].Mode != dvctl.ModeBM || cfg.Networks[1].Enabled {
+	if len(cfg.Networks) != 5 || cfg.Networks[0].Mode != dvctl.ModeLoop || !cfg.Networks[0].Enabled {
 		t.Fatalf("%+v", cfg.Networks)
+	}
+	for i, m := range []string{dvctl.ModeBM, dvctl.ModeTGIF, dvctl.ModeDMR, dvctl.ModeNXDN} {
+		if n := cfg.Networks[i+1]; n.Mode != m || n.Enabled {
+			t.Fatalf("%+v", cfg.Networks)
+		}
 	}
 	if fi, _ := os.Stat(res.Path); fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v", fi.Mode().Perm())
@@ -165,7 +169,7 @@ func TestDVConfigUsesPrivateNodePortsAndNetworks(t *testing.T) {
 	for _, n := range cfg.Networks {
 		modes[n.Mode] = n
 	}
-	if !modes[dvctl.ModeBM].Enabled || modes[dvctl.ModeDMR].Address != "192.0.2.10" || modes[dvctl.ModeTGIF].Password != "example-pass" {
+	if modes[dvctl.ModeBM].Enabled /* switch carried from 1.x, no master set up yet: off in the engine */ || modes[dvctl.ModeDMR].Address != "192.0.2.10" || modes[dvctl.ModeTGIF].Password != "example-pass" {
 		t.Fatalf("%+v", cfg.Networks)
 	}
 }

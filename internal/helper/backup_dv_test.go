@@ -193,7 +193,7 @@ func TestBackupDVOlderBackupChangesNothing(t *testing.T) {
 func TestBackupDVInvalidNetworksNotArchived(t *testing.T) {
 	src := newBkNode(t, "1.0", nil)
 	src.dvSource()
-	src.put("var/dv-state/networks.json", `{"version":1,"networks":{"TGIF":{"address":"192.0.2.10"}}}`, 0o600)
+	src.put("var/dv-state/networks.json", `{"version":1,"networks":{"NXDN":{"address":"192.0.2.10"}}}`, 0o600)
 	if m := dvEntries(t, src.archive(BackupRequest{DV: true})); m.FindDVNetworks() != nil {
 		t.Fatal("invalid settings archived")
 	}

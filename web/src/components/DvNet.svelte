@@ -37,10 +37,10 @@
     <label class="label" for="{id}-{o.key}">{o.label}</label>
     {#if o.kind === 'bool'}
       <select id="{id}-{o.key}" class="input" bind:value={f.options[o.key]}>
-        <option value="">Default ({o.default === '1' ? 'on' : 'off'})</option><option value="1">On</option><option value="0">Off</option>
+        <option value="">Default ({o.default === 'true' ? 'on' : 'off'})</option><option value="true">On</option><option value="false">Off</option>
       </select>
     {:else}
-      <input id="{id}-{o.key}" class="input font-mono" bind:value={f.options[o.key]} placeholder={o.default} inputmode={o.kind === 'int' ? 'numeric' : undefined} autocomplete="off" />
+      <input id="{id}-{o.key}" class="input font-mono" bind:value={f.options[o.key]} placeholder={o.default} inputmode={o.kind === 'int' ? 'numeric' : undefined} maxlength={o.kind === 'text' ? (o.maxLen ?? 32) : undefined} autocomplete="off" />
     {/if}
     {#if o.help}<p class="mt-0.5 text-xs text-muted">{o.help}</p>{/if}
   </div>
@@ -54,7 +54,7 @@
   <div class="grid grid-cols-2 gap-3">
     {#if v.fields.address}
       <div class="col-span-2 sm:col-span-1"><label class="label" for="{id}-address">Master address</label>
-        <input id="{id}-address" class="input font-mono" bind:value={f.address} autocomplete="off" spellcheck="false" /></div>
+        <input id="{id}-address" class="input font-mono" bind:value={f.address} placeholder={v.defaultAddress ?? ''} autocomplete="off" spellcheck="false" /></div>
     {/if}
     {#if v.fields.port}
       <div class="col-span-2 sm:col-span-1"><label class="label" for="{id}-port">Port</label>

@@ -120,3 +120,57 @@ func TestDVNetworkIncomplete(t *testing.T) {
 	fe.mu.Unlock()
 	expectErr(t, e, "admin", "PUT", "/api/dv/networks/BM", map[string]any{"enabled": true}, 422, "incomplete")
 }
+
+func TestDVNetworksTGIFDMRNXDN(t *testing.T) {
+	e, _, _ := dvEnv(t, ctl.ModeLoop, ctl.ModeBM, ctl.ModeTGIF, ctl.ModeDMR, ctl.ModeNXDN)
+	waitDV(t, e, func(s dvSnap) bool { return s.Running })
+	var list struct {
+		Modes []struct {
+			netView
+			DefaultAddress string
+			DefaultPort    int
+			NeedsIdentity  bool
+			Fields         struct{ Address, Port, Password bool }
+		}
+	}
+	if c := e.do("admin", "GET", "/api/dv/networks", nil, &list); c != 200 {
+		t.Fatal(c)
+	}
+	got := map[string]int{}
+	for _, m := range list.Modes {
+		got[m.Mode]++
+		switch m.Mode {
+		case "TGIF":
+			if !m.Available || m.DefaultAddress != "tgif.network" || m.DefaultPort != 62031 || !m.Fields.Password || len(m.Options) == 0 {
+				t.Fatalf("%+v", m)
+			}
+		case "DMR":
+			if !m.Available || !m.Fields.Address || !m.Fields.Password || len(m.Options) == 0 {
+				t.Fatalf("%+v", m)
+			}
+		case "NXDN":
+			if !m.Available || m.Fields.Address || m.Fields.Password || !m.NeedsIdentity || len(m.Options) == 0 {
+				t.Fatalf("%+v", m)
+			}
+		}
+	}
+	if got["TGIF"] != 1 || got["DMR"] != 1 || got["NXDN"] != 1 {
+		t.Fatalf("%v", got)
+	}
+	// validation
+	expectErr(t, e, "admin", "PUT", "/api/dv/networks/TGIF", map[string]any{"options": map[string]string{"slot": "5"}}, 422, "invalid_field")
+	expectErr(t, e, "admin", "PUT", "/api/dv/networks/DMR", map[string]any{"options": map[string]string{"nxdn_id": "1"}}, 422, "invalid_field")
+	expectErr(t, e, "admin", "PUT", "/api/dv/networks/NXDN", map[string]any{"password": "example-pass"}, 422, "invalid_field")
+	expectErr(t, e, "admin", "PUT", "/api/dv/networks/NXDN", map[string]any{"options": map[string]string{"nxdn_id": "0"}}, 422, "invalid_field")
+	var v netView
+	if c := e.do("admin", "PUT", "/api/dv/networks/DMR", map[string]any{"address": "192.0.2.10", "port": 62031, "password": "example-pass",
+		"options": map[string]string{"options": "TS2=1997;"}}, &v); c != 200 || !v.PasswordSet || v.Values["options"] != "TS2=1997;" {
+		t.Fatalf("%d %+v", c, v)
+	}
+	for _, p := range []string{"/api/dv/networks", "/api/dv/networks/DMR", "/api/dv/networks/TGIF"} {
+		_, raw, _ := e.raw("GET", p, nil, e.ck["admin"], nil)
+		if strings.Contains(string(raw), "example-pass") {
+			t.Fatalf("password in GET %s: %s", p, raw)
+		}
+	}
+}

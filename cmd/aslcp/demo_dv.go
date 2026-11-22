@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/artw1/aslcp/internal/dv/ctl"
+	"github.com/artw1/aslcp/internal/dvpanel"
 	"github.com/artw1/aslcp/internal/helper"
 )
 
@@ -36,7 +37,7 @@ func newDemoDV() *demoDV {
 	}
 	for _, m := range []string{ctl.ModeLoop, ctl.ModeBM, ctl.ModeTGIF, ctl.ModeDMR, ctl.ModeYSF, ctl.ModeP25, ctl.ModeNXDN} {
 		d.status.Networks = append(d.status.Networks, ctl.NetStatus{
-			Mode: m, Available: m == ctl.ModeLoop || m == ctl.ModeBM, Enabled: m == ctl.ModeLoop, Login: ctl.LoginOff})
+			Mode: m, Available: dvpanel.NativeMode(m), Enabled: m == ctl.ModeLoop, Login: ctl.LoginOff})
 	}
 	return d
 }
@@ -175,7 +176,7 @@ func (d *demoDV) DVNetworkGet(context.Context) (helper.DVNetworkReply, error) {
 
 func (d *demoDV) netReply(changed bool) helper.DVNetworkReply {
 	r := helper.DVNetworkReply{Identity: d.ident, Rendered: true, Changed: changed}
-	for _, m := range []string{ctl.ModeBM, ctl.ModeTGIF, ctl.ModeDMR} {
+	for _, m := range []string{ctl.ModeBM, ctl.ModeTGIF, ctl.ModeDMR, ctl.ModeNXDN} {
 		if v, ok := d.nets[m]; ok {
 			r.Networks = append(r.Networks, v)
 		}

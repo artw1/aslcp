@@ -1,5 +1,5 @@
 // The DMR networks of the digital modes (docs/DV.md): each one is its own panel mode with its own remembered
-// talkgroup and favourites. In M1 they are carried by the engine but not yet available (the snapshot says so).
+// talkgroup and favourites. Availability and login state come from the engine (the snapshot says which are ready).
 // Read-only: there is nothing to configure here any more.
 import type { DVTuneMode } from './types';
 
