@@ -66,3 +66,18 @@ func TestSPAFallback(t *testing.T) {
 		t.Fatalf("index.html direct: %d", w.Code)
 	}
 }
+
+func TestIndexNotCacheable(t *testing.T) {
+	h := NewHandler(fstest.MapFS{
+		"index.html":    {Data: []byte("<html>app</html>")},
+		"assets/app.js": {Data: []byte("console.log(1)")},
+	})
+	for _, p := range []string{"/", "/index.html", "/favorites/edit"} {
+		if cc := get(h, p).Header().Get("Cache-Control"); cc != "no-cache" {
+			t.Fatalf("%s: Cache-Control %q", p, cc)
+		}
+	}
+	if cc := get(h, "/assets/app.js").Header().Get("Cache-Control"); !strings.Contains(cc, "immutable") {
+		t.Fatalf("asset: Cache-Control %q", cc)
+	}
+}

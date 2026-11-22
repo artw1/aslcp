@@ -322,7 +322,7 @@ Channels: the apt repository has two suites, `stable` (releases `X.Y.Z`) and `be
 
 `job: "noop"` means the upgrade ran but apt reported `0 upgraded`: latest.json is newer than the apt index (CDN lag). The UI says "Already up to date (the package index may lag a few minutes; try again later)". The job log only contains the latest run.
 
-`503 {"code":"updates_unavailable"}` when updates cannot be used (see `reason` of `GET`) or the helper cannot be used for `apply`, `502 {"code":"helper_error"}` when the helper reports a failure. While the upgrade runs the server restarts, so the SSE stream drops; the UI reconnects and reloads when `hello.version` changes.
+`503 {"code":"updates_unavailable"}` when updates cannot be used (see `reason` of `GET`) or the helper cannot be used for `apply`, `502 {"code":"helper_error"}` when the helper reports a failure. While the upgrade runs the server restarts, so the SSE stream drops; the UI reconnects and reloads when `hello.version` changes (also after an install outside the panel, e.g. `apt install`; once per version).
 
 ## System tab (admin)
 

@@ -28,6 +28,7 @@ Release notes are taken from the section of the tag being released
 - ASLCP downloads the YSF, P25, NXDN and DMR host lists itself, once a day, while digital modes are enabled.
 
 ### Fixed
+- Open dashboard tabs reload by themselves when the panel comes back on a new version, however it was installed.
 - The dashboard shows "Reflector not answering" when a YSF, P25 or NXDN reflector does not reply.
 - After a restart, digital modes come back in the last used mode even if you had unlinked it (nothing is linked).
 - The dashboard's Digital Modes card comes back on its own after the panel restarts.

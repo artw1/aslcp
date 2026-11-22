@@ -4,6 +4,7 @@ import { navigate } from './router.svelte';
 import { applySettings } from './settings.svelte';
 import { toast, toastError } from './toast.svelte';
 import type { Settings } from './types';
+import { RELOADED_KEY, shouldReloadForVersion } from './reload';
 
 export const app = $state<{
   ready: boolean; setupNeeded: boolean; user: User | null;
@@ -126,6 +127,14 @@ export function startEvents() {
     if (app.updating && h.version && h.version !== app.updating.from) {
       // The server came back running the new version: reload to get the new UI.
       try { sessionStorage.setItem('aslcp-updated', h.version); } catch { /* ignore */ }
+      location.reload();
+      return;
+    }
+    let reloadedFor: string | null = null;
+    try { reloadedFor = sessionStorage.getItem(RELOADED_KEY); } catch { /* ignore */ }
+    if (shouldReloadForVersion(app.version, h.version, reloadedFor)) {
+      // Installed outside the panel (apt, dpkg): this tab runs the old UI, so reload once for this version.
+      try { sessionStorage.setItem(RELOADED_KEY, h.version); sessionStorage.setItem('aslcp-updated', h.version); } catch { /* ignore */ }
       location.reload();
       return;
     }

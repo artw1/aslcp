@@ -60,6 +60,9 @@ func NewHandler(fsys fs.FS) http.Handler {
 			if fi, err := fs.Stat(fsys, name); err == nil && !fi.IsDir() {
 				if strings.HasPrefix(name, "assets/") {
 					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+				} else {
+					// index.html (also requested by name) and other unhashed files must revalidate.
+					w.Header().Set("Cache-Control", "no-cache")
 				}
 				serveFile(w, r, fsys, name)
 				return
