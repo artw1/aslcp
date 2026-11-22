@@ -121,9 +121,9 @@ type RestoreResult struct {
 	Packages         []backup.Package `json:"packages"`
 	SA818Port        string           `json:"sa818Port"`
 	SA818PortPresent bool             `json:"sa818PortPresent"`
-	// DVNotInstalled is set when the backup holds the digital modes part
-	// but this node has no /opt/Analog_Bridge: the part is not restored.
-	DVNotInstalled bool `json:"dvNotInstalled,omitempty"`
+	// DVLegacySettings is set when the backup carries the ini files of the
+	// previous digital voice stack (made by 1.x): they are not restored.
+	DVLegacySettings bool `json:"dvLegacySettings,omitempty"`
 }
 
 // isStreamOp reports whether op carries a byte stream.

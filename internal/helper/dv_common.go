@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -34,8 +33,6 @@ const (
 	// not /var/lib/aslcp-dv either (the engine's own StateDirectory). 1.x
 	// installs keep it under another name; MigrateDVState renames it.
 	DefaultDVStateDir   = "/var/lib/aslcp-dvstate"
-	DefaultDVOptDir     = "/opt"
-	DefaultDVHistoryDir = "/var/lib/aslcp-dvstate-history"
 	DefaultDVEngineDir  = "/var/lib/aslcp-dv"
 	DefaultDVEngineUser = "aslcp-dv"
 
@@ -44,9 +41,6 @@ const (
 	dvMinYear    = 2026              // clock check (apt rejects a Release file from the future)
 	dvMaxNames   = 400
 
-	dvHistoryKeep   = 10
-	dvIniMaxSize    = 1 << 20
-	dvStampLayout   = "20060102T150405.000000000Z"
 	dvNetworksFile  = "networks.json"
 	dvNetworksMax   = 64 << 10
 	dvPrivateFile   = "privatenode.json"
@@ -59,66 +53,31 @@ const (
 var (
 	reDVNodeNum = regexp.MustCompile(`^[0-9]{1,7}$`)
 	reDVHost    = regexp.MustCompile(`^[A-Za-z0-9.-]{1,253}$`)
-	reDVStamp   = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}\.[0-9]{9}Z(-[0-9]+)?$`)
 	dvNameRe    = regexp.MustCompile(`^[a-z0-9][a-z0-9+.\-]{0,99}$`)
 )
 
-// dvFileDef is one legacy ini file a backup carries (the old stack's
-// settings, kept for the migration): id (the history directory), path below
-// the opt dir.
-type dvFileDef struct {
-	id, rel string
-}
-
-// dvFiles is the allowlist of legacy files a backup restore may write.
-var dvFiles = []dvFileDef{
-	{"analog_bridge", "Analog_Bridge/Analog_Bridge.ini"},
-	{"mmdvm_bridge", "MMDVM_Bridge/MMDVM_Bridge.ini"},
-	{"ysfgateway", "YSFGateway/YSFGateway.ini"},
-	{"p25gateway", "P25Gateway/P25Gateway.ini"},
-	{"nxdngateway", "NXDNGateway/NXDNGateway.ini"},
-	{legacy.IniMainID, legacy.IniMainRel},
-}
-
-// MigrateDVState is the one-time move of the state and history directories of
-// a 1.x install to their current names: when the old directory exists and the
-// new one does not, it is renamed (same filesystem, so atomic). Nothing is
-// merged and nothing is overwritten; an old directory that stays beside an
-// existing new one is left alone. It returns the renames it did.
+// MigrateDVState is the one-time move of the state directory of a 1.x install
+// to its current name: when the old directory exists and the new one does not,
+// it is renamed (same filesystem, so atomic). It holds the bridge node record
+// and the DMR network settings of 1.4.0, which the panel keeps using. Nothing
+// is merged and nothing is overwritten; an old directory that stays beside an
+// existing new one is left alone. It returns the renames it did. The ini
+// history of the previous stack is not moved (PurgeLegacy deletes it).
 func (o *Ops) MigrateDVState() ([]string, error) {
-	var done []string
-	for _, p := range [][2]string{
-		{legacy.OldStateDir, o.dvStateDir()},
-		{legacy.OldHistoryDir, o.dvHistoryDir()},
-	} {
-		oldDir, newDir := o.dvOldDir(p[0]), p[1]
-		if oldDir == newDir {
-			continue
-		}
-		if fi, err := os.Lstat(oldDir); err != nil || !fi.IsDir() {
-			continue
-		}
-		if _, err := os.Lstat(newDir); err == nil {
-			continue
-		}
-		if err := os.Rename(oldDir, newDir); err != nil {
-			return done, fmt.Errorf("move %s to %s: %w", oldDir, newDir, err)
-		}
-		done = append(done, oldDir+" -> "+newDir)
+	oldDir, newDir := orDefault(o.DVOldStateDir, legacy.OldStateDir), o.dvStateDir()
+	if oldDir == newDir {
+		return nil, nil
 	}
-	return done, nil
-}
-
-// dvOldDir maps the default old directory to the ops' configured root: tests
-// and demo set DVOldStateDir / DVOldHistoryDir; a production Ops uses the
-// defaults.
-func (o *Ops) dvOldDir(def string) string {
-	switch def {
-	case legacy.OldStateDir:
-		return orDefault(o.DVOldStateDir, def)
-	default:
-		return orDefault(o.DVOldHistoryDir, def)
+	if fi, err := os.Lstat(oldDir); err != nil || !fi.IsDir() {
+		return nil, nil
 	}
+	if _, err := os.Lstat(newDir); err == nil {
+		return nil, nil
+	}
+	if err := os.Rename(oldDir, newDir); err != nil {
+		return nil, fmt.Errorf("move %s to %s: %w", oldDir, newDir, err)
+	}
+	return []string{oldDir + " -> " + newDir}, nil
 }
 
 // ---- paths and clock
@@ -126,8 +85,6 @@ func (o *Ops) dvOldDir(def string) string {
 func (o *Ops) dvKeyring() string    { return orDefault(o.DVKeyring, DefaultDVKeyring) }
 func (o *Ops) dvSourceList() string { return orDefault(o.DVSourceList, DefaultDVSourceList) }
 func (o *Ops) dvStateDir() string   { return orDefault(o.DVStateDir, DefaultDVStateDir) }
-func (o *Ops) dvOptDir() string     { return orDefault(o.DVOptDir, DefaultDVOptDir) }
-func (o *Ops) dvHistoryDir() string { return orDefault(o.DVHistoryDir, DefaultDVHistoryDir) }
 func (o *Ops) dvEngineDir() string  { return orDefault(o.DVEngineDir, DefaultDVEngineDir) }
 func (o *Ops) dvEngineUser() string { return orDefault(o.DVEngineUser, DefaultDVEngineUser) }
 func (o *Ops) dvMarkerPath() string { return filepath.Join(o.dvStateDir(), dvMarkerFile) }
@@ -136,10 +93,6 @@ func (o *Ops) dvPrivatePath() string {
 	return filepath.Join(o.dvStateDir(), dvPrivateFile)
 }
 func (o *Ops) dvNetworksPath() string { return filepath.Join(o.dvStateDir(), dvNetworksFile) }
-func (o *Ops) dvFilePath(f dvFileDef) string {
-	return filepath.Join(o.dvOptDir(), filepath.FromSlash(f.rel))
-}
-
 func (o *Ops) now() time.Time {
 	if o.Now != nil {
 		return o.Now()
@@ -473,62 +426,4 @@ func (o *Ops) dvNetLoad() dvNetworksState {
 		}
 	}
 	return dvEmptyNetworks()
-}
-
-// ---- history of the legacy ini files
-
-func (o *Ops) dvHistDir(id string) string { return filepath.Join(o.dvHistoryDir(), id) }
-
-// dvHistoryNames returns the valid copy names of a file, oldest first.
-func (o *Ops) dvHistoryNames(id string) []string {
-	ents, err := os.ReadDir(o.dvHistDir(id))
-	if err != nil {
-		return nil
-	}
-	var names []string
-	for _, e := range ents {
-		if e.Type().IsRegular() && reDVStamp.MatchString(e.Name()) {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	return names
-}
-
-// dvSaveHistory stores data as the newest copy of file id and keeps the last
-// dvHistoryKeep. It returns the copy's name.
-func (o *Ops) dvSaveHistory(id string, data []byte) (string, error) {
-	dir := o.dvHistDir(id)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	// MkdirAll leaves an existing directory's mode alone: close it.
-	_ = os.Chmod(o.dvHistoryDir(), 0o700)
-	_ = os.Chmod(dir, 0o700)
-	stamp := o.now().UTC().Format(dvStampLayout)
-	name := stamp
-	for i := 1; ; i++ {
-		f, err := os.OpenFile(filepath.Join(dir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
-		if err == nil {
-			_, werr := f.Write(data)
-			if cerr := f.Close(); werr == nil {
-				werr = cerr
-			}
-			if werr != nil {
-				os.Remove(filepath.Join(dir, name))
-				return "", werr
-			}
-			break
-		}
-		if !errors.Is(err, fs.ErrExist) {
-			return "", err
-		}
-		name = fmt.Sprintf("%s-%d", stamp, i)
-	}
-	names := o.dvHistoryNames(id)
-	for len(names) > dvHistoryKeep {
-		os.Remove(filepath.Join(dir, names[0]))
-		names = names[1:]
-	}
-	return name, nil
 }

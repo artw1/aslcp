@@ -529,7 +529,7 @@ func (o *Ops) BackupCreate(ctx context.Context, req *BackupRequest, w io.Writer)
 			hdr.Parts.Sounds = append(hdr.Parts.Sounds, d.id)
 		}
 	}
-	if req.DV && o.dvInstalled() {
+	if req.DV {
 		added, err := o.collectDV(c)
 		if err != nil {
 			return false, err

@@ -456,9 +456,6 @@ func (o *Ops) diagConfigs(b *diagBuilder) []diagConf {
 		read(p, "config/allmon3/"+filepath.Base(p), "Allmon3 configuration")
 	}
 	read(o.dvConfigPath(), "config/dv/config.json", "Digital modes engine configuration")
-	for _, f := range dvFiles {
-		read(o.dvFilePath(f), "config/legacy-dv/"+path.Base(f.rel), "Legacy digital modes configuration")
-	}
 	return out
 }
 

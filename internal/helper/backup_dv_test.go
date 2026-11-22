@@ -12,11 +12,6 @@ import (
 )
 
 const (
-	dvBkAB  = "[GENERAL]\nsubscriberID = 1234567\n\n[DMR]\ntxTg = 9\n"
-	dvBkMM  = "[General]\nCallsign=N0CALL\n\n[DMR Network]\nPassword=example-pass\n"
-	dvBkYSF = "[General]\nCallsign=N0CALL\n"
-	dvBkMac = "# macro\n*1 = tune 9\n"
-	dvBkOld = "[GENERAL]\nsubscriberID = 7654321\n"
 	dvBkRpt = "[1999]\nrxchannel = SimpleUSB/usb\n\n[1998]\nrxchannel = USRP/127.0.0.1:34001:32001\nduplex = 0\n\n[nodes]\n1998 = radio@127.0.0.1/1998,NONE\n"
 	// Every DMR network's settings, the inactive one's password included.
 	dvBkNets = `{"version":1,"networks":{` +
@@ -24,13 +19,6 @@ const (
 		`"TGIF":{"password":"example-pass"},` +
 		`"DMR":{"enabled":true,"address":"192.0.2.10","port":62031}}}`
 )
-
-func (n *bkNode) dvSource() {
-	n.put("opt/Analog_Bridge/Analog_Bridge.ini", dvBkAB, 0o644)
-	n.put("opt/Analog_Bridge/dvsm.macro", dvBkMac, 0o644)
-	n.put("opt/MMDVM_Bridge/MMDVM_Bridge.ini", dvBkMM, 0o640)
-	n.put("opt/YSFGateway/YSFGateway.ini", dvBkYSF, 0o644)
-}
 
 func dvEntries(t *testing.T, arc []byte) *backup.Manifest {
 	t.Helper()
@@ -48,12 +36,11 @@ func dvBkRecord(node string) DVPrivateRecord {
 		ChanUsrpWas: "noload", At: "2026-11-20T08:00:00Z"}
 }
 
-// dvFullSource is a node with the legacy files, the bridge node 1998 and its
+// dvFullSource is a node with the bridge node 1998 and its
 // record, and the network settings.
 func dvFullSource(t *testing.T) *bkNode {
 	t.Helper()
 	src := newBkNode(t, "1.0", nil)
-	src.dvSource()
 	src.put("etc-asterisk/rpt.conf", dvBkRpt, 0o640)
 	b, _ := json.Marshal(dvBkRecord("1998"))
 	src.put("var/dv-state/privatenode.json", string(b), 0o600)
@@ -87,17 +74,15 @@ func checkRestoredState(t *testing.T, o *Ops) {
 	}
 }
 
-func TestBackupDVRoundTripInstalled(t *testing.T) {
+func TestBackupDVRoundTrip(t *testing.T) {
 	src := dvFullSource(t)
 	arc := src.archive(BackupRequest{DV: true})
 	m := dvEntries(t, arc)
 	if !m.Parts.DV {
 		t.Fatal("part flag missing")
 	}
-	for _, p := range []string{"Analog_Bridge/Analog_Bridge.ini", "Analog_Bridge/dvsm.macro", "MMDVM_Bridge/MMDVM_Bridge.ini", "YSFGateway/YSFGateway.ini"} {
-		if m.Find(backup.DVPath(p)) == nil {
-			t.Errorf("%s not archived", p)
-		}
+	if dvHasLegacyFiles(m) {
+		t.Error("new backups carry no ini files of the previous stack")
 	}
 	if e := m.FindDVPrivate(); e == nil || e.Mode != "0600" {
 		t.Errorf("record: %+v", e)
@@ -107,7 +92,6 @@ func TestBackupDVRoundTripInstalled(t *testing.T) {
 	}
 
 	dst := newBkNode(t, "1.0", nil)
-	dst.put("opt/Analog_Bridge/Analog_Bridge.ini", dvBkOld, 0o644)
 	res, err := restoreInto(t, dst, arc, RestoreRequest{})
 	if err != nil || !res.OK {
 		t.Fatalf("%+v %v", res, err)
@@ -115,84 +99,53 @@ func TestBackupDVRoundTripInstalled(t *testing.T) {
 	st := dvStep(res)
 	if st == nil || !st.OK || !strings.Contains(st.Detail, "bridge node 1998 is managed by ASLCP again") ||
 		!strings.Contains(st.Detail, "DMR network settings restored") || strings.Contains(st.Detail, "example-pass") ||
-		strings.Contains(st.Detail, "radio@") {
+		strings.Contains(st.Detail, "radio@") || strings.Contains(st.Detail, DVRestoreIgnoredDetail) {
 		t.Fatalf("step = %+v", st)
 	}
 	checkRestoredState(t, dst.o)
-	if got := dst.get("opt/Analog_Bridge/Analog_Bridge.ini"); got != dvBkAB {
-		t.Errorf("ini not restored: %q", got)
-	}
-	if dst.o.dvPendingStatus().Pending {
-		t.Error("nothing should be pending when the files were written")
+	if res.DVLegacySettings {
+		t.Error("no legacy settings in this archive")
 	}
 }
 
-func TestBackupDVRoundTripPending(t *testing.T) {
-	src := dvFullSource(t)
-	arc := src.archive(BackupRequest{DV: true})
-	dst := newBkNode(t, "1.0", nil) // the previous stack is not installed
-	dst.fake.rules["dpkg-query -W -f=${Package}\t${db:Status-Status}"] = resp{}
-	res, err := restoreInto(t, dst, arc, RestoreRequest{})
-	if err != nil || !res.OK {
-		t.Fatalf("%+v %v", res, err)
+// An archive made by 1.x carries the ini files of the previous stack: they are
+// ignored and the step says so; nothing is written below /opt.
+func TestRestoreDVIgnoresLegacyFiles(t *testing.T) {
+	m := &backup.Manifest{Parts: backup.Parts{DV: true}, Files: []backup.Entry{
+		{Path: backup.DVPath("MMDVM_Bridge/MMDVM_Bridge.ini"), Type: backup.TypeFile},
+		{Path: backup.DVPath("YSFGateway/YSFGateway.ini"), Type: backup.TypeFile},
+	}}
+	if !dvHasLegacyFiles(m) || dvHasFiles(m) {
+		t.Fatal("classification")
 	}
-	st := dvStep(res)
-	if st == nil || !strings.Contains(st.Detail, DVRestorePendingDetail) {
-		t.Fatalf("step = %+v", st)
-	}
-	// the engine's own state is restored directly, the ini files are staged
-	checkRestoredState(t, dst.o)
-	if _, err := os.Stat(filepath.Join(dst.base, "opt", "Analog_Bridge")); err == nil {
-		t.Fatal("files written to the legacy directory")
-	}
-	ps := dst.o.dvPendingStatus()
-	if !ps.Pending || len(ps.Files) != 4 {
-		t.Fatalf("status = %+v", ps)
-	}
-	mf, _ := os.ReadFile(filepath.Join(dst.o.dvPendingDir(), dvPendingManifest))
-	if strings.Contains(string(mf), "example-pass") {
-		t.Error("the pending manifest holds file content")
-	}
-	// discard-only
-	if _, err := dst.o.DVRestoreDiscard(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if dst.o.dvPendingStatus().Pending {
-		t.Error("discard left the set")
-	}
-}
-
-func TestDVPendingStageRefusesBadPath(t *testing.T) {
 	n := newBkNode(t, "1.0", nil)
-	items := []dvItem{{rel: "Analog_Bridge/Analog_Bridge.ini", e: backup.Entry{Owner: "root", Group: "root", Mode: "0644"}, data: []byte(dvBkAB)}}
-	if err := n.o.dvStagePending(items, "2026-11-20 08:15"); err != nil {
-		t.Fatal(err)
+	d, err := n.o.restoreDV(nil, m)
+	if err != nil || d != DVRestoreIgnoredDetail {
+		t.Fatalf("%q %v", d, err)
 	}
-	if err := n.o.dvStagePending([]dvItem{{rel: "../etc/passwd", data: []byte("x")}}, "d"); err == nil {
-		t.Error("a path outside the allowlist was staged")
+	if _, err := os.Stat(filepath.Join(n.base, "opt")); err == nil {
+		t.Fatal("something was written below /opt")
 	}
-	if !n.o.dvPendingStatus().Pending {
-		t.Fatal("a refused stage must keep the old set")
+	m.Files = nil
+	if dvHasLegacyFiles(m) {
+		t.Fatal("no files")
 	}
 }
 
-func TestBackupDVOlderBackupChangesNothing(t *testing.T) {
+func TestBackupDVEmptyChangesNothing(t *testing.T) {
 	src := newBkNode(t, "1.0", nil)
-	src.dvSource()
 	dst := newBkNode(t, "1.0", nil)
-	dst.put("opt/Analog_Bridge/Analog_Bridge.ini", dvBkOld, 0o644)
 	dst.put("var/dv-state/networks.json", dvBkNets, 0o600)
 	if res, err := restoreInto(t, dst, src.archive(BackupRequest{DV: true}), RestoreRequest{}); err != nil || !res.OK {
 		t.Fatalf("%+v %v", res, err)
 	}
 	if dst.get("var/dv-state/networks.json") != dvBkNets {
-		t.Error("an older backup changed the settings")
+		t.Error("a backup without the part changed the settings")
 	}
 }
 
 func TestBackupDVInvalidNetworksNotArchived(t *testing.T) {
 	src := newBkNode(t, "1.0", nil)
-	src.dvSource()
 	src.put("var/dv-state/networks.json", `{"version":1,"networks":{"NXDN":{"address":"192.0.2.10"}}}`, 0o600)
 	if m := dvEntries(t, src.archive(BackupRequest{DV: true})); m.FindDVNetworks() != nil {
 		t.Fatal("invalid settings archived")
@@ -201,53 +154,32 @@ func TestBackupDVInvalidNetworksNotArchived(t *testing.T) {
 
 func TestBackupDVSkipsSymlinkSource(t *testing.T) {
 	n := newBkNode(t, "1.0", nil)
-	n.dvSource()
-	p := filepath.Join(n.base, "opt/YSFGateway/YSFGateway.ini")
-	os.Remove(p)
-	if err := os.Symlink("/etc/passwd", p); err != nil {
+	if err := os.MkdirAll(filepath.Join(n.base, "var/dv-state"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc/passwd", filepath.Join(n.base, "var/dv-state/networks.json")); err != nil {
 		t.Fatal(err)
 	}
 	m := dvEntries(t, n.archive(BackupRequest{DV: true}))
-	if m.Find(backup.DVPath("YSFGateway/YSFGateway.ini")) != nil {
+	if m.FindDVNetworks() != nil {
 		t.Error("a symlink was archived")
 	}
 }
 
 func TestBackupInfoDVPart(t *testing.T) {
 	n := newBkNode(t, "1.0", nil)
-	n.dvSource()
+	n.put("var/dv-state/networks.json", dvBkNets, 0o600)
 	info, err := n.o.BackupInfo(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range info.Parts {
 		if p.ID == "dv" {
-			want := int64(len(dvBkAB) + len(dvBkMac) + len(dvBkMM) + len(dvBkYSF))
-			if !p.Present || p.Size != want {
-				t.Errorf("%+v want size %d", p, want)
+			if !p.Present || p.Size != int64(len(dvBkNets)) {
+				t.Errorf("%+v", p)
 			}
 			return
 		}
 	}
 	t.Error("no dv part")
-}
-
-func TestDVBackupFilesMatchAllowlist(t *testing.T) {
-	want := map[string]bool{}
-	for _, f := range dvFiles {
-		want[f.rel] = false
-	}
-	for _, rel := range backup.DVFiles {
-		if _, ok := want[rel]; ok {
-			want[rel] = true
-		}
-	}
-	for rel, ok := range want {
-		if !ok {
-			t.Errorf("%s is in the legacy list but not in the backup part", rel)
-		}
-	}
-	if len(backup.DVFiles) != len(dvFiles)+1 {
-		t.Error("the backup part is the legacy files plus dvsm.macro")
-	}
 }

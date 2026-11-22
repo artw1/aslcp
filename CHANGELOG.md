@@ -3,15 +3,16 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
-## [2.0.0] - unreleased
+## [2.0.0] - 2026-11-22
+
+> **You have to redo the digital-modes configuration in 2.0.** The BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN settings, your identity (callsign and DMR ID) and the BrandMeister application ID are not carried over from the previous stack, and nothing is imported from its configuration files or from the digital part of a 1.x backup. After the upgrade, open the Digital modes page and enter them again. The previous digital voice stack is removed on upgrade, except md380-emu, which stays installed and working.
 
 ### Changed
-- Digital modes now run on the built-in ASLCP engine; the previous third-party digital voice stack is no longer used, and its services are stopped when you enable digital modes. Nothing of it is uninstalled.
+- Digital modes now run on the built-in ASLCP engine; the previous third-party digital voice stack is no longer used, and it is removed when you upgrade (see the note above), except md380-emu.
 - "Enable digital modes" installs only the md380-emu vocoder (plus qemu-user-static on 64-bit and x86 systems). ARMv6 boards are not supported.
 - `aslcp dv enable`, `disable` and `status` manage digital modes from the shell; the installer accepts `ASLCP_DV=1`. The old install command and installer variable are gone.
 - The digital modes API moved to /api/dv.
 - The setup page shows the bridge node and the state of `rpt.conf` and `modules.conf`, and holds the identity and the settings of the networks that are available.
-- Your BrandMeister enable state is carried over from 1.x. Enter the master address, password and application ID once on the BrandMeister card.
 
 ### Added
 - **BrandMeister is available again, natively.** The built-in engine logs in to BrandMeister itself: master address, port, password, identity (callsign and DMR ID) and options are set on the Digital modes tab, with the login state on the card, a private call switch and a Parrot button (TG 9990) on the dashboard. BrandMeister requires a registered application ID for this client; until one is set in Options, logins may be refused.
@@ -23,6 +24,7 @@ Release notes are taken from the section of the tag being released
 - ASLCP downloads the YSF, P25, NXDN and DMR host lists itself, once a day, while digital modes are enabled.
 
 ### Removed
+- The previous digital voice stack: on upgrade from 1.x the packages ASLCP installed for it are stopped and removed; nothing else is removed, and md380-emu stays (with its apt source, so it keeps getting updates).
 - The uninstall of the previous stack, the BrandMeister, STFU and network credential pages, the identity page, and the service restart and rollback buttons of the previous stack.
 
 ## [1.4.0] - 2026-11-21

@@ -145,9 +145,6 @@ func (d *demoDV) DVConfig(context.Context) (helper.DVConfigResult, error) {
 	return helper.DVConfigResult{Path: ctl.ConfigPath}, nil
 }
 func (d *demoDV) DVRestart(ctx context.Context) (helper.DVStatus, error) { return d.DVStatus(ctx) }
-func (d *demoDV) DVRestoreDiscard(ctx context.Context) (helper.DVStatus, error) {
-	return d.DVStatus(ctx)
-}
 func (d *demoDV) DVPrivateGet(context.Context) (helper.DVPrivateReply, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()

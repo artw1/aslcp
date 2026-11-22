@@ -3,9 +3,11 @@ package helper
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/artw1/aslcp/internal/astconf"
 	"github.com/artw1/aslcp/internal/backup"
@@ -17,10 +19,6 @@ import (
 // it. It is not under /opt: the archive path is dv/state/privatenode.json
 // and the target is the helper's state directory. Nothing here logs the
 // record: only the node number goes into a step detail.
-
-// dvPrivateStaged is the name of the record inside a pending set (next to the
-// ini files, whose names always contain "__", and manifest.json).
-const dvPrivateStaged = dvPrivateFile
 
 // collectDVPrivate adds the record to c when there is a usable one. A symlink
 // or non-regular file, an oversized, unreadable or invalid record is skipped
@@ -112,4 +110,26 @@ func (o *Ops) dvWritePrivate(data []byte) error {
 		return err
 	}
 	return atomicWrite(filepath.Join(parent, dvPrivateFile), parent, data, 0, 0, 0o600)
+}
+
+// dvReadNoFollow reads a regular file of at most max bytes without following
+// a symlink.
+func dvReadNoFollow(p string, max int) ([]byte, error) {
+	fd, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer fd.Close()
+	fi, err := fd.Stat()
+	if err != nil || !fi.Mode().IsRegular() {
+		return nil, errors.New("not a regular file")
+	}
+	data, err := io.ReadAll(io.LimitReader(fd, int64(max)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > max {
+		return nil, errors.New("too large")
+	}
+	return data, nil
 }

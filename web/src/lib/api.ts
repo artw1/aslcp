@@ -188,7 +188,6 @@ export const api = {
   dvEnable: () => req<DVStatus>('POST', '/dv/enable', {}),
   dvDisable: () => req<DVStatus>('POST', '/dv/disable', {}),
   dvJob: () => req<DVJob>('GET', '/dv/job'),
-  dvRestoreDiscard: () => req<unknown>('DELETE', '/dv/restore-pending'),
   dvSetup: () => req<DVSetup>('GET', '/dv/setup'),
   dvTune: (b: { mode: DVTuneMode; tune: string }) => req<DVCmdReply>('POST', '/dv/tune', b),
   dvSnapshot: () => req<DVSnapshot>('GET', '/dv/snapshot'),

@@ -63,7 +63,7 @@ func TestDVEnableScript(t *testing.T) {
 	order := []string{
 		"apt-get update", "apt-get -s -q install", "dv-step " + StepInstallPlan, "apt-get install -y",
 		"systemctl cat", "disable --now", "IPAddressDeny", "dv-step " + StepConfig, "daemon-reload",
-		"enable --now " + dvMD380Unit + ".service " + dvEngineUnit + ".service", "dv-step " + StepCheck,
+		"enable --now " + dvMD380Unit + ".service " + dvEngineUnit + ".service", "dv-step " + StepCheck, "dv-step " + StepPurgeLegacy,
 	}
 	at := -1
 	for _, w := range order {
@@ -76,8 +76,8 @@ func TestDVEnableScript(t *testing.T) {
 	if !strings.Contains(s, dvQemuPkg) {
 		t.Error("arm64 needs qemu-user-static")
 	}
-	if strings.Contains(s, "purge") || strings.Contains(s, "remove") {
-		t.Error("the enable job must not purge the previous stack")
+	if strings.Contains(s, "apt-get purge") || strings.Contains(s, "apt-get remove") {
+		t.Error("the enable job must not call apt to remove packages itself")
 	}
 	if strings.Contains(o.dvEnableScript("armhf"), dvQemuPkg) {
 		t.Error("armhf needs no qemu")
@@ -190,14 +190,13 @@ func TestIsDVPackage(t *testing.T) {
 func TestMigrateDVState(t *testing.T) {
 	root := t.TempDir()
 	o := &Ops{
-		DVStateDir: filepath.Join(root, "new-state"), DVHistoryDir: filepath.Join(root, "new-state-history"),
-		DVOldStateDir: filepath.Join(root, "old-state"), DVOldHistoryDir: filepath.Join(root, "old-state-history"),
+		DVStateDir: filepath.Join(root, "new-state"), DVOldStateDir: filepath.Join(root, "old-state"),
 	}
 	// nothing to do on a fresh node
 	if moved, err := o.MigrateDVState(); err != nil || len(moved) != 0 {
 		t.Fatalf("fresh: %v %v", moved, err)
 	}
-	for _, d := range []string{o.DVOldStateDir, o.DVOldHistoryDir} {
+	for _, d := range []string{o.DVOldStateDir} {
 		if err := os.MkdirAll(filepath.Join(d, "sub"), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -206,10 +205,10 @@ func TestMigrateDVState(t *testing.T) {
 		}
 	}
 	moved, err := o.MigrateDVState()
-	if err != nil || len(moved) != 2 {
+	if err != nil || len(moved) != 1 {
 		t.Fatalf("moved %v %v", moved, err)
 	}
-	for _, p := range [][2]string{{o.DVOldStateDir, o.DVStateDir}, {o.DVOldHistoryDir, o.DVHistoryDir}} {
+	for _, p := range [][2]string{{o.DVOldStateDir, o.DVStateDir}} {
 		if _, err := os.Stat(p[0]); !os.IsNotExist(err) {
 			t.Errorf("old dir %s still there", p[0])
 		}

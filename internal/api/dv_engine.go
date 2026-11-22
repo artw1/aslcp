@@ -26,8 +26,6 @@ type DVEngine interface {
 	DVNetworkSet(ctx context.Context, req helper.DVNetworkRequest) (helper.DVNetworkReply, error)
 	// DVRestart restarts the engine unit (the fallback of a reload).
 	DVRestart(ctx context.Context) (helper.DVStatus, error)
-	// DVRestoreDiscard deletes the settings a backup restore saved.
-	DVRestoreDiscard(ctx context.Context) (helper.DVStatus, error)
 	DVPrivateGet(ctx context.Context) (helper.DVPrivateReply, error)
 	DVPrivateSet(ctx context.Context, rec helper.DVPrivateRecord) (helper.DVPrivateReply, error)
 	DVPrivateClear(ctx context.Context) (helper.DVPrivateReply, error)

@@ -180,10 +180,8 @@ export interface DVStatus {
   /** aslcp-dv.service is enabled / running; md380-emu.service is running. */
   enabled: boolean; active: boolean; md380Active: boolean;
   job?: DVJobState;
-  /** Units of the previous stack still loaded on the node (stopped by Enable, removed in a later version). */
+  /** Units of the previous stack still loaded on the node (stopped by Enable; the upgrade removes the ones ASLCP installed). */
   legacyUnits?: string[];
-  /** Settings from a backup restore are waiting (DELETE /api/dv/restore-pending drops them). */
-  restorePending: boolean;
 }
 /** GET /api/dv/job: the enable job's state and the last lines of its log (`log` text, or `lines`). */
 export interface DVJob { job: DVJobState; log?: string; lines?: string[]; at?: number }

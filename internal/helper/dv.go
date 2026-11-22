@@ -57,8 +57,8 @@ const (
 )
 
 // dvLegacyUnits are the units of the previous digital voice stack. Enabling
-// stops and disables them (they hold the ports the engine uses); nothing is
-// purged.
+// stops and disables them (they hold the ports the engine uses); the purge
+// step removes the packages ASLCP installed (dv_purge.go).
 var dvLegacyUnits = legacy.Units
 
 // dvForbiddenDepPrefixes are the packages whose appearance in the install
@@ -99,9 +99,6 @@ type DVStatus struct {
 	Job            string `json:"job,omitempty"` // "", running, failed, done
 	// LegacyUnits are the units of the previous stack that still exist.
 	LegacyUnits []string `json:"legacyUnits,omitempty"`
-	// RestorePending: settings saved by a backup restore, kept for the
-	// migration.
-	RestorePending DVRestorePending `json:"restorePending"`
 }
 
 // DVJob is the state and log of the enable unit (the last 200 lines).
@@ -249,7 +246,6 @@ func (o *Ops) DVStatus(ctx context.Context) (DVStatus, error) {
 	case JobSucceeded:
 		st.Job = "done"
 	}
-	st.RestorePending = o.dvPendingStatus()
 	return st, nil
 }
 
@@ -324,6 +320,8 @@ func (o *Ops) dvEnableScript(arch string) string {
 		"systemctl daemon-reload",
 		"systemctl enable --now "+dvMD380Unit+".service "+dvEngineUnit+".service",
 		self+" dv-step "+StepCheck,
+		// Retry of the upgrade purge; a failure never fails the enable.
+		self+" dv-step "+StepPurgeLegacy+" || echo 'warning: removing the previous digital voice stack failed (see above)'",
 		"echo 'digital modes enabled'",
 	)
 	return strings.Join(b, "\n")
@@ -483,6 +481,8 @@ func (o *Ops) RunDVStep(ctx context.Context, step string, w io.Writer) error {
 		return nil
 	case StepCheck:
 		return o.dvCheck(ctx, w)
+	case StepPurgeLegacy:
+		return o.PurgeLegacy(ctx, w)
 	case "install-check", "install-defaults", "restore-apply":
 		fmt.Fprintf(w, "step %s is no longer used\n", step)
 		return nil

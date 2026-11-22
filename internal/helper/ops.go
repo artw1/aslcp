@@ -89,12 +89,15 @@ type Ops struct {
 	DVKeyring    string
 	DVSourceList string
 	DVStateDir   string
-	// DVOptDir and DVHistoryDir are the legacy ini files a backup carries
-	// (default /opt and DefaultDVHistoryDir); DVCpuInfo is /proc/cpuinfo.
-	DVOptDir     string
+	// DVHistoryDir and DVOldHistoryDir are the ini history directories of the
+	// previous stack that PurgeLegacy deletes (default DefaultDVHistoryDir and
+	// legacy.OldHistoryDir); DVOldStateDir is the 1.x name of the state
+	// directory that MigrateDVState moves (default legacy.OldStateDir);
+	// DVCpuInfo is /proc/cpuinfo.
 	DVHistoryDir string
-	// DVOldStateDir and DVOldHistoryDir are the 1.x names of the state and
-	// history directories that MigrateDVState moves (default legacy.Old*).
+	// PurgeLegacy: wait for dpkg and its sleep (tests).
+	DVPurgeWait     time.Duration
+	DVPurgeSleep    func(time.Duration)
 	DVOldStateDir   string
 	DVOldHistoryDir string
 	DVCpuInfo       string
@@ -201,8 +204,6 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return o.DVEnable(ctx)
 	case OpDVDisable:
 		return o.DVDisable(ctx)
-	case OpDVRestoreDiscard:
-		return o.DVRestoreDiscard(ctx)
 	case OpFirewallStatus:
 		return o.FirewallStatus(ctx)
 	case OpFirewallOpen:

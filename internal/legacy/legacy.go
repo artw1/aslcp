@@ -1,8 +1,9 @@
 // Package legacy names the previous third-party digital voice stack in one
 // place. ASLCP refers to it only to install md380-emu from that stack's apt
-// repository, and to stop, import and migrate old installs (state
-// directories, settings keys, backup part ids, database tables). Nothing
-// else in the code base spells these names.
+// repository, to stop and purge old installs (units, packages, apt source),
+// and to migrate its own old data (state directories, settings keys, backup
+// part ids, database tables). Nothing else in the code base spells these
+// names. Settings of the old stack are not imported.
 package legacy
 
 import "strings"
@@ -24,22 +25,18 @@ const (
 func IsLegacyPackage(name string) bool { return strings.HasPrefix(name, PackagePrefix) }
 
 // Units are the systemd units (without ".service") of the old stack that
-// enabling digital modes stops and disables.
+// enabling digital modes (and the upgrade purge) stops and disables.
 var Units = []string{"analog_bridge", "mmdvm_bridge", "netcheck", "ysfgateway", "p25gateway", "nxdngateway", "stfu"}
 
-// Names of ASLCP's own pre-2.0 data that 2.0 migrates or still accepts.
+// Names of ASLCP's own pre-2.0 data that 2.0 migrates, deletes or still accepts.
 const (
 	OldStateDir       = "/var/lib/aslcp-dvswitch"         // helper state directory
-	OldHistoryDir     = "/var/lib/aslcp-dvswitch-history" // helper ini history
+	OldHistoryDir     = "/var/lib/aslcp-dvswitch-history" // helper ini history (deleted on upgrade)
 	OldSettingsPrefix = "dvswitch."                       // settings keys
 	OldFavoritesTable = "dvswitch_favorites"              // database table
 	OldBackupPart     = "dvswitch"                        // backup part id and archive directory
 )
 
-// Ini files of the old stack that backups carry (for the later import).
-const (
-	// IniMainID is the history id of the old stack's main ini and IniMainRel
-	// its path below /opt.
-	IniMainID  = "dvswitch"
-	IniMainRel = "MMDVM_Bridge/DVSwitch.ini"
-)
+// IniMainRel is the path below /opt of the old stack's main ini file, which
+// archives made by 1.x carry (restore ignores it, the archive layout accepts it).
+const IniMainRel = "MMDVM_Bridge/DVSwitch.ini"

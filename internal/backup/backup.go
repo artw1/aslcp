@@ -77,10 +77,11 @@ const (
 // /opt/<rel> of the previous stack is stored as dv/opt/<rel>.
 const PathDVOpt = "dv/opt"
 
-// DVFiles lists the only files of the digital modes part, relative to /opt:
-// the allowlisted ini files and the macro file of the previous stack, kept for
-// the import. Each is a single-file entry of the layout, so no other path
-// below dv/ is valid.
+// DVFiles lists the files below /opt that archives made by 1.x carry for the
+// digital modes part: the ini files and the macro file of the previous stack.
+// New archives do not contain them and restore ignores them; they stay in the
+// layout so that a 1.x archive still validates. Each is a single-file entry of
+// the layout, so no other path below dv/ is valid.
 var DVFiles = []string{
 	"Analog_Bridge/Analog_Bridge.ini",
 	"Analog_Bridge/dvsm.macro",

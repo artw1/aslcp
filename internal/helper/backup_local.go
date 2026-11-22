@@ -77,18 +77,17 @@ func hasPrefix(argv []string, p ...string) bool {
 // restore can be tried without touching the host.
 func NewDemoOps(dir string, files map[string]string) (*Ops, error) {
 	o := &Ops{
-		Run:          demoRunner{},
-		ConfigRoot:   filepath.Join(dir, "etc-asterisk"),
-		HistoryDir:   filepath.Join(dir, "var", "history"),
-		AstDBPath:    filepath.Join(dir, "lib", "astdb.sqlite3"),
-		SoundsDirs:   [2]string{filepath.Join(dir, "lib", "sounds-custom"), filepath.Join(dir, "share", "sounds-custom")},
-		SA818Conf:    filepath.Join(dir, "etc", "sa818.conf"),
-		AllmonDir:    filepath.Join(dir, "etc", "allmon3"),
-		AslcpConf:    filepath.Join(dir, "etc", "aslcp", "aslcp.conf"),
-		DVOptDir:     filepath.Join(dir, "opt"),
-		DVHistoryDir: filepath.Join(dir, "var", "dv-history"),
-		SourceList:   filepath.Join(dir, "etc", "aslcp.list"),
-		TempDir:      dir,
+		Run:        demoRunner{},
+		ConfigRoot: filepath.Join(dir, "etc-asterisk"),
+		HistoryDir: filepath.Join(dir, "var", "history"),
+		AstDBPath:  filepath.Join(dir, "lib", "astdb.sqlite3"),
+		SoundsDirs: [2]string{filepath.Join(dir, "lib", "sounds-custom"), filepath.Join(dir, "share", "sounds-custom")},
+		SA818Conf:  filepath.Join(dir, "etc", "sa818.conf"),
+		AllmonDir:  filepath.Join(dir, "etc", "allmon3"),
+		AslcpConf:  filepath.Join(dir, "etc", "aslcp", "aslcp.conf"),
+		DVStateDir: filepath.Join(dir, "var", "dv-state"),
+		SourceList: filepath.Join(dir, "etc", "aslcp.list"),
+		TempDir:    dir,
 		NewFileOwner: func() (int, int, fs.FileMode) {
 			return os.Getuid(), os.Getgid(), 0o640
 		},
@@ -106,10 +105,9 @@ func NewDemoOps(dir string, files map[string]string) (*Ops, error) {
 	}
 	extras := map[string]string{
 		o.SA818Conf: "CURRENT_BAND=VHF\nCURRENT_FREQ_RX=146.5200\nCURRENT_FREQ_TX=146.5200\nCURRENT_CTCSS_RX=0023\nCURRENT_CTCSS_TX=0023\nCURRENT_DCS_RX=000\nCURRENT_DCS_TX=000\nCURRENT_PORT=/dev/ttyUSB0\n",
-		filepath.Join(o.AllmonDir, "allmon3.ini"):                       "[1999]\nip=127.0.0.1\n",
-		filepath.Join(o.SoundsDirs[0], "welcome.ulaw"):                  "demo-sound",
-		filepath.Join(o.DVOptDir, "Analog_Bridge", "Analog_Bridge.ini"): "[GENERAL]\nsubscriberID = 1234567\n\n[DMR]\ntxTg = 9\n",
-		filepath.Join(o.DVOptDir, "MMDVM_Bridge", "MMDVM_Bridge.ini"):   "[General]\nCallsign=N0CALL\n\n[DMR Network]\nPassword=example-pass\n",
+		filepath.Join(o.AllmonDir, "allmon3.ini"):      "[1999]\nip=127.0.0.1\n",
+		filepath.Join(o.SoundsDirs[0], "welcome.ulaw"): "demo-sound",
+		filepath.Join(o.DVStateDir, "networks.json"):   "{\"version\":1,\"networks\":{\"TGIF\":{\"password\":\"example-pass\"}}}\n",
 		o.AslcpConf:  "listen = \"127.0.0.1:8080\"\n",
 		o.SourceList: "deb [signed-by=/etc/apt/keyrings/aslcp.gpg] https://example.invalid/apt stable main\n",
 	}

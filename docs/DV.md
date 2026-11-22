@@ -2,7 +2,9 @@
 
 Digital modes (DMR, YSF, P25, NXDN) run on the ASLCP engine, `aslcp-dv`, a small service that ships in the ASLCP package. ASLCP 2.0 replaces the previous third-party digital voice stack with it: that stack is no longer installed, configured or restarted by ASLCP.
 
-Status in 2.0 milestone 5: the engine, the control socket, the vocoder link, the **Parrot** test mode (`LOOP`), **BrandMeister** (`BM`, a native Rewind client), **TGIF** and **DMR - Other** (native Homebrew clients) **NXDN**, **YSF** and **P25** (native reflector clients) are in. YSF carries voice in DN (V/D mode 2) and Voice FR (VW); P25 carries IMBE. All modes are available; settings and favourites from 1.x are kept and not lost on upgrade.
+> **You have to redo the digital-modes configuration in 2.0.** The BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN settings, your identity (callsign and DMR ID) and the BrandMeister application ID are not carried over from the previous stack, and nothing is imported from its ini files. The previous stack is removed on upgrade, except md380-emu. See "Upgrading from 1.x" below.
+
+Status in 2.0.0: the engine, the control socket, the vocoder link, the **Parrot** test mode (`LOOP`), **BrandMeister** (`BM`, a native Rewind client), **TGIF** and **DMR - Other** (native Homebrew clients), **NXDN**, **YSF** and **P25** (native reflector clients) are all in. YSF carries voice in DN (V/D mode 2) and Voice FR (VW); P25 carries IMBE. All modes are available.
 
 ## Parts
 
@@ -23,7 +25,7 @@ aslcp-dv <-- UDP 127.0.0.1:2470 --> md380-emu (the vocoder)
 `aslcp dv enable` (as root) or the Enable button of the digital modes page runs one job, `aslcp-dv-enable`:
 
 1. apt installs the md380-emu vocoder, plus qemu-user-static on 64-bit and x86 systems (the vocoder is an ARM binary). Nothing else is installed.
-2. The units of the previous stack that exist are stopped and disabled. Nothing is uninstalled or deleted; purging that stack is a later milestone.
+2. The previous stack that ASLCP installed is removed (see "Upgrading from 1.x"); this step is also the retry if the removal after the upgrade failed.
 3. The engine config is rendered and `aslcp-dv` is enabled and started.
 
 `aslcp dv status [--json]` shows the state; `aslcp dv disable` stops the engine and keeps its settings. The command and the installer variable of 1.x keep working as aliases. In the installer, `ASLCP_DV=1` runs it.
@@ -32,7 +34,7 @@ Supported: Debian bookworm and trixie on amd64, arm64 and armhf (ARMv7). **ARMv6
 
 ## Modes
 
-| Mode | Id | In 2.0 M5 | Tune value | Unlink |
+| Mode | Id | In 2.0.0 | Tune value | Unlink |
 |---|---|---|---|---|
 | Parrot | `LOOP` | available | parrot id (default 9990, private call) | `disconnect` |
 | BrandMeister | `BM` | available | talkgroup (a trailing `#` makes a private call) | `4000` |
@@ -59,7 +61,7 @@ BrandMeister is a native client of the Rewind protocol: the engine logs in to a 
 
 **Using it.** On the dashboard, choose BrandMeister, type a talkgroup and press Tune, or pick a favourite. The *Private call* switch (or a trailing `#`) calls the number as a private call. **Parrot** calls TG 9990 as a private call: key up, release, and the master plays your transmission back. That tests the whole path over the real network without disturbing a talkgroup.
 
-**Upgrade from 1.x.** The BrandMeister enable state in the 1.x `networks.json` is kept. The master address, password and application ID of the old bridge program's ini are not read from it: enter them once on the BrandMeister card.
+**Upgrade from 1.x.** Nothing of the old bridge program is imported: enter the master address, password and application ID once on the BrandMeister card.
 
 ## Private bridge node and USRP
 
@@ -86,13 +88,23 @@ The DMR user list (`DMRIds.dat`) is **not** downloaded: ASLCP shows names and ca
 
 With "Resume after restart" on, a tracker re-sends the last mode and tune after the engine restarts. It reads the engine over the control socket, not from a file. The "boot mode" hook of 1.x is gone: there is no file to write, the engine keeps its own state.
 
-## Migration from 1.x
+## Upgrading from 1.x
 
-Enabling digital modes stops the previous stack's units but leaves its files, packages and state directories in place (nothing is read from them except what a backup restore saved). A backup taken on 1.x restores its digital modes part as a pending set when the previous stack is not installed; it can be discarded with `DELETE /api/dv/restore-pending`. See docs/BACKUP.md.
+**You have to redo the digital-modes configuration in 2.0.** Settings of the previous stack (BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN, the identity and the BrandMeister application ID) are not carried over and nothing is imported from its ini files, or from the ini files in a 1.x backup. Whatever the 1.4.0 panel itself stored in its own `networks.json` (enable switches, TGIF and DMR - Other address, port and password) is still read, so cards may show it filled in: check every card.
+
+On upgrade from a version before 2.0.0 the package starts the transient unit `aslcp-dv-purge` once the upgrade has finished (`journalctl -u aslcp-dv-purge`; `aslcp dv enable` repeats it). It acts only on what ASLCP installed, which the root-only install marker in `/var/lib/aslcp-dvstate` records, and does nothing on a node where ASLCP did not install the old stack:
+
+1. It deletes ASLCP's own ini history copies of the old stack (`/var/lib/aslcp-dvstate-history` and the 1.x name of that directory).
+2. It waits until dpkg is idle, then stops and disables the old stack's units (`analog_bridge`, `mmdvm_bridge`, `netcheck`, `ysfgateway`, `p25gateway`, `nxdngateway`, `stfu`) that exist.
+3. It marks md380-emu and qemu-user-static as manually installed, simulates `apt-get purge` of the old stack's packages recorded in the marker, and refuses (removing nothing) if the simulation would remove anything else.
+4. It purges those packages, checks that md380-emu is still installed, and drops the purged names from the marker.
+5. The apt source and keyring stay, because md380-emu is installed from that repository and keeps getting its updates. md380-emu stays installed and working.
+
+Nothing is removed that ASLCP did not install, and md380-emu is never touched. A backup made on 1.x still restores (its ini files are ignored, see docs/BACKUP.md).
 
 ## Audit
 
-Writes are audited as `dv.enable`, `dv.disable`, `dv.mode`, `dv.tune`, `dv.unlink`, `dv.favorite.*`, `dv.network`, `dv.identity`, `dv.private.*`, `dv.node_name`, `dv.link`, `dv.restore_discard`, `dv.resume` and `dv.lists.refresh`. Audit lines never contain a password, key or token.
+Writes are audited as `dv.enable`, `dv.disable`, `dv.mode`, `dv.tune`, `dv.unlink`, `dv.favorite.*`, `dv.network`, `dv.identity`, `dv.private.*`, `dv.node_name`, `dv.link`, `dv.resume` and `dv.lists.refresh`. Audit lines never contain a password, key or token.
 
 REST paths, the SSE event name and the settings keys keep their 1.x names for now; see docs/API.md.
 

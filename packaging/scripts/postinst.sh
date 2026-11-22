@@ -105,6 +105,24 @@ prepare_services() {
 	systemctl restart aslcp-helper.socket || echo "aslcp: warning: could not start aslcp-helper.socket"
 }
 
+# Upgrade from 1.x: remove the previous digital voice stack that ASLCP
+# installed (its units, packages, apt source and keyring; md380-emu stays).
+# apt cannot run inside postinst (dpkg holds its lock), so a transient unit
+# does it once this upgrade has finished. It removes nothing ASLCP did not
+# install, is repeated by "aslcp dv enable" if it fails, and its log is in:
+#   journalctl -u aslcp-dv-purge
+purge_previous_stack() {
+	have_systemd || return 0
+	[ -n "$1" ] || return 0
+	dpkg --compare-versions "$1" lt 2.0.0 || return 0
+	[ -x /usr/libexec/aslcp/aslcp-helper ] || return 0
+	systemctl reset-failed aslcp-dv-purge.service >/dev/null 2>&1 || true
+	systemd-run --no-block --unit=aslcp-dv-purge --collect --property=Type=oneshot \
+		--setenv=DEBIAN_FRONTEND=noninteractive --setenv=APT_LISTCHANGES_FRONTEND=none --setenv=LC_ALL=C \
+		/usr/libexec/aslcp/aslcp-helper dv-step purge-legacy >/dev/null 2>&1 ||
+		echo "aslcp: note: could not start the removal of the previous digital voice stack; run: sudo aslcp dv enable"
+}
+
 # The LAST step: the web interface is down only for the restart itself.
 restart_app() {
 	have_systemd || return 0
@@ -222,6 +240,7 @@ configure)
 	configure_dv_user
 	configure_asterisk_access
 	prepare_services
+	purge_previous_stack "$2"
 	configure_firewalld
 	restart_app
 	# install.sh prints the setup link itself once everything (port, digital modes)

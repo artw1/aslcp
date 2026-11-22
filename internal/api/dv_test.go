@@ -64,13 +64,6 @@ func (f *fakeEngine) DVRestart(context.Context) (helper.DVStatus, error) {
 	f.note("restart")
 	return f.status, nil
 }
-func (f *fakeEngine) DVRestoreDiscard(context.Context) (helper.DVStatus, error) {
-	f.note("discard")
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.status.RestorePending = helper.DVRestorePending{}
-	return f.status, nil
-}
 func (f *fakeEngine) DVPrivateGet(context.Context) (helper.DVPrivateReply, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -302,7 +295,7 @@ func TestDVEngineDown(t *testing.T) {
 func TestDVStatusEnableDisable(t *testing.T) {
 	e, fe, _ := dvEnv(t, ctl.ModeLoop)
 	var st map[string]any
-	if c := e.do("admin", "GET", "/api/dv/status", nil, &st); c != 200 || st["supported"] != true || st["enabled"] != true || st["restorePending"] != false {
+	if c := e.do("admin", "GET", "/api/dv/status", nil, &st); c != 200 || st["supported"] != true || st["enabled"] != true {
 		t.Fatalf("%d %v", c, st)
 	}
 	if _, bad := st["legacyUnits"]; bad {
@@ -332,19 +325,6 @@ func TestDVJob(t *testing.T) {
 	var j map[string]any
 	if c := e.do("admin", "GET", "/api/dv/job", nil, &j); c != 200 || j["job"] != "running" || !strings.Contains(j["log"].(string), "md380-emu") {
 		t.Fatalf("%d %v", c, j)
-	}
-}
-
-func TestDVRestorePending(t *testing.T) {
-	e, fe, _ := dvEnv(t, ctl.ModeLoop)
-	fe.status.RestorePending = helper.DVRestorePending{Pending: true}
-	var st map[string]any
-	e.do("admin", "GET", "/api/dv/status", nil, &st)
-	if st["restorePending"] != true {
-		t.Fatalf("%v", st)
-	}
-	if c := e.do("admin", "DELETE", "/api/dv/restore-pending", nil, &st); c != 200 || st["restorePending"] != false {
-		t.Fatalf("%d %v", c, st)
 	}
 }
 

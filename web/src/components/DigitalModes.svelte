@@ -12,7 +12,6 @@
   import UserListCard from './UserListCard.svelte';
   import Refresh from '@lucide/svelte/icons/refresh-cw';
   import Power from '@lucide/svelte/icons/power';
-  import Trash from '@lucide/svelte/icons/trash-2';
 
   let st = $state<DVStatus | null>(null), jobData = $state<DVJob | null>(null), err = $state(''), busy = $state(false);
   let enableOpen = $state(false), disableOpen = $state(false);
@@ -62,11 +61,6 @@
     busy = true;
     try { st = await api.dvDisable(); err = ''; toast('Digital modes disabled', 'info'); } catch (e) { toastError(e); await load(); } finally { busy = false; }
   }
-  // Settings kept from a backup restore: applied by the enable job; "Discard" drops them.
-  async function discardPending() {
-    busy = true;
-    try { await api.dvRestoreDiscard(); toast('Saved settings discarded', 'info'); } catch (e) { toastError(e); } finally { busy = false; await load(); }
-  }
   const yes = (b: boolean) => (b ? 'yes' : 'no');
   const unitState = (active: boolean, enabled: boolean | null) => `${active ? 'active' : 'inactive'}${enabled === null ? '' : enabled ? ', enabled' : ', disabled'}`;
 </script>
@@ -90,19 +84,13 @@
         <p class="text-sm text-muted" role="status">Digital modes are not supported on this platform{st.reason ? ` (${st.reason})` : ''}.</p>
       {/if}
       {#if st.legacyUnits?.length}
-        <p class="rounded border border-line p-2 text-sm text-muted" role="status">The previous digital voice services were stopped; they will be removed in a later version. <span class="font-mono text-xs">{st.legacyUnits.join(', ')}</span></p>
+        <p class="rounded border border-line p-2 text-sm text-muted" role="status">The previous digital voice services were stopped. ASLCP removes the ones it installed after the upgrade; run Enable again to retry. <span class="font-mono text-xs">{st.legacyUnits.join(', ')}</span></p>
       {/if}
       <h3 class="text-sm font-semibold">Services</h3>
       <ul class="divide-y divide-line rounded border border-line text-xs" aria-label="Services">
         <li class="flex flex-wrap items-baseline gap-x-2 px-2 py-1"><span class="font-mono font-semibold">aslcp-dv</span><span class={st.active ? 'text-ok' : 'text-muted'}>{unitState(st.active, st.enabled)}</span></li>
         <li class="flex flex-wrap items-baseline gap-x-2 px-2 py-1"><span class="font-mono font-semibold">md380-emu</span><span class="text-muted">{st.md380Installed ? unitState(st.md380Active, null) : 'not installed'}</span></li>
       </ul>
-      {#if st.restorePending}
-        <div class="space-y-2 rounded border border-line bg-surface-2/40 p-2 text-sm" role="status" aria-label="Settings from your backup">
-          <p>Settings from your backup are waiting. They are applied when digital modes are enabled.</p>
-          <button class="btn" disabled={busy || running} onclick={discardPending}><Trash size={14} />Discard</button>
-        </div>
-      {/if}
       <div class="flex flex-wrap gap-2">
         <button class="btn" disabled={busy || running} onclick={load}><Refresh size={14} />Refresh</button>
         {#if st.enabled}
@@ -148,8 +136,7 @@
 <Dialog bind:open={enableOpen} title="Enable digital modes?">
   <div class="space-y-3 text-sm">
     <p>This adds the package repository (its key is checked against a pinned fingerprint), installs the md380 voice engine and starts the digital modes engine, <span class="font-mono">aslcp-dv</span>.</p>
-    <p>Any previous digital voice services found on this node are stopped and disabled (nothing is removed).</p>
-    {#if st?.restorePending}<p class="text-xs text-muted">The settings saved from your backup are applied at the end.</p>{/if}
+    <p>Any previous digital voice services found on this node are stopped and disabled (the ones ASLCP installed are removed; md380-emu is kept).</p>
     <p class="text-xs text-muted">It does not touch Asterisk or app_rpt. It needs internet access and a few minutes.</p>
   </div>
   {#snippet footer()}

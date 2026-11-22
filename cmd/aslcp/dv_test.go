@@ -59,7 +59,7 @@ func dvRun(t *testing.T, f *fakeDVClient, root bool, args ...string) (int, strin
 
 func TestDVEnableSuccess(t *testing.T) {
 	f := &fakeDVClient{
-		status: helper.DVStatus{Supported: true, RestorePending: helper.DVRestorePending{Pending: true, BackupDate: "2026-11-20 08:15"}},
+		status: helper.DVStatus{Supported: true},
 		jobs: []helper.DVJob{
 			{Job: "running", Log: "step one\nstep two"},
 			{Job: "running", Log: "step one\nstep two\nstep three"},
@@ -72,7 +72,7 @@ func TestDVEnableSuccess(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("%s: code %d: %s %s", cmd, code, out, errs)
 		}
-		for _, want := range []string{"2026-11-20 08:15", "step one\nstep two\nstep three\nfinished\n", "Digital modes enabled."} {
+		for _, want := range []string{"step one\nstep two\nstep three\nfinished\n", "Digital modes enabled."} {
 			if !strings.Contains(out, want) {
 				t.Errorf("%s: output lacks %q:\n%s", cmd, want, out)
 			}

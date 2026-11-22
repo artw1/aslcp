@@ -34,7 +34,6 @@ func (s *Server) dvRoutes() {
 	m.HandleFunc("GET /api/dv/job", s.authed(store.RoleAdmin, s.handleDVJob))
 	m.HandleFunc("POST /api/dv/enable", s.authed(store.RoleAdmin, s.handleDVEnable))
 	m.HandleFunc("POST /api/dv/disable", s.authed(store.RoleAdmin, s.handleDVDisable))
-	m.HandleFunc("DELETE /api/dv/restore-pending", s.authed(store.RoleAdmin, s.handleDVRestoreDiscard))
 	m.HandleFunc("GET /api/dv/setup", s.authed(store.RoleAdmin, s.handleDVSetup))
 	m.HandleFunc("GET /api/dv/lists", s.authed(store.RoleOperator, s.handleDVLists))
 	m.HandleFunc("POST /api/dv/lists/refresh", s.authed(store.RoleAdmin, s.handleDVListsRefresh))
@@ -53,12 +52,11 @@ type DVStatusView struct {
 	MD380Active    bool     `json:"md380Active"`
 	Job            string   `json:"job,omitempty"`
 	LegacyUnits    []string `json:"legacyUnits,omitempty"`
-	RestorePending bool     `json:"restorePending"`
 }
 
 func dvStatusView(st helper.DVStatus) DVStatusView {
 	return DVStatusView{Supported: st.Supported, Reason: st.Reason, MD380Installed: st.MD380Installed, Enabled: st.Enabled, Active: st.Active,
-		MD380Active: st.MD380Active, Job: st.Job, LegacyUnits: st.LegacyUnits, RestorePending: st.RestorePending.Pending}
+		MD380Active: st.MD380Active, Job: st.Job, LegacyUnits: st.LegacyUnits}
 }
 
 func (s *Server) handleDVStatus(w http.ResponseWriter, r *http.Request, _ store.User) {
@@ -122,25 +120,6 @@ func (s *Server) dvStart(w http.ResponseWriter, r *http.Request, u store.User, a
 	s.d.Logger.Printf("%s started by %s", action, u.Username)
 	s.dvs.invalidate()
 	writeJSON(w, http.StatusAccepted, dvStatusView(st))
-}
-
-// handleDVRestoreDiscard drops the settings saved by a backup restore for the
-// migration. Not a job: it replies 200 with the status.
-func (s *Server) handleDVRestoreDiscard(w http.ResponseWriter, r *http.Request, u store.User) {
-	if s.d.DVEngine == nil {
-		s.dvError(w, errDVUnavailable)
-		return
-	}
-	st, err := s.d.DVEngine.DVRestoreDiscard(r.Context())
-	if err != nil {
-		s.audit(u, "dv.restore_discard.refused", map[string]any{"error": err.Error()})
-		s.dvError(w, err)
-		return
-	}
-	s.audit(u, "dv.restore_discard", nil)
-	s.d.Logger.Printf("dv.restore_discard by %s", u.Username)
-	s.dvs.invalidate()
-	writeJSON(w, http.StatusOK, dvStatusView(st))
 }
 
 // DVFileView is one Asterisk file of the private node flow. SHA256 is passed

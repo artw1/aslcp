@@ -45,15 +45,14 @@ const (
 	// Digital modes (docs/DV.md). dv-private takes the dv field; the others
 	// take no argument: the package list, the paths and the units are
 	// constants of the helper.
-	OpDVStatus         = "dv-status"          // read-only: supported, units, job, restore pending
-	OpDVEnable         = "dv-enable"          // key + source, then the aslcp-dv-enable unit
-	OpDVDisable        = "dv-disable"         // systemctl disable --now aslcp-dv
-	OpDVJob            = "dv-job"             // state and log of the enable unit
-	OpDVConfig         = "dv-config"          // render the engine's config.json
-	OpDVPrivate        = "dv-private"         // get, set or clear the private node record
-	OpDVNetwork        = "dv-network"         // read or change the network settings and identity, render the engine config
-	OpDVRestart        = "dv-restart"         // restart aslcp-dv (when its control socket is unreachable)
-	OpDVRestoreDiscard = "dv-restore-discard" // delete the settings a backup restore saved
+	OpDVStatus  = "dv-status"  // read-only: supported, units, job, restore pending
+	OpDVEnable  = "dv-enable"  // key + source, then the aslcp-dv-enable unit
+	OpDVDisable = "dv-disable" // systemctl disable --now aslcp-dv
+	OpDVJob     = "dv-job"     // state and log of the enable unit
+	OpDVConfig  = "dv-config"  // render the engine's config.json
+	OpDVPrivate = "dv-private" // get, set or clear the private node record
+	OpDVNetwork = "dv-network" // read or change the network settings and identity, render the engine config
+	OpDVRestart = "dv-restart" // restart aslcp-dv (when its control socket is unreachable)
 )
 
 // Update channels (the suite of the aslcp apt source).

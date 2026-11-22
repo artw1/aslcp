@@ -155,9 +155,6 @@ func printDVStatus(w io.Writer, st helper.DVStatus) {
 	if len(st.LegacyUnits) > 0 {
 		fmt.Fprintf(w, "legacy:     %s\n", strings.Join(st.LegacyUnits, ", "))
 	}
-	if st.RestorePending.Pending {
-		fmt.Fprintf(w, "restore:    settings from the backup of %s UTC are pending\n", st.RestorePending.BackupDate)
-	}
 }
 
 // dvEnable starts the enable job (or joins one that is running) and follows
@@ -172,9 +169,6 @@ func dvEnable(ctx context.Context, c dvClient, env dvEnv) error {
 	if !seenRunning {
 		if !st.Supported {
 			return fmt.Errorf("this host is not supported: %s", st.Reason)
-		}
-		if st.RestorePending.Pending {
-			fmt.Fprintf(env.out, "Settings saved from your backup (%s UTC) will be applied once the engine is enabled.\n", st.RestorePending.BackupDate)
 		}
 		fmt.Fprintln(env.out, "Enabling digital modes (this takes a few minutes)...")
 		if _, err := c.DVEnable(ctx); err != nil {

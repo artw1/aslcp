@@ -711,8 +711,8 @@ func (o *Ops) BackupRestore(ctx context.Context, req *RestoreRequest, in io.Read
 			res.SA818PortPresent = err == nil
 		}
 	}
-	if m.Parts.DV && dvHasFiles(m) && !o.dvInstalled() {
-		res.DVNotInstalled = true
+	if m.Parts.DV && dvHasLegacyFiles(m) {
+		res.DVLegacySettings = true
 	}
 	seen := map[string]bool{}
 	var deletes []string
@@ -807,7 +807,7 @@ func (o *Ops) BackupRestore(ctx context.Context, req *RestoreRequest, in io.Read
 		okStep("Replace custom sounds", d)
 	}
 	if m.Parts.DV {
-		d, _, err := o.restoreDV(ctx, sp, m, date)
+		d, err := o.restoreDV(sp, m)
 		if err != nil {
 			return fail(dvStepName, err)
 		}

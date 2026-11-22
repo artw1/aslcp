@@ -392,12 +392,6 @@ func (c *Client) DVRestart(ctx context.Context) (DVStatus, error) {
 	return s, c.Do(ctx, OpDVRestart, &s)
 }
 
-// DVRestoreDiscard calls dv-restore-discard.
-func (c *Client) DVRestoreDiscard(ctx context.Context) (DVStatus, error) {
-	var s DVStatus
-	return s, c.Do(ctx, OpDVRestoreDiscard, &s)
-}
-
 // DVPrivateGet calls dv-private without a record: it reads.
 func (c *Client) DVPrivateGet(ctx context.Context) (DVPrivateReply, error) {
 	var r DVPrivateReply

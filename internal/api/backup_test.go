@@ -213,10 +213,10 @@ func TestBackupRoundTripDemo(t *testing.T) {
 		t.Errorf("backup: %v", b)
 	}
 
-	// the digital modes part restores into the demo's own /opt (installed there),
-	// and the preview has no "install the old stack" warning
+	// the preview of a current backup has no "settings not restored" warning
+
 	for _, w := range prev["warnings"].([]any) {
-		if code(w.(map[string]any)) == "dv_not_installed" {
+		if code(w.(map[string]any)) == "dv_settings_not_restored" {
 			t.Errorf("unexpected warning %v", w)
 		}
 	}

@@ -5,19 +5,19 @@ const ENABLE_MS = 6000;
 const ENABLE_LOG = ['Hit:1 http://deb.debian.org/debian bookworm InRelease', 'Get:2 https://packages.example.invalid/aslcp bookworm InRelease', 'key fingerprint matches the pinned one', 'Setting up md380-emu ...', 'Setting up aslcp-dv ...', 'previous digital voice services stopped and disabled', 'aslcp-dv started', 'enable finished'];
 
 // The enable job (transient unit aslcp-dv-enable): idle until POST /enable, then 6 s of log lines, then done.
-// Starts disabled with two legacy units and settings kept from a restore, so both notices can be seen.
-let enabled = false, enableAt = 0, legacy = ['analog_bridge.service', 'mmdvm_bridge.service'], restorePending = true;
+// Starts disabled with two legacy units, so the notice can be seen.
+let enabled = false, enableAt = 0, legacy = ['analog_bridge.service', 'mmdvm_bridge.service'];
 let jobFailed = false;
 function jobState(): 'idle' | 'running' | 'done' | 'failed' {
   if (!enableAt) return 'idle';
   if (Date.now() - enableAt < ENABLE_MS) return 'running';
   if (jobFailed) return 'failed';
-  if (!enabled) { enabled = true; legacy = []; restorePending = false; foundAfterRestore(); bootLastMode(); }
+  if (!enabled) { enabled = true; legacy = []; foundAfterRestore(); bootLastMode(); }
   return 'done';
 }
 function status() {
   const job = jobState();
-  return { supported: true, md380Installed: enabled || job === 'running', enabled, active: enabled, md380Active: enabled, job, legacyUnits: legacy, restorePending };
+  return { supported: true, md380Installed: enabled || job === 'running', enabled, active: enabled, md380Active: enabled, job, legacyUnits: legacy };
 }
 function jobLog() {
   const job = jobState();
@@ -319,7 +319,7 @@ function snapshot() {
       : { mode: '', tune: '', slot: 0, muted: false, source: 'none', updated: '' },
     modes: ALL.map((id) => ({ id, enabled: running && (id === 'LOOP' || (id === 'BM' && bmNet.enabled)), available: NATIVE.includes(id), unlink: UNLINK[id], ...(LABEL[id] ? { label: LABEL[id] } : {}), ...(running && id === 'BM' && bmNet.enabled ? { login: bmLogin(), detail: bmDetail() } : {}) })),
     services: enabled ? [{ unit: 'aslcp-dv', active: true }, { unit: 'md380-emu', active: true }] : [],
-    ...(running ? { vocoder: { ok: true, timeouts: 0 }, engine: { version: '2.0.0-m1', uptime: Math.floor((Date.now() - started) / 1000) } } : {}),
+    ...(running ? { vocoder: { ok: true, timeouts: 0 }, engine: { version: '2.0.0', uptime: Math.floor((Date.now() - started) / 1000) } } : {}),
     bridgeNode: pb.node ? { present: true, node: pb.node, name: pb.name || NODE_NAME } : { present: false },
     link: linkView(),
     ...(running ? callers() : { heard: [] }),
@@ -463,7 +463,6 @@ export function handleDV(c: DVCtx): boolean {
   if (c.m === 'GET' && c.p === '/dv/status') { c.json(200, status()); return true; }
   if (c.m === 'GET' && c.p === '/dv/job') { c.json(200, jobLog()); return true; }
   if (c.m === 'GET' && c.p === '/dv/setup') { c.json(200, setup()); return true; }
-  if (c.m === 'DELETE' && c.p === '/dv/restore-pending') { restorePending = false; c.json(200, status()); return true; }
   if (c.m === 'POST' && c.p === '/dv/enable') {
     if (jobState() === 'running') c.err(409, 'job_running: the enable job is already running', 'job_running');
     else if (enabled) c.err(409, 'already_enabled: digital modes are already enabled', 'already_enabled');

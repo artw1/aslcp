@@ -113,6 +113,10 @@ Either of:
 - **System, Updates** in the web page (administrators): *Check now*, then *Update*. Links are not affected; the page reconnects by itself.
 - `sudo apt update && sudo apt upgrade`
 
+### Upgrading to 2.0
+
+**You have to redo the digital-modes configuration in 2.0.** The BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN settings, your identity (callsign and DMR ID) and the BrandMeister application ID are not carried over, and nothing is imported from the previous stack. Enter them again on the Digital modes page. The previous digital voice stack is removed on upgrade, except md380-emu, which stays installed and working. Only what ASLCP installed is removed. See docs/DV.md.
+
 ## WiFi
 
 **System, WiFi** (administrators): scan, add a network (with or without a password), remove one, reorder the saved networks, connect now. If the node has no network for 3 minutes and no Ethernet cable, it opens an unprotected setup network called `ASLCP-<hostname>`; join it and open `http://10.42.0.1:<port>`. It switches off when a saved network connects. Use it only to set up WiFi, because others nearby can see what you type. Administrators can turn it off there. It needs NetworkManager and a WiFi device.
