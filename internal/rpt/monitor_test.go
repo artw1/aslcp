@@ -362,5 +362,8 @@ func TestSetNodesConcurrent(t *testing.T) {
 	}()
 	wg.Wait()
 	env.m.SetNodes([]string{"1999"})
-	waitFor(t, env.sub, "initial poll of 1999", func(u Update) bool { return u.Node == "1999" && u.Changes.Initial })
+	// publish replaces a full queue with Resync updates, so the Initial update can be dropped.
+	waitFor(t, env.sub, "a poll of 1999", func(u Update) bool {
+		return u.Node == "1999" && (u.Changes.Initial || (u.Changes.Resync && !u.Status.Updated.IsZero()))
+	})
 }
