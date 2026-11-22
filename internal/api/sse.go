@@ -274,6 +274,17 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request, u store.Us
 	if c.admin.Load() && s.d.Updates != nil && !write(frame("updates", s.updatesBadge())) {
 		return
 	}
+	// The digital modes snapshot is sent on every connect too: the browser
+	// reconnects by itself after a restart of the panel, and a change that was
+	// published while it was away (or before it came back) is never repeated.
+	if s.dvs != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		sn := s.dvs.snapshot(ctx)
+		cancel()
+		if !write(frame("dv", sn)) {
+			return
+		}
+	}
 	// Initial favorites/system are available via REST; the contract only
 	// requires hello + nodes on connect.
 

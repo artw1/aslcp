@@ -28,6 +28,8 @@ Release notes are taken from the section of the tag being released
 - ASLCP downloads the YSF, P25, NXDN and DMR host lists itself, once a day, while digital modes are enabled.
 
 ### Fixed
+- After a restart, digital modes come back in the last used mode even if you had unlinked it (nothing is linked).
+- The dashboard's Digital Modes card comes back on its own after the panel restarts.
 - Now calling now shows BrandMeister calls after a retune, calls joined mid-transmission, and private calls such as Parrot replies.
 
 ### Removed

@@ -35,10 +35,13 @@ var ErrNotEnabled = errors.New("digital modes not enabled")
 const DefaultViewerInterval = 5 * time.Second
 
 // Source is the part of the engine client the tracker uses. Tune switches the
-// mode and tunes; the bool says whether the engine confirmed it.
+// mode and tunes; Mode only switches the mode and sends nothing to the
+// network (the engine's mode op). The bool says whether the engine
+// confirmed it.
 type Source interface {
 	Info(ctx context.Context) (Info, error)
 	Tune(ctx context.Context, mode, tune string) (bool, error)
+	Mode(ctx context.Context, mode string) (bool, error)
 }
 
 // Settings is the part of the database the tracker needs.
@@ -187,7 +190,8 @@ func (t *Tracker) load() {
 		}
 	}
 	t.st.PerMode = clean
-	if NormMode(t.st.LastMode) != t.st.LastMode || t.st.LastMode != "" && clean[t.st.LastMode].Tune == "" {
+	// LastMode may have no tune: it is a mode whose target was unlinked.
+	if NormMode(t.st.LastMode) != t.st.LastMode {
 		t.st.LastMode = ""
 	}
 }
@@ -203,7 +207,8 @@ func (t *Tracker) save() error {
 
 // Forget erases the remembered tune of a mode. It is what a disconnect (an
 // unlink value) does: the mode stays disconnected when the operator switches
-// away and back, and a resume after a restart does not re-tune it. A later
+// away and back, and a resume after a restart does not re-tune it. The last
+// mode is kept, so a resume still selects it, with nothing linked. A later
 // tune is remembered as usual.
 func (t *Tracker) Forget(mode string) {
 	t.mu.Lock()
@@ -218,9 +223,6 @@ func (t *Tracker) forgetLocked(mode string) {
 		return
 	}
 	delete(t.st.PerMode, mode)
-	if t.st.LastMode == mode {
-		t.st.LastMode = ""
-	}
 	if err := t.save(); err != nil {
 		t.logf("dv tracker: cannot save the state: %v", err)
 	}
@@ -339,7 +341,18 @@ func (t *Tracker) Poll(ctx context.Context) {
 	if act == resumeFire && t.ModeEnabled != nil && !t.ModeEnabled(ctx, mode) {
 		act, why = resumeSkip, "the mode is disabled"
 	}
+	if act == resumeMode && t.ModeEnabled != nil && !t.ModeEnabled(ctx, mode) {
+		act, why = resumeSkip, "the mode is disabled"
+	}
 	switch act {
+	case resumeMode:
+		if _, err := t.Src.Mode(ctx, mode); err != nil {
+			t.logf("dv resume: %s mode switch failed: %v", mode, err)
+		} else {
+			t.logf("dv resume: %s selected, nothing linked", mode)
+		}
+		t.markResumed(info.Started)
+		return
 	case resumeFire:
 		_, err := t.Src.Tune(ctx, mode, tune)
 		if err != nil {
@@ -395,6 +408,7 @@ const (
 	resumeWait                     // not yet: the engine state of this start is missing
 	resumeSkip                     // this start is handled without a tune
 	resumeFire                     // tune now
+	resumeMode                     // switch to the last mode, nothing to tune
 )
 
 // decideResume decides what to do about the current start of the engine.
@@ -403,7 +417,9 @@ const (
 //   - this start was handled already (LastResumeFor): nothing
 //   - more than window since the start: skip
 //   - no state from this start yet: wait
-//   - no remembered tune for the last mode: skip
+//   - no last mode: skip
+//   - no remembered tune for the last mode (it was unlinked): select the mode
+//     only, unless the engine is in it already or shows a tune
 //   - the engine shows a tune already (the user tuned since the start): skip
 //   - else: fire
 func decideResume(now time.Time, window time.Duration, info Info, st State) (resumeAction, string) {
@@ -427,8 +443,17 @@ func decideResume(now time.Time, window time.Duration, info Info, st State) (res
 		return resumeWait, "state is from an earlier start"
 	}
 	e := st.PerMode[st.LastMode]
-	if st.LastMode == "" || !ValidTune(st.LastMode, e.Tune) || PrivateTune(st.LastMode, e.Tune) {
+	if st.LastMode == "" {
 		return resumeSkip, "no remembered tune"
+	}
+	if !ValidTune(st.LastMode, e.Tune) || PrivateTune(st.LastMode, e.Tune) {
+		switch {
+		case info.Tune != "":
+			return resumeSkip, "already tuned since the start"
+		case info.Mode == st.LastMode:
+			return resumeSkip, "already in the last mode"
+		}
+		return resumeMode, ""
 	}
 	if info.Tune != "" {
 		return resumeSkip, "already tuned since the start"

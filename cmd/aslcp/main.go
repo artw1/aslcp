@@ -700,3 +700,9 @@ func (d *dvSource) Tune(ctx context.Context, mode, tune string) (bool, error) {
 	}
 	return err == nil, err
 }
+
+// Mode only switches the mode: nothing is sent to the network.
+func (d *dvSource) Mode(ctx context.Context, mode string) (bool, error) {
+	_, err := d.ctl.Mode(ctx, ctl.ModeArgs{Mode: mode})
+	return err == nil, err
+}

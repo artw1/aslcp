@@ -57,6 +57,12 @@ type fakeSrc struct {
 	err   error
 	tunes []tuneCall
 	terr  error
+	modes []string
+}
+
+func (f *fakeSrc) Mode(_ context.Context, mode string) (bool, error) {
+	f.modes = append(f.modes, mode)
+	return f.terr == nil, f.terr
 }
 
 func (f *fakeSrc) Info(context.Context) (Info, error) { return f.info, f.err }
@@ -142,7 +148,7 @@ func TestLoadDropsStoredPrivateAndInvalidTunes(t *testing.T) {
 	st := &fakeStore{m: map[string]string{SettingKey: `{"lastMode":"DMR","perMode":{"DMR":{"tune":"9990#","at":"x"},"P25":{"tune":"abc"},"LOOP":{"tune":"9990"},"YSF":{"tune":"192.0.2.10:42000"}},"resume":true}`}}
 	tr := &Tracker{Src: &fakeSrc{}, Store: st}
 	v := tr.Get()
-	if len(v.PerMode) != 2 || v.PerMode["YSF"].Tune == "" || v.LastMode != "" {
+	if len(v.PerMode) != 2 || v.PerMode["YSF"].Tune == "" || v.LastMode != "DMR" {
 		t.Fatalf("%+v", v)
 	}
 }
@@ -181,6 +187,11 @@ func TestDecideResume(t *testing.T) {
 	handled.LastResumeFor = f.Started
 	noTune := resumeState(true)
 	noTune.LastMode, noTune.PerMode = "", nil
+	unlinked := resumeState(true)
+	delete(unlinked.PerMode, "YSF")
+	inMode := fresh(boot)
+	inMode.Mode = "YSF"
+	tunedOther := tuned(boot, "DMR", "1998", "2")
 	older := resumeState(true)
 	older.LastResumeFor = "2026-11-17T08:00:00Z"
 	unknown := f
@@ -201,6 +212,10 @@ func TestDecideResume(t *testing.T) {
 		{"too late (4 min after the start)", boot.Add(4 * time.Minute), f, resumeState(true), resumeSkip},
 		{"just inside the window", boot.Add(179 * time.Second), f, resumeState(true), resumeFire},
 		{"no remembered tune", t0, f, noTune, resumeSkip},
+		{"last mode unlinked: select the mode", t0, f, unlinked, resumeMode},
+		{"unlinked, engine in the mode already", t0, inMode, unlinked, resumeSkip},
+		{"unlinked, user tuned since the start", t0, tunedOther, unlinked, resumeSkip},
+		{"unlinked, too late", boot.Add(4 * time.Minute), f, unlinked, resumeSkip},
 		{"no state yet: wait", t0, noInfo, resumeState(true), resumeWait},
 		{"state of an earlier start: wait", t0, stale, resumeState(true), resumeWait},
 		{"start time unknown", t0, unknown, resumeState(true), resumeNone},
@@ -432,7 +447,7 @@ func TestDisconnectForgetsTune(t *testing.T) {
 	}
 	src.info = tuned(boot, "DMR", "4000", "2")
 	tr.Poll(ctx)
-	if v := tr.Get(); len(v.PerMode) != 0 || v.LastMode != "" {
+	if v := tr.Get(); len(v.PerMode) != 0 || v.LastMode != "DMR" {
 		t.Fatalf("still remembered: %+v", v)
 	}
 	src.info = tuned(boot, "DMR", "1998", "1")
@@ -486,5 +501,52 @@ func TestResumeTGIFOwnKey(t *testing.T) {
 	tr.Poll(ctx)
 	if v := tr.Get(); v.PerMode["TGIF"].Tune != "1999" || v.PerMode["DMR"].Tune != "1998" || v.LastMode != "TGIF" {
 		t.Fatalf("%+v", v)
+	}
+}
+
+func TestUnlinkThenRestartResumesModeOnly(t *testing.T) {
+	tr, src, _, now := newTracker(t)
+	var w strings.Builder
+	tr.Logger = newLogger(&w)
+	ctx := context.Background()
+	_ = tr.SetResume(true)
+	boot := t0.Add(-time.Hour)
+	src.info = tuned(boot, "YSF", "192.0.2.10:42000", "")
+	tr.Poll(ctx)
+	src.info = tuned(boot, "YSF", "disconnect", "")
+	tr.Poll(ctx)
+	if v := tr.Get(); v.LastMode != "YSF" || len(v.PerMode) != 0 {
+		t.Fatalf("%+v", v)
+	}
+	// aslcp restarts too: the state comes from the store
+	tr2 := &Tracker{Src: src, Store: tr.Store, Now: tr.Now, Logger: tr.Logger}
+	boot2 := t0.Add(time.Minute)
+	src.info = fresh(boot2)
+	*now = boot2.Add(10 * time.Second)
+	for i := 0; i < 3; i++ {
+		tr2.Poll(ctx)
+		*now = now.Add(15 * time.Second)
+	}
+	if len(src.tunes) != 0 {
+		t.Fatalf("a target was sent: %+v", src.tunes)
+	}
+	if len(src.modes) != 1 || src.modes[0] != "YSF" || !strings.Contains(w.String(), "YSF selected, nothing linked") {
+		t.Fatalf("%v %s", src.modes, w.String())
+	}
+}
+
+func TestResumeModeOnlySkipsDisabledMode(t *testing.T) {
+	tr, src, _, now := newTracker(t)
+	st := resumeState(true)
+	delete(st.PerMode, "YSF")
+	tr.mu.Lock()
+	tr.st, tr.loaded = st, true
+	tr.mu.Unlock()
+	tr.ModeEnabled = func(_ context.Context, m string) bool { return m != "YSF" }
+	src.info = fresh(t0.Add(-20 * time.Second))
+	*now = t0.Add(10 * time.Second)
+	tr.Poll(context.Background())
+	if len(src.modes) != 0 || len(src.tunes) != 0 {
+		t.Fatalf("%v %+v", src.modes, src.tunes)
 	}
 }

@@ -627,3 +627,21 @@ func (f *fakeEngine) DVNetworkSet(_ context.Context, q helper.DVNetworkRequest) 
 	}
 	return f.netReply(true), nil
 }
+
+// A client that connects (the browser reconnecting after a restart of the
+// panel) gets the current digital modes snapshot at once, not only changes.
+func TestDVSnapshotSentOnConnect(t *testing.T) {
+	e, _, _ := dvEnv(t, ctl.ModeLoop)
+	waitDV(t, e, func(s dvSnap) bool { return s.Running })
+	// the state settled with nobody connected; a stream that opens now must
+	// still be told
+	s := e.stream("viewer")
+	ev := s.wait(func(ev sseEvent) bool { return ev.name == "dv" })
+	var sn dvSnap
+	if err := json.Unmarshal([]byte(ev.data), &sn); err != nil {
+		t.Fatal(err)
+	}
+	if !sn.Installed || !sn.Running {
+		t.Fatalf("%+v", sn)
+	}
+}
