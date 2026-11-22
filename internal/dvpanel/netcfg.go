@@ -79,12 +79,6 @@ type NetSpec struct {
 // NetOptions is the allowlist of option keys per mode.
 var NetOptions = map[string][]OptSpec{
 	ModeBM: {
-		{Key: "slot", Label: "Timeslot", Kind: KindInt, Default: "2", Min: 1, Max: 2,
-			Help: "Rewind has no timeslots; the number is only shown with calls."},
-		{Key: "colour_code", Label: "Colour code", Kind: KindInt, Default: "1", Min: 0, Max: 15, Advanced: true,
-			Help: "Not carried by Rewind; kept for compatibility."},
-		{Key: "super_header", Label: "Send caller names", Kind: KindBool, Default: "true", Advanced: true,
-			Help: "Ask the master for the callsigns of the talkers."},
 		{Key: "client_version", Label: "Software description", Kind: KindText, Default: "aslcp-dv", Advanced: true,
 			Help: "Sent to the master with every keep-alive."},
 		{Key: "keepalive_ms", Label: "Keep-alive period (ms)", Kind: KindInt, Default: "5000", Min: 500, Max: 60000, Advanced: true},

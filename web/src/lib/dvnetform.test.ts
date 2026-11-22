@@ -9,8 +9,8 @@ const bm: DVNetView = {
   mode: 'BM', label: 'BrandMeister', available: true, enabled: false, address: '', port: 0, defaultPort: 54006, passwordSet: false,
   fields: { address: true, port: true, password: true }, needsIdentity: true, help: BM_HELP,
   options: [
-    { key: 'slot', label: 'Time slot', kind: 'int', default: '2', min: 1, max: 2 },
-    { key: 'super_header', label: 'Super header', kind: 'bool', default: 'true' },
+    { key: 'keepalive_ms', label: 'Keep-alive (ms)', kind: 'int', default: '5000', min: 500, max: 60000 },
+    { key: 'client_version', label: 'Client version', kind: 'text', default: 'aslcp-dv' },
   ],
   values: {},
 };
@@ -40,17 +40,17 @@ test('address, port, password and option checks', () => {
   assert.match(formError(bm, { ...f, port: '70000' }), /^Port/);
   assert.match(formError(bm, { ...f, address: 'a b' }), /^Master address/);
   assert.match(formError(bm, { ...f, password: 'has space' }), /^Password/);
-  assert.match(formError(bm, { ...f, options: { slot: 'x' } }), /Time slot/);
-  assert.match(formError(bm, { ...f, options: { super_header: '2' } }), /Super header/);
+  assert.match(formError(bm, { ...f, options: { keepalive_ms: 'x' } }), /Keep-alive/);
+  assert.match(formError(bm, { ...f, options: { keepalive_ms: '100' } }), /Keep-alive/);
 });
 
 test('buildPut sends only what changed, and the password only when typed', () => {
   const f = formOf(bm);
   assert.deepEqual(buildPut(bm, f), {});
   assert.equal(hasChanges(buildPut(bm, f)), false);
-  const b = buildPut(bm, { ...f, enabled: true, address: ' 192.0.2.10 ', port: '62031', password: 'example-pass', options: { slot: '1', super_header: '' } });
-  assert.deepEqual(b, { enabled: true, address: '192.0.2.10', port: 62031, password: 'example-pass', options: { slot: '1' } });
-  const set = { ...bm, passwordSet: true, address: '192.0.2.10', port: 62031, values: { slot: '1' } };
+  const b = buildPut(bm, { ...f, enabled: true, address: ' 192.0.2.10 ', port: '62031', password: 'example-pass', options: { keepalive_ms: '1000', client_version: '' } });
+  assert.deepEqual(b, { enabled: true, address: '192.0.2.10', port: 62031, password: 'example-pass', options: { keepalive_ms: '1000' } });
+  const set = { ...bm, passwordSet: true, address: '192.0.2.10', port: 62031, values: { keepalive_ms: '1000' } };
   assert.deepEqual(buildPut(set, formOf(set)), {});
   assert.deepEqual(buildPut(set, { ...formOf(set), clearPassword: true }), { clearPassword: true });
   assert.deepEqual(buildPut(set, { ...formOf(set), port: '' }), { port: 0 });

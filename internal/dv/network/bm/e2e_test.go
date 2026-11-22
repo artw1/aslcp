@@ -108,8 +108,8 @@ func TestEndToEndParrot(t *testing.T) {
 			got++
 		}
 	}
-	if len(m.packets(typSuperHeader)) == 0 || len(m.packets(typAudio)) == 0 {
-		t.Fatalf("master saw no TX: %d super headers, %d audio", len(m.packets(typSuperHeader)), len(m.packets(typAudio)))
+	if len(m.packets(typVoiceHeader)) == 0 || len(m.packets(typAudio)) == 0 {
+		t.Fatalf("master saw no TX: %d voice headers, %d audio", len(m.packets(typVoiceHeader)), len(m.packets(typAudio)))
 	}
 	// The BM audio frame holds three AMBE frames (60 ms), so a whole number
 	// of 3-frame groups comes back; allow the tail group to be short.

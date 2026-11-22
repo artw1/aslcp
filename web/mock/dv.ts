@@ -184,9 +184,6 @@ const bmDetail = () => (ident.dmrId ? '' : 'the master refused the login: no DMR
 const BM_HELP = 'Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security).';
 const intOpt = (key: string, label: string, def: string, min: number, max: number, advanced = false) => ({ key, label, kind: 'int', default: def, min, max, ...(advanced ? { advanced } : {}) });
 const BM_OPTS = [
-  intOpt('slot', 'Time slot', '2', 1, 2),
-  intOpt('colour_code', 'Colour code', '1', 0, 15),
-  { key: 'super_header', label: 'Super header', kind: 'bool', default: 'true' },
   { key: 'client_version', label: 'Client version', kind: 'text', default: 'ASLCP', advanced: true },
   intOpt('keepalive_ms', 'Keep-alive (ms)', '5000', 100, 60000, true),
   intOpt('timeout_ms', 'Timeout (ms)', '15000', 500, 120000, true),

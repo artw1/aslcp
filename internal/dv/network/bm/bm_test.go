@@ -5,8 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"net"
-	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,8 +16,12 @@ import (
 )
 
 const (
-	testPass = "example-pass"
-	testID   = 1234567
+	testPass  = "example-pass"
+	testID    = 1234567 // own DMR ID
+	testOther = 2345678 // another station
+	// typConfigOld is the CONFIG packet type (0x0900); the client must never
+	// send it.
+	typConfigOld uint16 = 0x0900
 )
 
 // fakeMaster is an in-process Rewind master.
@@ -37,6 +41,7 @@ type fakeMaster struct {
 	last    *net.UDPAddr
 	rec     []packet // current call recording for the parrot
 	events  chan packet
+	sseq    uint32 // server sequence number, increases across calls
 }
 
 func newMaster(t *testing.T) *fakeMaster {
@@ -53,8 +58,26 @@ func newMaster(t *testing.T) *fakeMaster {
 
 func (m *fakeMaster) port() int { return m.conn.LocalAddr().(*net.UDPAddr).Port }
 
+// reply sends a server-originated packet with the next server sequence number.
 func (m *fakeMaster) reply(to *net.UDPAddr, typ, flags uint16, payload []byte) {
-	m.conn.WriteToUDP(marshal(typ, flags, 0, payload), to)
+	m.conn.WriteToUDP(marshal(typ, flags, atomic.AddUint32(&m.sseq, 1), payload), to)
+}
+
+// echo answers a client packet with the same type, sequence number and an
+// empty payload (keep-alive, CANCELLING, SUBSCRIPTION).
+func (m *fakeMaster) echoPkt(to *net.UDPAddr, p packet) {
+	m.conn.WriteToUDP(marshal(p.typ, p.flags, p.seq, nil), to)
+}
+
+// superBytes builds a super header (RX tolerance tests only; the real server
+// never sends one).
+func superBytes(typ, src, dst uint32, srcCall string) []byte {
+	b := make([]byte, superLen)
+	binary.LittleEndian.PutUint32(b[0:], typ)
+	binary.LittleEndian.PutUint32(b[4:], src)
+	binary.LittleEndian.PutUint32(b[8:], dst)
+	copy(b[12:12+callLen], srcCall)
+	return b
 }
 
 func (m *fakeMaster) loop() {
@@ -83,7 +106,7 @@ func (m *fakeMaster) loop() {
 		switch p.typ {
 		case typKeepAlive:
 			if m.authed[key] {
-				m.reply(from, typKeepAlive, 0, nil)
+				m.echoPkt(from, p)
 			} else {
 				m.reply(from, typChallenge, 0, m.salt)
 			}
@@ -91,20 +114,19 @@ func (m *fakeMaster) loop() {
 			d := sha256.Sum256(append(append([]byte(nil), m.salt...), m.pass...))
 			if string(p.payload) == string(d[:]) {
 				m.authed[key] = true
-				m.reply(from, typKeepAlive, 0, nil)
 			} else {
 				m.reply(from, typChallenge, 0, m.salt)
 			}
-		case typConfig:
-			if m.authed[key] {
-				m.reply(from, typConfig, 0, nil)
-			}
 		case typSubscription, typCancelling:
-			m.reply(from, p.typ, 0, nil)
-		case typSuperHeader, typAudio, typTerminator:
-			if m.parrot && (len(m.rec) > 0 || p.typ == typSuperHeader) && (len(m.rec) == 0 || p.seq != m.rec[len(m.rec)-1].seq || p.typ != m.rec[len(m.rec)-1].typ) {
-				m.rec = append(m.rec, p)
-				if p.typ == typTerminator {
+			m.echoPkt(from, p)
+		case typVoiceHeader, typAudio, typTerminator:
+			if m.parrot {
+				switch {
+				case p.typ == typVoiceHeader && len(m.rec) == 0:
+					m.rec = append(m.rec, p) // the other two header copies are dropped
+				case p.typ == typAudio && len(m.rec) > 0:
+					m.rec = append(m.rec, p)
+				case p.typ == typTerminator && len(m.rec) > 0:
 					rec := m.rec
 					m.rec = nil
 					go m.echo(from, rec)
@@ -119,9 +141,11 @@ func (m *fakeMaster) loop() {
 	}
 }
 
+// echo plays a recorded call back like the BrandMeister parrot: a private call
+// from the parrot (src 9990) to the caller (dst = caller's DMR ID).
 func (m *fakeMaster) echo(to *net.UDPAddr, rec []packet) {
-	sh, _ := parseSuper(rec[0].payload)
-	m.sendCall(to, sh.src, sh.dst, sh.srcCall, sh.typ == sessionPrivate, audioOf(rec), true)
+	_, dst, src, _ := parseLC(rec[0].payload) // dst = 9990, src = caller
+	m.sendCall(to, dst, src, true, audioOf(rec), true)
 }
 
 func audioOf(rec []packet) [][]byte {
@@ -134,19 +158,19 @@ func audioOf(rec []packet) [][]byte {
 	return a
 }
 
-// sendCall plays a call to the client: super header, LC header, audio, terminator.
-func (m *fakeMaster) sendCall(to *net.UDPAddr, src, dst uint32, call string, private bool, audio [][]byte, term bool) {
-	typ := sessionGroup
-	if private {
-		typ = sessionPrivate
+// sendCall plays a call to the client like the real server: three voice
+// headers, audio packets, and a terminator carrying the same LC. No super
+// header.
+func (m *fakeMaster) sendCall(to *net.UDPAddr, src, dst uint32, private bool, audio [][]byte, term bool) {
+	lc := voiceHeaderLC(private, dst, src)
+	for i := 0; i < 3; i++ {
+		m.reply(to, typVoiceHeader, flagRealTime1, lc)
 	}
-	m.reply(to, typSuperHeader, flagRealTime1, superHeader{typ: typ, src: src, dst: dst, srcCall: call}.marshal())
-	m.reply(to, typVoiceHeader, flagRealTime1, voiceHeaderLC(private, dst, src))
 	for _, a := range audio {
 		m.reply(to, typAudio, flagRealTime1, a)
 	}
 	if term {
-		m.reply(to, typTerminator, flagRealTime1, nil)
+		m.reply(to, typTerminator, flagRealTime1, lc)
 	}
 }
 
@@ -270,9 +294,12 @@ func TestLoginSuccess(t *testing.T) {
 	if binary.LittleEndian.Uint32(ka) != testID || ka[4] != 0x21 || string(ka[5:]) != "test 1.0" {
 		t.Fatalf("keepalive payload % x", ka)
 	}
-	cfg := m.packets(typConfig)[0].payload
-	if binary.LittleEndian.Uint32(cfg) != optSuperHeader {
-		t.Fatalf("config % x", cfg)
+	// Login is the empty server keep-alive after AUTH; no CONFIG is ever sent.
+	if len(m.packets(typAuth)) == 0 {
+		t.Fatal("no auth")
+	}
+	if len(m.packets(typConfigOld)) != 0 {
+		t.Fatal("CONFIG sent")
 	}
 	if s.count(ctl.LoginPending) == 0 {
 		t.Fatal("never pending")
@@ -286,8 +313,8 @@ func TestBadPassword(t *testing.T) {
 	if n.Status().Login != ctl.LoginFailed {
 		t.Fatal(n.Status())
 	}
-	if len(m.packets(typConfig)) != 0 {
-		t.Fatal("config sent without auth")
+	if len(m.packets(typConfigOld)) != 0 {
+		t.Fatal("config sent")
 	}
 }
 
@@ -358,39 +385,72 @@ func TestTuneUnlink(t *testing.T) {
 	ctx := context.Background()
 	sub := func(i int) (uint32, uint32) {
 		p := m.packets(typSubscription)[i].payload
+		if len(p) != 8 {
+			t.Fatalf("subscription payload % x", p)
+		}
 		return binary.LittleEndian.Uint32(p), binary.LittleEndian.Uint32(p[4:])
 	}
-	n.Tune(ctx, ctl.Target{TG: 1999})
+	n.Tune(ctx, ctl.Target{TG: 3100})
 	waitFor(t, "sub", func() bool { return len(m.packets(typSubscription)) == 1 })
-	if a, b := sub(0); a != sessionGroup || b != 1999 {
+	if a, b := sub(0); a != sessionGroup || b != 3100 {
 		t.Fatal(a, b)
 	}
-	if d := n.Status().Detail; d != "TG 1999" {
-		t.Fatalf("detail %q", d)
-	}
-	n.Tune(ctx, ctl.Target{TG: 1998})
-	waitFor(t, "retune", func() bool { return len(m.packets(typSubscription)) == 2 })
+	// CANCELLING (empty) comes first, then SUBSCRIPTION.
 	c := m.packets(typCancelling)
-	if len(c) != 1 || binary.LittleEndian.Uint32(c[0].payload[4:]) != 1999 {
+	if len(c) != 1 || len(c[0].payload) != 0 || c[0].seq >= m.packets(typSubscription)[0].seq {
 		t.Fatalf("cancel %+v", c)
 	}
-	n.Tune(ctx, ctl.Target{TG: ParrotTG})
-	waitFor(t, "parrot sub", func() bool { return len(m.packets(typSubscription)) == 3 })
-	if a, b := sub(2); a != sessionPrivate || b != testID {
+	if d := n.Status().Detail; d != "TG 3100" {
+		t.Fatalf("detail %q", d)
+	}
+	n.Tune(ctx, ctl.Target{TG: 91})
+	waitFor(t, "retune", func() bool { return len(m.packets(typSubscription)) == 2 })
+	if a, b := sub(1); a != sessionGroup || b != 91 {
 		t.Fatal(a, b)
 	}
+	if c := m.packets(typCancelling); len(c) != 2 || len(c[1].payload) != 0 {
+		t.Fatalf("cancel %+v", c)
+	}
+	// the parrot is subscribed as group 7, too.
+	n.Tune(ctx, ctl.Target{TG: ParrotTG})
+	waitFor(t, "parrot sub", func() bool { return len(m.packets(typSubscription)) == 3 })
+	if a, b := sub(2); a != sessionGroup || b != ParrotTG {
+		t.Fatal(a, b)
+	}
+	// unlink tunes TG 4000.
 	if err := n.Unlink(ctx); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "cancel all", func() bool { return len(m.packets(typCancelling)) == 3 })
-	if last := m.packets(typCancelling)[2]; len(last.payload) != 0 {
-		t.Fatal("cancel-all must be empty")
+	waitFor(t, "unlink", func() bool { return len(m.packets(typSubscription)) == 4 })
+	if a, b := sub(3); a != sessionGroup || b != DisconnectTG || DisconnectTG != 4000 {
+		t.Fatal(a, b)
+	}
+	if c := m.packets(typCancelling); len(c) != 4 || len(c[3].payload) != 0 {
+		t.Fatalf("cancel %+v", c)
 	}
 	if n.Status().Detail != "" {
 		t.Fatal(n.Status())
 	}
 	if err := n.Tune(ctx, ctl.Target{}); err == nil {
 		t.Fatal("tg 0 accepted")
+	}
+	if len(m.packets(typConfigOld)) != 0 {
+		t.Fatal("CONFIG sent")
+	}
+}
+
+func TestPrivateTargetSubscribesAsGroup(t *testing.T) {
+	m, n, _ := login(t)
+	n.Tune(context.Background(), ctl.Target{TG: testOther, Private: true})
+	waitFor(t, "sub", func() bool { return len(m.packets(typSubscription)) == 1 })
+	p := m.packets(typSubscription)[0].payload
+	if binary.LittleEndian.Uint32(p) != sessionGroup || binary.LittleEndian.Uint32(p[4:]) != testOther {
+		t.Fatalf("% x", p)
+	}
+	n.StartTX(network.CallHeader{Call: 1})
+	waitFor(t, "header", func() bool { return len(m.packets(typVoiceHeader)) == 3 })
+	if pr, dst, src, _ := parseLC(m.packets(typVoiceHeader)[0].payload); !pr || dst != testOther || src != testID {
+		t.Fatal(pr, dst, src)
 	}
 }
 
@@ -427,12 +487,12 @@ func TestRXCall(t *testing.T) {
 	m, n, s := login(t)
 	n.Tune(context.Background(), ctl.Target{TG: 1999})
 	fs := frames(6, 1)
-	m.sendCall(m.lastAddr(), 7654321, 1999, "N0CALL", false, [][]byte{cat(fs[:3]), cat(fs[3:])}, true)
+	m.sendCall(m.lastAddr(), testOther, 1999, false, [][]byte{cat(fs[:3]), cat(fs[3:])}, true)
 	waitFor(t, "end", func() bool { return s.nEnds() == 1 })
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	h := s.hdrs[0]
-	if len(s.hdrs) != 1 || h.Src != "N0CALL" || h.SrcID != 7654321 || h.TG != 1999 || h.Private || h.Slot != 2 {
+	if len(s.hdrs) != 1 || h.Src != "" || h.SrcID != testOther || h.TG != 1999 || h.Private {
 		t.Fatalf("header %+v", h)
 	}
 	if len(s.frames) != 6 {
@@ -448,22 +508,59 @@ func TestRXCall(t *testing.T) {
 	}
 }
 
+// A call starts from the voice header alone (no super header); the terminator
+// ends it. IDs and the private flag come from the LC.
 func TestRXWithoutSuperHeader(t *testing.T) {
 	m, _, s := login(t)
 	to := m.lastAddr()
-	m.reply(to, typVoiceHeader, flagRealTime1, voiceHeaderLC(true, testID, 7654321))
-	m.reply(to, typAudio, flagRealTime1, cat(frames(3, 9)))
-	m.reply(to, typTerminator, flagRealTime1, nil)
+	m.sendCall(to, testOther, testID, true, [][]byte{cat(frames(3, 9))}, false)
+	waitFor(t, "frames", func() bool { return s.nFrames() == 3 })
+	if s.nEnds() != 0 || s.nHdr() != 1 {
+		t.Fatalf("hdrs %d ends %d before the terminator", s.nHdr(), s.nEnds())
+	}
+	m.reply(to, typTerminator, flagRealTime1, voiceHeaderLC(true, testID, testOther))
 	waitFor(t, "end", func() bool { return s.nEnds() == 1 })
 	h := s.hdrs[0]
-	if h.Src != "" || h.SrcID != 7654321 || h.TG != testID || !h.Private || s.nFrames() != 3 {
+	if h.Src != "" || h.SrcID != testOther || h.TG != testID || !h.Private || s.nFrames() != 3 {
+		t.Fatalf("%+v", h)
+	}
+}
+
+// Server sequence numbers keep increasing across calls; two calls in a row
+// are two calls. Talker alias (DMR_EMBEDDED) packets are ignored.
+func TestRXTwoCallsAndEmbedded(t *testing.T) {
+	m, _, s := login(t)
+	to := m.lastAddr()
+	for i := 0; i < 2; i++ {
+		lc := voiceHeaderLC(false, 91, testOther)
+		m.reply(to, typVoiceHeader, flagRealTime1, lc)
+		m.reply(to, typEmbedded, flagRealTime1, []byte{1, 2, 3, 4, 5, 6, 7, 8})
+		m.reply(to, typAudio, flagRealTime1, cat(frames(3, 1)))
+		m.reply(to, typTerminator, flagRealTime1, lc)
+		waitFor(t, "end", func() bool { return s.nEnds() == i+1 })
+	}
+	if s.nHdr() != 2 || s.nFrames() != 6 {
+		t.Fatalf("hdrs %d frames %d", s.nHdr(), s.nFrames())
+	}
+}
+
+// A super header, which the real server never sends, is still tolerated.
+func TestRXSuperHeaderTolerated(t *testing.T) {
+	m, _, s := login(t)
+	to := m.lastAddr()
+	m.reply(to, typSuperHeader, flagRealTime1, superBytes(7, testOther, 91, "N0CALL"))
+	m.reply(to, typVoiceHeader, flagRealTime1, voiceHeaderLC(false, 91, testOther))
+	m.reply(to, typAudio, flagRealTime1, cat(frames(3, 1)))
+	m.reply(to, typTerminator, flagRealTime1, nil)
+	waitFor(t, "end", func() bool { return s.nEnds() == 1 })
+	if h := s.hdrs[0]; s.nHdr() != 1 || h.Src != "N0CALL" || h.SrcID != testOther || h.TG != 91 || h.Private {
 		t.Fatalf("%+v", h)
 	}
 }
 
 func TestRXLostEnd(t *testing.T) {
 	m, _, s := login(t)
-	m.sendCall(m.lastAddr(), 7654321, 1999, "N0CALL", false, [][]byte{cat(frames(3, 1))}, false)
+	m.sendCall(m.lastAddr(), testOther, 1999, false, [][]byte{cat(frames(3, 1))}, false)
 	waitFor(t, "timeout end", func() bool { return s.nEnds() == 1 })
 	if s.nFrames() != 3 {
 		t.Fatal(s.nFrames())
@@ -492,7 +589,7 @@ func TestRXBothFramings(t *testing.T) {
 	if len(p72) != 27 {
 		t.Fatal(len(p72))
 	}
-	m.sendCall(m.lastAddr(), 7654321, 1999, "N0CALL", false, [][]byte{p72, cat(fs), make([]byte, 5)}, true)
+	m.sendCall(m.lastAddr(), testOther, 1999, false, [][]byte{p72, cat(fs), make([]byte, 5)}, true)
 	waitFor(t, "end", func() bool { return s.nEnds() == 1 })
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -524,25 +621,20 @@ func TestTXFraming(t *testing.T) {
 	if err := n.EndTX(5); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "terminators", func() bool { return len(m.packets(typTerminator)) == 3 })
-	sh := m.packets(typSuperHeader)
-	if len(sh) != 3 {
-		t.Fatalf("%d super headers", len(sh))
-	}
-	for _, p := range sh {
-		if p.flags != flagRealTime1 || p.seq != sh[0].seq {
-			t.Fatalf("header copies differ: %+v", p)
-		}
-	}
-	h, _ := parseSuper(sh[0].payload)
-	if h.typ != sessionGroup || h.src != testID || h.dst != 1999 || h.srcCall != "N0CALL" {
-		t.Fatalf("%+v", h)
+	waitFor(t, "terminator", func() bool { return len(m.packets(typTerminator)) == 1 })
+	if n := len(m.packets(typSuperHeader)); n != 0 {
+		t.Fatalf("%d super headers", n)
 	}
 	lc := m.packets(typVoiceHeader)
 	if len(lc) != 3 {
 		t.Fatalf("%d LC headers", len(lc))
 	}
-	if pr, dst, src, _ := parseLC(lc[0].payload); pr || dst != 1999 || src != testID {
+	for i, p := range lc {
+		if p.flags != flagRealTime1 || len(p.payload) != 12 || p.seq != lc[0].seq+uint32(i) {
+			t.Fatalf("header %d: %+v", i, p)
+		}
+	}
+	if pr, dst, src, _ := parseLC(lc[0].payload); pr || lc[0].payload[0] != 0x00 || dst != 1999 || src != testID {
 		t.Fatal(pr, dst, src)
 	}
 	au := m.packets(typAudio)
@@ -562,16 +654,16 @@ func TestTXFraming(t *testing.T) {
 		t.Fatal("audio mismatch")
 	}
 	for i, p := range au {
-		if p.flags != flagRealTime1 || len(p.payload) != 27 || p.seq != lc[0].seq+1+uint32(i) {
+		if p.flags != flagRealTime1 || len(p.payload) != 27 || p.seq != lc[2].seq+1+uint32(i) {
 			t.Fatalf("audio %d: %+v", i, p)
 		}
 	}
 	tm := m.packets(typTerminator)
-	if tm[0].seq != au[2].seq+1 || tm[1].seq != tm[0].seq || tm[0].flags != flagRealTime1 || len(tm[0].payload) != 0 {
+	if len(tm) != 1 || tm[0].seq != au[2].seq+1 || tm[0].flags != flagRealTime1 || len(tm[0].payload) != 0 {
 		t.Fatalf("terminator %+v", tm)
 	}
 	// non-real-time packets use their own counter.
-	if ka := m.packets(typConfig)[0]; ka.flags != 0 {
+	if ka := m.packets(typKeepAlive)[0]; ka.flags != 0 {
 		t.Fatal(ka)
 	}
 }
@@ -599,6 +691,7 @@ func TestParrotRoundTrip(t *testing.T) {
 	m.mu.Unlock()
 	n.Tune(context.Background(), ctl.Target{TG: ParrotTG})
 	n.StartTX(network.CallHeader{Call: 9, Src: "N0CALL", SrcID: testID})
+	waitFor(t, "parrot sub", func() bool { return len(m.packets(typSubscription)) == 1 })
 	fs := frames(6, 70)
 	for i, f := range fs {
 		n.WriteVoice(network.VoiceFrame{Call: 9, Seq: uint32(i), Data: f})
@@ -608,7 +701,8 @@ func TestParrotRoundTrip(t *testing.T) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	h := s.hdrs[0]
-	if h.TG != ParrotTG || !h.Private || h.Src != "N0CALL" {
+	// the reply is a private call from 9990 to our own DMR ID.
+	if h.SrcID != ParrotTG || h.TG != testID || !h.Private {
 		t.Fatalf("%+v", h)
 	}
 	if len(s.frames) != 6 {
@@ -619,10 +713,20 @@ func TestParrotRoundTrip(t *testing.T) {
 			t.Fatalf("frame %d", i)
 		}
 	}
-	// the TX was a private call to 9990.
-	sh, _ := parseSuper(m.packets(typSuperHeader)[0].payload)
-	if sh.typ != sessionPrivate || sh.dst != ParrotTG {
-		t.Fatalf("%+v", sh)
+	// subscribed as {7, 9990}; the TX was a private call (FLCO 0x03) to 9990.
+	sp := m.packets(typSubscription)[0].payload
+	if binary.LittleEndian.Uint32(sp) != sessionGroup || binary.LittleEndian.Uint32(sp[4:]) != ParrotTG {
+		t.Fatalf("subscription % x", sp)
+	}
+	lc := m.packets(typVoiceHeader)
+	if len(lc) != 3 || lc[0].payload[0] != 0x03 {
+		t.Fatalf("headers %+v", lc)
+	}
+	if pr, dst, src, _ := parseLC(lc[0].payload); !pr || dst != ParrotTG || src != testID {
+		t.Fatal(pr, dst, src)
+	}
+	if len(m.packets(typSuperHeader)) != 0 || len(m.packets(typTerminator)) != 1 {
+		t.Fatal("super header or terminator count")
 	}
 }
 
@@ -638,27 +742,25 @@ func TestFactoryAndOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n.addr != "node2001.example.net:54006" || n.slot != 2 || n.version == "" {
+	if n.addr != "node2001.example.net:54006" || n.version == "" {
 		t.Fatalf("%+v", n)
 	}
 	if n.Mode() != ctl.ModeBM || n.Codec() != network.CodecAMBE {
 		t.Fatal("mode/codec")
 	}
 	n, _ = New(ctl.NetConfig{Address: "192.0.2.1", Port: 1234, Options: map[string]string{
-		"slot": "1", "colour_code": "3", "super_header": "false"}}, id)
-	if n.addr != "192.0.2.1:1234" || n.slot != 1 || n.options != 0 {
+		"client_version": "test 2.0"}}, id)
+	if n.addr != "192.0.2.1:1234" || n.version != "test 2.0" {
 		t.Fatalf("%+v", n)
 	}
 	if _, err := New(ctl.NetConfig{Address: "192.0.2.1"}, ctl.Identity{Callsign: "N0CALL"}); err == nil {
 		t.Fatal("DMR ID 0 accepted")
 	}
-	for _, bad := range []map[string]string{{"slot": "3"}, {"colour_code": "16"},
-		{"keepalive_ms": "0"}} {
+	for _, bad := range []map[string]string{{"keepalive_ms": "0"}, {"rx_timeout_ms": "x"}} {
 		if _, err := New(ctl.NetConfig{Address: "192.0.2.1", Options: bad}, id); err == nil {
 			t.Fatalf("accepted %v", bad)
 		}
 	}
-	_ = strconv.Itoa
 }
 
 func TestWire(t *testing.T) {
@@ -673,13 +775,13 @@ func TestWire(t *testing.T) {
 	if _, err := unmarshal(append([]byte("REWIND02"), b[8:]...)); err == nil {
 		t.Fatal("foreign sign accepted")
 	}
-	sh := superHeader{typ: 7, src: 1, dst: 2, srcCall: "N0CALL"}
-	g, ok := parseSuper(sh.marshal())
-	if !ok || g != sh || len(sh.marshal()) != 32 {
+	sb := superBytes(7, 1, 2, "N0CALL")
+	g, ok := parseSuper(sb)
+	if !ok || g != (superHeader{typ: 7, src: 1, dst: 2, srcCall: "N0CALL"}) || len(sb) != 32 {
 		t.Fatal(g)
 	}
-	pr, dst, src, _ := parseLC(voiceHeaderLC(true, 9990, 1234567))
-	if !pr || dst != 9990 || src != 1234567 {
+	pr, dst, src, _ := parseLC(voiceHeaderLC(true, 9990, testID))
+	if !pr || dst != 9990 || src != testID {
 		t.Fatal(pr, dst, src)
 	}
 }

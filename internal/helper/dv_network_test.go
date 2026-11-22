@@ -42,12 +42,12 @@ func TestDVNetworkRendersIdentityAndBM(t *testing.T) {
 		t.Fatal(err)
 	}
 	rep, err := dvNetDo(o, DVNetworkRequest{Mode: "BM", Address: sp("192.0.2.10"), Port: ip(62031), Password: sp("example-pass"),
-		Options: map[string]string{"slot": "1", "colour_code": ""}, Enabled: bp(true)})
+		Options: map[string]string{"keepalive_ms": "1000", "client_version": ""}, Enabled: bp(true)})
 	if err != nil || !rep.Rendered {
 		t.Fatalf("%+v %v", rep, err)
 	}
 	for _, v := range rep.Networks {
-		if v.Mode == "BM" && (!v.PasswordSet || !v.Enabled || v.Options["slot"] != "1" || len(v.Options) != 1) {
+		if v.Mode == "BM" && (!v.PasswordSet || !v.Enabled || v.Options["keepalive_ms"] != "1000" || len(v.Options) != 1) {
 			t.Fatalf("%+v", v)
 		}
 	}
@@ -64,7 +64,7 @@ func TestDVNetworkRendersIdentityAndBM(t *testing.T) {
 			bm = &cfg.Networks[i]
 		}
 	}
-	if bm == nil || !bm.Enabled || bm.Address != "192.0.2.10" || bm.Port != 62031 || bm.Password != "example-pass" || bm.Options["slot"] != "1" {
+	if bm == nil || !bm.Enabled || bm.Address != "192.0.2.10" || bm.Port != 62031 || bm.Password != "example-pass" || bm.Options["keepalive_ms"] != "1000" {
 		t.Fatalf("bm %+v", bm)
 	}
 	// a later read never returns it either

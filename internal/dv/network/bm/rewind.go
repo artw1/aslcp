@@ -22,7 +22,7 @@ const (
 	sign      = "REWIND01"
 	hdrLen    = 18
 	callLen   = 10
-	superLen  = 12 + 2*callLen // type, srcID, dstID, srcCall, dstCall
+	superLen  = 12 + 2*callLen // RX only: type, srcID, dstID, srcCall, dstCall
 	lcLen     = 12             // DMR voice header Full LC incl. CRC
 	frameLen  = 7              // linear AMBE frame (49 bits, MSB first)
 	frameLen3 = 3 * frameLen   // linear audio packet (RX only, see typAudio handling)
@@ -38,7 +38,6 @@ const (
 	typAuth           uint16 = 0x0003
 	typReport         uint16 = 0x0100
 	typBusyNotice     uint16 = 0x0200
-	typConfig         uint16 = 0x0900
 	typSubscription   uint16 = 0x0901
 	typCancelling     uint16 = 0x0902
 	typSessionPoll    uint16 = 0x0903
@@ -50,9 +49,8 @@ const (
 	typSuperHeader    uint16 = 0x0928
 	typFailureCode    uint16 = 0x0929
 	flagRealTime1     uint16 = 1
-	optSuperHeader    uint32 = 1 << 0
 	serviceOpenTerm   byte   = 0x21 // OPEN_TERMINAL (0x20 is the Simple External Application)
-	sessionPrivate    uint32 = 5
+	superPrivate      uint32 = 5    // super header type of a private call (RX only)
 	sessionGroup      uint32 = 7
 	maxPacket                = 512
 	defaultPort              = 54006
@@ -121,16 +119,6 @@ type superHeader struct {
 	src, dst uint32
 	srcCall  string
 	dstCall  string
-}
-
-func (h superHeader) marshal() []byte {
-	b := make([]byte, superLen)
-	binary.LittleEndian.PutUint32(b[0:], h.typ)
-	binary.LittleEndian.PutUint32(b[4:], h.src)
-	binary.LittleEndian.PutUint32(b[8:], h.dst)
-	copy(b[12:12+callLen], h.srcCall)
-	copy(b[12+callLen:], h.dstCall)
-	return b
 }
 
 func parseSuper(b []byte) (superHeader, bool) {

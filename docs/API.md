@@ -489,8 +489,8 @@ NetView = {
   "mode": "BM", "label": "BrandMeister", "available": true, "enabled": true,
   "address": "192.0.2.10", "port": 54006, "defaultPort": 54006, "defaultAddress": "", "addressOptional": false, "passwordSet": true,
   "fields": {"address": true, "port": true, "password": true}, "needsIdentity": true, "help": "...",
-  "options": [{"key": "slot", "label": "Timeslot", "kind": "int", "default": "2", "min": 1, "max": 2, "advanced": false, "help": "..."}],
-  "values": {"slot": "1"},
+  "options": [{"key": "client_version", "label": "Software description", "kind": "text", "default": "aslcp-dv", "advanced": true, "help": "..."}],
+  "values": {"client_version": "aslcp-dv"},
   "login": "ok", "detail": ""               // engine login state of an enabled, available mode: off, pending, ok, failed
 }
 ```

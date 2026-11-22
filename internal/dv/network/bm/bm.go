@@ -2,32 +2,30 @@
 // Rewind protocol ("REWIND01") as an Open DMR Terminal (service 0x21, UDP,
 // default port 54006), not the Homebrew/MMDVM protocol. The wire format is
 // documented in rewind.go; the implementation is original (go-brandmeister
-// and DigestPlay, both MIT, were used as protocol references only).
+// and DigestPlay, both MIT, were used as protocol references only). The
+// session behaviour below matches a capture of a working reference client.
 //
-// Rewind carries no DMR bursts: a call is a super header (source and
-// destination ID plus callsigns), voice header LCs, audio packets of three
-// AMBE frames, and a terminator. TX audio packets are 27 bytes: three
-// FEC coded 72-bit AMBE+2 frames (internal/dv/dmr EncodeAMBE from the 49-bit
-// md380 frames) per 60 ms. RX accepts the same 27 byte packets (decoded to
-// 49 bits with dmr.DecodeAMBE) and also 21 byte linear packets (three 49-bit
-// frames); which framing the server really sends is not confirmed, so both
-// are handled. The linear-frame option is not requested.
+// Rewind carries no DMR bursts: a call is three voice headers (a 12 byte Full
+// LC: FLCO, destination, source), audio packets of three AMBE frames every
+// 60 ms, and a terminator. There is no super header and no talker alias
+// handling (DMR_EMBEDDED packets are ignored); a received super header is
+// still tolerated. TX audio packets are 27 bytes: three FEC coded 72-bit
+// AMBE+2 frames (internal/dv/dmr EncodeAMBE from the 49-bit md380 frames) per
+// 60 ms. RX accepts the same 27 byte packets (decoded to 49 bits with
+// dmr.DecodeAMBE) and also 21 byte linear packets (three 49-bit frames).
 //
 // Login: keep-alive (carries the operator's DMR ID, the service and a
-// software description) -> server challenge (salt) -> authentication =
-// SHA-256(salt || password) -> keep-alive -> configuration (options) ->
-// configuration reply = logged in. No registered application ID is needed:
-// the keep-alive number is Identity.DMRID. Failed or lost sessions are
-// retried with exponential backoff 1 s .. 60 s.
+// software description) -> server challenge (4 byte salt) -> authentication =
+// SHA-256(salt || password) and at once another keep-alive -> the server
+// answers with an empty keep-alive = logged in. No configuration packet is
+// sent. No registered application ID is needed: the keep-alive number is
+// Identity.DMRID. The keep-alive is repeated every 5 s and the server echoes
+// each with an empty one. Failed or lost sessions are retried with
+// exponential backoff 1 s .. 60 s.
 //
 // Network options (ctl.NetConfig.Options), all optional:
 //
 //	client_version   software description text (default "aslcp-dv").
-//	slot             1 or 2 (default 2). Rewind has no timeslots; reported in
-//	                 call headers only.
-//	colour_code      0..15 (default 1). Not carried by Rewind; accepted for
-//	                 config compatibility.
-//	super_header     "false" disables the server's super header (callsigns).
 //	keepalive_ms     keep-alive period (default 5000).
 //	timeout_ms       session considered lost after this silence (default 15000).
 //	login_timeout_ms one login attempt (default 5000).
@@ -41,13 +39,15 @@
 // is required. The password (the one set in BrandMeister SelfCare, hotspot
 // security) is never logged and never reported in Status.
 //
-// Tune: a group target subscribes to the talkgroup (session type 7). TG 9990
-// (the parrot) and Private targets are private calls: the node subscribes to
-// private voice for its own DMR ID (type 5) so replies reach it, and TX goes
-// to the target ID as a private call. The private subscription type and
-// target are inferred, not confirmed against the server. Unlink cancels the
-// subscription (Rewind has no TG 4000 "disconnect" concept; cancelling is
-// the unlink).
+// Tune: an empty CANCELLING (0x0902) followed by SUBSCRIPTION (0x0901) with
+// {7, target}; the type is always 7 (group), also for the parrot and private
+// targets. The server echoes both with empty payloads, which are ignored.
+// Parrot (TG 9990) is a private call: the subscription is {7, 9990}, TX uses
+// a voice header LC with FLCO 0x03 (private), destination 9990, source the
+// own DMR ID, and the playback arrives as a private call from 9990 to the own
+// DMR ID. Other private targets are handled the same way; that is not
+// confirmed by the capture. Unlink tunes TG 4000, BrandMeister's disconnect
+// talkgroup.
 package bm
 
 import (
@@ -57,7 +57,6 @@ import (
 	"fmt"
 	"net"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -68,6 +67,9 @@ import (
 
 // ParrotTG is BrandMeister's echo test target (a private call).
 const ParrotTG = 9990
+
+// DisconnectTG is BrandMeister's disconnect talkgroup: tuning it unlinks.
+const DisconnectTG = 4000
 
 // Defaults.
 const (
@@ -98,8 +100,6 @@ type Net struct {
 	password string
 	id       ctl.Identity
 	version  string
-	slot     int
-	options  uint32
 
 	keepAlive, timeout, loginTO, bMin, bMax, rxTO time.Duration
 
@@ -121,9 +121,8 @@ type Net struct {
 }
 
 type subscription struct {
-	typ, target uint32
-	tg          uint32
-	private     bool
+	tg      uint32
+	private bool // TX header selection: voice header FLCO 0x03
 }
 
 // New builds the network.
@@ -144,29 +143,14 @@ func New(cfg ctl.NetConfig, id ctl.Identity) (*Net, error) {
 	o := cfg.Options
 	n := &Net{
 		enabled: cfg.Enabled, password: cfg.Password, id: id,
-		addr:    net.JoinHostPort(cfg.Address, strconv.Itoa(port)),
-		version: "aslcp-dv", slot: 2, options: optSuperHeader,
+		addr:      net.JoinHostPort(cfg.Address, strconv.Itoa(port)),
+		version:   "aslcp-dv",
 		keepAlive: DefaultKeepAlive, timeout: DefaultTimeout, loginTO: DefaultLoginTimeout,
 		bMin: DefaultBackoffMin, bMax: DefaultBackoffMax, rxTO: DefaultRXTimeout,
 		login: ctl.LoginOff, nextCall: 1 << 33,
 	}
 	if v := o["client_version"]; v != "" {
 		n.version = v
-	}
-	if v, ok := o["slot"]; ok {
-		s, err := strconv.Atoi(v)
-		if err != nil || (s != 1 && s != 2) {
-			return nil, errors.New("bm: slot must be 1 or 2")
-		}
-		n.slot = s
-	}
-	if v, ok := o["colour_code"]; ok {
-		if c, err := strconv.Atoi(v); err != nil || c < 0 || c > 15 {
-			return nil, errors.New("bm: colour_code must be 0..15")
-		}
-	}
-	if v := o["super_header"]; strings.EqualFold(v, "false") || v == "0" {
-		n.options &^= optSuperHeader
 	}
 	for key, dst := range map[string]*time.Duration{
 		"keepalive_ms": &n.keepAlive, "timeout_ms": &n.timeout, "login_timeout_ms": &n.loginTO,
@@ -306,7 +290,6 @@ type rxState struct {
 	private bool
 	seq     uint32
 	last    time.Time
-	pending *network.CallHeader // voice header seen, waiting for super header / audio
 }
 
 func (n *Net) session(ctx context.Context, s network.Sink) (loggedIn bool, err error) {
@@ -388,6 +371,7 @@ func (n *Net) session(ctx context.Context, s network.Sink) (loggedIn bool, err e
 				}
 				d := sha256.Sum256(append(append([]byte(nil), p.payload...), n.password...))
 				n.send(typAuth, 0, d[:])
+				n.sendKeepAlive()
 				authSent++
 			case typClose:
 				if !loggedIn {
@@ -395,22 +379,21 @@ func (n *Net) session(ctx context.Context, s network.Sink) (loggedIn bool, err e
 				}
 				return true, errors.New("closed by server")
 			case typKeepAlive:
+				// The first server keep-alive after the authentication (an
+				// empty one) is the login success.
 				if !loggedIn && authSent > 0 {
-					n.send(typConfig, 0, u32s(n.options))
-				}
-			case typConfig:
-				if !loggedIn {
 					loggedIn = true
 					n.mu.Lock()
 					n.logged = true
-					sub := n.sub
+					if n.sub != nil {
+						n.tuneLocked(n.sub.tg)
+					}
 					n.mu.Unlock()
 					n.setLogin(ctl.LoginOK, nil)
-					if sub != nil {
-						n.send(typSubscription, 0, u32s(sub.typ, sub.target))
-					}
 				}
 			case typSuperHeader, typVoiceHeader, typTerminator, typAudio:
+				// typEmbedded (talker alias) and the echoes of CANCELLING and
+				// SUBSCRIPTION have no case: ignored.
 				if loggedIn {
 					n.rxPacket(s, &rx, p, now)
 				}
@@ -465,7 +448,6 @@ func (n *Net) startRX(s network.Sink, rx *rxState, h network.CallHeader, now tim
 		s.End(rx.call)
 	}
 	h.Call = n.newCall()
-	h.Slot = n.slot
 	*rx = rxState{active: true, call: h.Call, src: h.SrcID, dst: h.TG, private: h.Private, last: now}
 	s.Header(h)
 }
@@ -473,22 +455,20 @@ func (n *Net) startRX(s network.Sink, rx *rxState, h network.CallHeader, now tim
 func (n *Net) rxPacket(s network.Sink, rx *rxState, p packet, now time.Time) {
 	switch p.typ {
 	case typSuperHeader:
+		// Not sent by the server; tolerated. It starts a call (with the
+		// callsign) unless the voice header already did.
 		sh, ok := parseSuper(p.payload)
 		if !ok {
 			return
 		}
-		h := network.CallHeader{Src: sh.srcCall, SrcID: sh.src, TG: sh.dst, Private: sh.typ == sessionPrivate}
-		switch {
-		case rx.pending != nil:
-			// LC gives IDs, super header adds callsigns.
-			rx.pending = nil
-			n.startRX(s, rx, h, now)
-		case rx.active && rx.src == sh.src && rx.dst == sh.dst:
-			rx.last = now // repeat
-		default:
-			n.startRX(s, rx, h, now)
+		if rx.active && rx.src == sh.src && rx.dst == sh.dst {
+			rx.last = now
+			return
 		}
+		n.startRX(s, rx, network.CallHeader{Src: sh.srcCall, SrcID: sh.src, TG: sh.dst, Private: sh.typ == superPrivate}, now)
 	case typVoiceHeader:
+		// A call starts from its voice header (sent three times); the IDs and
+		// the private flag come from the LC.
 		priv, dst, src, ok := parseLC(p.payload)
 		if !ok {
 			return
@@ -497,16 +477,9 @@ func (n *Net) rxPacket(s network.Sink, rx *rxState, p packet, now time.Time) {
 			rx.last = now
 			return
 		}
-		if rx.pending != nil {
-			return
-		}
-		rx.pending = &network.CallHeader{SrcID: src, TG: dst, Private: priv}
-		rx.last = now
+		n.startRX(s, rx, network.CallHeader{SrcID: src, TG: dst, Private: priv}, now)
 	case typTerminator:
-		if rx.pending != nil {
-			n.startRX(s, rx, *rx.pending, now)
-			rx.pending = nil
-		}
+		// It carries the same LC as the header; the call ends.
 		if rx.active {
 			s.End(rx.call)
 			*rx = rxState{}
@@ -528,10 +501,6 @@ func (n *Net) rxPacket(s network.Sink, rx *rxState, p packet, now time.Time) {
 		default:
 			return
 		}
-		if rx.pending != nil {
-			n.startRX(s, rx, *rx.pending, now)
-			rx.pending = nil
-		}
 		if !rx.active {
 			return
 		}
@@ -544,44 +513,50 @@ func (n *Net) rxPacket(s network.Sink, rx *rxState, p packet, now time.Time) {
 	}
 }
 
-// Tune subscribes to a talkgroup or sets up a private target.
+// tuneLocked sends the tune sequence: an empty CANCELLING, then
+// SUBSCRIPTION {7, tg}. The type is always 7, also for the parrot and private
+// targets. The server echoes both with empty payloads.
+func (n *Net) tuneLocked(tg uint32) error {
+	if err := n.sendLocked(typCancelling, 0, nil, 1); err != nil {
+		return err
+	}
+	return n.sendLocked(typSubscription, 0, u32s(sessionGroup, tg), 1)
+}
+
+// Tune subscribes to a talkgroup or a private target (the parrot, 9990).
 func (n *Net) Tune(ctx context.Context, t ctl.Target) error {
 	if t.TG == 0 {
 		return errors.New("bm: tune needs a talkgroup")
 	}
-	sub := &subscription{typ: sessionGroup, target: t.TG, tg: t.TG}
-	if t.Private || t.TG == ParrotTG {
-		// Inferred, not confirmed: private voice (type 5) keyed by our own
-		// DMR ID, so replies to a private call (e.g. the parrot) reach us.
-		sub.private, sub.typ, sub.target = true, sessionPrivate, n.id.DMRID
-	}
+	// Private calls to targets other than the parrot are not confirmed by
+	// the capture; they are handled like the parrot (subscribe {7, target},
+	// TX voice header FLCO 0x03).
+	sub := &subscription{tg: t.TG, private: t.Private || t.TG == ParrotTG}
 	n.mu.Lock()
-	old := n.sub
+	defer n.mu.Unlock()
 	n.sub = sub
 	n.detail = n.detailLocked(nil)
 	if n.logged {
-		if old != nil {
-			n.sendLocked(typCancelling, 0, u32s(old.typ, old.target), 1)
-		}
-		n.sendLocked(typSubscription, 0, u32s(sub.typ, sub.target), 1)
+		return n.tuneLocked(sub.tg)
 	}
-	n.mu.Unlock()
 	return nil
 }
 
-// Unlink cancels the subscription.
+// Unlink tunes TG 4000, BrandMeister's disconnect talkgroup. The state shows
+// no target.
 func (n *Net) Unlink(ctx context.Context) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.sub = nil
 	n.detail = n.detailLocked(nil)
 	if n.logged {
-		return n.sendLocked(typCancelling, 0, nil, 1)
+		return n.tuneLocked(DisconnectTG)
 	}
 	return nil
 }
 
-// StartTX sends the super header (three times, same sequence number).
+// StartTX sends the voice header (three times, same sequence number). There
+// is no super header.
 func (n *Net) StartTX(h network.CallHeader) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -599,19 +574,16 @@ func (n *Net) StartTX(h network.CallHeader) error {
 	if src == 0 {
 		src = n.id.DMRID
 	}
-	call := h.Src
-	if call == "" {
-		call = n.id.Callsign
-	}
-	sh := superHeader{typ: sessionGroup, src: src, dst: dst, srcCall: call}
-	if private || dst == ParrotTG {
-		sh.typ = sessionPrivate
-	}
+	private = private || dst == ParrotTG
 	n.txCall, n.txActive, n.txBuf, n.txDst = h.Call, true, n.txBuf[:0], dst
-	if err := n.sendLocked(typSuperHeader, flagRealTime1, sh.marshal(), 3); err != nil {
-		return err
+	// Three voice headers, each with its own sequence number (as captured).
+	lc := voiceHeaderLC(private, dst, src)
+	for i := 0; i < 3; i++ {
+		if err := n.sendLocked(typVoiceHeader, flagRealTime1, lc, 1); err != nil {
+			return err
+		}
 	}
-	return n.sendLocked(typVoiceHeader, flagRealTime1, voiceHeaderLC(sh.typ == sessionPrivate, dst, src), 3)
+	return nil
 }
 
 // WriteVoice FEC-encodes a 49-bit frame to 72 bits, collects them and sends
@@ -637,8 +609,8 @@ func (n *Net) WriteVoice(f network.VoiceFrame) error {
 	return err
 }
 
-// EndTX flushes a partial packet (padded with AMBE silence) and sends the
-// terminator three times.
+// EndTX flushes a partial packet (padded with AMBE silence) and sends one
+// terminator with an empty payload.
 func (n *Net) EndTX(call uint64) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -653,5 +625,5 @@ func (n *Net) EndTX(call uint64) error {
 		n.sendLocked(typAudio, flagRealTime1, n.txBuf, 1)
 		n.txBuf = n.txBuf[:0]
 	}
-	return n.sendLocked(typTerminator, flagRealTime1, nil, 3)
+	return n.sendLocked(typTerminator, flagRealTime1, nil, 1)
 }

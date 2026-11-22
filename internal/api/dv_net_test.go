@@ -83,10 +83,10 @@ func TestDVNetworksGetPut(t *testing.T) {
 	}
 	var v netView
 	if c := e.do("admin", "PUT", "/api/dv/networks/BM", map[string]any{"address": "192.0.2.10", "port": 62031,
-		"password": "example-pass", "options": map[string]string{"slot": "1"}, "enabled": true}, &v); c != 200 {
+		"password": "example-pass", "options": map[string]string{"keepalive_ms": "1000"}, "enabled": true}, &v); c != 200 {
 		t.Fatalf("%d", c)
 	}
-	if !v.PasswordSet || v.Address != "192.0.2.10" || v.Port != 62031 || !v.Enabled || v.Values["slot"] != "1" {
+	if !v.PasswordSet || v.Address != "192.0.2.10" || v.Port != 62031 || !v.Enabled || v.Values["keepalive_ms"] != "1000" {
 		t.Fatalf("%+v", v)
 	}
 	// the password never comes back, in any reply
