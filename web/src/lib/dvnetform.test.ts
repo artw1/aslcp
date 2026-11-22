@@ -24,7 +24,7 @@ test('availability: the engine wins, the static native list is the fallback', ()
   const modes = [{ id: 'LOOP' as const, enabled: true, available: true, unlink: '' }, { id: 'BM' as const, enabled: false, available: false, unlink: '4000' }];
   assert.equal(modeAvailable(modes, 'BM'), false);
   assert.equal(modeAvailable(modes, 'LOOP'), true);
-  assert.equal(modeAvailable(modes, 'YSF'), false);
+  assert.equal(modeAvailable(modes, 'P25'), false);
   assert.equal(modeAvailable([{ id: 'LOOP', enabled: true, available: true, unlink: '' }], 'BM'), true);
   assert.equal(modeAvailable(undefined, 'BM'), true);
   assert.equal(modeAvailable(undefined, 'P25'), false);
@@ -109,5 +109,21 @@ test('TGIF, DMR and NXDN forms', () => {
   assert.equal(enableBlock(nxdn, formOf(nxdn), id), '');
   assert.equal(enableBlock(nxdn, formOf(nxdn), null), 'Set the callsign and DMR ID in the identity first');
   assert.equal(modeAvailable(undefined, 'TGIF') && modeAvailable(undefined, 'DMR') && modeAvailable(undefined, 'NXDN'), true);
-  assert.equal(modeAvailable(undefined, 'YSF') || modeAvailable(undefined, 'P25'), false);
+  assert.equal(modeAvailable(undefined, 'YSF'), true);
+  assert.equal(modeAvailable(undefined, 'P25'), false);
+});
+
+test('YSF form: the reflector address is optional', () => {
+  const ysf: DVNetView = {
+    mode: 'YSF', label: 'System Fusion (YSF)', available: true, enabled: false, address: '', port: 0, defaultPort: 42000, addressOptional: true, passwordSet: false,
+    fields: { address: true, port: true, password: false }, needsIdentity: true,
+    options: [{ key: 'poll_ms', label: 'Poll period (ms)', kind: 'int', default: '5000', min: 1000, max: 60000, advanced: true }],
+    values: {},
+  };
+  const f = formOf(ysf);
+  assert.equal(enableBlock(ysf, f, id), '');
+  assert.equal(enableBlock(ysf, f, null), 'Set the callsign and DMR ID in the identity first');
+  assert.match(formError(ysf, { ...f, options: { poll_ms: '10' } }), /1000 to 60000/);
+  assert.deepEqual(buildPut(ysf, { ...f, enabled: true, address: '192.0.2.20', port: '42000', options: { poll_ms: '4000' } }),
+    { enabled: true, address: '192.0.2.20', port: 42000, options: { poll_ms: '4000' } });
 });

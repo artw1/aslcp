@@ -2,7 +2,7 @@
 
 Digital modes (DMR, YSF, P25, NXDN) run on the ASLCP engine, `aslcp-dv`, a small service that ships in the ASLCP package. ASLCP 2.0 replaces the previous third-party digital voice stack with it: that stack is no longer installed, configured or restarted by ASLCP.
 
-Status in 2.0 milestone 3: the engine, the control socket, the vocoder link, the **Parrot** test mode (`LOOP`), **BrandMeister** (`BM`, a native Rewind client), **TGIF** and **DMR - Other** (native Homebrew clients) and **NXDN** (a native reflector client) are in. YSF and P25 show "Not yet available in this build"; their settings and favourites are kept and they are not lost on upgrade.
+Status in 2.0 milestone 4: the engine, the control socket, the vocoder link, the **Parrot** test mode (`LOOP`), **BrandMeister** (`BM`, a native Rewind client), **TGIF** and **DMR - Other** (native Homebrew clients) **NXDN** and **YSF** (native reflector clients) are in. YSF carries voice in DN (V/D mode 2); VW (Voice FR) is not carried yet. P25 shows "Not yet available in this build"; their settings and favourites are kept and they are not lost on upgrade.
 
 ## Parts
 
@@ -32,16 +32,16 @@ Supported: Debian bookworm and trixie on amd64, arm64 and armhf (ARMv7). **ARMv6
 
 ## Modes
 
-| Mode | Id | In 2.0 M3 | Tune value | Unlink |
+| Mode | Id | In 2.0 M4 | Tune value | Unlink |
 |---|---|---|---|---|
 | Parrot | `LOOP` | available | parrot id (default 9990, private call) | `disconnect` |
 | BrandMeister | `BM` | available | talkgroup (a trailing `#` makes a private call) | `4000` |
 | TGIF, DMR - Other | `TGIF`, `DMR` | available | talkgroup | `4000` |
-| YSF | `YSF` | not available | reflector id or `host:port` | `disconnect` |
+| YSF | `YSF` | available (DN) | reflector id or `host:port` | `disconnect` |
 | P25 | `P25` | not available | talkgroup | `9999` |
 | NXDN | `NXDN` | available | talkgroup | `9999` |
 
-Availability comes from the engine (which modes the running build implements); while the engine is down the page falls back to a fixed list (Parrot, BrandMeister, TGIF, DMR - Other and NXDN). A mode that is not available answers `409 not_available` to mode and tune; an available one that is not set up answers `409 mode_disabled`. Parrot echoes what you transmit back through the bridge node, which tests the whole path (node, USRP, engine, vocoder) without a network account.
+Availability comes from the engine (which modes the running build implements); while the engine is down the page falls back to a fixed list (Parrot, BrandMeister, TGIF, DMR - Other, YSF and NXDN). A mode that is not available answers `409 not_available` to mode and tune; an available one that is not set up answers `409 mode_disabled`. Parrot echoes what you transmit back through the bridge node, which tests the whole path (node, USRP, engine, vocoder) without a network account.
 
 ## BrandMeister
 
@@ -114,3 +114,13 @@ DMR - Other connects to any Homebrew (MMDVM) master, for example a FreeDMR, DMR+
 ## NXDN
 
 NXDN is a native reflector client. It has no password and no login: the engine registers with the reflector by sending polls, using the callsign of the identity. Set your NXDN unit ID (1-65535) in Options to transmit. Under "advanced" are the RAN, the local listen address and the poll and back-off timers. *Enable* needs the identity. On the dashboard, tune a reflector talkgroup; unlink is `9999`.
+
+## YSF (System Fusion)
+
+YSF is a native reflector client for System Fusion reflectors (YSFReflector style). It has no password and no login: the engine polls the reflector to keep the link up and uses the callsign of the identity as the node callsign, so *Enable* needs the identity.
+
+- *Reflector address* and *port*: optional. Normally leave them empty and tune a reflector on the dashboard, picked from the YSF list (the port defaults to 42000). A reflector set here is linked when the engine starts.
+- Under "advanced": the poll period, the link timeout and the call end timeout.
+- Voice is carried in **DN (V/D mode 2)**, in both directions. Voice FR (VW) is not carried yet: a call sent in VW is not heard, and a reflector that carries only VW stays silent. Wires-X is not supported.
+
+On the dashboard, choose YSF, pick a reflector from the list (or type a 5-digit id or `host:port`) and press Tune; unlink is `disconnect`. The card shows "retrying" while the reflector does not answer.

@@ -255,7 +255,7 @@ export type DVLogin = 'off' | 'pending' | 'ok' | 'failed';
 export interface DVOptSpec { key: string; label: string; kind: 'text' | 'int' | 'bool'; default: string; help?: string; min?: number; max?: number; maxLen?: number; advanced?: boolean }
 /** One network of GET /api/dv/networks and the reply of PUT /api/dv/networks/{mode}. The password is write-only: only `passwordSet` comes back. */
 export interface DVNetView {
-  mode: DVTuneMode; label: string; available: boolean; enabled: boolean; address: string; port: number; defaultPort?: number; defaultAddress?: string; passwordSet: boolean;
+  mode: DVTuneMode; label: string; available: boolean; enabled: boolean; address: string; port: number; defaultPort?: number; defaultAddress?: string; addressOptional?: boolean; passwordSet: boolean;
   fields: { address: boolean; port: boolean; password: boolean }; needsIdentity: boolean; help?: string;
   options: DVOptSpec[]; values: Record<string, string>; login?: DVLogin; detail?: string;
   /** PUT only: the engine took the new settings; otherwise `applyError` says why not. */

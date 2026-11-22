@@ -275,3 +275,37 @@ func TestDVNetworkUpgradeFrom14EnabledState(t *testing.T) {
 		t.Fatalf("%+v", n)
 	}
 }
+
+func TestDVNetworkYSF(t *testing.T) {
+	o := dvCfgOps(t)
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "YSF", Enabled: bp(true)}); !errors.Is(err, ErrDVNetIncomplete) {
+		t.Fatalf("no identity: %v", err)
+	}
+	dvNetDo(o, DVNetworkRequest{Identity: &DVIdentityView{Callsign: "N0CALL", DMRID: 1234567}})
+	for name, r := range map[string]DVNetworkRequest{
+		"password": {Mode: "YSF", Password: sp("example-pass")},
+		"port":     {Mode: "YSF", Port: ip(70000)},
+		"address":  {Mode: "YSF", Address: sp("bad address")},
+		"poll":     {Mode: "YSF", Options: map[string]string{"poll_ms": "10"}},
+		"tick":     {Mode: "YSF", Options: map[string]string{"tick_ms": "100"}},
+		"nxdnopt":  {Mode: "YSF", Options: map[string]string{"nxdn_id": "1"}},
+	} {
+		if _, err := dvNetDo(o, r); !errors.Is(err, ErrDVBadRequest) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// no address needed: the reflector is picked by Tune
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "YSF", Enabled: bp(true), Options: map[string]string{"poll_ms": "4000", "rx_timeout_ms": ""}}); err != nil {
+		t.Fatal(err)
+	}
+	if n := renderedNet(t, o, "YSF"); !n.Enabled || n.Address != "" || n.Password != "" || n.Options["poll_ms"] != "4000" || len(n.Options) != 1 {
+		t.Fatalf("%+v", n)
+	}
+	// an optional reflector, linked when the engine starts
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "YSF", Address: sp("192.0.2.20"), Port: ip(42001)}); err != nil {
+		t.Fatal(err)
+	}
+	if n := renderedNet(t, o, "YSF"); !n.Enabled || n.Address != "192.0.2.20" || n.Port != 42001 {
+		t.Fatalf("%+v", n)
+	}
+}

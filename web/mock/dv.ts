@@ -170,14 +170,14 @@ type PMode = 'LOOP' | 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN';
 const ALL: PMode[] = ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN'];
 const UNLINK: Record<PMode, string> = { LOOP: '', BM: '4000', TGIF: '4000', DMR: '4000', YSF: 'disconnect', P25: '9999', NXDN: '9999' };
 const LABEL: Partial<Record<PMode, string>> = { LOOP: 'Parrot (test)', BM: 'BrandMeister', TGIF: 'TGIF', DMR: 'DMR - Other' };
-const NATIVE: PMode[] = ['LOOP', 'BM', 'TGIF', 'DMR', 'NXDN'];
+const NATIVE: PMode[] = ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'NXDN'];
 // BrandMeister settings and the node identity (GET/PUT /dv/networks, /dv/identity). The password is write-only.
 // Placeholder master 192.0.2.10. The login state follows the application ID: none set -> the master refuses.
 interface MockNet { enabled: boolean; address: string; port: number; password: string; options: Record<string, string> }
 const bmNet: MockNet = { enabled: false, address: '', port: 0, password: '', options: {} };
-type NetId = 'BM' | 'TGIF' | 'DMR' | 'NXDN';
+type NetId = 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'NXDN';
 const blank = (): MockNet => ({ enabled: false, address: '', port: 0, password: '', options: {} });
-const otherNets: Record<'TGIF' | 'DMR' | 'NXDN', MockNet> = { TGIF: blank(), DMR: blank(), NXDN: blank() };
+const otherNets: Record<'TGIF' | 'DMR' | 'YSF' | 'NXDN', MockNet> = { TGIF: blank(), DMR: blank(), YSF: blank(), NXDN: blank() };
 let ident: { callsign: string; dmrId: number; repeaterId?: number } = { callsign: '', dmrId: 0 };
 const bmLogin = () => (bmNet.options.client_id ? 'ok' : 'failed');
 const bmDetail = () => (bmNet.options.client_id ? '' : 'the master refused the login: no registered application ID');
@@ -211,6 +211,11 @@ const HB_OPTS = (optionsHelp: string) => [
   intOpt('ping_interval_ms', 'Keep-alive period (ms)', '5000', 1000, 60000, true),
   intOpt('missed_pongs', 'Missed keep-alives', '3', 1, 20, true),
 ];
+const YSF_OPTS = [
+  intOpt('poll_ms', 'Poll period (ms)', '5000', 1000, 60000, true),
+  intOpt('timeout_ms', 'Link timeout (ms)', '15000', 2000, 120000, true),
+  intOpt('rx_timeout_ms', 'Call end timeout (ms)', '1500', 200, 10000, true),
+];
 const NXDN_OPTS = [
   intOpt('nxdn_id', 'NXDN unit ID', '', 1, 65535),
   intOpt('nxdn_ran', 'RAN', '0', 0, 63, true),
@@ -218,12 +223,14 @@ const NXDN_OPTS = [
   intOpt('poll_interval_ms', 'Poll period (ms)', '5000', 1000, 60000, true),
   intOpt('missed_polls', 'Missed polls', '3', 1, 20, true),
 ];
-const NETSPEC: Record<NetId, { label: string; fields: { address: boolean; port: boolean; password: boolean }; defaultPort?: number; defaultAddress?: string; help?: string; options: unknown[] }> = {
+const NETSPEC: Record<NetId, { label: string; fields: { address: boolean; port: boolean; password: boolean }; defaultPort?: number; defaultAddress?: string; addressOptional?: boolean; help?: string; options: unknown[] }> = {
   BM: { label: 'BrandMeister', fields: { address: true, port: true, password: true }, defaultPort: 54005, help: BM_HELP, options: BM_OPTS },
   TGIF: { label: 'TGIF', fields: { address: true, port: true, password: true }, defaultPort: 62031, defaultAddress: 'tgif.network', options: HB_OPTS('Static talkgroups, for example TS2=1997; Without it the talkgroup you tune is linked on demand.'),
     help: 'The password is the hotspot security password of your TGIF profile. The public master tgif.network:62031 is used unless you set another.' },
   DMR: { label: 'DMR - Other', fields: { address: true, port: true, password: true }, defaultPort: 62031, options: HB_OPTS('Sent to the master after login, for example static talkgroups. Leave empty if unsure.'),
     help: 'A Homebrew (MMDVM) master such as FreeDMR, DMR+ or an hblink3 server. Ask its operator for the address, port and password.' },
+  YSF: { label: 'System Fusion (YSF)', fields: { address: true, port: true, password: false }, defaultPort: 42000, addressOptional: true, options: YSF_OPTS,
+    help: 'YSF has no password and no login: tune a reflector on the dashboard. The address is optional; a reflector set here is linked when the engine starts. Calls are carried in V/D mode 2 (DN); Voice FR (VW) is not carried yet. The callsign of the identity is the node callsign.' },
   NXDN: { label: 'NXDN', fields: { address: false, port: false, password: false }, options: NXDN_OPTS,
     help: 'NXDN has no login: tune a reflector talkgroup on the dashboard. The callsign of the identity is sent to the reflector; set your NXDN unit ID in Options to transmit.' },
 };
@@ -231,7 +238,7 @@ const netOf = (m: NetId) => (m === 'BM' ? bmNet : otherNets[m]);
 function netView(m: NetId) {
   const n = netOf(m), sp = NETSPEC[m], avail = NATIVE.includes(m);
   return {
-    mode: m, label: sp.label, available: avail, enabled: n.enabled, address: n.address, port: n.port, ...(sp.defaultPort ? { defaultPort: sp.defaultPort } : {}), ...(sp.defaultAddress ? { defaultAddress: sp.defaultAddress } : {}),
+    mode: m, label: sp.label, available: avail, enabled: n.enabled, address: n.address, port: n.port, ...(sp.defaultPort ? { defaultPort: sp.defaultPort } : {}), ...(sp.defaultAddress ? { defaultAddress: sp.defaultAddress } : {}), ...(sp.addressOptional ? { addressOptional: true } : {}),
     passwordSet: n.password !== '', fields: sp.fields, needsIdentity: true, ...(sp.help ? { help: sp.help } : {}), options: sp.options, values: { ...n.options },
     ...(avail && n.enabled && snapshot().running ? { login: m === 'BM' ? bmLogin() : 'off', detail: m === 'BM' ? bmDetail() : '' } : {}),
   };
@@ -242,7 +249,7 @@ function netsHandler(c: DVCtx): boolean {
   if (!admin) return c.err(403, 'insufficient permissions', 'forbidden'), true;
   const body = (c.body ?? {}) as Record<string, unknown>;
   const invalid = (what: string) => (c.err(422, `invalid_field: ${what}`, 'invalid_field'), true);
-  if (c.p === '/dv/networks' && c.m === 'GET') { c.json(200, { identity: ident, modes: (['BM', 'TGIF', 'DMR', 'NXDN'] as const).map(netView) }); return true; }
+  if (c.p === '/dv/networks' && c.m === 'GET') { c.json(200, { identity: ident, modes: (['BM', 'TGIF', 'DMR', 'YSF', 'NXDN'] as const).map(netView) }); return true; }
   if (c.p === '/dv/identity') {
     if (c.m === 'GET') { c.json(200, ident); return true; }
     if (c.m !== 'PUT') return false;
@@ -254,7 +261,7 @@ function netsHandler(c: DVCtx): boolean {
     c.push?.('dv', snapshot());
     return true;
   }
-  const m = /^\/dv\/networks\/(BM|TGIF|DMR|NXDN)$/.exec(c.p);
+  const m = /^\/dv\/networks\/(BM|TGIF|DMR|YSF|NXDN)$/.exec(c.p);
   if (!m) return c.err(404, 'not_found: no settings for this mode', 'not_found'), true;
   const mode = m[1] as NetId, n = netOf(mode);
   if (c.m === 'GET') { c.json(200, netView(mode)); return true; }
@@ -275,7 +282,7 @@ function netsHandler(c: DVCtx): boolean {
   }
   const sp = NETSPEC[mode];
   if (next.enabled) {
-    const why = sp.fields.address && !sp.defaultAddress && !next.address ? 'set the master address first' : sp.fields.password && !next.password ? 'set the password first' : !ident.callsign ? 'set the callsign and DMR ID in the identity first' : '';
+    const why = sp.fields.address && !sp.defaultAddress && !sp.addressOptional && !next.address ? 'set the master address first' : sp.fields.password && !next.password ? 'set the password first' : !ident.callsign ? 'set the callsign and DMR ID in the identity first' : '';
     if (why) return c.err(422, `incomplete: ${why}`, 'incomplete'), true;
   }
   Object.assign(n, next);

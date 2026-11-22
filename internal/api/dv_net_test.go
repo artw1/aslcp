@@ -174,3 +174,45 @@ func TestDVNetworksTGIFDMRNXDN(t *testing.T) {
 		}
 	}
 }
+
+func TestDVNetworksYSF(t *testing.T) {
+	e, _, _ := dvEnv(t, ctl.ModeLoop, ctl.ModeBM, ctl.ModeYSF)
+	waitDV(t, e, func(s dvSnap) bool { return s.Running })
+	var list struct {
+		Modes []struct {
+			netView
+			AddressOptional bool
+			DefaultAddress  string
+			DefaultPort     int
+			NeedsIdentity   bool
+			Fields          struct{ Address, Port, Password bool }
+		}
+	}
+	if c := e.do("admin", "GET", "/api/dv/networks", nil, &list); c != 200 {
+		t.Fatal(c)
+	}
+	found := 0
+	for _, m := range list.Modes {
+		if m.Mode != "YSF" {
+			continue
+		}
+		found++
+		if !m.Available || !m.AddressOptional || m.DefaultAddress != "" || m.DefaultPort != 42000 || !m.Fields.Address || !m.Fields.Port || m.Fields.Password || !m.NeedsIdentity || len(m.Options) != 3 {
+			t.Fatalf("%+v", m)
+		}
+		for _, o := range m.Options {
+			if o.Key == "tick_ms" {
+				t.Fatal("tick_ms is not a setting")
+			}
+		}
+	}
+	if found != 1 {
+		t.Fatalf("YSF listed %d times", found)
+	}
+	expectErr(t, e, "admin", "PUT", "/api/dv/networks/YSF", map[string]any{"password": "example-pass"}, 422, "invalid_field")
+	expectErr(t, e, "admin", "PUT", "/api/dv/networks/YSF", map[string]any{"options": map[string]string{"tick_ms": "10"}}, 422, "invalid_field")
+	var v netView
+	if c := e.do("admin", "PUT", "/api/dv/networks/YSF", map[string]any{"enabled": true, "options": map[string]string{"poll_ms": "4000"}}, &v); c != 200 || !v.Enabled || v.Values["poll_ms"] != "4000" {
+		t.Fatalf("%d %+v", c, v)
+	}
+}

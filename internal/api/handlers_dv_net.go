@@ -43,6 +43,7 @@ type DVNetView struct {
 	Port          int               `json:"port"`
 	DefaultPort   int               `json:"defaultPort,omitempty"`
 	DefaultAddr   string            `json:"defaultAddress,omitempty"`
+	AddrOptional  bool              `json:"addressOptional,omitempty"`
 	PasswordSet   bool              `json:"passwordSet"`
 	Fields        DVNetFields       `json:"fields"`
 	NeedsIdentity bool              `json:"needsIdentity"`
@@ -95,7 +96,7 @@ func dvNetViewOf(sp dvpanel.NetSpec, v helper.DVNetworkView, eng ctl.NetStatus) 
 	}
 	out := DVNetView{
 		Mode: sp.Mode, Label: sp.Label, Available: eng.Available, Enabled: v.Enabled, Address: v.Address, Port: v.Port,
-		DefaultPort: sp.DefaultPort, DefaultAddr: sp.DefaultAddress, PasswordSet: v.PasswordSet, NeedsIdentity: sp.NeedsIdentity, Help: sp.Help,
+		DefaultPort: sp.DefaultPort, DefaultAddr: sp.DefaultAddress, AddrOptional: sp.AddressOptional, PasswordSet: v.PasswordSet, NeedsIdentity: sp.NeedsIdentity, Help: sp.Help,
 		Fields:  DVNetFields{Address: sp.Address, Port: sp.Port, Password: sp.Password},
 		Options: dvpanel.OptSpecs(sp.Mode), Values: vals,
 	}
