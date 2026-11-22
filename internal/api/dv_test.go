@@ -10,9 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/artw1/aslcp/internal/api"
 	"github.com/artw1/aslcp/internal/configsvc"
 	"github.com/artw1/aslcp/internal/dv/ctl"
 	"github.com/artw1/aslcp/internal/dv/ctl/ctltest"
+	"github.com/artw1/aslcp/internal/dvpanel"
 	"github.com/artw1/aslcp/internal/helper"
 	"github.com/artw1/aslcp/internal/hostlists"
 	"github.com/artw1/aslcp/internal/rpt"
@@ -100,6 +102,12 @@ func dvNets(avail ...string) []ctl.NetStatus {
 // socket and a host list manager loaded from synthetic fixtures.
 func dvEnv(t *testing.T, avail ...string) (*env, *fakeEngine, *ctltest.Fake) {
 	t.Helper()
+	return dvEnvResume(t, nil, avail...)
+}
+
+// dvEnvResume is dvEnv with a resume tracker.
+func dvEnvResume(t *testing.T, resume api.DVResume, avail ...string) (*env, *fakeEngine, *ctltest.Fake) {
+	t.Helper()
 	fe := &fakeEngine{status: helper.DVStatus{Supported: true, Enabled: true, MD380Installed: true, Active: true, MD380Active: true}}
 	fc := ctltest.New(t)
 	fc.SetStatus(ctl.Status{Version: "2.0.0-test", Started: time.Now().Add(-90 * time.Second), Mode: ctl.ModeLoop, Networks: dvNets(avail...),
@@ -122,7 +130,7 @@ func dvEnv(t *testing.T, avail ...string) (*env, *fakeEngine, *ctltest.Fake) {
 	f.Close()
 	hl := hostlists.New(hostlists.Options{Dir: dir, Enabled: func() bool { return true }})
 	hl.Load()
-	e := newEnv(t, opts{dvengine: fe, dvctl: ctl.NewClient(fc.Path()), hostlists: hl, dvEnabled: func() bool { return true }})
+	e := newEnv(t, opts{dvengine: fe, dvctl: ctl.NewClient(fc.Path()), hostlists: hl, dvEnabled: func() bool { return true }, dvresume: resume})
 	return e, fe, fc
 }
 
@@ -667,5 +675,85 @@ func TestDVSnapshotSentOnConnect(t *testing.T) {
 	}
 	if !sn.Installed || !sn.Running {
 		t.Fatalf("%+v", sn)
+	}
+}
+
+type memSettings struct {
+	mu sync.Mutex
+	m  map[string]string
+}
+
+func (f *memSettings) GetSetting(k string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.m[k], nil
+}
+
+func (f *memSettings) SetSetting(k, v string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.m == nil {
+		f.m = map[string]string{}
+	}
+	f.m[k] = v
+	return nil
+}
+
+// A tune, a mode switch and an unlink from the dashboard reach the resume
+// tracker at once, without a poll of the engine.
+func TestDVHandlersRememberAtOnce(t *testing.T) {
+	tr := &dvpanel.Tracker{Store: &memSettings{}}
+	e, _, _ := dvEnvResume(t, tr, ctl.ModeLoop, ctl.ModeYSF, ctl.ModeP25)
+	waitDV(t, e, func(s dvSnap) bool { return s.Running })
+	if c := e.do("op", "POST", "/api/dv/tune", map[string]string{"mode": "YSF", "tune": "00001"}, nil); c != 200 {
+		t.Fatalf("tune %d", c)
+	}
+	if v := tr.Get(); v.LastMode != "YSF" || v.PerMode["YSF"].Tune != "00001" {
+		t.Fatalf("tune not remembered: %+v", v)
+	}
+	// LOOP and an unlink value are not remembered as a tune
+	if c := e.do("op", "POST", "/api/dv/tune", map[string]string{"mode": "LOOP", "tune": "9990"}, nil); c != 200 {
+		t.Fatalf("loop %d", c)
+	}
+	if v := tr.Get(); v.LastMode != "YSF" || len(v.PerMode) != 1 {
+		t.Fatalf("loop remembered: %+v", v)
+	}
+	// a mode switch sets the last mode and keeps the other mode's tune
+	if c := e.do("op", "POST", "/api/dv/mode", map[string]string{"mode": "P25"}, nil); c != 200 {
+		t.Fatalf("mode %d", c)
+	}
+	if v := tr.Get(); v.LastMode != "P25" || v.PerMode["YSF"].Tune != "00001" {
+		t.Fatalf("mode not remembered: %+v", v)
+	}
+	if c := e.do("op", "POST", "/api/dv/tune", map[string]string{"mode": "P25", "tune": "10100"}, nil); c != 200 {
+		t.Fatalf("p25 %d", c)
+	}
+	// the unlink value forgets the tune and keeps the mode
+	if c := e.do("op", "POST", "/api/dv/tune", map[string]string{"mode": "P25", "tune": "9999"}, nil); c != 200 {
+		t.Fatalf("unlink value %d", c)
+	}
+	if v := tr.Get(); v.LastMode != "P25" || v.PerMode["P25"].Tune != "" {
+		t.Fatalf("unlink value: %+v", v)
+	}
+}
+
+// An unlink from the dashboard forgets the tune and makes the mode the last
+// one at once.
+func TestDVUnlinkRemembersMode(t *testing.T) {
+	tr := &dvpanel.Tracker{Store: &memSettings{}}
+	e, _, fc := dvEnvResume(t, tr, ctl.ModeLoop, ctl.ModeYSF)
+	waitDV(t, e, func(s dvSnap) bool { return s.Running })
+	// the engine is in YSF after the tune
+	fc.SetStatus(ctl.Status{Version: "2.0.0-test", Started: time.Now().Add(-90 * time.Second), Mode: ctl.ModeYSF, Networks: dvNets(ctl.ModeLoop, ctl.ModeYSF),
+		Vocoder: ctl.VocoderStatus{OK: true}})
+	if c := e.do("op", "POST", "/api/dv/tune", map[string]string{"mode": "YSF", "tune": "00001"}, nil); c != 200 {
+		t.Fatalf("tune %d", c)
+	}
+	tr.RememberTune("P25", "10100", "")
+	if c := e.do("op", "POST", "/api/dv/unlink", map[string]string{}, nil); c != 200 {
+		t.Fatalf("unlink %d", c)
+	}
+	if v := tr.Get(); v.LastMode != "YSF" || v.PerMode["YSF"].Tune != "" || v.PerMode["P25"].Tune != "10100" {
+		t.Fatalf("%+v", v)
 	}
 }

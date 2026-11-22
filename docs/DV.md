@@ -90,6 +90,8 @@ With "Resume after restart" on, a tracker re-sends the last mode and tune after 
 
 The tracker remembers the last tune of each mode and the last mode used. A disconnect (an unlink value, or the Unlink button) erases the tune of that mode but keeps the mode: after a restart the engine comes back in that mode with nothing linked (the log says "dv resume: YSF selected, nothing linked"). This is a plain mode switch, nothing is sent to the network, and a disconnected target is never linked again. A mode that is switched off is skipped, and nothing is resumed more than a few minutes after the engine started.
 
+A tune, a mode switch or an unlink made on the dashboard is remembered at once; changes made elsewhere are picked up by the tracker's next poll.
+
 ## Upgrading from 1.x
 
 **You have to redo the digital-modes configuration in 2.0.** Settings of the previous stack (BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN, and the identity) are not carried over and nothing is imported from its ini files, or from the ini files in a 1.x backup. Whatever the 1.4.0 panel itself stored in its own `networks.json` (enable switches, TGIF and DMR - Other address, port and password) is still read, so cards may show it filled in: check every card.

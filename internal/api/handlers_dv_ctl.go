@@ -83,6 +83,22 @@ func (s *Server) dvForget(mode string) {
 	}
 }
 
+// dvRememberTune records a tune the engine accepted (an unlink value forgets
+// the mode's tune and keeps it as the last mode), at once, so a restart of
+// the engine right after does not lose it.
+func (s *Server) dvRememberTune(mode, tune string) {
+	if f, ok := s.d.DVResume.(interface{ RememberTune(string, string, string) }); ok {
+		f.RememberTune(mode, tune, "")
+	}
+}
+
+// dvRememberMode records that the operator is in mode now.
+func (s *Server) dvRememberMode(mode string) {
+	if f, ok := s.d.DVResume.(interface{ RememberMode(string) }); ok {
+		f.RememberMode(mode)
+	}
+}
+
 // dvGate answers 503 without a control socket, 409 not_available for a mode
 // the engine does not implement (from the status the stream last left), and
 // 409 mode_disabled for a mode switched off in its config.
@@ -194,7 +210,7 @@ func (s *Server) handleDVTune(w http.ResponseWriter, r *http.Request, u store.Us
 		return
 	}
 	left := s.dvLeft(mode)
-	st, unlink, err := s.dvSendTune(r.Context(), mode, b.Tune)
+	st, _, err := s.dvSendTune(r.Context(), mode, b.Tune)
 	if err != nil {
 		s.audit(u, "dv.tune.refused", fields)
 		if !s.dvTuneError(w, err) {
@@ -202,9 +218,7 @@ func (s *Server) handleDVTune(w http.ResponseWriter, r *http.Request, u store.Us
 		}
 		return
 	}
-	if unlink {
-		s.dvForget(mode)
-	}
+	s.dvRememberTune(mode, b.Tune)
 	s.audit(u, "dv.tune", fields)
 	s.d.Logger.Printf("dv.tune %s by %s", mode, u.Username)
 	writeJSON(w, 200, s.dvDone(r.Context(), st, mode, left, left != "" || s.dvs.info().Mode != mode))
@@ -275,6 +289,7 @@ func (s *Server) handleDVMode(w http.ResponseWriter, r *http.Request, u store.Us
 		s.dvCtlFail(w, err)
 		return
 	}
+	s.dvRememberMode(mode)
 	audit := map[string]any{"mode": mode}
 	if left != "" {
 		audit["left"] = left
@@ -310,6 +325,7 @@ func (s *Server) handleDVUnlink(w http.ResponseWriter, r *http.Request, u store.
 		return
 	}
 	s.dvForget(mode)
+	s.dvRememberMode(mode)
 	s.audit(u, "dv.unlink", map[string]any{"mode": mode, "tune": dvpanel.UnlinkTune(mode)})
 	s.d.Logger.Printf("dv.unlink %s by %s", mode, u.Username)
 	writeJSON(w, 200, s.dvDone(r.Context(), st, mode, "", false))

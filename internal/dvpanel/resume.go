@@ -461,7 +461,52 @@ func decideResume(now time.Time, window time.Duration, info Info, st State) (res
 	return resumeFire, ""
 }
 
-// record remembers the current tune of the current mode.
+// record remembers the current tune of the current mode, as the engine shows
+// it (the poll: changes made elsewhere than the dashboard).
+func (t *Tracker) record(info Info, now time.Time) {
+	if !info.Found || info.Tune == "" {
+		return
+	}
+	ts := ""
+	if DMRFamily(NormMode(info.Mode)) {
+		ts = info.Slot
+	}
+	t.remember(info.Mode, info.Tune, ts, info.Private, now)
+}
+
+// RememberTune records a tune the dashboard has just sent and the engine
+// accepted, at once: an engine that restarts seconds later must not lose it
+// (the poll runs every 5 to 15 s). The rules are those of the poll.
+func (t *Tracker) RememberTune(mode, tune, ts string) {
+	t.remember(mode, tune, ts, false, t.now())
+}
+
+// RememberMode records that the operator switched to mode, keeping that
+// mode's remembered tune. LOOP is a test mode and is not remembered.
+func (t *Tracker) RememberMode(mode string) {
+	mode = NormMode(mode)
+	if mode == "" || mode == ModeLoop {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.load()
+	t.setLastModeLocked(mode)
+}
+
+// setLastModeLocked sets the last mode and saves when it changed. Callers
+// hold mu.
+func (t *Tracker) setLastModeLocked(mode string) {
+	if t.st.LastMode == mode {
+		return
+	}
+	t.st.LastMode = mode
+	if err := t.save(); err != nil {
+		t.logf("dv tracker: cannot save the state: %v", err)
+	}
+}
+
+// remember is the shared rule of record and RememberTune.
 //
 //   - Every value must pass the mode's validator before it is stored.
 //   - LOOP is not remembered: the parrot is a test, not a place to return to.
@@ -470,28 +515,30 @@ func decideResume(now time.Time, window time.Duration, info Info, st State) (res
 //     the last real talkgroup, so a resume does not call a user again.
 //   - Unlink values (DMR 4000, YSF disconnect, P25 and NXDN 9999) are not
 //     remembered as a place to return to; they erase the remembered tune of
-//     the mode (a disconnect is remembered, see Forget).
-func (t *Tracker) record(info Info, now time.Time) {
-	mode := NormMode(info.Mode)
-	if !info.Found || mode == "" || mode == ModeLoop || info.Tune == "" {
+//     the mode (a disconnect is remembered, see Forget) and make it the last
+//     mode.
+func (t *Tracker) remember(mode, tune, ts string, private bool, now time.Time) {
+	mode = NormMode(mode)
+	if mode == "" || mode == ModeLoop || tune == "" {
 		return
 	}
-	if info.Private || (DMRFamily(mode) && info.Tune == ParrotID) {
+	if private || (DMRFamily(mode) && tune == ParrotID) || PrivateTune(mode, tune) {
 		return
 	}
-	tune, ts := info.Tune, ""
-	if DMRFamily(mode) {
-		ts = info.Slot
+	if !DMRFamily(mode) {
+		ts = ""
 	}
 	if !ValidTune(mode, tune) {
 		return
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.load()
 	if UnlinkValue(mode, tune) {
 		// The operator disconnected the target: forget it, so switching to
 		// another mode and back does not re-tune the old one.
 		t.forgetLocked(mode)
+		t.setLastModeLocked(mode)
 		return
 	}
 	cur, had := t.st.PerMode[mode]

@@ -550,3 +550,81 @@ func TestResumeModeOnlySkipsDisabledMode(t *testing.T) {
 		t.Fatalf("%v %+v", src.modes, src.tunes)
 	}
 }
+
+// restartResume polls a new tracker on the same store against an engine that
+// has just started, until the resume is handled.
+func restartResume(t *testing.T, tr *Tracker, src *fakeSrc, now *time.Time) *Tracker {
+	t.Helper()
+	tr2 := &Tracker{Src: src, Store: tr.Store, Now: tr.Now, Logger: tr.Logger}
+	boot := now.Add(time.Minute)
+	src.info = fresh(boot)
+	*now = boot.Add(10 * time.Second)
+	for i := 0; i < 3; i++ {
+		tr2.Poll(context.Background())
+		*now = now.Add(15 * time.Second)
+	}
+	return tr2
+}
+
+func TestRememberTuneSurvivesImmediateRestart(t *testing.T) {
+	tr, src, _, now := newTracker(t)
+	_ = tr.SetResume(true)
+	tr.RememberMode("YSF")
+	tr.RememberTune("YSF", "192.0.2.10:42000", "")
+	// no poll saw the tune: the engine restarts and the panel starts anew
+	restartResume(t, tr, src, now)
+	if len(src.tunes) != 1 || src.tunes[0] != (tuneCall{"YSF", "192.0.2.10:42000"}) {
+		t.Fatalf("%+v", src.tunes)
+	}
+}
+
+func TestRememberModeThenUnlinkResumesModeOnly(t *testing.T) {
+	tr, src, _, now := newTracker(t)
+	_ = tr.SetResume(true)
+	tr.RememberMode("YSF")
+	tr.RememberTune("YSF", "192.0.2.10:42000", "")
+	tr.Forget("YSF")
+	tr.RememberMode("YSF")
+	restartResume(t, tr, src, now)
+	if len(src.tunes) != 0 || len(src.modes) != 1 || src.modes[0] != "YSF" {
+		t.Fatalf("%+v %v", src.tunes, src.modes)
+	}
+	// an unlink value through RememberTune does the same, and sets the mode
+	tr3, src3, _, now3 := newTracker(t)
+	_ = tr3.SetResume(true)
+	tr3.RememberTune("DMR", "1997", "1")
+	tr3.RememberTune("YSF", "192.0.2.10:42000", "")
+	tr3.RememberTune("DMR", "4000", "")
+	if v := tr3.Get(); v.LastMode != "DMR" || len(v.PerMode) != 1 || v.PerMode["YSF"].Tune == "" {
+		t.Fatalf("%+v", v)
+	}
+	restartResume(t, tr3, src3, now3)
+	if len(src3.tunes) != 0 || len(src3.modes) != 1 || src3.modes[0] != "DMR" {
+		t.Fatalf("%+v %v", src3.tunes, src3.modes)
+	}
+}
+
+func TestRememberKeepsTuneOfModeSwitch(t *testing.T) {
+	tr, _, _, _ := newTracker(t)
+	tr.RememberTune("DMR", "1997", "2")
+	tr.RememberTune("YSF", "192.0.2.10:42000", "")
+	tr.RememberMode("DMR")
+	if v := tr.Get(); v.LastMode != "DMR" || v.PerMode["DMR"].Tune != "1997" || v.PerMode["DMR"].TS != "2" || v.PerMode["YSF"].Tune == "" {
+		t.Fatalf("%+v", v)
+	}
+}
+
+func TestRememberIgnoresLoopInvalidAndPrivate(t *testing.T) {
+	tr, _, _, _ := newTracker(t)
+	for _, c := range []struct{ mode, tune string }{
+		{"LOOP", "9990"}, {"BM", "9990"}, {"BM", "9990#"}, {"BM", "1997#"}, {"BM", "abc"}, {"YSF", "a;b"},
+		{"P25", "-1"}, {"NOPE", "1997"}, {"BM", ""},
+	} {
+		tr.RememberTune(c.mode, c.tune, "1")
+	}
+	tr.RememberMode("LOOP")
+	tr.RememberMode("NOPE")
+	if v := tr.Get(); len(v.PerMode) != 0 || v.LastMode != "" {
+		t.Fatalf("%+v", v)
+	}
+}

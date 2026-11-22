@@ -31,6 +31,7 @@ Release notes are taken from the section of the tag being released
 - The dashboard shows "Reflector not answering" when a YSF, P25 or NXDN reflector does not reply.
 - After a restart, digital modes come back in the last used mode even if you had unlinked it (nothing is linked).
 - The dashboard's Digital Modes card comes back on its own after the panel restarts.
+- Resume after restart remembers a tune or unlink at once, even if the engine restarts seconds later.
 - Now calling now shows BrandMeister calls after a retune, calls joined mid-transmission, and private calls such as Parrot replies.
 
 ### Removed
