@@ -585,10 +585,17 @@ func (d *dvSnapper) refreshSoon() {
 	go d.refresh()
 }
 
-// nowTalks converts talks for the "Now calling" tracker.
+// parrotID is the DMR ID of the BrandMeister parrot; its reply is a private
+// call from this ID.
+const parrotID = 9990
+
+// dvNowTalks converts talks (newest first, as the snapper keeps them) for the
+// "Now calling" tracker, which wants them oldest first: it takes the last one
+// as the newest call.
 func dvNowTalks(talks []ctl.Talk) []nowcalling.Talk {
 	out := make([]nowcalling.Talk, 0, len(talks))
-	for _, t := range talks {
+	for i := len(talks) - 1; i >= 0; i-- {
+		t := talks[i]
 		k := nowcalling.Talk{Kind: nowcalling.KindDMR, Via: nowcalling.ViaEngine, Call: t.Call, Slot: t.Slot, Private: t.Private, Start: t.Start, End: t.End, Network: dvNetworkName(t.Mode)}
 		if t.Mode == ctl.ModeYSF {
 			k.Kind = nowcalling.KindYSF
@@ -597,6 +604,11 @@ func dvNowTalks(talks []ctl.Talk) []nowcalling.Talk {
 			k.DMRID = strconv.FormatUint(uint64(t.DMRID), 10)
 		}
 		switch {
+		case t.Private:
+			// a private call to us: the TG field would be our own ID
+			if k.Call == "" && t.DMRID == parrotID {
+				k.Call = "Parrot"
+			}
 		case t.TG != 0:
 			k.Dst = strconv.FormatUint(uint64(t.TG), 10)
 		case t.Room != "":

@@ -23,6 +23,9 @@ Release notes are taken from the section of the tag being released
 - New Parrot test mode echoes your transmission back through the bridge node.
 - ASLCP downloads the YSF, P25, NXDN and DMR host lists itself, once a day, while digital modes are enabled.
 
+### Fixed
+- Now calling now shows BrandMeister calls after a retune, calls joined mid-transmission, and private calls such as Parrot replies.
+
 ### Removed
 - The previous digital voice stack: on upgrade from 1.x the packages ASLCP installed for it are stopped and removed; nothing else is removed, and md380-emu stays (with its apt source, so it keeps getting updates).
 - The uninstall of the previous stack, the BrandMeister, STFU and network credential pages, the identity page, and the service restart and rollback buttons of the previous stack.

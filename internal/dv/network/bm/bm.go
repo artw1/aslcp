@@ -307,7 +307,13 @@ type rxState struct {
 	private bool
 	seq     uint32
 	last    time.Time
+	// endedAt is when the last call ended (stray audio just after it is
+	// not a new call).
+	endedAt time.Time
 }
+
+// strayGrace is how long audio right after a call's end is ignored.
+const strayGrace = 200 * time.Millisecond
 
 func (n *Net) session(ctx context.Context, s network.Sink) (loggedIn bool, err error) {
 	raddr, err := net.ResolveUDPAddr("udp", n.addr)
@@ -436,7 +442,7 @@ func (n *Net) session(ctx context.Context, s network.Sink) (loggedIn bool, err e
 			}
 			if rx.active && now.Sub(rx.last) > n.rxTO {
 				s.End(rx.call)
-				rx = rxState{}
+				rx = rxState{endedAt: now}
 			}
 		}
 	}
@@ -499,7 +505,7 @@ func (n *Net) rxPacket(s network.Sink, rx *rxState, p packet, now time.Time) {
 		// It carries the same LC as the header; the call ends.
 		if rx.active {
 			s.End(rx.call)
-			*rx = rxState{}
+			*rx = rxState{endedAt: now}
 		}
 	case typAudio:
 		var fr [3]network.VoiceFrame
@@ -519,7 +525,19 @@ func (n *Net) rxPacket(s network.Sink, rx *rxState, p packet, now time.Time) {
 			return
 		}
 		if !rx.active {
-			return
+			if now.Sub(rx.endedAt) < strayGrace {
+				return
+			}
+			// Joined mid-transmission (the headers were missed): the call
+			// starts anyway, caller unknown, to the tuned talkgroup. The
+			// terminator or the RX timeout ends it.
+			var tg uint32
+			n.mu.Lock()
+			if n.sub != nil {
+				tg = n.sub.tg
+			}
+			n.mu.Unlock()
+			n.startRX(s, rx, network.CallHeader{TG: tg}, now)
 		}
 		rx.last = now
 		for i := range fr {

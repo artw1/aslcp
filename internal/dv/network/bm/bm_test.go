@@ -785,3 +785,51 @@ func TestWire(t *testing.T) {
 		t.Fatal(pr, dst, src)
 	}
 }
+
+// Audio with no active call (joined mid-transmission) starts a call with an
+// unknown caller and the tuned TG; the terminator ends it.
+func TestRXAudioWithoutHeaderStartsCall(t *testing.T) {
+	m, n, s := login(t)
+	n.Tune(context.Background(), ctl.Target{TG: 91})
+	to := m.lastAddr()
+	m.reply(to, typAudio, flagRealTime1, cat(frames(3, 4)))
+	waitFor(t, "frames", func() bool { return s.nFrames() == 3 })
+	s.mu.Lock()
+	if len(s.hdrs) != 1 || s.hdrs[0].TG != 91 || s.hdrs[0].SrcID != 0 || s.hdrs[0].Private {
+		t.Fatalf("header %+v", s.hdrs)
+	}
+	s.mu.Unlock()
+	m.reply(to, typTerminator, flagRealTime1, voiceHeaderLC(false, 91, testOther))
+	waitFor(t, "end", func() bool { return s.nEnds() == 1 })
+}
+
+// After a retune, a call to the new TG is reported with that TG.
+func TestRXCallAfterRetune(t *testing.T) {
+	m, n, s := login(t)
+	n.Tune(context.Background(), ctl.Target{TG: 91})
+	to := m.lastAddr()
+	m.sendCall(to, testOther, 91, false, [][]byte{cat(frames(3, 1))}, true)
+	waitFor(t, "end1", func() bool { return s.nEnds() == 1 })
+	n.Tune(context.Background(), ctl.Target{TG: 3100})
+	m.sendCall(to, testOther, 3100, false, [][]byte{cat(frames(3, 2))}, true)
+	waitFor(t, "end2", func() bool { return s.nEnds() == 2 })
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.hdrs) != 2 || s.hdrs[1].TG != 3100 || s.hdrs[1].SrcID != testOther {
+		t.Fatalf("headers %+v", s.hdrs)
+	}
+}
+
+// The parrot reply is a private call to our ID from the parrot.
+func TestRXPrivateParrotReply(t *testing.T) {
+	m, n, s := login(t)
+	n.Tune(context.Background(), ctl.Target{TG: ParrotTG})
+	m.sendCall(m.lastAddr(), ParrotTG, testID, true, [][]byte{cat(frames(3, 1))}, true)
+	waitFor(t, "end", func() bool { return s.nEnds() == 1 })
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	h := s.hdrs[0]
+	if !h.Private || h.SrcID != ParrotTG || h.TG != testID {
+		t.Fatalf("header %+v", h)
+	}
+}
