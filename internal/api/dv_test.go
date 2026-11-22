@@ -581,7 +581,7 @@ func (f *fakeEngine) DVNetworkGet(context.Context) (helper.DVNetworkReply, error
 
 func (f *fakeEngine) netReply(changed bool) helper.DVNetworkReply {
 	r := helper.DVNetworkReply{Identity: f.ident, Rendered: true, Changed: changed}
-	for _, m := range []string{"BM", "TGIF", "DMR", "YSF", "NXDN"} {
+	for _, m := range []string{"BM", "TGIF", "DMR", "YSF", "P25", "NXDN"} {
 		if v, ok := f.nets[m]; ok {
 			v.PasswordSet = f.pw[m] != ""
 			r.Networks = append(r.Networks, v)

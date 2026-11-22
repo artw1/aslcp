@@ -35,8 +35,9 @@
 // the first communications frame, and ends at a terminator, at a frame with
 // the end bit, or after rx_timeout_ms without frames. Voice FR ("VW", DT=3)
 // frames are decoded to 11-byte IMBE frames (package imbe layout) and passed
-// to the sink as well; see vwCodec for the interface change they need. V/D
-// mode 1 and data FR frames carry no voice for this network.
+// to the sink as well, with VoiceFrame.Codec set to network.CodecIMBE (DN
+// frames are CodecAMBE), so one call may mix both. Transmissions are always
+// DN. V/D mode 1 and data FR frames carry no voice for this network.
 //
 // # Target
 //
@@ -98,19 +99,11 @@ const (
 var destAll = pad("ALL")
 
 // vwCodec is the codec of the frames passed to the sink from Voice FR
-// frames (11-byte IMBE).
-//
-// TODO(integrator): network.VoiceFrame has no Codec field yet, so these
-// frames reach the sink indistinguishable from AMBE except by length (the
-// router drops them today: it only accepts 7-byte frames). Once
-// VoiceFrame gains `Codec network.Codec` (zero value CodecAMBE, so existing
-// networks are unchanged), set it in voiceFrame below and let the router
-// pick the vocoder per frame.
+// frames (11-byte IMBE); DN frames are AMBE (the zero value).
 const vwCodec = network.CodecIMBE
 
 func voiceFrame(call uint64, seq uint32, data []byte, c network.Codec) network.VoiceFrame {
-	_ = c // TODO(integrator): f.Codec = c
-	return network.VoiceFrame{Call: call, Seq: seq, Data: data}
+	return network.VoiceFrame{Call: call, Seq: seq, Codec: c, Data: data}
 }
 
 func init() {

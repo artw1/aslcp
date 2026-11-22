@@ -127,10 +127,10 @@ func TestDVConfigDefaultsAndWrite(t *testing.T) {
 	if cfg.USRP.Listen != "127.0.0.1:34001" || cfg.USRP.Peer != "127.0.0.1:32001" || cfg.Vocoder.MD380 != "127.0.0.1:2470" {
 		t.Fatalf("%+v", cfg)
 	}
-	if len(cfg.Networks) != 6 || cfg.Networks[0].Mode != dvctl.ModeLoop || !cfg.Networks[0].Enabled {
+	if len(cfg.Networks) != 7 || cfg.Networks[0].Mode != dvctl.ModeLoop || !cfg.Networks[0].Enabled {
 		t.Fatalf("%+v", cfg.Networks)
 	}
-	for i, m := range []string{dvctl.ModeBM, dvctl.ModeTGIF, dvctl.ModeDMR, dvctl.ModeYSF, dvctl.ModeNXDN} {
+	for i, m := range []string{dvctl.ModeBM, dvctl.ModeTGIF, dvctl.ModeDMR, dvctl.ModeYSF, dvctl.ModeP25, dvctl.ModeNXDN} {
 		if n := cfg.Networks[i+1]; n.Mode != m || n.Enabled {
 			t.Fatalf("%+v", cfg.Networks)
 		}

@@ -24,10 +24,10 @@ test('availability: the engine wins, the static native list is the fallback', ()
   const modes = [{ id: 'LOOP' as const, enabled: true, available: true, unlink: '' }, { id: 'BM' as const, enabled: false, available: false, unlink: '4000' }];
   assert.equal(modeAvailable(modes, 'BM'), false);
   assert.equal(modeAvailable(modes, 'LOOP'), true);
-  assert.equal(modeAvailable(modes, 'P25'), false);
+  assert.equal(modeAvailable(modes, 'P25'), true); // not listed: the static native list
   assert.equal(modeAvailable([{ id: 'LOOP', enabled: true, available: true, unlink: '' }], 'BM'), true);
   assert.equal(modeAvailable(undefined, 'BM'), true);
-  assert.equal(modeAvailable(undefined, 'P25'), false);
+  assert.equal(modeAvailable(undefined, 'P25'), true);
   const on = [{ id: 'BM' as const, enabled: true, available: true, unlink: '4000' }];
   assert.deepEqual(cardState(on, 'BM'), { available: true, enabled: true });
   assert.deepEqual(cardState(undefined, 'BM'), { available: false, enabled: false });
@@ -110,7 +110,7 @@ test('TGIF, DMR and NXDN forms', () => {
   assert.equal(enableBlock(nxdn, formOf(nxdn), null), 'Set the callsign and DMR ID in the identity first');
   assert.equal(modeAvailable(undefined, 'TGIF') && modeAvailable(undefined, 'DMR') && modeAvailable(undefined, 'NXDN'), true);
   assert.equal(modeAvailable(undefined, 'YSF'), true);
-  assert.equal(modeAvailable(undefined, 'P25'), false);
+  assert.equal(modeAvailable(undefined, 'P25'), true);
 });
 
 test('YSF form: the reflector address is optional', () => {
@@ -126,4 +126,18 @@ test('YSF form: the reflector address is optional', () => {
   assert.match(formError(ysf, { ...f, options: { poll_ms: '10' } }), /1000 to 60000/);
   assert.deepEqual(buildPut(ysf, { ...f, enabled: true, address: '192.0.2.20', port: '42000', options: { poll_ms: '4000' } }),
     { enabled: true, address: '192.0.2.20', port: 42000, options: { poll_ms: '4000' } });
+});
+
+test('P25 form: unit ID range and optional address', () => {
+  const p25: DVNetView = {
+    mode: 'P25', label: 'P25', available: true, enabled: false, address: '', port: 0, defaultPort: 41000, addressOptional: true, passwordSet: false,
+    fields: { address: true, port: true, password: false }, needsIdentity: true,
+    options: [{ key: 'p25_id', label: 'P25 unit ID', kind: 'int', default: '', min: 1, max: 16777215 }],
+    values: {},
+  };
+  const f = formOf(p25);
+  assert.equal(enableBlock(p25, f, id), '');
+  assert.equal(enableBlock(p25, f, null), 'Set the callsign and DMR ID in the identity first');
+  assert.match(formError(p25, { ...f, options: { p25_id: '16777216' } }), /1 to 16777215/);
+  assert.deepEqual(buildPut(p25, { ...f, enabled: true, options: { p25_id: '1999' } }), { enabled: true, options: { p25_id: '1999' } });
 });

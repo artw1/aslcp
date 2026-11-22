@@ -20,7 +20,7 @@ import (
 // NativeModes are the modes this build implements, in display order. It is the
 // static fallback of the snapshot's availability when the engine is down; the
 // engine's own Status.Networks[].Available wins whenever it answers.
-var NativeModes = []string{ModeLoop, ModeBM, ModeTGIF, ModeDMR, ModeYSF, ModeNXDN}
+var NativeModes = []string{ModeLoop, ModeBM, ModeTGIF, ModeDMR, ModeYSF, ModeP25, ModeNXDN}
 
 // NativeMode reports whether mode is in NativeModes.
 func NativeMode(mode string) bool {
@@ -64,7 +64,7 @@ type NetSpec struct {
 	Password bool `json:"password"`
 	// DefaultPort is the master's port when none is set (0: none).
 	DefaultPort int `json:"defaultPort,omitempty"`
-	// AddressOptional: the address may stay empty (YSF: the reflector is
+	// AddressOptional: the address may stay empty (YSF, P25: the reflector is
 	// picked by Tune; a set address is linked when the engine starts).
 	AddressOptional bool `json:"addressOptional,omitempty"`
 	// DefaultAddress is the master used when no address is set (TGIF's public
@@ -103,6 +103,16 @@ var NetOptions = map[string][]OptSpec{
 	ModeTGIF: hbOptions("Static talkgroups, one string for the master, for example TS2=1997; (see your TGIF profile). Without it the talkgroup you tune is linked on demand."),
 	ModeDMR:  hbOptions("Sent to the master after login (RPTO), for example static talkgroups on masters that read them. Leave empty if unsure."),
 	ModeYSF: {
+		{Key: "poll_ms", Label: "Poll period (ms)", Kind: KindInt, Default: "5000", Min: 1000, Max: 60000, Advanced: true,
+			Help: "How often the reflector is polled to keep the link up."},
+		{Key: "timeout_ms", Label: "Link timeout (ms)", Kind: KindInt, Default: "15000", Min: 2000, Max: 120000, Advanced: true,
+			Help: "The link is considered lost after this silence from the reflector."},
+		{Key: "rx_timeout_ms", Label: "Call end timeout (ms)", Kind: KindInt, Default: "1500", Min: 200, Max: 10000, Advanced: true,
+			Help: "End a received call that has no terminator after this silence."},
+	},
+	ModeP25: {
+		{Key: "p25_id", Label: "P25 unit ID", Kind: KindInt, Min: 1, Max: 16777215,
+			Help: "Your P25 source unit ID (up to 16777215). Default: the DMR ID of the identity."},
 		{Key: "poll_ms", Label: "Poll period (ms)", Kind: KindInt, Default: "5000", Min: 1000, Max: 60000, Advanced: true,
 			Help: "How often the reflector is polled to keep the link up."},
 		{Key: "timeout_ms", Label: "Link timeout (ms)", Kind: KindInt, Default: "15000", Min: 2000, Max: 120000, Advanced: true,
@@ -167,7 +177,9 @@ var NetSpecs = []NetSpec{
 	{Mode: ModeDMR, Label: "DMR - Other", Address: true, Port: true, Password: true, DefaultPort: 62031, NeedsIdentity: true,
 		Help: "A Homebrew (MMDVM) master such as FreeDMR, DMR+ or an hblink3 server. Ask its operator for the address, port and password."},
 	{Mode: ModeYSF, Label: "System Fusion (YSF)", Address: true, Port: true, AddressOptional: true, DefaultPort: 42000, NeedsIdentity: true,
-		Help: "YSF has no password and no login: tune a reflector on the dashboard. The address is optional; a reflector set here is linked when the engine starts. Calls are carried in V/D mode 2 (DN); Voice FR (VW) is not carried yet. The callsign of the identity is the node callsign."},
+		Help: "YSF has no password and no login: tune a reflector on the dashboard. The address is optional; a reflector set here is linked when the engine starts. Calls are carried in V/D mode 2 (DN) and Voice FR (VW) is heard; your transmissions are sent in DN. The callsign of the identity is the node callsign."},
+	{Mode: ModeP25, Label: "P25", Address: true, Port: true, AddressOptional: true, DefaultPort: 41000, NeedsIdentity: true,
+		Help: "P25 has no password and no login: tune a talkgroup on the dashboard, picked from the P25 list. The address is optional; a reflector set here is linked when the engine starts. The callsign of the identity is the node callsign; set a P25 unit ID in Options or the DMR ID is used."},
 	{Mode: ModeNXDN, Label: "NXDN", NeedsIdentity: true,
 		Help: "NXDN has no login: tune a reflector talkgroup on the dashboard. The callsign of the identity is sent to the reflector; set your NXDN unit ID in Options to transmit."},
 }

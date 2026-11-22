@@ -44,7 +44,7 @@ test('cards: only a mode the build carries can be on', () => {
   const modes = [
     { id: 'LOOP' as const, enabled: true, available: true, unlink: '' },
     { id: 'BM' as const, enabled: true, available: false, unlink: '4000' },
-    { id: 'YSF' as const, enabled: false, available: false, unlink: 'disconnect' },
+    { id: 'P25' as const, enabled: false, available: false, unlink: '9999' },
   ];
   assert.deepEqual(cardState(modes, 'LOOP'), { available: true, enabled: true });
   assert.deepEqual(cardState(modes, 'BM'), { available: false, enabled: false });

@@ -2,7 +2,7 @@
 
 Digital modes (DMR, YSF, P25, NXDN) run on the ASLCP engine, `aslcp-dv`, a small service that ships in the ASLCP package. ASLCP 2.0 replaces the previous third-party digital voice stack with it: that stack is no longer installed, configured or restarted by ASLCP.
 
-Status in 2.0 milestone 4: the engine, the control socket, the vocoder link, the **Parrot** test mode (`LOOP`), **BrandMeister** (`BM`, a native Rewind client), **TGIF** and **DMR - Other** (native Homebrew clients) **NXDN** and **YSF** (native reflector clients) are in. YSF carries voice in DN (V/D mode 2); VW (Voice FR) is not carried yet. P25 shows "Not yet available in this build"; their settings and favourites are kept and they are not lost on upgrade.
+Status in 2.0 milestone 5: the engine, the control socket, the vocoder link, the **Parrot** test mode (`LOOP`), **BrandMeister** (`BM`, a native Rewind client), **TGIF** and **DMR - Other** (native Homebrew clients) **NXDN**, **YSF** and **P25** (native reflector clients) are in. YSF carries voice in DN (V/D mode 2) and Voice FR (VW); P25 carries IMBE. All modes are available; settings and favourites from 1.x are kept and not lost on upgrade.
 
 ## Parts
 
@@ -32,16 +32,16 @@ Supported: Debian bookworm and trixie on amd64, arm64 and armhf (ARMv7). **ARMv6
 
 ## Modes
 
-| Mode | Id | In 2.0 M4 | Tune value | Unlink |
+| Mode | Id | In 2.0 M5 | Tune value | Unlink |
 |---|---|---|---|---|
 | Parrot | `LOOP` | available | parrot id (default 9990, private call) | `disconnect` |
 | BrandMeister | `BM` | available | talkgroup (a trailing `#` makes a private call) | `4000` |
 | TGIF, DMR - Other | `TGIF`, `DMR` | available | talkgroup | `4000` |
-| YSF | `YSF` | available (DN) | reflector id or `host:port` | `disconnect` |
-| P25 | `P25` | not available | talkgroup | `9999` |
+| YSF | `YSF` | available (DN, VW) | reflector id or `host:port` | `disconnect` |
+| P25 | `P25` | available | talkgroup | `9999` |
 | NXDN | `NXDN` | available | talkgroup | `9999` |
 
-Availability comes from the engine (which modes the running build implements); while the engine is down the page falls back to a fixed list (Parrot, BrandMeister, TGIF, DMR - Other, YSF and NXDN). A mode that is not available answers `409 not_available` to mode and tune; an available one that is not set up answers `409 mode_disabled`. Parrot echoes what you transmit back through the bridge node, which tests the whole path (node, USRP, engine, vocoder) without a network account.
+Availability comes from the engine (which modes the running build implements); while the engine is down the page falls back to a fixed list (Parrot, BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN). A mode that is not available answers `409 not_available` to mode and tune; an available one that is not set up answers `409 mode_disabled`. Parrot echoes what you transmit back through the bridge node, which tests the whole path (node, USRP, engine, vocoder) without a network account.
 
 ## BrandMeister
 
@@ -121,6 +121,22 @@ YSF is a native reflector client for System Fusion reflectors (YSFReflector styl
 
 - *Reflector address* and *port*: optional. Normally leave them empty and tune a reflector on the dashboard, picked from the YSF list (the port defaults to 42000). A reflector set here is linked when the engine starts.
 - Under "advanced": the poll period, the link timeout and the call end timeout.
-- Voice is carried in **DN (V/D mode 2)**, in both directions. Voice FR (VW) is not carried yet: a call sent in VW is not heard, and a reflector that carries only VW stays silent. Wires-X is not supported.
+- Voice is received in **DN (V/D mode 2)** and in **Voice FR (VW)**; a call may use either. Your transmissions are always sent in DN. Wires-X is not supported.
+- VW is IMBE-coded and decoded by the built-in pure-Go IMBE codec (see "Voice codecs"); DN uses the md380-emu vocoder.
 
 On the dashboard, choose YSF, pick a reflector from the list (or type a 5-digit id or `host:port`) and press Tune; unlink is `disconnect`. The card shows "retrying" while the reflector does not answer.
+
+## P25
+
+P25 is a native reflector client for P25Reflector style reflectors (UDP, the link P25Gateway and MMDVMHost speak). It has no password and no login: the engine polls the reflector to keep the link up, and the link is "ok" once the reflector answers. The callsign of the identity is the node callsign, so *Enable* needs the identity.
+
+- *Reflector address* and *port*: optional. Normally leave them empty and tune a talkgroup on the dashboard, picked from the P25 list, which names the reflector (the port defaults to 41000). A reflector set here is linked when the engine starts.
+- *P25 unit ID* (Options, 1-16777215): the source ID sent with your transmissions. Default: the DMR ID of the identity.
+- Under "advanced": the poll period, the link timeout and the call end timeout.
+- Voice is IMBE (full-rate Phase 1), carried in both directions. The source callsign is not sent on P25, so a received call shows the unit ID.
+
+On the dashboard, choose P25, pick a talkgroup from the list (or type up to five digits) and press Tune; unlink is `9999`. The card shows "retrying" while the reflector does not answer.
+
+## Voice codecs
+
+DMR, NXDN and YSF DN use AMBE+2 through the md380-emu vocoder; P25 and YSF Voice FR use IMBE, which the engine encodes and decodes itself in pure Go (no extra service). Every frame a network hands the bridge carries its codec, so one YSF call may be DN and the next VW. The bridge encodes your transmissions with the codec of the active network (P25: IMBE; everything else AMBE). A frame of the wrong length for its codec is dropped. IMBE is computed on the CPU of the node: a 20 ms frame (encode plus decode) takes well under a millisecond on a current x86 core, and the engine runs at most one IMBE encoder and one IMBE decoder at a time.

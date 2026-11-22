@@ -8,7 +8,6 @@ Release notes are taken from the section of the tag being released
 ### Changed
 - Digital modes now run on the built-in ASLCP engine; the previous third-party digital voice stack is no longer used, and its services are stopped when you enable digital modes. Nothing of it is uninstalled.
 - "Enable digital modes" installs only the md380-emu vocoder (plus qemu-user-static on 64-bit and x86 systems). ARMv6 boards are not supported.
-- P25 shows "Not yet available in this build". Your settings and favourites are kept.
 - `aslcp dv enable`, `disable` and `status` manage digital modes from the shell; the installer accepts `ASLCP_DV=1`. The old install command and installer variable are gone.
 - The digital modes API moved to /api/dv.
 - The setup page shows the bridge node and the state of `rpt.conf` and `modules.conf`, and holds the identity and the settings of the networks that are available.
@@ -17,7 +16,8 @@ Release notes are taken from the section of the tag being released
 ### Added
 - **BrandMeister is available again, natively.** The built-in engine logs in to BrandMeister itself: master address, port, password, identity (callsign and DMR ID) and options are set on the Digital modes tab, with the login state on the card, a private call switch and a Parrot button (TG 9990) on the dashboard. BrandMeister requires a registered application ID for this client; until one is set in Options, logins may be refused.
 - **TGIF, DMR - Other and NXDN are available, natively.** TGIF and DMR - Other are Homebrew (MMDVM) clients with master address, port, password and options (TGIF uses `tgif.network:62031` when no address is set); NXDN is a reflector client that needs only the identity and, to transmit, your NXDN unit ID. Each has its own card, login state and dashboard button. Your 1.x enable state, address, port and password are carried over; a network that lacks something it needs stays off until you complete it.
-- **YSF (System Fusion) is available, natively, in DN (V/D mode 2).** The built-in engine links to a YSF reflector picked from the YSF list on the dashboard (or typed as a 5-digit id or `host:port`); it needs only the identity. The reflector address and port in the settings are optional. Voice FR (VW) is not carried yet.
+- **YSF (System Fusion) is available, natively, in DN (V/D mode 2) and Voice FR.** The built-in engine links to a YSF reflector picked from the YSF list on the dashboard (or typed as a 5-digit id or `host:port`); it needs only the identity. The reflector address and port in the settings are optional. Both DN (V/D mode 2) and Voice FR (VW) calls are heard; your transmissions are sent in DN.
+- **P25 is available, natively.** The built-in engine links to a P25 reflector picked by talkgroup from the P25 list on the dashboard (unlink is `9999`); it needs only the identity. The reflector address and port in the settings are optional; the P25 unit ID in Options defaults to your DMR ID. Voice is encoded and decoded on the node itself.
 - `GET/PUT /api/dv/networks/{mode}`, `GET /api/dv/networks` and `GET/PUT /api/dv/identity`; the dv snapshot carries each network's login state.
 - New Parrot test mode echoes your transmission back through the bridge node.
 - ASLCP downloads the YSF, P25, NXDN and DMR host lists itself, once a day, while digital modes are enabled.

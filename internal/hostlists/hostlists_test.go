@@ -201,8 +201,11 @@ func TestDisabledAndRun(t *testing.T) {
 	<-done
 	on.Store(true)
 	ctx2, cancel2 := context.WithCancel(context.Background())
-	defer cancel2()
-	go m.Run(ctx2)
+	done2 := make(chan struct{})
+	go func() { m.Run(ctx2); close(done2) }()
+	// Stop Run and wait for it before t.TempDir is removed: it may still be
+	// writing the other lists.
+	defer func() { cancel2(); <-done2 }()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := m.Get("dmr"); err == nil {

@@ -176,7 +176,7 @@ func (d *demoDV) DVNetworkGet(context.Context) (helper.DVNetworkReply, error) {
 
 func (d *demoDV) netReply(changed bool) helper.DVNetworkReply {
 	r := helper.DVNetworkReply{Identity: d.ident, Rendered: true, Changed: changed}
-	for _, m := range []string{ctl.ModeBM, ctl.ModeTGIF, ctl.ModeDMR, ctl.ModeYSF, ctl.ModeNXDN} {
+	for _, m := range []string{ctl.ModeBM, ctl.ModeTGIF, ctl.ModeDMR, ctl.ModeYSF, ctl.ModeP25, ctl.ModeNXDN} {
 		if v, ok := d.nets[m]; ok {
 			r.Networks = append(r.Networks, v)
 		}

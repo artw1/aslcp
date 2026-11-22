@@ -22,7 +22,12 @@ const (
 type VoiceFrame struct {
 	Call uint64 // ctl.Talk.ID
 	Seq  uint32
-	Data []byte // 7 (AMBE) or 11 (IMBE) bytes
+	// Codec says what Data holds. The zero value is CodecAMBE, so networks
+	// that only carry AMBE need not set it. A network may mix codecs from
+	// frame to frame (YSF carries DN as AMBE and Voice FR as IMBE); on TX
+	// the bridge sets it to the network's Codec().
+	Codec Codec
+	Data  []byte // 7 (AMBE) or 11 (IMBE) bytes, as Codec says
 }
 
 // CallHeader starts a call.

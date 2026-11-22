@@ -3,7 +3,7 @@
 import type { DVIdentity, DVLogin, DVNetPut, DVNetView, DVOptSpec, DVSnapshot, DVTuneMode } from './types';
 
 /** The modes the build implements natively. Only the fallback when the snapshot does not list a mode; the engine's `available` wins. */
-export const NATIVE_MODES: readonly string[] = ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'NXDN'];
+export const NATIVE_MODES: readonly string[] = ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN'];
 
 /** Whether a mode is available: the snapshot's (engine's) answer, else the static native list. */
 export function modeAvailable(modes: DVSnapshot['modes'] | undefined, id: DVTuneMode): boolean {

@@ -309,3 +309,38 @@ func TestDVNetworkYSF(t *testing.T) {
 		t.Fatalf("%+v", n)
 	}
 }
+
+func TestDVNetworkP25(t *testing.T) {
+	o := dvCfgOps(t)
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "P25", Enabled: bp(true)}); !errors.Is(err, ErrDVNetIncomplete) {
+		t.Fatalf("no identity: %v", err)
+	}
+	dvNetDo(o, DVNetworkRequest{Identity: &DVIdentityView{Callsign: "N0CALL", DMRID: 1234567}})
+	for name, r := range map[string]DVNetworkRequest{
+		"password": {Mode: "P25", Password: sp("example-pass")},
+		"port":     {Mode: "P25", Port: ip(70000)},
+		"address":  {Mode: "P25", Address: sp("bad address")},
+		"poll":     {Mode: "P25", Options: map[string]string{"poll_ms": "10"}},
+		"tick":     {Mode: "P25", Options: map[string]string{"tick_ms": "100"}},
+		"id0":      {Mode: "P25", Options: map[string]string{"p25_id": "0"}},
+		"idbig":    {Mode: "P25", Options: map[string]string{"p25_id": "16777216"}},
+		"nxdnopt":  {Mode: "P25", Options: map[string]string{"nxdn_id": "1"}},
+	} {
+		if _, err := dvNetDo(o, r); !errors.Is(err, ErrDVBadRequest) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// no address needed: the reflector is picked by Tune
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "P25", Enabled: bp(true), Options: map[string]string{"p25_id": "16777215", "poll_ms": "4000"}}); err != nil {
+		t.Fatal(err)
+	}
+	if n := renderedNet(t, o, "P25"); !n.Enabled || n.Address != "" || n.Password != "" || n.Options["p25_id"] != "16777215" || n.Options["poll_ms"] != "4000" {
+		t.Fatalf("%+v", n)
+	}
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "P25", Address: sp("192.0.2.30"), Port: ip(41001)}); err != nil {
+		t.Fatal(err)
+	}
+	if n := renderedNet(t, o, "P25"); !n.Enabled || n.Address != "192.0.2.30" || n.Port != 41001 {
+		t.Fatalf("%+v", n)
+	}
+}
