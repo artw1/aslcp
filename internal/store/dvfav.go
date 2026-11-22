@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// DVFavorite is a saved DVSwitch target (a reflector, a talkgroup), shared by
+// DVFavorite is a saved digital modes target (a reflector, a talkgroup), shared by
 // everybody on the node. Mode is BM, DMR, YSF, P25 or NXDN; the API validates
 // Value per mode.
 type DVFavorite struct {
@@ -30,7 +30,7 @@ const MaxDVFavoritesPerMode = 50
 
 // ListDVFavorites returns all favourites ordered by mode, sort, id.
 func (s *Store) ListDVFavorites() ([]DVFavorite, error) {
-	rows, err := s.db.Query(`SELECT id,mode,value,name,sort FROM dvswitch_favorites ORDER BY mode, sort, id`)
+	rows, err := s.db.Query(`SELECT id,mode,value,name,sort FROM dv_favorites ORDER BY mode, sort, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +49,7 @@ func (s *Store) ListDVFavorites() ([]DVFavorite, error) {
 // GetDVFavorite returns one favourite or ErrNotFound.
 func (s *Store) GetDVFavorite(id int64) (DVFavorite, error) {
 	var f DVFavorite
-	err := s.db.QueryRow(`SELECT id,mode,value,name,sort FROM dvswitch_favorites WHERE id=?`, id).
+	err := s.db.QueryRow(`SELECT id,mode,value,name,sort FROM dv_favorites WHERE id=?`, id).
 		Scan(&f.ID, &f.Mode, &f.Value, &f.Name, &f.Sort)
 	if errors.Is(err, sql.ErrNoRows) {
 		return DVFavorite{}, ErrNotFound
@@ -61,14 +61,14 @@ func (s *Store) GetDVFavorite(id int64) (DVFavorite, error) {
 // the same mode and value, ErrLimit past MaxDVFavoritesPerMode.
 func (s *Store) AddDVFavorite(mode, value, name string) (DVFavorite, error) {
 	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM dvswitch_favorites WHERE mode=?`, mode).Scan(&n); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM dv_favorites WHERE mode=?`, mode).Scan(&n); err != nil {
 		return DVFavorite{}, err
 	}
 	if n >= MaxDVFavoritesPerMode {
 		return DVFavorite{}, ErrLimit
 	}
-	res, err := s.db.Exec(`INSERT INTO dvswitch_favorites(mode,value,name,sort,created)
-		VALUES (?,?,?,(SELECT COALESCE(MAX(sort),-1)+1 FROM dvswitch_favorites WHERE mode=?),?)`,
+	res, err := s.db.Exec(`INSERT INTO dv_favorites(mode,value,name,sort,created)
+		VALUES (?,?,?,(SELECT COALESCE(MAX(sort),-1)+1 FROM dv_favorites WHERE mode=?),?)`,
 		mode, value, name, mode, time.Now().Unix())
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
@@ -92,13 +92,13 @@ func (s *Store) UpdateDVFavorite(id int64, name *string, sort *int) (DVFavorite,
 	if sort != nil {
 		f.Sort = *sort
 	}
-	_, err = s.db.Exec(`UPDATE dvswitch_favorites SET name=?, sort=? WHERE id=?`, f.Name, f.Sort, id)
+	_, err = s.db.Exec(`UPDATE dv_favorites SET name=?, sort=? WHERE id=?`, f.Name, f.Sort, id)
 	return f, err
 }
 
 // DeleteDVFavorite removes a favourite or returns ErrNotFound.
 func (s *Store) DeleteDVFavorite(id int64) error {
-	res, err := s.db.Exec(`DELETE FROM dvswitch_favorites WHERE id=?`, id)
+	res, err := s.db.Exec(`DELETE FROM dv_favorites WHERE id=?`, id)
 	if err != nil {
 		return err
 	}

@@ -1,0 +1,48 @@
+[Unit]
+Description=ASLCP digital voice engine
+Documentation=file:///usr/share/doc/aslcp/README
+Wants=md380-emu.service
+After=network.target md380-emu.service asterisk.service
+
+[Service]
+Type=simple
+User=aslcp-dv
+Group=aslcp-dv
+ExecStart=/usr/libexec/aslcp/aslcp-dv run
+Restart=on-failure
+RestartSec=2
+# Exit 78 (EX_CONFIG): the config file is invalid; restarting cannot fix it.
+RestartPreventExitStatus=78
+StateDirectory=aslcp-dv
+StateDirectoryMode=0700
+RuntimeDirectory=aslcp-dv
+RuntimeDirectoryMode=0750
+UMask=0007
+Nice=-5
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# M1: loopback only. Relaxed (IPAddressDeny removed) when the first real network lands.
+IPAddressDeny=any
+IPAddressAllow=localhost
+
+[Install]
+WantedBy=multi-user.target

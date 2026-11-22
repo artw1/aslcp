@@ -95,7 +95,7 @@ Header changes:
 
 Read-only. The helper runs `journalctl -u <unit> -n <lines> --no-pager -o short-iso` for units in a fixed allowlist:
 
-`asterisk`, `aslcp`, `aslcp-helper`, `NetworkManager`, the DVSwitch units (`mmdvm_bridge`, `analog_bridge`, `ysfgateway`, `p25gateway`, `nxdngateway`), and `aslcp-wifi-watchdog` once it exists.
+`asterisk`, `aslcp`, `aslcp-helper`, `NetworkManager`, the previous digital voice stack's units (`mmdvm_bridge`, `analog_bridge`, `ysfgateway`, `p25gateway`, `nxdngateway`), and `aslcp-wifi-watchdog` once it exists.
 
 Rules:
 
@@ -133,7 +133,7 @@ Only `systemctl disable --now` and `enable --now`. Never `apt remove` or `purge`
 
 ### 6.2 Helper op
 
-A fixed unit allowlist, following the DVSwitch `dvScopes` pattern (`internal/helper/dvswitch_run.go`):
+A fixed unit allowlist, following the `dvScopes` pattern of the previous digital voice stack (`internal/helper/dv.go`):
 
 ```go
 var svcScopes = map[string][]string{
@@ -293,7 +293,7 @@ NetworkManager through `nmcli`, behind fixed helper ops with typed arguments. If
 Details:
 
 - **Typed args.** SSID: 1 to 32 bytes, no control characters. Password: 8 to 63 characters (WPA2/WPA3 passphrase) or empty for open networks. Connection id: must match an existing WiFi connection that the helper just listed. Nothing is passed through a shell, and values are passed as separate argv items, never joined into a string.
-- **Password is write-only.** It is sent once, written to NetworkManager (which stores it root-only), and never returned by any op or logged by the helper or the web server. The audit entry records the SSID and the action, not the password. Same approach as the DVSwitch password.
+- **Password is write-only.** It is sent once, written to NetworkManager (which stores it root-only), and never returned by any op or logged by the helper or the web server. The audit entry records the SSID and the action, not the password. Same approach as the the previous digital voice stack password.
 - **Priority.** Higher `autoconnect-priority` is tried first. Reordering writes descending values, for example 100, 90, 80. This is the same property ASL3's `cockpit-wifimanager` uses, so both tools agree (**to verify** on the image).
 - The hotspot connection (9.3) is listed separately and is not editable here, not forgettable, and not reorderable.
 - **Warn when changing the network you are connected through.** If the browser's address is on the WiFi interface (the web server compares the client's destination address with the interface addresses from `wifi-status`), connect, forget and reorder show: "You are using this network to reach ASLCP. If the new settings fail, you may lose access." The confirm button says so. If no other path exists (no Ethernet), the warning is stronger and the hotspot fallback note is shown.
@@ -377,7 +377,7 @@ There is already a text report: `GET /api/diagnostics` builds `diag.Report` and 
 A tarball (`.tar.gz`) with:
 
 - `report.txt`: the existing diagnostics report.
-- `versions.txt`: ASLCP, Asterisk, OS release, kernel, package versions of `asl3*`, `asterisk*`, `dvswitch*`.
+- `versions.txt`: ASLCP, Asterisk, OS release, kernel, package versions of `asl3*`, `asterisk*`, the previous digital voice stack's packages.
 - `services.txt`: the state of the services list (5.2) and listening ports.
 - `journal/<unit>.txt`: the last 500 lines for each allowlisted unit.
 - `network.txt`: network status (5.3), without WiFi passwords.
@@ -485,6 +485,6 @@ Terminal start (1.3.3 fix, on the ASL3 image): the first node run showed term-ho
 
 **Test `apt upgrade aslcp` from the terminal on a node** (not done yet): open the terminal, run `sudo apt upgrade` with a newer aslcp available, watch the page lose its connection when the postinst restarts the helper and the web server, then reconnect and reattach; check that dpkg finished and that the session ended by itself (`apt-finished`) or was ended with Disconnect. Also: `kill -9` of the helper while a session is open, a reboot with a detached session (units are transient, nothing remains), and 2 detached sessions blocking a third.
 
-Diagnostics (1.3.4), to verify on a node: the `dpkg-query -W -f` output and the package patterns (`asl3*`, `asterisk*`, `allmon3`, `dvswitch*`, `aslcp*`); `ss -tulnH` and `nmcli device` output; which journal units exist; that `/run` is writable under the helper unit (`PrivateTmp`; `/var/tmp` is the fallback); the file paths of the DVSwitch and Allmon3 configs; masking of a public IP that is only behind NAT (it is found from `ip -j addr` and `externip`/`externaddr` keys; with neither, the address is not known and stays); and browser handling of a large download (the UI saves it as a blob).
+Diagnostics (1.3.4), to verify on a node: the `dpkg-query -W -f` output and the package patterns (`asl3*`, `asterisk*`, `allmon3`, the previous digital voice stack's packages, `aslcp*`); `ss -tulnH` and `nmcli device` output; which journal units exist; that `/run` is writable under the helper unit (`PrivateTmp`; `/var/tmp` is the fallback); the file paths of the the previous digital voice stack and Allmon3 configs; masking of a public IP that is only behind NAT (it is found from `ip -j addr` and `externip`/`externaddr` keys; with neither, the address is not known and stays); and browser handling of a large download (the UI saves it as a blob).
 
 Examples in this document use placeholders: callsign N0CALL, node 2001, hostname `node2001`, address `192.0.2.10`.

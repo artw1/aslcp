@@ -1,0 +1,815 @@
+// Package bridge is the call state machine between the USRP endpoint, the
+// vocoder and the active network.
+package bridge
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"math"
+	"reflect"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/artw1/aslcp/internal/dv/ctl"
+	"github.com/artw1/aslcp/internal/dv/network"
+	"github.com/artw1/aslcp/internal/dv/usrp"
+	"github.com/artw1/aslcp/internal/dv/vocoder"
+)
+
+const (
+	// DefaultTxTimeout ends a transmission when USRP frames stop without a
+	// keyup=0.
+	DefaultTxTimeout = 300 * time.Millisecond
+	// DefaultRxSilence ends a received call when the network goes quiet
+	// without a terminator.
+	DefaultRxSilence = 1500 * time.Millisecond
+
+	tick     = 100 * time.Millisecond
+	workQ    = 64
+	netEvQ   = 1024
+	metaMax  = 64
+	cmdQueue = 16
+)
+
+// USRP is the endpoint as the router uses it (*usrp.Endpoint implements it).
+type USRP interface {
+	Rx() <-chan usrp.Packet
+	SendVoice(pcm [usrp.Samples]int16)
+	EndTX()
+	SendText(tlv []byte) error
+	Stats() usrp.Stats
+}
+
+// Options configures a Router.
+type Options struct {
+	USRP    USRP
+	AMBE    vocoder.AMBE
+	Config  ctl.Config
+	Version string
+	// VocoderStats reports the md380 client counters (optional).
+	VocoderStats func() vocoder.Stats
+	// Emit receives every event (optional). It must not block.
+	Emit func(ctl.Event)
+	// Reload re-reads the config file for the reload op. An error is
+	// reported as bad_config and the old config stays.
+	Reload func() (ctl.Config, error)
+	// InitialMode selects the network at start ("" = none).
+	InitialMode string
+	TxTimeout   time.Duration
+	RxSilence   time.Duration
+	Log         *log.Logger
+}
+
+type netEntry struct {
+	cfg    ctl.NetConfig
+	n      network.Network // nil when not implemented in this build
+	cancel context.CancelFunc
+	login  ctl.LoginState
+	detail string
+}
+
+type netEvent struct {
+	e      *netEntry
+	hdr    *network.CallHeader
+	frame  *network.VoiceFrame
+	end    uint64
+	isEnd  bool
+	login  ctl.LoginState
+	detail string
+	isLog  bool
+}
+
+type job struct {
+	call uint64
+	seq  uint32
+	pcm  [vocoder.PCMSamples]int16
+	ambe [vocoder.AMBEBytes]byte
+	end  bool
+}
+
+type call struct {
+	talk    ctl.Talk
+	net     *netEntry
+	netCall uint64 // rx: the network's call id
+	last    time.Time
+	seq     uint32
+	ending  bool
+}
+
+// Router owns all call state; everything runs on the goroutine of Run.
+type Router struct {
+	o    Options
+	log  *log.Logger
+	cmds chan func()
+	netq chan netEvent
+	enc  chan job
+	dec  chan job
+	encO chan job
+	decO chan job
+
+	stopped chan struct{}
+	runCtx  context.Context
+	wg      sync.WaitGroup
+
+	// state, owned by Run
+	cfg     ctl.Config
+	started time.Time
+	updated time.Time
+	mode    string
+	target  *ctl.Target
+	nets    []*netEntry
+	nextID  uint64
+	tx, rx  *call
+	vocDown bool
+	dropped atomic.Uint64
+}
+
+// New builds a Router; call Run to start it.
+func New(o Options) *Router {
+	if o.TxTimeout <= 0 {
+		o.TxTimeout = DefaultTxTimeout
+	}
+	if o.RxSilence <= 0 {
+		o.RxSilence = DefaultRxSilence
+	}
+	if o.Log == nil {
+		o.Log = log.New(discard{}, "", 0)
+	}
+	return &Router{
+		o: o, log: o.Log, cfg: o.Config,
+		cmds: make(chan func(), cmdQueue), netq: make(chan netEvent, netEvQ),
+		enc: make(chan job, workQ), dec: make(chan job, workQ),
+		encO: make(chan job, workQ), decO: make(chan job, workQ),
+		stopped: make(chan struct{}),
+	}
+}
+
+type discard struct{}
+
+func (discard) Write(p []byte) (int, error) { return len(p), nil }
+
+// Run drives the router until ctx ends. If a call is active, TX gets its
+// keyup=0 before Run returns.
+func (r *Router) Run(ctx context.Context) error {
+	defer close(r.stopped)
+	r.runCtx = ctx
+	now := time.Now()
+	r.started, r.updated = now, now
+	r.startNets()
+	if m := r.o.InitialMode; m != "" {
+		if e := r.find(m); e != nil && e.n != nil && e.cfg.Enabled {
+			r.mode = m
+		}
+	}
+	r.worker(ctx, r.enc, r.encO, func(j job) job {
+		pcm := j.pcm
+		j.ambe, _ = r.o.AMBE.Encode(ctx, &pcm)
+		return j
+	})
+	r.worker(ctx, r.dec, r.decO, func(j job) job {
+		j.pcm, _ = r.o.AMBE.Decode(ctx, j.ambe)
+		return j
+	})
+	t := time.NewTicker(tick)
+	defer t.Stop()
+	rx := r.o.USRP.Rx()
+loop:
+	for {
+		select {
+		case <-ctx.Done():
+			break loop
+		case p := <-rx:
+			r.onUSRP(p)
+		case ev := <-r.netq:
+			r.onNet(ev)
+		case j := <-r.encO:
+			r.onEncoded(j)
+		case j := <-r.decO:
+			r.onDecoded(j)
+		case f := <-r.cmds:
+			f()
+		case <-t.C:
+			r.housekeeping()
+		}
+	}
+	// Shutdown: close open calls without waiting for the pipelines.
+	if r.tx != nil {
+		r.finishTX()
+	}
+	if r.rx != nil {
+		r.finishRX()
+	}
+	r.o.USRP.EndTX()
+	for _, e := range r.nets {
+		if e.cancel != nil {
+			e.cancel()
+		}
+	}
+	r.wg.Wait()
+	return nil
+}
+
+func (r *Router) worker(ctx context.Context, in <-chan job, out chan<- job, f func(job) job) {
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case j := <-in:
+				if !j.end {
+					j = f(j)
+				}
+				select {
+				case out <- j:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+}
+
+func (r *Router) emit(ev ctl.Event) {
+	if r.o.Emit == nil {
+		return
+	}
+	if ev.At.IsZero() {
+		ev.At = time.Now()
+	}
+	r.o.Emit(ev)
+}
+
+func (r *Router) emitStatus() {
+	st := r.status()
+	r.emit(ctl.Event{Type: ctl.EvStatus, Status: &st})
+}
+
+func (r *Router) emitTalk(typ string, t ctl.Talk) {
+	r.emit(ctl.Event{Type: typ, Talk: &t})
+}
+
+// ---- networks ----
+
+func (r *Router) find(mode string) *netEntry {
+	for _, e := range r.nets {
+		if e.cfg.Mode == mode {
+			return e
+		}
+	}
+	return nil
+}
+
+type sink struct {
+	r *Router
+	e *netEntry
+}
+
+func (s sink) push(ev netEvent) {
+	ev.e = s.e
+	select {
+	case s.r.netq <- ev:
+	default:
+		s.r.dropped.Add(1)
+	}
+}
+func (s sink) Header(h network.CallHeader) { s.push(netEvent{hdr: &h}) }
+func (s sink) Voice(f network.VoiceFrame) {
+	f.Data = append([]byte(nil), f.Data...)
+	s.push(netEvent{frame: &f})
+}
+func (s sink) End(c uint64) { s.push(netEvent{isEnd: true, end: c}) }
+func (s sink) Login(st ctl.LoginState, d string) {
+	s.push(netEvent{isLog: true, login: st, detail: d})
+}
+
+func (r *Router) newEntry(c ctl.NetConfig) *netEntry {
+	e := &netEntry{cfg: c, login: ctl.LoginOff}
+	if !network.Available(c.Mode) {
+		return e
+	}
+	n, err := network.New(c, r.cfg.Identity)
+	if err != nil {
+		r.log.Printf("network %s: %v", c.Mode, err)
+		e.detail = err.Error()
+		return e
+	}
+	e.n = n
+	if c.Enabled {
+		ctx, cancel := context.WithCancel(r.runCtx)
+		e.cancel = cancel
+		r.wg.Add(1)
+		go func() {
+			defer r.wg.Done()
+			if err := n.Run(ctx, sink{r, e}); err != nil && ctx.Err() == nil {
+				r.log.Printf("network %s stopped: %v", c.Mode, err)
+			}
+		}()
+	}
+	return e
+}
+
+func (r *Router) startNets() {
+	r.nets = nil
+	for _, c := range r.cfg.Networks {
+		r.nets = append(r.nets, r.newEntry(c))
+	}
+}
+
+// ---- USRP side (node transmits) ----
+
+func (r *Router) active() *netEntry {
+	if r.mode == ctl.ModeNone {
+		return nil
+	}
+	e := r.find(r.mode)
+	if e == nil || e.n == nil || !e.cfg.Enabled {
+		return nil
+	}
+	return e
+}
+
+func (r *Router) onUSRP(p usrp.Packet) {
+	switch p.Type {
+	case usrp.TypeDTMF:
+		r.log.Printf("usrp dtmf %q (ignored in this build)", p.DTMF)
+		return
+	case usrp.TypeText:
+		r.log.Printf("usrp text %d bytes (ignored)", len(p.Text))
+		return
+	}
+	now := time.Now()
+	if !p.Keyup {
+		if r.tx != nil && !r.tx.ending {
+			r.endTX()
+		}
+		return
+	}
+	if p.PCM == nil {
+		return
+	}
+	if r.tx == nil {
+		if !r.startTX(now) {
+			return
+		}
+	}
+	if r.tx.ending {
+		return
+	}
+	r.tx.last = now
+	j := job{call: r.tx.talk.ID, seq: r.tx.seq}
+	r.tx.seq++
+	j.pcm = *p.PCM
+	applyGain(&j.pcm, r.cfg.USRP.GainRx)
+	select {
+	case r.enc <- j:
+	default:
+		r.dropped.Add(1)
+	}
+}
+
+func (r *Router) startTX(now time.Time) bool {
+	e := r.active()
+	if e == nil || e.n.Codec() != network.CodecAMBE {
+		return false
+	}
+	if r.rx != nil {
+		// The node's transmission wins over a received call.
+		r.cutRX()
+	}
+	r.nextID++
+	id := r.nextID
+	t := ctl.Talk{ID: id, Dir: "tx", Mode: r.mode, Call: r.cfg.Identity.Callsign,
+		DMRID: r.cfg.Identity.DMRID, Start: now}
+	h := network.CallHeader{Call: id, Src: t.Call, SrcID: t.DMRID}
+	if r.target != nil {
+		t.TG, t.Room, t.Slot, t.Private = r.target.TG, r.target.Room, r.target.Slot, r.target.Private
+		h.TG, h.Room, h.Slot, h.Private = t.TG, t.Room, t.Slot, t.Private
+	}
+	if err := e.n.StartTX(h); err != nil {
+		r.log.Printf("start tx: %v", err)
+		return false
+	}
+	r.tx = &call{talk: t, net: e, last: now}
+	r.updated = now
+	r.emitTalk(ctl.EvTalkStart, t)
+	r.emitStatus()
+	return true
+}
+
+// endTX queues the end marker behind the frames already in the encoder.
+func (r *Router) endTX() {
+	r.tx.ending = true
+	select {
+	case r.enc <- job{call: r.tx.talk.ID, end: true}:
+	default:
+		r.finishTX()
+	}
+}
+
+func (r *Router) onEncoded(j job) {
+	if r.tx == nil || r.tx.talk.ID != j.call {
+		return
+	}
+	if j.end {
+		r.finishTX()
+		return
+	}
+	if err := r.tx.net.n.WriteVoice(network.VoiceFrame{Call: j.call, Seq: j.seq, Data: j.ambe[:]}); err != nil {
+		r.log.Printf("write voice: %v", err)
+	}
+}
+
+func (r *Router) finishTX() {
+	c := r.tx
+	r.tx = nil
+	c.talk.End = time.Now()
+	c.talk.Duration = c.talk.End.Sub(c.talk.Start)
+	r.updated = c.talk.End
+	r.emitTalk(ctl.EvTalkEnd, c.talk)
+	if err := c.net.n.EndTX(c.talk.ID); err != nil {
+		r.log.Printf("end tx: %v", err)
+	}
+	r.emitStatus()
+}
+
+// ---- network side (node receives) ----
+
+func (r *Router) onNet(ev netEvent) {
+	e := ev.e
+	if ev.isLog {
+		e.login, e.detail = ev.login, ev.detail
+		r.emit(ctl.Event{Type: ctl.EvLogin, Login: &ctl.LoginEvent{Mode: e.cfg.Mode, State: ev.login, Detail: ev.detail}})
+		return
+	}
+	if r.active() != e {
+		return
+	}
+	now := time.Now()
+	switch {
+	case ev.hdr != nil:
+		if r.tx != nil || r.rx != nil || e.n.Codec() != network.CodecAMBE {
+			return
+		}
+		h := ev.hdr
+		r.nextID++
+		t := ctl.Talk{ID: r.nextID, Dir: "rx", Mode: e.cfg.Mode, Call: h.Src, DMRID: h.SrcID,
+			TG: h.TG, Room: h.Room, Slot: h.Slot, Private: h.Private, Start: now}
+		r.rx = &call{talk: t, net: e, netCall: h.Call, last: now}
+		r.updated = now
+		r.emitTalk(ctl.EvTalkStart, t)
+		r.emitStatus()
+		meta := h.Src
+		if h.Room != "" {
+			meta += " " + h.Room
+		} else if h.TG != 0 {
+			meta += fmt.Sprintf(" %d", h.TG)
+		}
+		if err := r.o.USRP.SendText(usrp.MetaTLV(meta)); err != nil {
+			r.log.Printf("send text: %v", err)
+		}
+	case ev.frame != nil:
+		c := r.rx
+		if c == nil || c.ending || c.netCall != ev.frame.Call || len(ev.frame.Data) != vocoder.AMBEBytes {
+			return
+		}
+		c.last = now
+		j := job{call: c.talk.ID, seq: ev.frame.Seq}
+		copy(j.ambe[:], ev.frame.Data)
+		select {
+		case r.dec <- j:
+		default:
+			r.dropped.Add(1)
+		}
+	case ev.isEnd:
+		if c := r.rx; c != nil && !c.ending && c.netCall == ev.end {
+			r.endRX()
+		}
+	}
+}
+
+func (r *Router) endRX() {
+	r.rx.ending = true
+	select {
+	case r.dec <- job{call: r.rx.talk.ID, end: true}:
+	default:
+		r.finishRX()
+	}
+}
+
+func (r *Router) onDecoded(j job) {
+	if r.rx == nil || r.rx.talk.ID != j.call {
+		return
+	}
+	if j.end {
+		r.finishRX()
+		return
+	}
+	applyGain(&j.pcm, r.cfg.USRP.GainTx)
+	r.o.USRP.SendVoice(j.pcm)
+}
+
+func (r *Router) finishRX() {
+	c := r.rx
+	r.rx = nil
+	c.talk.End = time.Now()
+	c.talk.Duration = c.talk.End.Sub(c.talk.Start)
+	r.updated = c.talk.End
+	r.o.USRP.EndTX()
+	r.emitTalk(ctl.EvTalkEnd, c.talk)
+	r.emitStatus()
+}
+
+// cutRX ends the received call immediately; queued audio of it is dropped by
+// the call-id check.
+func (r *Router) cutRX() { r.finishRX() }
+
+func (r *Router) housekeeping() {
+	now := time.Now()
+	if c := r.tx; c != nil && !c.ending && now.Sub(c.last) > r.o.TxTimeout {
+		r.endTX()
+	}
+	if c := r.rx; c != nil && !c.ending && now.Sub(c.last) > r.o.RxSilence {
+		r.endRX()
+	}
+	if r.o.VocoderStats != nil {
+		s := r.o.VocoderStats()
+		if s.Down != r.vocDown {
+			r.vocDown = s.Down
+			v := r.vocStatus()
+			r.emit(ctl.Event{Type: ctl.EvVocoder, Vocoder: &v})
+		}
+	}
+}
+
+func (r *Router) vocStatus() ctl.VocoderStatus {
+	v := ctl.VocoderStatus{OK: true, Addr: r.cfg.Vocoder.MD380}
+	if r.o.VocoderStats != nil {
+		s := r.o.VocoderStats()
+		v.OK, v.Frames, v.Timeouts = !s.Down, s.Frames, s.Timeouts
+	}
+	return v
+}
+
+// ---- status ----
+
+func (r *Router) status() ctl.Status {
+	us := r.o.USRP.Stats()
+	st := ctl.Status{
+		Version: r.o.Version, Started: r.started, Mode: r.mode, Updated: r.updated,
+		USRP: ctl.USRPStatus{Listen: r.cfg.USRP.Listen, Peer: r.cfg.USRP.Peer,
+			LastRx: us.LastRx, RxFrames: us.RxFrames, TxFrames: us.TxFrames},
+		Vocoder:  r.vocStatus(),
+		Networks: []ctl.NetStatus{},
+	}
+	if r.target != nil {
+		t := *r.target
+		st.Target = &t
+	}
+	for _, e := range r.nets {
+		ns := ctl.NetStatus{Mode: e.cfg.Mode, Enabled: e.cfg.Enabled, Login: e.login, Detail: e.detail}
+		if e.n != nil {
+			ns.Available = true
+			if s := e.n.Status(); s.Detail != "" && ns.Detail == "" {
+				ns.Detail = s.Detail
+			}
+		}
+		st.Networks = append(st.Networks, ns)
+	}
+	if c := r.tx; c != nil {
+		t := c.talk
+		st.Talk = &t
+	} else if c := r.rx; c != nil {
+		t := c.talk
+		st.Talk = &t
+	}
+	return st
+}
+
+// ---- ctl handler ----
+
+// exec runs f on the router goroutine.
+func (r *Router) exec(ctx context.Context, f func()) error {
+	done := make(chan struct{})
+	wrapped := func() { f(); close(done) }
+	select {
+	case r.cmds <- wrapped:
+	case <-r.stopped:
+		return &ctl.Error{Code: ctl.CodeInternal, Msg: "engine stopping"}
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case <-done:
+		return nil
+	case <-r.stopped:
+		return &ctl.Error{Code: ctl.CodeInternal, Msg: "engine stopping"}
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (r *Router) do(ctx context.Context, f func() error) (ctl.Status, error) {
+	var st ctl.Status
+	var ferr error
+	if err := r.exec(ctx, func() {
+		ferr = f()
+		st = r.status()
+	}); err != nil {
+		return st, err
+	}
+	return st, ferr
+}
+
+func cerr(code, format string, a ...any) error {
+	return &ctl.Error{Code: code, Msg: fmt.Sprintf(format, a...)}
+}
+
+// Status returns the current status.
+func (r *Router) Status(ctx context.Context) (ctl.Status, error) {
+	return r.do(ctx, func() error { return nil })
+}
+
+func (r *Router) callActive() bool { return r.tx != nil || r.rx != nil }
+
+func (r *Router) checkMode(mode string) (*netEntry, error) {
+	e := r.find(mode)
+	switch {
+	case e == nil && network.Available(mode):
+		return nil, cerr(ctl.CodeNotEnabled, "network %s is not configured", mode)
+	case e == nil || e.n == nil:
+		return nil, cerr(ctl.CodeNotAvailable, "network %s is not available in this build", mode)
+	case !e.cfg.Enabled:
+		return nil, cerr(ctl.CodeNotEnabled, "network %s is disabled", mode)
+	}
+	return e, nil
+}
+
+func (r *Router) cutCalls() {
+	if r.tx != nil {
+		r.finishTX()
+	}
+	if r.rx != nil {
+		r.finishRX()
+	}
+}
+
+func (r *Router) switchMode(mode string, force bool) (*netEntry, error) {
+	var e *netEntry
+	if mode != ctl.ModeNone {
+		var err error
+		if e, err = r.checkMode(mode); err != nil {
+			return nil, err
+		}
+	}
+	if mode == r.mode {
+		return e, nil
+	}
+	if r.callActive() {
+		if !force {
+			return nil, cerr(ctl.CodeBusy, "a call is in progress")
+		}
+		r.cutCalls()
+	}
+	if old := r.active(); old != nil {
+		old.n.Unlink(r.runCtx)
+	}
+	r.mode, r.target = mode, nil
+	r.updated = time.Now()
+	return e, nil
+}
+
+// Mode switches the active network.
+func (r *Router) Mode(ctx context.Context, a ctl.ModeArgs) (ctl.Status, error) {
+	return r.do(ctx, func() error {
+		if _, err := r.switchMode(a.Mode, a.Force); err != nil {
+			return err
+		}
+		r.emitStatus()
+		return nil
+	})
+}
+
+// Tune points the network at a target (switching mode if needed).
+func (r *Router) Tune(ctx context.Context, a ctl.TuneArgs) (ctl.Status, error) {
+	return r.do(ctx, func() error {
+		if a.Mode == ctl.ModeNone {
+			return cerr(ctl.CodeBadRequest, "tune needs a mode")
+		}
+		e, err := r.switchMode(a.Mode, a.Force)
+		if err != nil {
+			return err
+		}
+		if err := e.n.Tune(ctx, a.Target); err != nil {
+			return cerr(ctl.CodeInternal, "tune: %v", err)
+		}
+		t := a.Target
+		r.target = &t
+		r.updated = time.Now()
+		r.emitStatus()
+		return nil
+	})
+}
+
+// Unlink disconnects the target of the current network.
+func (r *Router) Unlink(ctx context.Context, a ctl.UnlinkArgs) (ctl.Status, error) {
+	return r.do(ctx, func() error {
+		if a.Mode != ctl.ModeNone && a.Mode != r.mode {
+			return cerr(ctl.CodeBadRequest, "mode %s is not the current mode", a.Mode)
+		}
+		if e := r.active(); e != nil {
+			if err := e.n.Unlink(ctx); err != nil {
+				return cerr(ctl.CodeInternal, "unlink: %v", err)
+			}
+		}
+		r.target = nil
+		r.updated = time.Now()
+		r.emitStatus()
+		return nil
+	})
+}
+
+// Reload re-reads the config. A bad file leaves the running config in place.
+func (r *Router) Reload(ctx context.Context) (ctl.Status, error) {
+	if r.o.Reload == nil {
+		return r.Status(ctx)
+	}
+	cfg, err := r.o.Reload()
+	if err != nil {
+		return ctl.Status{}, &ctl.Error{Code: ctl.CodeBadConfig, Msg: err.Error()}
+	}
+	return r.do(ctx, func() error { r.apply(cfg); return nil })
+}
+
+// apply swaps in a new config. Networks whose config changed are restarted;
+// the USRP ports need a process restart and are only logged. The md380
+// address and timeout are applied by the caller (Options.Reload hook).
+func (r *Router) apply(cfg ctl.Config) {
+	if cfg.USRP.Listen != r.cfg.USRP.Listen || cfg.USRP.Peer != r.cfg.USRP.Peer {
+		r.log.Printf("config: usrp addresses changed; restart aslcp-dv to apply")
+		cfg.USRP.Listen, cfg.USRP.Peer = r.cfg.USRP.Listen, r.cfg.USRP.Peer
+	}
+	identityChanged := !reflect.DeepEqual(cfg.Identity, r.cfg.Identity)
+	old := r.nets
+	r.cfg = cfg
+	var nets []*netEntry
+	for _, c := range cfg.Networks {
+		var keep *netEntry
+		for _, e := range old {
+			if e.cfg.Mode == c.Mode && !identityChanged && reflect.DeepEqual(e.cfg, c) {
+				keep = e
+			}
+		}
+		if keep != nil {
+			nets = append(nets, keep)
+			continue
+		}
+		nets = append(nets, nil) // filled after the old ones stop
+	}
+	for _, e := range old {
+		kept := false
+		for _, n := range nets {
+			if n == e {
+				kept = true
+			}
+		}
+		if !kept && e.cancel != nil {
+			if e.cfg.Mode == r.mode {
+				r.cutCalls()
+				r.mode, r.target = ctl.ModeNone, nil
+			}
+			e.cancel()
+		}
+	}
+	for i, n := range nets {
+		if n == nil {
+			nets[i] = r.newEntry(cfg.Networks[i])
+		}
+	}
+	r.nets = nets
+	if r.mode != ctl.ModeNone && r.active() == nil {
+		r.cutCalls()
+		r.mode, r.target = ctl.ModeNone, nil
+	}
+	r.updated = time.Now()
+	r.emitStatus()
+}
+
+func applyGain(p *[vocoder.PCMSamples]int16, db int) {
+	if db == 0 {
+		return
+	}
+	g := math.Pow(10, float64(db)/20)
+	for i, s := range p {
+		v := math.Round(float64(s) * g)
+		if v > math.MaxInt16 {
+			v = math.MaxInt16
+		} else if v < math.MinInt16 {
+			v = math.MinInt16
+		}
+		p[i] = int16(v)
+	}
+}

@@ -1,0 +1,3 @@
+00001;Test Room;Test room one;192.0.2.20;42000;000;
+00002;Other Room;Second;node2001.example.net;42001;000;
+bad;x;y;192.0.2.21;1;000;

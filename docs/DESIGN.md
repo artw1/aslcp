@@ -265,7 +265,7 @@ The first-run wizard can replace the `asl3-menu` node setup.
 | Detect | Is ASL3 present, which version, existing nodes, existing layout. |
 | Node | Node number and password; registration entries. |
 | Identity | Callsign, ID, basic `[general]` settings. |
-| Radio interface | SimpleUSB, USBRadio, none (local/pseudo hub), USRP (DVSwitch bridge: see [DVSWITCH.md](DVSWITCH.md)), Voter. |
+| Radio interface | SimpleUSB, USBRadio, none (local/pseudo hub), USRP (digital modes bridge: see [DV.md](DV.md)), Voter. |
 | AMI | Create or update credentials; update or warn about detected AMI clients (section 4.5). |
 | Review | Full multi-file diff, then apply through the safety pipeline. |
 

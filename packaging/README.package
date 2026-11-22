@@ -8,13 +8,22 @@ Setup link fallback:  http://<this-host>:<port>/#/setup?code=<code>, with the co
 Lost password:        sudo aslcp admin reset-password <user>
 Accounts:             sudo aslcp admin list
 Configuration:        /etc/aslcp/aslcp.conf       (then: sudo systemctl restart aslcp)
-Logs:                 journalctl -u aslcp -u aslcp-helper
+Logs:                 journalctl -u aslcp -u aslcp-helper -u aslcp-dv
 
 Services
   aslcp.service         the web server, runs as user "aslcp" (hardened, no capabilities)
   aslcp-helper.socket   socket-activated root helper; performs package updates and
   aslcp-helper.service  firewalld changes on request from the web server. It accepts
                         a fixed set of operations only, from root and user "aslcp".
+
+  aslcp-dv.service      the digital voice engine (USRP <-> md380-emu, parrot test
+                        network), runs as user "aslcp-dv" with no capabilities and
+                        loopback-only network access. It is installed but NOT enabled
+                        by the package: "Digital modes" in the web UI turns it on.
+                        State: /var/lib/aslcp-dv (config.json, mode 0600, written by the
+                        helper). Control socket: /run/aslcp-dv/ctl.sock (user "aslcp"
+                        is a member of group "aslcp-dv" to reach it).
+                        Logs: journalctl -u aslcp-dv
 
 Asterisk access
   ASLCP reads the AMI credentials from /etc/asterisk/manager.conf ("auto"). The
@@ -47,6 +56,7 @@ Reporting bugs
 
 Removal
   apt remove aslcp   keeps /var/lib/aslcp (users, favorites) and the user
-  apt purge aslcp    deletes them, the config history (/var/lib/aslcp-config-history)
-                     and the DVSwitch state (/var/lib/aslcp-dvswitch,
-                     /var/lib/aslcp-dvswitch-history); /etc/asterisk and DVSwitch stay
+  apt purge aslcp    deletes them, the digital voice engine state (/var/lib/aslcp-dv)
+                     and user, the config history (/var/lib/aslcp-config-history)
+                     and the digital modes state (/var/lib/aslcp-dvstate,
+                     /var/lib/aslcp-dvstate-history); /etc/asterisk stays

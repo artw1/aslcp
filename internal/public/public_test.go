@@ -225,19 +225,19 @@ func TestBuildNetworkDedupesScrubbed(t *testing.T) {
 
 func TestBridgeNodeLabelled(t *testing.T) {
 	now := time.Now()
-	v := View{Callsigns: false, Network: true, Now: now, Bridge: "1999", BridgeName: "DVSwitch linked node"}
+	v := View{Callsigns: false, Network: true, Now: now, Bridge: "1999", BridgeName: "Digital modes linked node"}
 	st := rpt.NodeStatus{Node: "1997", Updated: now,
 		Links:   []rpt.Link{{Node: "1999", Kind: rpt.KindAllStar, State: rpt.StateEstablished, Mode: rpt.ModeTransceive}, {Node: "1998", Kind: rpt.KindAllStar, State: rpt.StateEstablished, Mode: rpt.ModeTransceive}},
 		Network: []rpt.LinkedNode{{Node: "1999", Mode: rpt.ModeTransceive}, {Node: "1998", Mode: rpt.ModeTransceive}}}
 	n := BuildNode(st, nil, v, true)
-	if n.Links[0].Node != "1999" || n.Links[0].Label != "DVSwitch linked node" || n.Links[1].Label != "" {
+	if n.Links[0].Node != "1999" || n.Links[0].Label != "Digital modes linked node" || n.Links[1].Label != "" {
 		t.Fatalf("links: %+v", n.Links)
 	}
-	if n.Network[0].Label != "DVSwitch linked node" || n.Network[1].Label != "" {
+	if n.Network[0].Label != "Digital modes linked node" || n.Network[1].Label != "" {
 		t.Fatalf("network: %+v", n.Network)
 	}
 	act := BuildActivity([]store.Activity{{Node: "1997", Link: "1999", Start: now, Duration: time.Second}, {Node: "1997", Link: "1998", Start: now, Duration: time.Second}}, nil, v)
-	if act[0].Label != "DVSwitch linked node" || act[1].Label != "" {
+	if act[0].Label != "Digital modes linked node" || act[1].Label != "" {
 		t.Fatalf("activity: %+v", act)
 	}
 	if got := BuildNode(st, nil, View{Now: now}, false).Links[0].Label; got != "" {

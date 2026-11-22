@@ -3,6 +3,23 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [2.0.0] - unreleased
+
+### Changed
+- Digital modes now run on the built-in ASLCP engine; the previous third-party digital voice stack is no longer used, and its services are stopped when you enable digital modes. Nothing of it is uninstalled.
+- "Enable digital modes" installs only the md380-emu vocoder (plus qemu-user-static on 64-bit and x86 systems). ARMv6 boards are not supported.
+- BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN show "Not yet available in this build". Your settings and favourites are kept.
+- `aslcp dv enable`, `disable` and `status` manage digital modes from the shell; the installer accepts `ASLCP_DV=1`. The old install command and installer variable are gone.
+- The digital modes API moved to /api/dv.
+- The setup page is read-only: it shows the bridge node and the state of `rpt.conf` and `modules.conf`.
+
+### Added
+- New Parrot test mode echoes your transmission back through the bridge node.
+- ASLCP downloads the YSF, P25, NXDN and DMR host lists itself, once a day, while digital modes are enabled.
+
+### Removed
+- The uninstall of the previous stack, the BrandMeister, STFU and network credential pages, the identity page, and the service restart and rollback buttons of the previous stack.
+
 ## [1.4.0] - 2026-11-21
 
 ### Added

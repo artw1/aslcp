@@ -256,7 +256,7 @@ test('[Info] text, URL and coordinates', () => {
 
 test('the DMR networks: all DMR on the air, each its own mode with its own label', () => {
   assert.ok(isDMRFamily('BM') && isDMRFamily('TGIF') && isDMRFamily('DMR') && !isDMRFamily('YSF') && !isDMRFamily(''));
-  assert.deepEqual(PANEL_MODES, ['BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN']);
+  assert.deepEqual(PANEL_MODES, ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN']);
   assert.equal(modeLabel('BM'), 'BrandMeister');
   assert.equal(modeLabel('TGIF'), 'TGIF');
   assert.equal(modeLabel('DMR'), 'DMR - Other');

@@ -1,0 +1,5 @@
+# synthetic
+Test_Master	0000	192.0.2.10	example-pass	62031
+Loop	0000	127.0.0.1	x	62031
+Hub_Two	1234	node2001.example.net	example-pass	55555
+Bad	0	192.0.2.11	p	0

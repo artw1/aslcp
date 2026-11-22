@@ -16,9 +16,9 @@ import (
 	"github.com/artw1/aslcp/internal/backup"
 )
 
-// Pending DVSwitch settings (docs/BACKUP.md, "Apply" step 5): a restore onto a
-// node without DVSwitch stages the part's files here, root-only, instead of
-// skipping them. The install unit applies them (dvswitch-step restore-apply)
+// Pending the previous stack settings (docs/BACKUP.md, "Apply" step 5): a restore onto a
+// node without the previous stack stages the part's files here, root-only, instead of
+// skipping them. The install unit applies them (dv-step restore-apply)
 // once the packages are installed. Nothing in this file logs file contents:
 // they hold the DMR password.
 
@@ -27,7 +27,7 @@ const (
 	dvPendingManifest = "manifest.json"
 )
 
-// DVRestorePending is the part of dvswitch-status that describes a staged set.
+// DVRestorePending is the part of dv-status that describes a staged set.
 type DVRestorePending struct {
 	Pending bool `json:"pending"`
 	// BackupDate is the creation time of the backup the set came from.
@@ -48,11 +48,10 @@ type dvPendingMeta struct {
 	Version    int             `json:"version"`
 	BackupDate string          `json:"backupDate"`
 	Files      []dvPendingFile `json:"files"`
-	// Private: the record of the private bridge node is staged too (file
-	// privatenode.json). Optional: sets staged before it existed lack it.
-	Private bool `json:"private,omitempty"`
-	// Networks: the DMR network settings are staged too (file
-	// networks.json). Optional like Private.
+	// Private and Networks are read from sets staged by earlier versions;
+	// nothing sets them any more (the record and the settings are written
+	// at restore).
+	Private  bool `json:"private,omitempty"`
 	Networks bool `json:"networks,omitempty"`
 }
 
@@ -63,7 +62,7 @@ func (o *Ops) dvPendingDir() string { return filepath.Join(o.dvStateDir(), dvPen
 func dvPendingName(rel string) string { return strings.ReplaceAll(rel, "/", "__") }
 
 func dvAllowedRel(rel string) bool {
-	for _, r := range backup.DVSwitchFiles {
+	for _, r := range backup.DVFiles {
 		if r == rel {
 			return true
 		}
@@ -84,11 +83,9 @@ func writeNew(path string, data []byte) error {
 	return werr
 }
 
-// dvStagePending replaces any pending set with items and, when private or
-// networks is not empty, the (already validated) bridge node record and DMR
-// network settings: a new 0700 directory, files 0600, then a rename into
-// place.
-func (o *Ops) dvStagePending(items []dvItem, date string, private, networks []byte) error {
+// dvStagePending replaces any pending set with items: a new 0700 directory,
+// files 0600, then a rename into place.
+func (o *Ops) dvStagePending(items []dvItem, date string) error {
 	base := o.dvStateDir()
 	if err := os.MkdirAll(base, 0o700); err != nil {
 		return err
@@ -109,24 +106,12 @@ func (o *Ops) dvStagePending(items []dvItem, date string, private, networks []by
 	meta := dvPendingMeta{Version: 1, BackupDate: date}
 	for _, it := range items {
 		if !dvAllowedRel(it.rel) || len(it.data) > dvIniMaxSize {
-			return fmt.Errorf("%s is not a DVSwitch part file", it.rel)
+			return fmt.Errorf("%s is not a digital modes part file", it.rel)
 		}
 		if err := writeNew(filepath.Join(tmp, dvPendingName(it.rel)), it.data); err != nil {
 			return err
 		}
 		meta.Files = append(meta.Files, dvPendingFile{Rel: it.rel, Owner: it.e.Owner, Group: it.e.Group, Mode: it.e.Mode, Size: int64(len(it.data))})
-	}
-	if len(private) > 0 {
-		if err := dvStagePrivate(tmp, private); err != nil {
-			return err
-		}
-		meta.Private = true
-	}
-	if len(networks) > 0 {
-		if err := dvStageNetworks(tmp, networks); err != nil {
-			return err
-		}
-		meta.Networks = true
 	}
 	raw, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
@@ -159,7 +144,7 @@ func (o *Ops) dvReadPendingMeta() (*dvPendingMeta, error) {
 		return nil, err
 	}
 	if !fi.IsDir() {
-		return nil, errors.New("pending DVSwitch settings: not a directory")
+		return nil, errors.New("pending digital modes settings: not a directory")
 	}
 	raw, err := dvReadNoFollow(filepath.Join(dir, dvPendingManifest), 1<<16)
 	if err != nil {
@@ -169,15 +154,15 @@ func (o *Ops) dvReadPendingMeta() (*dvPendingMeta, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&m); err != nil {
-		return nil, fmt.Errorf("pending DVSwitch settings: %w", err)
+		return nil, fmt.Errorf("pending digital modes settings: %w", err)
 	}
-	if m.Version != 1 || len(m.Files) == 0 || len(m.Files) > len(backup.DVSwitchFiles) {
-		return nil, errors.New("pending DVSwitch settings: unsupported content")
+	if m.Version != 1 || len(m.Files) == 0 || len(m.Files) > len(backup.DVFiles) {
+		return nil, errors.New("pending digital modes settings: unsupported content")
 	}
 	seen := map[string]bool{}
 	for _, f := range m.Files {
 		if !dvAllowedRel(f.Rel) || seen[f.Rel] {
-			return nil, errors.New("pending DVSwitch settings: unexpected file")
+			return nil, errors.New("pending digital modes settings: unexpected file")
 		}
 		seen[f.Rel] = true
 	}
@@ -220,107 +205,16 @@ func (o *Ops) dvPendingStatus() DVRestorePending {
 	return st
 }
 
-// DVSwitchRestoreDiscard deletes the pending set (dvswitch-restore-discard).
-// It is refused while an install is writing the files.
-func (o *Ops) DVSwitchRestoreDiscard(ctx context.Context) (DVSwitchStatus, error) {
+// DVRestoreDiscard deletes the pending set (dv-restore-discard). It is
+// refused while the enable job is running.
+func (o *Ops) DVRestoreDiscard(ctx context.Context) (DVStatus, error) {
 	o.applyMu.Lock()
 	defer o.applyMu.Unlock()
 	if o.dvBusy(ctx) {
-		return DVSwitchStatus{}, ErrBusy
+		return DVStatus{}, ErrBusy
 	}
 	if err := os.RemoveAll(o.dvPendingDir()); err != nil {
-		return DVSwitchStatus{}, fmt.Errorf("cannot remove the pending DVSwitch settings: %w", err)
+		return DVStatus{}, fmt.Errorf("cannot remove the pending settings: %w", err)
 	}
-	return o.DVSwitchStatus(ctx)
+	return o.DVStatus(ctx)
 }
-
-// dvRestoreApply is the install unit's step: it applies the pending set with
-// the safe write path of the restore, logs file names (never contents) to w,
-// deletes the pending directory and starts the DVSwitch services. It never
-// fails the install: problems are warnings and the set stays for a look.
-func (o *Ops) dvRestoreApply(ctx context.Context, w io.Writer) error {
-	m, err := o.dvReadPendingMeta()
-	if err != nil {
-		fmt.Fprintf(w, "warning: the DVSwitch settings saved from your backup cannot be used (%v); they were discarded\n", err)
-		_ = os.RemoveAll(o.dvPendingDir())
-		return nil
-	}
-	if m == nil {
-		return nil
-	}
-	if !o.dvInstalled() {
-		fmt.Fprintln(w, "warning: DVSwitch is not installed; the saved settings from your backup were not applied")
-		return nil
-	}
-	var items []dvItem
-	for _, f := range m.Files {
-		data, err := dvReadNoFollow(filepath.Join(o.dvPendingDir(), dvPendingName(f.Rel)), dvIniMaxSize)
-		if err != nil {
-			fmt.Fprintf(w, "warning: saved DVSwitch settings cannot be applied: %s: %v\n", f.Rel, err)
-			return nil
-		}
-		items = append(items, dvItem{rel: f.Rel, e: backup.Entry{Path: backup.DVSwitchPath(f.Rel), Owner: f.Owner, Group: f.Group, Mode: f.Mode}, data: data})
-	}
-	fmt.Fprintf(w, "applying the DVSwitch settings saved from your backup of %s\n", m.BackupDate)
-	n, skipped, err := o.dvWriteItems(items)
-	if err != nil {
-		fmt.Fprintf(w, "warning: the saved DVSwitch settings were not fully applied: %v (they are kept; discard them on the DVSwitch page)\n", err)
-		return nil
-	}
-	fmt.Fprintf(w, "%d file(s) written\n", n)
-	for _, s := range dedupe(skipped) {
-		fmt.Fprintf(w, "skipped: %s\n", s)
-	}
-	if m.Private {
-		if node, err := o.dvApplyPendingPrivate(); err != nil {
-			fmt.Fprintf(w, "warning: the bridge node record from your backup was not restored: %v\n", err)
-		} else {
-			fmt.Fprintf(w, "bridge node %s is managed by ASLCP again\n", node)
-		}
-	}
-	if m.Networks {
-		if err := o.dvApplyPendingNetworks(); err != nil {
-			fmt.Fprintf(w, "warning: the DMR network settings from your backup were not restored: %v\n", err)
-		} else {
-			fmt.Fprintln(w, "DMR network settings restored")
-		}
-	}
-	if err := os.RemoveAll(o.dvPendingDir()); err != nil {
-		fmt.Fprintf(w, "warning: cannot remove the saved settings: %v\n", err)
-	}
-	if n > 0 {
-		if err := o.dvStartRestored(ctx); err != nil {
-			fmt.Fprintf(w, "warning: starting the DVSwitch services failed: %v\n", err)
-		} else {
-			fmt.Fprintln(w, "DVSwitch services started")
-		}
-	}
-	return nil
-}
-
-// dvStartRestored starts (or restarts) the installed bridges and gateways
-// after restored settings were written: a fresh install leaves them stopped
-// until the setup page saves, and restored settings need no saving. Running
-// units are restarted so they read the new files. stfu stays on demand.
-func (o *Ops) dvStartRestored(ctx context.Context) error {
-	loaded := map[string]bool{}
-	for _, u := range o.dvUnitStates(ctx) {
-		if u.Loaded {
-			loaded[u.Name] = true
-		}
-	}
-	argv := []string{"systemctl", "restart"}
-	for _, u := range dvRestoreRestartUnits {
-		if len(loaded) == 0 || loaded[u] {
-			argv = append(argv, u+".service")
-		}
-	}
-	if out, code, err := o.Run.Run(ctx, argv...); err != nil || code != 0 {
-		return fmt.Errorf("%s", strings.TrimSpace(LastLines(out, 2)+" "+errOr(err)))
-	}
-	return nil
-}
-
-// dvRestoreRestartUnits are started after an apply (all but stfu, which runs
-// on demand while the panel is in BrandMeister mode).
-var dvRestoreRestartUnits = []string{"analog_bridge", "mmdvm_bridge", "ysfgateway", "p25gateway", "nxdngateway"}

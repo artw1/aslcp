@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/artw1/aslcp/internal/legacy"
 	"github.com/artw1/aslcp/internal/schedules"
 	_ "modernc.org/sqlite" // pure-Go driver
 )
@@ -125,8 +126,9 @@ var migrations = []string{
 		created INTEGER NOT NULL,
 		updated INTEGER NOT NULL
 	);`,
-	// 5: DVSwitch favourites, shared node-wide (docs/DVSWITCH.md).
-	`CREATE TABLE dvswitch_favorites (
+	// 5: digital modes favourites, shared node-wide (docs/DV.md). Databases
+	// of 1.x installs hold the table under its old name; migrate() renames it.
+	`CREATE TABLE dv_favorites (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		mode TEXT NOT NULL,
 		value TEXT NOT NULL,
@@ -135,6 +137,31 @@ var migrations = []string{
 		created INTEGER NOT NULL,
 		UNIQUE(mode, value)
 	);`,
+	// 6: settings keys of 1.x installs carry the previous stack's prefix.
+	migrationOldKeys(),
+}
+
+// migrationOldKeys is migration 6: it moves the settings keys of a 1.x
+// database to the dv. prefix (an existing dv. key wins).
+func migrationOldKeys() string {
+	n := len(legacy.OldSettingsPrefix)
+	return fmt.Sprintf(`UPDATE OR IGNORE settings SET k='dv.'||substr(k,%d) WHERE substr(k,1,%d)='%s';
+	DELETE FROM settings WHERE substr(k,1,%d)='%s';`, n+1, n, legacy.OldSettingsPrefix, n, legacy.OldSettingsPrefix)
+}
+
+// renameOldFavorites renames the favourites table of a 1.x database (SQLite
+// has no conditional ALTER, so it runs after the numbered migrations).
+func (s *Store) renameOldFavorites() error {
+	var old, cur int
+	q := `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`
+	if err := s.db.QueryRow(q, legacy.OldFavoritesTable).Scan(&old); err != nil || old == 0 {
+		return err
+	}
+	if err := s.db.QueryRow(q, "dv_favorites").Scan(&cur); err != nil || cur != 0 {
+		return err
+	}
+	_, err := s.db.Exec(`ALTER TABLE ` + legacy.OldFavoritesTable + ` RENAME TO dv_favorites`)
+	return err
 }
 
 // Open opens (creating if needed) the database at path and migrates it.
@@ -195,7 +222,7 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
-	return nil
+	return s.renameOldFavorites()
 }
 
 func ts(t time.Time) int64     { return t.Unix() }

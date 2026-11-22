@@ -34,6 +34,8 @@ remove_firewalld_rule() {
 case "$1" in
 remove | deconfigure)
 	if [ -d /run/systemd/system ]; then
+		systemctl stop aslcp-dv.service >/dev/null 2>&1 || true
+		systemctl disable aslcp-dv.service >/dev/null 2>&1 || true
 		systemctl stop aslcp-wifi-watchdog.timer aslcp-wifi-watchdog.service >/dev/null 2>&1 || true
 		systemctl disable aslcp-wifi-watchdog.timer >/dev/null 2>&1 || true
 		systemctl stop aslcp.service aslcp-helper.service aslcp-helper.socket >/dev/null 2>&1 || true

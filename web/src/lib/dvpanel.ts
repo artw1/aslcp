@@ -1,4 +1,4 @@
-// Pure logic of the dashboard DVSwitch card (docs/DVSWITCH.md "Dashboard card"): the state line,
+// Pure logic of the dashboard digital modes card (docs/DV.md "Dashboard card"): the state line,
 // favourite and tune validation (the same rules as the server), and the pending/confirm logic.
 import { isDVNetwork, networkLabel } from './dvnetworks.ts';
 import type { DVBridge, DVCaller, DVFavorite, DVSnapshot, DVTuneMode, NodeStatus } from './types';
@@ -124,7 +124,7 @@ export function shownMode(p: Pending | null, outcome: Outcome, bridgeMode: strin
 export const controlsLocked = (busy: boolean, outcome: Outcome): boolean => busy || outcome === 'waiting';
 
 /** The label of the bridge node when the operator set no name (the same default as the server). */
-export const DEFAULT_NODE_NAME = 'DVSwitch linked node';
+export const DEFAULT_NODE_NAME = 'Digital modes linked node';
 export const NODE_NAME_MAX = 40;
 
 /** The display name of the bridge node: the saved one, else the default. */

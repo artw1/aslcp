@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { handleConfig } from './config.ts';
 import { handleBackup, downUntil } from './backup.ts';
 import { handleRadio } from './radio.ts';
-import { dvNodeLink, handleDVSwitch } from './dvswitch.ts';
+import { dvNodeLink, handleDV } from './dv.ts';
 import { BRIDGE_NODE, handleNowCalling, nowCalling, talkerLink } from './nowcalling.ts';
 import { createSchedules } from './schedules.ts';
 import { handleSystem } from './system.ts';
@@ -257,7 +257,7 @@ export function mockApi(): Plugin {
         if (handleWifi({ m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleSystem({ m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }), file: (name, text) => { res.statusCode = 200; res.setHeader('Content-Type', 'application/gzip'); res.setHeader('Content-Disposition', `attachment; filename="${name}"`); res.end(text); } })) return;
         if (handleNowCalling({ m, p, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
-        if (handleDVSwitch({ push: (ev, d) => broadcast(ev, () => d), m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
+        if (handleDV({ push: (ev, d) => broadcast(ev, () => d), m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleConfig({ m, p, body, url, user, json: (c, b) => json(res, c, b), err: (c, msg, code, extra) => json(res, c, { error: msg, code, ...extra }) })) return;
 
         if (p === '/session') return json(res, 200, user);

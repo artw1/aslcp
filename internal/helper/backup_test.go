@@ -453,7 +453,7 @@ func TestBackupInfo(t *testing.T) {
 		if p.ID == "sounds" && (!p.Present || p.Size != 5) {
 			t.Errorf("%+v", p)
 		}
-		if (p.ID == "allmon3" || p.ID == "dvswitch") && p.Present {
+		if (p.ID == "allmon3" || p.ID == "dv") && p.Present {
 			t.Errorf("%+v", p)
 		}
 	}

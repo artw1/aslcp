@@ -85,50 +85,26 @@ type Ops struct {
 	OSCheckTimeout time.Duration
 	osCheckMu      sync.Mutex
 
-	// DVSwitch install (dvswitch.go); defaults are the DefaultDV* constants.
+	// Digital modes (dv.go): defaults are the DefaultDV* constants.
 	DVKeyring    string
 	DVSourceList string
 	DVStateDir   string
-	DVHostDir    string
-	// DVSwitch config (dvswitch_cfg.go): the dir holding Analog_Bridge and
-	// the others, the history dir and the /proc root for ABInfo.
+	// DVOptDir and DVHistoryDir are the legacy ini files a backup carries
+	// (default /opt and DefaultDVHistoryDir); DVCpuInfo is /proc/cpuinfo.
 	DVOptDir     string
 	DVHistoryDir string
-	DVProcDir    string
-	// DVTLVDelay spaces the TLV datagrams of one command (default 100 ms),
-	// DVTLVSettle is the wait before the result is read back (default 400 ms).
-	// After an rxport= command the helper polls ABInfo every DVPortPoll
-	// (default 100 ms) for up to DVPortWait (default 2 s) until Analog_Bridge
-	// reports the new listener port. DVParkPort is the port a mode switch
-	// parks Analog_Bridge on first (default 30000).
-	DVTLVDelay  time.Duration
-	DVTLVSettle time.Duration
-	DVPortPoll  time.Duration
-	DVPortWait  time.Duration
-	DVParkPort  int
-	// tuneSem holds one token while a tune or mode sequence runs (a channel,
-	// not a mutex, so that a waiter can give up with its context).
-	tuneOnce sync.Once
-	tuneSem  chan struct{}
-	// DVLogDir holds MMDVM_Bridge-YYYY-MM-DD.log (default /var/log/mmdvm).
-	DVLogDir string
-	// DVSTFULog is STFU's log (default DefaultDVSTFULog); bmMu serialises
-	// the BrandMeister save and clear (dvswitch_stfu.go).
-	DVSTFULog string
-	// DVSTFUDropin is the systemd drop-in that gives STFU umask 0077
-	// (default DefaultDVSTFUDropin).
-	DVSTFUDropin string
-	bmMu         sync.Mutex
-	// DVSTFULoginWait (default 10 s) and DVSTFULoginPoll (default 250 ms)
-	// bound the wait for STFU's login when ASLCP starts it on demand;
-	// DVSleep replaces the real sleep (tests).
-	DVSTFULoginWait time.Duration
-	DVSTFULoginPoll time.Duration
-	DVSleep         func(ctx context.Context, d time.Duration)
-	// DVBridgeLogDir holds Analog_Bridge.log (default /var/log/dvswitch).
-	DVBridgeLogDir string
-	// dvIDs caches DMR ID to callsign lookups (dvswitch_idlookup.go).
-	dvIDs dvIDCache
+	// DVOldStateDir and DVOldHistoryDir are the 1.x names of the state and
+	// history directories that MigrateDVState moves (default legacy.Old*).
+	DVOldStateDir   string
+	DVOldHistoryDir string
+	DVCpuInfo       string
+	// DVEngineDir holds the engine's config.json (default /var/lib/aslcp-dv)
+	// and DVEngineUser owns it (default aslcp-dv). DVSocket is the engine's
+	// control socket (default ctl.SocketPath); DVCheckWait bounds dv-step check.
+	DVEngineDir  string
+	DVEngineUser string
+	DVSocket     string
+	DVCheckWait  time.Duration
 	// SelfPath is the helper binary the install and uninstall units call for
 	// their steps (default: this executable).
 	SelfPath string
@@ -161,7 +137,7 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return nil, errors.New("invalid request: unexpected terminal field")
 	}
 	if isSysOp(op) {
-		if req.Config != nil || req.DVSwitch != nil || req.Backup != nil || req.Restore != nil || req.Diag != nil {
+		if req.Config != nil || req.DV != nil || req.Backup != nil || req.Restore != nil || req.Diag != nil {
 			return nil, errors.New("invalid request: unexpected field")
 		}
 		return o.handleSys(ctx, req)
@@ -178,45 +154,19 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 	if req.Config != nil {
 		return nil, errors.New("invalid request: unexpected config field")
 	}
-	if req.DVSwitch != nil && !isDVConfigOp(op) {
-		return nil, errors.New("invalid request: unexpected dvswitch field")
+	if req.DV != nil && !isDVOp(op) {
+		return nil, errors.New("invalid request: unexpected dv field")
 	}
 	if req.Backup != nil && op != OpBackupCreate || req.Restore != nil && op != OpBackupRestore {
 		return nil, errors.New("invalid request: unexpected field")
 	}
 	switch op {
-	case OpDVSwitchSetup:
-		return o.DVSwitchSetup(ctx)
-	case OpDVSwitchInfo:
-		return o.dvInfoOp(ctx)
-	case OpDVSwitchDMRStatus:
-		return o.DVSwitchDMRStatus(ctx)
-	case OpDVSwitchIdentity:
-		return o.DVSwitchIdentity(ctx, req.DVSwitch)
-	case OpDVSwitchCredentials:
-		return o.DVSwitchCredentials(ctx, req.DVSwitch)
-	case OpDVSwitchModes:
-		return o.DVSwitchModes(ctx, req.DVSwitch)
-	case OpDVSwitchBootMode:
-		return o.DVSwitchBootMode(ctx, req.DVSwitch)
-	case OpDVSwitchRollback:
-		return o.DVSwitchRollback(ctx, req.DVSwitch)
-	case OpDVSwitchRestart:
-		return o.DVSwitchRestart(ctx, req.DVSwitch)
-	case OpDVSwitchLists:
-		return o.DVSwitchLists(ctx, req.DVSwitch)
-	case OpDVSwitchTune:
-		return o.DVSwitchTune(ctx, req.DVSwitch)
-	case OpDVSwitchUSRP:
-		return o.DVSwitchUSRP(ctx, req.DVSwitch)
-	case OpDVSwitchPrivate:
-		return o.DVSwitchPrivate(ctx, req.DVSwitch)
-	case OpDVSwitchBM:
-		return o.DVSwitchBM(ctx, req.DVSwitch)
-	case OpDVSwitchNetwork:
-		return o.DVSwitchNetwork(ctx, req.DVSwitch)
-	case OpDVSwitchSTFUInstall:
-		return o.DVSwitchSTFUInstall(ctx)
+	case OpDVPrivate:
+		return o.DVPrivate(ctx, req.DV)
+	case OpDVConfig:
+		return o.DVConfig(ctx)
+	case OpDVRestart:
+		return o.DVRestart(ctx)
 	case OpBackupInfo:
 		return o.BackupInfo(ctx)
 	case OpAsteriskRestart:
@@ -241,16 +191,16 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return o.Reboot(ctx)
 	case OpAslcpRestart:
 		return o.AslcpRestart(ctx)
-	case OpDVSwitchStatus:
-		return o.DVSwitchStatus(ctx)
-	case OpDVSwitchJob:
-		return o.DVSwitchJob(ctx)
-	case OpDVSwitchInstall:
-		return o.DVSwitchInstall(ctx)
-	case OpDVSwitchUninstall:
-		return o.DVSwitchUninstall(ctx)
-	case OpDVSwitchRestoreDiscard:
-		return o.DVSwitchRestoreDiscard(ctx)
+	case OpDVStatus:
+		return o.DVStatus(ctx)
+	case OpDVJob:
+		return o.DVJob(ctx)
+	case OpDVEnable:
+		return o.DVEnable(ctx)
+	case OpDVDisable:
+		return o.DVDisable(ctx)
+	case OpDVRestoreDiscard:
+		return o.DVRestoreDiscard(ctx)
 	case OpFirewallStatus:
 		return o.FirewallStatus(ctx)
 	case OpFirewallOpen:

@@ -8,7 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/artw1/aslcp/internal/helper"
+	"github.com/artw1/aslcp/internal/dv/ctl"
+	"github.com/artw1/aslcp/internal/dvpanel"
 	"github.com/artw1/aslcp/internal/nowcalling"
 	"github.com/artw1/aslcp/internal/radioid"
 	"github.com/artw1/aslcp/internal/rpt"
@@ -16,25 +17,23 @@ import (
 )
 
 // "Now calling" (docs/API.md, "Now calling"): who is talking right now, from
-// the keyed AllStar links, the DVSwitch logs (STFU.log for BrandMeister,
-// Analog_Bridge.log for DMR - Other and YSF) and the keyed state of the
-// DVSwitch bridge link. internal/nowcalling folds them; this file feeds it
+// the keyed AllStar links, the digital modes engine's talk events and the
+// keyed state of the bridge link. internal/nowcalling folds them; this file feeds it
 // and sends the snapshot as the SSE event "nowcalling" and GET /api/nowcalling.
 //
-// Callsigns and names are personal data heard on air. Like the DVSwitch
+// Callsigns and names are personal data heard on air. Like the digital modes
 // callers they go to every logged-in role over the event stream and the
 // REST call, and never to the public status view or the embed.
 
 type ncState struct {
 	tr *nowcalling.Tracker
-	// bridge is the DVSwitch bridge link's node number ("" when none).
+	// bridge is the digital modes bridge link's node number ("" when none).
 	bridge atomic.Value // string
-	// br is the DVSwitch bridge state of the last snapshot (YSF room).
+	// br is the digital modes bridge state of the last snapshot (YSF room).
 	br atomic.Value // DVBridge
 
-	mu      sync.Mutex
-	keyed   map[string]bool // local node -> bridge link keyed
-	kicking atomic.Bool
+	mu    sync.Mutex
+	keyed map[string]bool // local node -> bridge link keyed
 }
 
 func (s *Server) initNowCalling() {
@@ -62,7 +61,7 @@ func (s *Server) ncTick(ctx context.Context) {
 }
 
 // ncRPT folds one monitor update: the keyed adjacent links of the node (the
-// DVSwitch bridge link is not an AllStar talker, local monitor links are not
+// digital modes bridge link is not an AllStar talker, local monitor links are not
 // audio from the network).
 func (s *Server) ncRPT(u rpt.Update) {
 	st := u.Status
@@ -88,60 +87,19 @@ func (s *Server) ncRPT(u rpt.Update) {
 	}
 	s.nc.tr.UpdateAllStar(st.Node, keyed, seen, bk, st.Stale)
 	s.nc.mu.Lock()
-	prev := s.nc.keyed[st.Node]
 	s.nc.keyed[st.Node] = bk
 	s.nc.mu.Unlock()
-	if seen && bk != prev {
-		s.ncKick()
-	}
 }
 
-// ncKick re-reads the DVSwitch logs right after the bridge link keyed or
-// unkeyed: the poll of the bridge may be seconds away, and the log line of a
-// call follows its first audio by a moment.
-func (s *Server) ncKick() {
-	if s.dvs == nil || !s.dvs.wired() || !s.nc.kicking.CompareAndSwap(false, true) {
-		return
-	}
-	go func() {
-		defer s.nc.kicking.Store(false)
-		for _, wait := range []time.Duration{0, 400 * time.Millisecond, 1500 * time.Millisecond} {
-			select {
-			case <-s.stop:
-				return
-			case <-time.After(wait):
-			}
-			s.dvs.refresh()
-		}
-	}()
-}
-
-// ncDV folds the DVSwitch calls of a bridge snapshot.
-func (s *Server) ncDV(info helper.DVSwitchInfo, sn DVSnapshot) {
+// ncDV folds the calls of the engine and its bridge state.
+func (s *Server) ncDV(talks []ctl.Talk, sn DVSnapshot) {
 	if sn.BridgeNode.Present {
 		s.nc.bridge.Store(sn.BridgeNode.Node)
 	} else {
 		s.nc.bridge.Store("")
 	}
 	s.nc.br.Store(sn.Bridge)
-	if info.Callers == nil {
-		return
-	}
-	talks := make([]nowcalling.Talk, 0, len(info.Callers.Talks))
-	for _, t := range info.Callers.Talks {
-		st, err := time.Parse(time.RFC3339Nano, t.Start)
-		if err != nil {
-			continue
-		}
-		k := nowcalling.Talk{Kind: t.Kind, Via: t.Via, Call: t.Call, DMRID: t.DMRID, Dst: t.Dst, Slot: t.Slot, Private: t.Private, Start: st}
-		if t.End != "" {
-			if en, err := time.Parse(time.RFC3339Nano, t.End); err == nil {
-				k.End = en
-			}
-		}
-		talks = append(talks, k)
-	}
-	s.nc.tr.UpdateDV(talks)
+	s.nc.tr.UpdateDV(dvNowTalks(talks))
 }
 
 // ncResolve fills the details of a new call. An AllStar call gets its callsign,
@@ -190,7 +148,7 @@ func (s *Server) ncResolve(c *nowcalling.Call) {
 	c.First, c.Name, c.City, c.State, c.Country = u.First, u.Name(), u.City, u.State, u.Country
 }
 
-// ncTGName is the name of a talkgroup from the DVSwitch favourites ("" when unknown).
+// ncTGName is the name of a talkgroup from the digital modes favourites ("" when unknown).
 func (s *Server) ncTGName(tg string) string {
 	if tg == "" || s.d.Store == nil {
 		return ""
@@ -200,7 +158,7 @@ func (s *Server) ncTGName(tg string) string {
 		return ""
 	}
 	for _, f := range favs {
-		if helper.DVDMRFamily(f.Mode) && f.Value == tg {
+		if dvpanel.DMRFamily(f.Mode) && f.Value == tg {
 			return f.Name
 		}
 	}
@@ -228,9 +186,9 @@ func parseID(s string) uint32 {
 func (s *Server) nowCallingRoutes() {
 	m := s.mux
 	m.HandleFunc("GET /api/nowcalling", s.authed(store.RoleViewer, s.handleNowCalling))
-	m.HandleFunc("GET /api/dvswitch/userlist", s.authed(store.RoleAdmin, s.handleUserListGet))
-	m.HandleFunc("PUT /api/dvswitch/userlist", s.authed(store.RoleAdmin, s.handleUserListSet))
-	m.HandleFunc("POST /api/dvswitch/userlist/download", s.authed(store.RoleAdmin, s.handleUserListDownload))
+	m.HandleFunc("GET /api/dv/userlist", s.authed(store.RoleAdmin, s.handleUserListGet))
+	m.HandleFunc("PUT /api/dv/userlist", s.authed(store.RoleAdmin, s.handleUserListSet))
+	m.HandleFunc("POST /api/dv/userlist/download", s.authed(store.RoleAdmin, s.handleUserListDownload))
 }
 
 func (s *Server) handleNowCalling(w http.ResponseWriter, _ *http.Request, _ store.User) {
@@ -271,7 +229,7 @@ func (s *Server) handleUserListSet(w http.ResponseWriter, r *http.Request, u sto
 		writeErr(w, http.StatusInternalServerError, "internal", "could not save the setting")
 		return
 	}
-	s.audit(u, "dvswitch.userlist", map[string]any{"enabled": *b.Enabled})
+	s.audit(u, "dv.userlist", map[string]any{"enabled": *b.Enabled})
 	if *b.Enabled && s.d.RadioID.Status().Entries == 0 {
 		_ = s.d.RadioID.DownloadAsync(context.Background(), false)
 	}
@@ -292,7 +250,7 @@ func (s *Server) handleUserListDownload(w http.ResponseWriter, _ *http.Request, 
 		writeErr(w, http.StatusConflict, "userlist_busy", err.Error())
 		return
 	}
-	s.audit(u, "dvswitch.userlist.download", nil)
+	s.audit(u, "dv.userlist.download", nil)
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusAccepted, s.d.RadioID.Status())
 }

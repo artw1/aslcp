@@ -25,7 +25,7 @@ func TestAddBridgeNodeTemplate(t *testing.T) {
 		t.Fatalf("%+v", r)
 	}
 	out := string(r.Out)
-	if !strings.Contains(out, "[1997](node-main)\nrxchannel = USRP/127.0.0.1:34001:32001\nduplex = 0\ncallerid = \"DVSwitch 1997\" <0000000000>\nhangtime = 0\nalthangtime = 0\nholdofftelem = 1\ntelemdefault = 0\ntelemdynamic = 0\nnounkeyct = 1\nlinktolink = yes\nidtime = 0\ntailmessagetime = 0\n") {
+	if !strings.Contains(out, "[1997](node-main)\nrxchannel = USRP/127.0.0.1:34001:32001\nduplex = 0\ncallerid = \"Digital modes 1997\" <0000000000>\nhangtime = 0\nalthangtime = 0\nholdofftelem = 1\ntelemdefault = 0\ntelemdynamic = 0\nnounkeyct = 1\nlinktolink = yes\nidtime = 0\ntailmessagetime = 0\n") {
 		t.Fatalf("stanza:\n%s", r.StanzaText)
 	}
 	if !strings.Contains(out, "nounkeyct = 1\n") {
@@ -49,7 +49,7 @@ func TestAddBridgeNodeFlatAndMinimal(t *testing.T) {
 	if r.Layout != LayoutFlat {
 		t.Fatal(r.Layout)
 	}
-	want := "[1997]\nrxchannel = USRP/127.0.0.1:34001:32001\nduplex = 0\ncallerid = \"DVSwitch 1997\" <0000000000>\nhangtime = 0\nalthangtime = 0\nholdofftelem = 1\ntelemdefault = 0\ntelemdynamic = 0\nnounkeyct = 1\nlinktolink = yes\nidtime = 0\ntailmessagetime = 0\nfunctions = functions-1999\ntelemetry = telemetry-1999"
+	want := "[1997]\nrxchannel = USRP/127.0.0.1:34001:32001\nduplex = 0\ncallerid = \"Digital modes 1997\" <0000000000>\nhangtime = 0\nalthangtime = 0\nholdofftelem = 1\ntelemdefault = 0\ntelemdynamic = 0\nnounkeyct = 1\nlinktolink = yes\nidtime = 0\ntailmessagetime = 0\nfunctions = functions-1999\ntelemetry = telemetry-1999"
 	if r.StanzaText != want {
 		t.Fatalf("stanza %q", r.StanzaText)
 	}

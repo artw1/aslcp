@@ -1,6 +1,6 @@
-// Pure logic of the bridge node (docs/DVSWITCH.md "Private bridge node"): node validation and suggestion
+// Pure logic of the bridge node (docs/DV.md "Private bridge node"): node validation and suggestion
 // (the same rules as the server), the port prefill, the card's link text and buttons, and the confirmation texts.
-import type { DVBridgeSetup, DVLink, DVPlan, DVPlanKind, DVSnapshot } from './types';
+import type { DVBridgeSetup, DVLink, DVPlan, DVPlanKind } from './types';
 
 /** The text that replaces the disabled Duplex input: duplex stays 0 for a bridge node. */
 export const DUPLEX_TEXT = 'Duplex 0: fixed for a bridge node (a higher value repeats DMR audio back to DMR and adds hang time and courtesy tones).';
@@ -110,8 +110,8 @@ export function planApplyLabel(p: Pick<PlanLike, 'kind' | 'restartAsterisk'>, bu
 export function planOrder(p: Pick<PlanLike, 'kind' | 'unlinks'>): string {
   const first = p.unlinks?.length ? `Disconnect ${p.unlinks.join(', ')} from the bridge node, then ` : '';
   const rest = p.kind === 'remove'
-    ? 'revert the Asterisk config, restore the Analog_Bridge ini ports, restart Asterisk once and the bridge, then clear the setup. If it fails after the restart you can roll back.'
-    : 'Asterisk config, the Analog_Bridge ini, then the restarts and a health check. If the check fails you can roll back both files.';
+    ? 'revert the Asterisk config, restore the engine configuration, restart Asterisk once and reload the engine, then clear the setup. If it fails after the restart you can roll back.'
+    : 'Asterisk config, the engine configuration, then the restarts and a health check. If the check fails you can roll back both.';
   return first ? first + rest : rest.charAt(0).toUpperCase() + rest.slice(1);
 }
 
@@ -134,15 +134,16 @@ export function planConfirm(p: PlanLike): string {
 
 /** "Manage this bridge node with ASLCP" is offered for a node that is in rpt.conf, not ASLCP's, and looks like the one ASLCP adds. */
 export const canAdopt = (b: Pick<DVBridgeSetup, 'node' | 'owned' | 'adoptable'>): boolean => !!b.node && !b.owned && !!b.adoptable;
-export const ADOPT_TEXT = 'ASLCP did not add this node, but it looks exactly like the one ASLCP adds. If ASLCP manages it, you can change its number or remove it here, and uninstalling DVSwitch takes it out again. Taking over changes no file now: it only saves ASLCP\'s record of the node.';
-export const ADOPT_CONFIRM = (node: string): string => `ASLCP will treat node ${node} as its own bridge node. No file is changed and nothing restarts. Later, Remove bridge node or uninstalling DVSwitch deletes node ${node} from rpt.conf and restores the stock chan_usrp and USRP settings. Take over only if nothing else uses this node.`;
+export const ADOPT_TEXT = 'ASLCP did not add this node, but it looks exactly like the one ASLCP adds. If ASLCP manages it, you can change its number or remove it here, Taking over changes no file now: it only saves ASLCP\'s record of the node.';
+export const ADOPT_CONFIRM = (node: string): string => `ASLCP will treat node ${node} as its own bridge node. No file is changed and nothing restarts. Later, Remove bridge node deletes node ${node} from rpt.conf and restores the stock chan_usrp and USRP settings. Take over only if nothing else uses this node.`;
 
-/** The uninstall confirmation's extra lines for the bridge node (Asterisk restarts, a permanent link is removed). */
-export function uninstallNote(s: Pick<DVSnapshot, 'bridgeNode' | 'link'> | null | undefined, owned: boolean): string[] {
-  const out: string[] = [];
-  if (s?.bridgeNode?.present && owned) {
-    out.push(`Removes the bridge node ${s.bridgeNode.node ?? ''} that ASLCP added from rpt.conf, and restores modules.conf if ASLCP changed it, then restarts Asterisk. That drops every connection on this node for a moment.`.replace('  ', ' '));
-    if (s.link.mode === 'permanent') out.push('The permanent link is disconnected first.');
-  } else if (s?.bridgeNode?.present) out.push('The bridge node was not added by ASLCP and stays as it is (unless you take it over first, in the Bridge node section).');
-  return out;
-}
+/** The names of the apply steps (DVApplyResult.steps, DVRollbackResult.steps) as the dialog shows them. An unknown step shows as sent. */
+export const STEP_LABEL: Record<string, string> = {
+  disconnect: 'disconnect links',
+  asterisk_config: 'Asterisk config',
+  engine_config: 'engine config',
+  asterisk_restart: 'Asterisk restart',
+  engine_reload: 'engine reload',
+  health: 'health check',
+};
+export const stepLabel = (name: string): string => STEP_LABEL[name] ?? name;

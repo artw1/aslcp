@@ -33,14 +33,14 @@ type BackupRequest struct {
 	History bool `json:"history"`
 	Allmon3 bool `json:"allmon3"`
 	Sounds  bool `json:"sounds"`
-	// DVSwitch includes the DVSwitch ini files and dvsm.macro, secrets
+	// DV includes the old stack ini files and dvsm.macro, secrets
 	// included (docs/BACKUP.md).
-	DVSwitch bool `json:"dvswitch"`
+	DV bool `json:"dv"`
 }
 
 // BackupPartInfo describes one optional part on this node.
 type BackupPartInfo struct {
-	ID      string `json:"id"` // history | allmon3 | sounds | dvswitch
+	ID      string `json:"id"` // history | allmon3 | sounds | dv
 	Present bool   `json:"present"`
 	Size    int64  `json:"size"`
 }
@@ -121,9 +121,9 @@ type RestoreResult struct {
 	Packages         []backup.Package `json:"packages"`
 	SA818Port        string           `json:"sa818Port"`
 	SA818PortPresent bool             `json:"sa818PortPresent"`
-	// DVSwitchNotInstalled is set when the backup holds the DVSwitch part
+	// DVNotInstalled is set when the backup holds the digital modes part
 	// but this node has no /opt/Analog_Bridge: the part is not restored.
-	DVSwitchNotInstalled bool `json:"dvswitchNotInstalled,omitempty"`
+	DVNotInstalled bool `json:"dvNotInstalled,omitempty"`
 }
 
 // isStreamOp reports whether op carries a byte stream.

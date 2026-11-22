@@ -31,6 +31,25 @@ configure_user() {
 	install -d -m 0750 -o aslcp -g aslcp "$DATADIR"
 }
 
+# The digital voice engine runs as its own user, so it never gets access to
+# /var/lib/aslcp. The aslcp user joins its group to reach the control socket
+# (mode 0660, /run/aslcp-dv/ctl.sock).
+configure_dv_user() {
+	if ! getent passwd aslcp-dv >/dev/null 2>&1; then
+		if getent group aslcp-dv >/dev/null 2>&1; then
+			adduser --system --ingroup aslcp-dv --home /var/lib/aslcp-dv --no-create-home \
+				--gecos "ASLCP digital voice engine" --shell /usr/sbin/nologin aslcp-dv
+		else
+			adduser --system --group --home /var/lib/aslcp-dv --no-create-home \
+				--gecos "ASLCP digital voice engine" --shell /usr/sbin/nologin aslcp-dv
+		fi
+	fi
+	if ! id -nG aslcp | tr ' ' '\n' | grep -qx aslcp-dv; then
+		adduser aslcp aslcp-dv >/dev/null
+		GROUP_CHANGED=1
+	fi
+}
+
 configure_asterisk_access() {
 	getent group asterisk >/dev/null 2>&1 || return 0
 	if ! id -nG aslcp | tr ' ' '\n' | grep -qx asterisk; then
@@ -75,6 +94,11 @@ prepare_services() {
 	fi
 	if systemctl is-enabled aslcp-wifi-watchdog.timer >/dev/null 2>&1; then
 		systemctl restart aslcp-wifi-watchdog.timer >/dev/null 2>&1 || true
+	fi
+	# The engine is never enabled here (the web UI does that); a node that
+	# enabled it runs the new binary after an upgrade.
+	if systemctl is-enabled aslcp-dv.service >/dev/null 2>&1; then
+		systemctl restart aslcp-dv.service >/dev/null 2>&1 || echo "aslcp: warning: could not restart aslcp-dv.service (see: journalctl -u aslcp-dv)"
 	fi
 	# Restart (not just start) so an upgrade runs the new helper binary.
 	systemctl stop aslcp-helper.service >/dev/null 2>&1 || true
@@ -195,11 +219,12 @@ configure)
 	[ -n "$2" ] || FIRST_INSTALL=1
 	migrate_urls
 	configure_user
+	configure_dv_user
 	configure_asterisk_access
 	prepare_services
 	configure_firewalld
 	restart_app
-	# install.sh prints the setup link itself once everything (port, DVSwitch)
+	# install.sh prints the setup link itself once everything (port, digital modes)
 	# is done, so it sets ASLCP_INSTALLER=1 to keep this one from showing early.
 	if [ -z "$2" ] && [ -z "${ASLCP_INSTALLER:-}" ]; then
 		first_install_message

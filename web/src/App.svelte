@@ -42,7 +42,7 @@
     {:else if router.path === '/config' && isAdmin()}{#await import('./components/Config.svelte') then m}<m.default />{/await}
     {:else if router.path === '/backup' && isAdmin()}{#await import('./components/Backup.svelte') then m}<m.default />{/await}
     {:else if isSystemPath(router.path) && isAdmin()}{#await import('./components/system/System.svelte') then m}<m.default />{/await}
-    {:else if router.path === '/dvswitch' && isAdmin()}{#await import('./components/Dvswitch.svelte') then m}<m.default />{/await}
+    {:else if router.path === '/digital' && isAdmin()}{#await import('./components/DigitalModes.svelte') then m}<m.default />{/await}
     {:else if router.path === '/tune' && isAdmin()}{#await import('./components/Tune.svelte') then m}<m.default />{/await}
     {:else}<Dashboard />{/if}
   </main>

@@ -16,20 +16,20 @@ import (
 	"github.com/artw1/aslcp/internal/backup"
 )
 
-// The DVSwitch backup part (docs/BACKUP.md): the allowlisted ini files and
-// dvsm.macro, stored as dvswitch/opt/<rel> with owner, group and mode in the
+// The the previous stack backup part (docs/BACKUP.md): the allowlisted ini files and
+// dvsm.macro, stored as dv/opt/<rel> with owner, group and mode in the
 // manifest, the record of the private bridge node (backup_dv_private.go,
-// dvswitch/state/privatenode.json) and the DMR network settings
-// (backup_dv_networks.go, dvswitch/state/networks.json). Nothing is redacted. The history copies of the setup page
-// (/var/lib/aslcp-dvswitch-history) are not part of it.
+// dv/state/privatenode.json) and the DMR network settings
+// (backup_dv_networks.go, dv/state/networks.json). Nothing is redacted. The history copies of the setup page
+// (/var/lib/aslcp-dvstate-history) are not part of it.
 
-// DVRestorePendingDetail is the step detail when DVSwitch is not installed
+// DVRestorePendingDetail is the step detail when the previous stack is not installed
 // and the part was staged instead of written.
-const DVRestorePendingDetail = "DVSwitch is not installed: its settings were saved and will be applied when you install DVSwitch"
+const DVRestorePendingDetail = "the previous digital voice stack is not installed: its settings were saved for the migration"
 
-const dvStepName = "Restore DVSwitch configuration"
+const dvStepName = "Restore digital modes configuration"
 
-// dvBackupID is the history id of a DVSwitch part file: the ini ids of the
+// dvBackupID is the history id of a the previous stack part file: the ini ids of the
 // setup page, "dvsm_macro" for the macro file.
 func dvBackupID(rel string) string {
 	for _, f := range dvFiles {
@@ -40,21 +40,21 @@ func dvBackupID(rel string) string {
 	return "dvsm_macro"
 }
 
-// dvInstalled reports whether the core directory of DVSwitch exists.
+// dvInstalled reports whether the core directory of the previous stack exists.
 func (o *Ops) dvInstalled() bool {
 	fi, err := os.Stat(filepath.Join(o.dvOptDir(), "Analog_Bridge"))
 	return err == nil && fi.IsDir()
 }
 
-// dvPartInfo describes the part for backup-info: present when DVSwitch is
+// dvPartInfo describes the part for backup-info: present when the previous stack is
 // installed, size the sum of the files that would be included.
 func (o *Ops) dvPartInfo() BackupPartInfo {
-	p := BackupPartInfo{ID: "dvswitch"}
+	p := BackupPartInfo{ID: "dv"}
 	if !o.dvInstalled() {
 		return p
 	}
 	p.Present = true
-	for _, rel := range backup.DVSwitchFiles {
+	for _, rel := range backup.DVFiles {
 		if fi, err := os.Lstat(filepath.Join(o.dvOptDir(), filepath.FromSlash(rel))); err == nil && fi.Mode().IsRegular() {
 			p.Size += fi.Size()
 		}
@@ -68,12 +68,12 @@ func (o *Ops) dvPartInfo() BackupPartInfo {
 	return p
 }
 
-// collectDVSwitch adds the part's files to c. Symlinks, non-regular and
+// collectDV adds the part's files to c. Symlinks, non-regular and
 // oversized files are skipped (and said so); a missing file is not an error
 // (a gateway may not be installed). It reports whether anything was added.
-func (o *Ops) collectDVSwitch(c *collector) (bool, error) {
+func (o *Ops) collectDV(c *collector) (bool, error) {
 	added := false
-	for _, rel := range backup.DVSwitchFiles {
+	for _, rel := range backup.DVFiles {
 		p := filepath.Join(o.dvOptDir(), filepath.FromSlash(rel))
 		fi, err := os.Lstat(p)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -92,7 +92,7 @@ func (o *Ops) collectDVSwitch(c *collector) (bool, error) {
 			c.skip(rel, "unreadable")
 			continue
 		}
-		e := entryFor(backup.DVSwitchPath(rel), backup.TypeFile, fi2)
+		e := entryFor(backup.DVPath(rel), backup.TypeFile, fi2)
 		e.Size, e.SHA256 = n, sum
 		if err := c.add(srcEntry{e: e, src: p}); err != nil {
 			return added, err
@@ -113,11 +113,11 @@ func (o *Ops) collectDVSwitch(c *collector) (bool, error) {
 }
 
 func dvHasFiles(m *backup.Manifest) bool {
-	if m.Find(backup.PathDVSwitchPrivate) != nil || m.Find(backup.PathDVSwitchNetworks) != nil {
+	if m.FindDVPrivate() != nil || m.FindDVNetworks() != nil {
 		return true
 	}
-	for _, rel := range backup.DVSwitchFiles {
-		if m.Find(backup.DVSwitchPath(rel)) != nil {
+	for _, rel := range backup.DVFiles {
+		if m.FindDV(rel) != nil {
 			return true
 		}
 	}
@@ -188,16 +188,16 @@ type dvItem struct {
 	data []byte
 }
 
-// restoreDVSwitch writes the part's files. Without the target directory
-// (DVSwitch not installed) the files are not written to /opt: they are staged
-// in the root-only pending directory and applied when DVSwitch is installed
+// restoreDV writes the part's files. Without the target directory
+// (the previous stack not installed) the files are not written to /opt: they are staged
+// in the root-only pending directory and applied when the previous stack is installed
 // (installed false, no error). Every target is checked before the first
 // write; each replaced file gets a history copy, like a change on the setup
 // page. date is the backup's date, kept with a pending set.
-func (o *Ops) restoreDVSwitch(ctx context.Context, sp *spool, m *backup.Manifest, date string) (detail string, installed bool, err error) {
+func (o *Ops) restoreDV(ctx context.Context, sp *spool, m *backup.Manifest, date string) (detail string, installed bool, err error) {
 	var items []dvItem
-	for _, rel := range backup.DVSwitchFiles {
-		e := m.Find(backup.DVSwitchPath(rel))
+	for _, rel := range backup.DVFiles {
+		e := m.FindDV(rel)
 		if e == nil {
 			continue
 		}
@@ -210,29 +210,38 @@ func (o *Ops) restoreDVSwitch(ctx context.Context, sp *spool, m *backup.Manifest
 		}
 		items = append(items, dvItem{rel, *e, data})
 	}
-	// The bridge node record (dvswitch/state/privatenode.json): kept only when
+	// The bridge node record (dv/state/privatenode.json): kept only when
 	// the restored rpt.conf, written by the Asterisk step before this one,
 	// has the node's stanza. Older backups have none.
 	priv, privNode, privNote := o.dvRestoredPrivate(sp, m)
-	// The DMR network settings (dvswitch/state/networks.json): every DMR
+	// The DMR network settings (dv/state/networks.json): every DMR
 	// network mode's settings and enabled state. Older backups have none.
 	nets, netsNote := dvRestoredNetworks(sp, m)
 	privNote = joinNote(privNote, netsNote)
-	if len(items) == 0 && (len(priv) == 0 && len(nets) == 0 || !o.dvInstalled()) {
-		return privNote, true, nil
+	// The private node record and the network settings are the engine's own
+	// state: they are restored whether or not the old stack is installed.
+	if len(priv) > 0 {
+		if err := o.dvWritePrivate(priv); err != nil {
+			privNote = "the bridge node record could not be restored: " + err.Error()
+		} else {
+			detail = "bridge node " + privNode + " is managed by ASLCP again"
+		}
+	}
+	if len(nets) > 0 {
+		if err := o.dvWriteNetworks(nets); err != nil {
+			privNote = joinNote(privNote, "the DMR network settings could not be restored: "+err.Error())
+		} else {
+			detail = joinNote(detail, "DMR network settings restored")
+		}
+	}
+	if len(items) == 0 {
+		return joinNote(detail, privNote), true, nil
 	}
 	if !o.dvInstalled() {
-		if err := o.dvStagePending(items, date, priv, nets); err != nil {
-			return "", false, fmt.Errorf("cannot save the DVSwitch settings: %w", err)
+		if err := o.dvStagePending(items, date); err != nil {
+			return "", false, fmt.Errorf("cannot save the settings of the previous digital voice stack: %w", err)
 		}
-		detail = DVRestorePendingDetail
-		if len(priv) > 0 {
-			detail += "; the bridge node record is saved too"
-		}
-		if len(nets) > 0 {
-			detail += "; the DMR network settings are saved too"
-		}
-		return joinNote(detail, privNote), false, nil
+		return joinNote(joinNote(detail, DVRestorePendingDetail), privNote), false, nil
 	}
 	if o.dvBusy(ctx) {
 		return "", true, ErrBusy
@@ -241,35 +250,11 @@ func (o *Ops) restoreDVSwitch(ctx context.Context, sp *spool, m *backup.Manifest
 	if err != nil {
 		return "", true, err
 	}
-	detail = fmt.Sprintf("%d file(s) written", n)
+	detail = joinNote(detail, fmt.Sprintf("%d file(s) written", n))
 	if len(skipped) > 0 {
 		detail += "; skipped: " + strings.Join(dedupe(skipped), ", ")
 	}
-	if len(priv) > 0 {
-		if err := o.dvWritePrivate(priv); err != nil {
-			privNote = "the bridge node record could not be restored: " + err.Error()
-		} else {
-			detail += "; bridge node " + privNode + " is managed by ASLCP again"
-		}
-	}
-	if len(nets) > 0 {
-		if err := o.dvWriteNetworks(nets); err != nil {
-			privNote = joinNote(privNote, "the DMR network settings could not be restored: "+err.Error())
-		} else {
-			detail += "; DMR network settings restored"
-		}
-	}
-	detail = joinNote(detail, privNote)
-	if n > 0 {
-		// A node installed with DVSwitch has the services stopped until
-		// set up; the restored settings are the set-up.
-		if err := o.dvStartRestored(ctx); err != nil {
-			detail += "; starting the DVSwitch services failed: " + err.Error()
-		} else {
-			detail += "; DVSwitch services started"
-		}
-	}
-	return detail, true, nil
+	return joinNote(detail, privNote), true, nil
 }
 
 // dvWriteItems is the safe write path shared by the restore step and the

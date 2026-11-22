@@ -21,9 +21,10 @@ import (
 	"github.com/artw1/aslcp/internal/config"
 	"github.com/artw1/aslcp/internal/configsvc"
 	"github.com/artw1/aslcp/internal/diag"
-	"github.com/artw1/aslcp/internal/dvswitch"
+	"github.com/artw1/aslcp/internal/dvpanel"
 	"github.com/artw1/aslcp/internal/favstats"
 	"github.com/artw1/aslcp/internal/helper"
+	"github.com/artw1/aslcp/internal/hostlists"
 	"github.com/artw1/aslcp/internal/nodelist"
 	"github.com/artw1/aslcp/internal/public"
 	"github.com/artw1/aslcp/internal/radioid"
@@ -50,15 +51,20 @@ type Deps struct {
 	// SysHost is the helper behind the System tab: hostname and time, logs
 	// and services, network status (nil: 503 system_unavailable).
 	SysHost SystemHost
-	// DVSwitch reports, installs and removes DVSwitch (nil: 503
-	// dvswitch_unavailable).
-	DVSwitch DVSwitch
+	// DVEngine is the helper's digital modes part: enable, disable, config,
+	// the private node record (nil: 503 dv_unavailable).
+	DVEngine DVEngine
+	// DVCtl is the engine's control socket (nil: 503 dv_unavailable).
+	DVCtl DVCtl
+	// HostLists serves the DMR, YSF, P25 and NXDN pickers and resolves the
+	// targets of a tune (nil: no lists).
+	HostLists *hostlists.Manager
 	// DVResume holds the last tune per mode and the resume setting (nil: 503
-	// dvswitch_unavailable).
+	// dv_unavailable).
 	DVResume DVResume
-	// DVInstalled says whether DVSwitch is on this node, without asking the
-	// helper (nil: assume it may be).
-	DVInstalled func() bool
+	// DVEnabled says whether digital modes are on, without asking the helper
+	// (nil: the helper's status, cached for a few seconds).
+	DVEnabled func() bool
 	// DVBridgeNode finds the local node that uses a USRP channel (rpt.conf,
 	// read-only; nil: never found).
 	DVBridgeNode func(ctx context.Context) (string, bool)
@@ -108,7 +114,7 @@ type Deps struct {
 	// DVLink keeps the permanent link of the private bridge node (nil: the
 	// link features are off). New wires its Linker (unless set), Store (unless
 	// set) and its change notification; Run starts it.
-	DVLink *dvswitch.LinkReconciler
+	DVLink *dvpanel.LinkReconciler
 }
 
 // Server is the HTTP API.
@@ -130,7 +136,7 @@ type Server struct {
 	// link never goes away).
 	LinkGoneWait time.Duration
 	// AsteriskBackWait bounds how long a flow that restarted Asterisk (the
-	// DVSwitch bridge node apply and rollback) waits for it to answer again,
+	// digital modes bridge node apply and rollback) waits for it to answer again,
 	// polling every AsteriskBackPoll.
 	AsteriskBackWait time.Duration
 	AsteriskBackPoll time.Duration
@@ -148,7 +154,7 @@ type Server struct {
 	// term is the browser terminal: tickets, limits, open sessions.
 	term termState
 
-	dvs *dvSnapper // DVSwitch snapshot and its change events
+	dvs *dvSnapper // digital modes snapshot and its change events
 	nc  *ncState   // "Now calling" (nowcalling.go)
 	// dvUndo is what the last private-node apply changed (for its rollback).
 	dvUndo   *dvPrivateUndo
@@ -206,7 +212,7 @@ func New(d Deps) *Server {
 	s.initFavStats()
 	s.initSchedules()
 	s.initNowCalling()
-	s.initDVSwitch()
+	s.initDV()
 	s.initDVLink()
 	s.routes()
 	return s
@@ -222,6 +228,9 @@ func (s *Server) Run(ctx context.Context) {
 	go s.rec.Run(ctx)
 	go s.ncTick(ctx)
 	go s.terminalLoop(ctx)
+	if s.dvs != nil {
+		go s.dvs.run(ctx)
+	}
 	if s.d.FavStats != nil {
 		go s.d.FavStats.Run(ctx)
 	}
@@ -378,7 +387,7 @@ func (s *Server) routes() {
 	s.configRoutes()
 	s.backupRoutes()
 	s.radioRoutes()
-	s.dvswitchRoutes()
+	s.dvRoutes()
 	s.nowCallingRoutes()
 	s.systemRoutes()
 	m.HandleFunc("GET /api/updates", s.authed(store.RoleAdmin, s.handleUpdatesGet))

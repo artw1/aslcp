@@ -1,6 +1,6 @@
 <script lang="ts" generics="T extends { value: string; name: string; detail?: string } = never">
   // The searchable picker of ASLCP. By default it searches AllStar nodes on the server (api.search).
-  // With `options` it searches a list the page already holds (DVSwitch hosts and TGs): the text stays
+  // With `options` it searches a list the page already holds (digital modes hosts and TGs): the text stays
   // free-form, a pick only fills it in, and `label` says how an entry reads.
   import { api } from '../lib/api';
   import type { NodeInfo } from '../lib/types';

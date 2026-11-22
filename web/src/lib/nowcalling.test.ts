@@ -52,12 +52,12 @@ test('source detail for the sheet', () => {
   assert.equal(sourceDetail({ id: 'n', kind: 'allstar', start: base.start, active: true }), 'AllStar');
   assert.equal(
     sourceDetail({ ...base, network: 'Example net', tgName: 'Example hub', slot: 2 }),
-    'DVSwitch · Example net · TG 91 Example hub · slot 2',
+    'Digital modes · Example net · TG 91 Example hub · slot 2',
   );
-  assert.equal(sourceDetail({ ...base, network: '', tgName: '', slot: undefined }), 'DVSwitch · DMR · TG 91');
-  assert.equal(sourceDetail({ ...base, private: true, slot: 1 }), 'DVSwitch · DMR · private call · slot 1');
-  assert.equal(sourceDetail({ ...base, kind: 'ysf', room: 'Example Room' }), 'DVSwitch · YSF · room Example Room');
-  assert.equal(sourceDetail({ ...base, kind: 'ysf', room: '' }), 'DVSwitch · YSF');
+  assert.equal(sourceDetail({ ...base, network: '', tgName: '', slot: undefined }), 'Digital modes · DMR · TG 91');
+  assert.equal(sourceDetail({ ...base, private: true, slot: 1 }), 'Digital modes · DMR · private call · slot 1');
+  assert.equal(sourceDetail({ ...base, kind: 'ysf', room: 'Example Room' }), 'Digital modes · YSF · room Example Room');
+  assert.equal(sourceDetail({ ...base, kind: 'ysf', room: '' }), 'Digital modes · YSF');
 });
 
 test('links', () => {

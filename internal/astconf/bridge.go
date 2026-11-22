@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// Helpers of the DVSwitch private bridge node (docs/DVSWITCH.md, M2): the
+// Helpers of the digital modes private bridge node (docs/DV.md): the
 // rpt.conf stanza and [nodes] line of the USRP node and the chan_usrp line of
 // modules.conf. They are pure text-to-text functions so that the plan shown
 // to the operator is exactly what is written, and the uninstall can revert
@@ -77,7 +77,7 @@ var flatCopy = []string{"functions", "link_functions", "phone_functions", "telem
 //     skip posting when the pointer is NULL, so an empty value would post to
 //     "?node=...". It cannot be unset from a child stanza. The stock
 //     [node-main] has it commented out; if the operator enabled it there, the
-//     bridge node posts too (docs/DVSWITCH.md).
+//     bridge node posts too (docs/DV.md).
 var neutralKeys = [][2]string{
 	{"hangtime", "0"},
 	{"althangtime", "0"},
@@ -151,7 +151,7 @@ func AddBridgeNode(rpt []byte, spec BridgeSpec) (BridgeResult, error) {
 		s := f.AddSection(spec.Node, false, parents)
 		s.Add("rxchannel", "", ch)
 		s.Add("duplex", "", "0")
-		s.Add("callerid", "", fmt.Sprintf("\"DVSwitch %s\" <0000000000>", spec.Node))
+		s.Add("callerid", "", fmt.Sprintf("\"Digital modes %s\" <0000000000>", spec.Node))
 		for _, kv := range neutralKeys {
 			s.Add(kv[0], "", kv[1])
 		}

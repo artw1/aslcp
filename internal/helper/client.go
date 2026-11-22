@@ -344,132 +344,62 @@ func (c *Client) RestartASLCP(ctx context.Context) error {
 	return c.Do(ctx, OpAslcpRestart, &v)
 }
 
-// DVSwitchStatus calls dvswitch-status.
-func (c *Client) DVSwitchStatus(ctx context.Context) (DVSwitchStatus, error) {
-	var s DVSwitchStatus
-	return s, c.Do(ctx, OpDVSwitchStatus, &s)
+// DVStatus calls dv-status.
+func (c *Client) DVStatus(ctx context.Context) (DVStatus, error) {
+	var s DVStatus
+	return s, c.Do(ctx, OpDVStatus, &s)
 }
 
-// DVSwitchJob calls dvswitch-job.
-func (c *Client) DVSwitchJob(ctx context.Context) (DVSwitchJobs, error) {
-	var s DVSwitchJobs
-	return s, c.Do(ctx, OpDVSwitchJob, &s)
+// DVEnable calls dv-enable: the install job starts and the status comes back.
+func (c *Client) DVEnable(ctx context.Context) (DVStatus, error) {
+	var s DVStatus
+	return s, c.Do(ctx, OpDVEnable, &s)
 }
 
-// DVSwitchInstall calls dvswitch-install (key download included: allow time).
-func (c *Client) DVSwitchInstall(ctx context.Context) (DVSwitchStatus, error) {
-	var s DVSwitchStatus
-	return s, c.Do(ctx, OpDVSwitchInstall, &s)
+// DVDisable calls dv-disable.
+func (c *Client) DVDisable(ctx context.Context) (DVStatus, error) {
+	var s DVStatus
+	return s, c.Do(ctx, OpDVDisable, &s)
 }
 
-// DVSwitchUninstall calls dvswitch-uninstall.
-func (c *Client) DVSwitchUninstall(ctx context.Context) (DVSwitchStatus, error) {
-	var s DVSwitchStatus
-	return s, c.Do(ctx, OpDVSwitchUninstall, &s)
+// DVJob calls dv-job.
+func (c *Client) DVJob(ctx context.Context) (DVJob, error) {
+	var s DVJob
+	return s, c.Do(ctx, OpDVJob, &s)
 }
 
-// DVSwitchRestoreDiscard calls dvswitch-restore-discard.
-func (c *Client) DVSwitchRestoreDiscard(ctx context.Context) (DVSwitchStatus, error) {
-	var s DVSwitchStatus
-	return s, c.Do(ctx, OpDVSwitchRestoreDiscard, &s)
+// DVConfig calls dv-config: the engine's config.json is rendered.
+func (c *Client) DVConfig(ctx context.Context) (DVConfigResult, error) {
+	var r DVConfigResult
+	return r, c.Do(ctx, OpDVConfig, &r)
 }
 
-// DVSwitchSetup calls dvswitch-setup.
-func (c *Client) DVSwitchSetup(ctx context.Context) (DVSwitchSetup, error) {
-	var s DVSwitchSetup
-	return s, c.Do(ctx, OpDVSwitchSetup, &s)
+// DVRestart calls dv-restart.
+func (c *Client) DVRestart(ctx context.Context) (DVStatus, error) {
+	var s DVStatus
+	return s, c.Do(ctx, OpDVRestart, &s)
 }
 
-// DVSwitchInfo calls dvswitch-info.
-func (c *Client) DVSwitchInfo(ctx context.Context) (DVSwitchInfo, error) {
-	var s DVSwitchInfo
-	return s, c.Do(ctx, OpDVSwitchInfo, &s)
+// DVRestoreDiscard calls dv-restore-discard.
+func (c *Client) DVRestoreDiscard(ctx context.Context) (DVStatus, error) {
+	var s DVStatus
+	return s, c.Do(ctx, OpDVRestoreDiscard, &s)
 }
 
-// DVSwitchDMRStatus calls dvswitch-dmr-status.
-func (c *Client) DVSwitchDMRStatus(ctx context.Context) (DVDMRStatus, error) {
-	var s DVDMRStatus
-	return s, c.Do(ctx, OpDVSwitchDMRStatus, &s)
-}
-
-func (c *Client) dvCall(ctx context.Context, op string, req DVSwitchRequest, out any) error {
-	return c.do(ctx, Request{Op: op, DVSwitch: &req}, out, 1<<20)
-}
-
-// DVSwitchIdentity calls dvswitch-identity.
-func (c *Client) DVSwitchIdentity(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
-	var r DVApplyResult
-	return r, c.dvCall(ctx, OpDVSwitchIdentity, req, &r)
-}
-
-// DVSwitchCredentials calls dvswitch-credentials.
-func (c *Client) DVSwitchCredentials(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
-	var r DVApplyResult
-	return r, c.dvCall(ctx, OpDVSwitchCredentials, req, &r)
-}
-
-// DVSwitchModes calls dvswitch-modes.
-func (c *Client) DVSwitchModes(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
-	var r DVApplyResult
-	return r, c.dvCall(ctx, OpDVSwitchModes, req, &r)
-}
-
-// DVSwitchBootMode calls dvswitch-bootmode: DVSwitch starts in mode.
-func (c *Client) DVSwitchBootMode(ctx context.Context, mode string) (DVApplyResult, error) {
-	var r DVApplyResult
-	return r, c.dvCall(ctx, OpDVSwitchBootMode, DVSwitchRequest{Mode: mode}, &r)
-}
-
-// DVSwitchBM calls dvswitch-bm.
-func (c *Client) DVSwitchBM(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
-	var r DVApplyResult
-	return r, c.dvCall(ctx, OpDVSwitchBM, req, &r)
-}
-
-// DVSwitchNetwork calls dvswitch-network.
-func (c *Client) DVSwitchNetwork(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
-	var r DVApplyResult
-	return r, c.dvCall(ctx, OpDVSwitchNetwork, req, &r)
-}
-
-// DVSwitchSTFUInstall calls dvswitch-stfu-install.
-func (c *Client) DVSwitchSTFUInstall(ctx context.Context) (DVSwitchStatus, error) {
-	var s DVSwitchStatus
-	return s, c.Do(ctx, OpDVSwitchSTFUInstall, &s)
-}
-
-// DVSwitchRollback calls dvswitch-rollback.
-func (c *Client) DVSwitchRollback(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
-	var r DVApplyResult
-	return r, c.dvCall(ctx, OpDVSwitchRollback, req, &r)
-}
-
-// DVSwitchRestart calls dvswitch-restart (restart or start).
-func (c *Client) DVSwitchRestart(ctx context.Context, req DVSwitchRequest) (DVRestartResult, error) {
-	var r DVRestartResult
-	return r, c.dvCall(ctx, OpDVSwitchRestart, req, &r)
-}
-
-// DVSwitchTune calls dvswitch-tune.
-func (c *Client) DVSwitchTune(ctx context.Context, req DVSwitchRequest) (DVTuneResult, error) {
-	var r DVTuneResult
-	return r, c.dvCall(ctx, OpDVSwitchTune, req, &r)
-}
-
-// DVSwitchUSRP calls dvswitch-usrp.
-func (c *Client) DVSwitchUSRP(ctx context.Context, req DVSwitchRequest) (DVApplyResult, error) {
-	var r DVApplyResult
-	return r, c.dvCall(ctx, OpDVSwitchUSRP, req, &r)
-}
-
-// DVSwitchPrivate calls dvswitch-private.
-func (c *Client) DVSwitchPrivate(ctx context.Context, p DVPrivate) (DVPrivateReply, error) {
+// DVPrivateGet calls dv-private without a record: it reads.
+func (c *Client) DVPrivateGet(ctx context.Context) (DVPrivateReply, error) {
 	var r DVPrivateReply
-	return r, c.dvCall(ctx, OpDVSwitchPrivate, DVSwitchRequest{Private: &p}, &r)
+	return r, c.Do(ctx, OpDVPrivate, &r)
 }
 
-// DVSwitchLists calls dvswitch-lists for one mode (dmr, ysf, p25, nxdn).
-func (c *Client) DVSwitchLists(ctx context.Context, mode string) (DVList, error) {
-	var r DVList
-	return r, c.do(ctx, Request{Op: OpDVSwitchLists, DVSwitch: &DVSwitchRequest{Mode: mode}}, &r, 4<<20)
+// DVPrivateSet calls dv-private with a record.
+func (c *Client) DVPrivateSet(ctx context.Context, rec DVPrivateRecord) (DVPrivateReply, error) {
+	var r DVPrivateReply
+	return r, c.do(ctx, Request{Op: OpDVPrivate, DV: &DVRequest{Private: &rec}}, &r, 1<<20)
+}
+
+// DVPrivateClear calls dv-private with clear.
+func (c *Client) DVPrivateClear(ctx context.Context) (DVPrivateReply, error) {
+	var r DVPrivateReply
+	return r, c.do(ctx, Request{Op: OpDVPrivate, DV: &DVRequest{Clear: true}}, &r, 1<<20)
 }

@@ -42,15 +42,17 @@ const (
 	// OpAslcpRestart restarts the aslcp service (systemctl --no-block).
 	OpAslcpRestart = "aslcp-restart"
 
-	// DVSwitch (docs/DVSWITCH.md, M3). None takes an argument: the package
-	// list, the paths and the units are constants of the helper.
-	OpDVSwitchStatus    = "dvswitch-status"    // read-only: installed, units, key, marker, jobs
-	OpDVSwitchJob       = "dvswitch-job"       // the two job states and logs (cheap)
-	OpDVSwitchInstall   = "dvswitch-install"   // key + source, then the install unit
-	OpDVSwitchUninstall = "dvswitch-uninstall" // the full uninstall unit (ASLCP-installed only)
-	// OpDVSwitchRestoreDiscard deletes the DVSwitch settings a backup restore
-	// saved for the install.
-	OpDVSwitchRestoreDiscard = "dvswitch-restore-discard"
+	// Digital modes (docs/DV.md). dv-private takes the dv field; the others
+	// take no argument: the package list, the paths and the units are
+	// constants of the helper.
+	OpDVStatus         = "dv-status"          // read-only: supported, units, job, restore pending
+	OpDVEnable         = "dv-enable"          // key + source, then the aslcp-dv-enable unit
+	OpDVDisable        = "dv-disable"         // systemctl disable --now aslcp-dv
+	OpDVJob            = "dv-job"             // state and log of the enable unit
+	OpDVConfig         = "dv-config"          // render the engine's config.json
+	OpDVPrivate        = "dv-private"         // get, set or clear the private node record
+	OpDVRestart        = "dv-restart"         // restart aslcp-dv (when its control socket is unreachable)
+	OpDVRestoreDiscard = "dv-restore-discard" // delete the settings a backup restore saved
 )
 
 // Update channels (the suite of the aslcp apt source).
@@ -80,8 +82,8 @@ type Request struct {
 	// only (see backup_proto.go).
 	Backup  *BackupRequest  `json:"backup,omitempty"`
 	Restore *RestoreRequest `json:"restore,omitempty"`
-	// DVSwitch is accepted by the dvswitch config ops only (dvswitch_cfg.go).
-	DVSwitch *DVSwitchRequest `json:"dvswitch,omitempty"`
+	// DV is accepted by dv-private only (dv.go).
+	DV *DVRequest `json:"dv,omitempty"`
 	// Sys is accepted by the System tab ops only (sys.go).
 	Sys *SysRequest `json:"sys,omitempty"`
 	// Terminal is accepted by the terminal.* ops only (terminal.go).

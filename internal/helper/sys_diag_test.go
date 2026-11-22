@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/artw1/aslcp/internal/legacy"
 )
 
 // Planted values (placeholders). None may appear in any file of a bundle.
@@ -78,7 +80,7 @@ func newDiagFixture(t *testing.T) *diagFixture {
 	rules := map[string]resp{
 		"asterisk -V": {out: "Asterisk 22.0.0\n"},
 		"uname -srm":  {out: "Linux 6.1.0 aarch64\n"},
-		"dpkg-query":  {out: "ii  asl3 3.5.0\nii  asterisk 22.0.0\nrc  asl3-old 1.0\nii  aslcp 1.3.4\nii  dvswitch-server 1.0\n"},
+		"dpkg-query":  {out: "ii  asl3 3.5.0\nii  asterisk 22.0.0\nrc  asl3-old 1.0\nii  aslcp 1.3.4\nii  " + legacy.PackagePrefix + "-server 1.0\n"},
 		"uptime":      {out: " 12:00:00 up 1 day, load average: 0.01, 0.02, 0.03\n"},
 		"free -m":     {out: "              total used\nMem: 1000 100\n"},
 		"df -hP":      {out: "Filesystem Size Used\n/dev/root 30G 5G\n"},
@@ -159,7 +161,7 @@ func TestDiagBundleContentAndSecrets(t *testing.T) {
 		}
 		for _, want := range []string{"report.txt", "versions.txt", "system.txt", "services.txt", "network.txt", "audit.txt",
 			"journal/asterisk.txt", "journal/aslcp.txt", "config/asterisk/iax.conf", "config/asterisk/manager.conf", "config/asterisk/rpt.conf",
-			"config/aslcp.conf", "config/allmon3/allmon3.ini", "config/dvswitch/MMDVM_Bridge.ini"} {
+			"config/aslcp.conf", "config/allmon3/allmon3.ini", "config/legacy-dv/MMDVM_Bridge.ini"} {
 			if _, ok := files[want]; !ok {
 				t.Errorf("mask=%v: missing %s (have %v)", mask, want, names)
 			}
@@ -199,8 +201,8 @@ func TestDiagBundleContentAndSecrets(t *testing.T) {
 		if !strings.Contains(files["config/asterisk/manager.conf"], "secret = <redacted>") {
 			t.Errorf("manager.conf: %q", files["config/asterisk/manager.conf"])
 		}
-		if !strings.Contains(files["config/dvswitch/MMDVM_Bridge.ini"], "Password=<redacted>") {
-			t.Errorf("dvswitch: %q", files["config/dvswitch/MMDVM_Bridge.ini"])
+		if !strings.Contains(files["config/legacy-dv/MMDVM_Bridge.ini"], "Password=<redacted>") {
+			t.Errorf("legacy dv: %q", files["config/legacy-dv/MMDVM_Bridge.ini"])
 		}
 		// Configuration that is not secret stays readable.
 		if !strings.Contains(files["config/asterisk/iax.conf"], "bindport=4569") || !strings.Contains(files["journal/asterisk.txt"], "login failed") {

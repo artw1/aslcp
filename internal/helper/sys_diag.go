@@ -133,12 +133,12 @@ func DiagPlanInfo() DiagPlan {
 		Items: []DiagItem{
 			{"README.txt", "What was collected, what was redacted, and what could not be collected"},
 			{"report.txt", "ASLCP status report: versions, nodes and links, AMI state, updates, recent ASLCP log"},
-			{"versions.txt", "ASLCP, Asterisk, operating system, kernel, and the asl3, asterisk, allmon3, dvswitch and aslcp package versions"},
+			{"versions.txt", "ASLCP, Asterisk, operating system, kernel, and the asl3, asterisk, allmon3, md380-emu and aslcp package versions"},
 			{"system.txt", "Uptime and load, memory, disk use"},
-			{"services.txt", "State of the Asterisk, ASLCP, network, DVSwitch and ASL3 web services, and listening ports"},
+			{"services.txt", "State of the Asterisk, ASLCP, network, digital modes and ASL3 web services, and listening ports"},
 			{"network.txt", "Interfaces, addresses, default gateway, DNS servers (no WiFi passwords or saved networks)"},
 			{"journal/<unit>.txt", fmt.Sprintf("Last %d journal lines of %s", diagJournalLines, strings.Join(logUnits(), ", "))},
-			{"config/", "Asterisk config files, aslcp.conf, Allmon3 and DVSwitch ini files, with secret values replaced by <redacted>"},
+			{"config/", "Asterisk config files, aslcp.conf, Allmon3 and digital modes engine config files, with secret values replaced by <redacted>"},
 			{"audit.txt", "The last 200 audit log entries"},
 		},
 		Excluded: []string{
@@ -153,7 +153,7 @@ func DiagPlanInfo() DiagPlan {
 			"passwords and secrets in Asterisk configs (secret, password, md5secret, manager.conf secrets, echolink pwd)",
 			"registration strings (register => user:password@host)",
 			"ASLCP's own secrets and session data",
-			"WiFi pre-shared keys and DVSwitch passwords",
+			"WiFi pre-shared keys and digital modes passwords",
 			"tokens, cookies, bearer headers and passwords in URLs",
 			"every password found in a config file, wherever else it shows up (for example in a log line)",
 		},
@@ -455,8 +455,9 @@ func (o *Ops) diagConfigs(b *diagBuilder) []diagConf {
 	for _, p := range listDiagDir(orDefault(o.AllmonDir, DefaultAllmonDir), func(n string) bool { return strings.HasSuffix(n, ".ini") }) {
 		read(p, "config/allmon3/"+filepath.Base(p), "Allmon3 configuration")
 	}
+	read(o.dvConfigPath(), "config/dv/config.json", "Digital modes engine configuration")
 	for _, f := range dvFiles {
-		read(o.dvFilePath(f), "config/dvswitch/"+path.Base(f.rel), "DVSwitch configuration")
+		read(o.dvFilePath(f), "config/legacy-dv/"+path.Base(f.rel), "Legacy digital modes configuration")
 	}
 	return out
 }
@@ -588,7 +589,7 @@ func (o *Ops) diagVersions(ctx context.Context, aslcp string) string {
 	}
 	w.WriteString("\nInstalled packages\n")
 	out, _, err := o.Run.Run(ctx, "dpkg-query", "-W", "-f=${db:Status-Abbrev} ${Package} ${Version}\\n",
-		"asl3*", "asterisk*", "allmon3", "dvswitch*", "aslcp*")
+		"asl3*", "asterisk*", "allmon3", "md380*", "aslcp*")
 	if err != nil {
 		w.WriteString("(not available: dpkg-query could not be run)\n")
 		return w.String()

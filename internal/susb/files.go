@@ -186,7 +186,7 @@ func overlay(es []astconf.ResolvedEntry, base Params) (Params, map[string]bool, 
 }
 
 // USRPNode returns the first local node of rpt.conf whose rxchannel is a
-// chan_usrp channel ("USRP/..."), the bridge node of DVSwitch (read-only).
+// chan_usrp channel ("USRP/..."), the bridge node of the digital modes stack (read-only).
 func USRPNode(ctx context.Context, src ConfigSource) (string, bool) {
 	t, err := loadTree(ctx, src, "rpt.conf")
 	if err != nil {

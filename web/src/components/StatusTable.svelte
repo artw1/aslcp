@@ -26,11 +26,11 @@
   const SHORT: Record<string, string> = { T: 'Xcvr', R: 'Mon', L: 'Local', C: '…' };
   const connTime = (l: Link) => fmtDuration(l.connected + elapsed);
   const received = (l: Link) => (l.keyed ? 'now' : l.sinceKey == null ? 'never' : fmtDuration(l.sinceKey + elapsed));
-  const title = (l: Link) => l.info?.callsign || nodeLabel(app.dvswitch, l.node) || (l.kind === 'echolink' ? 'EchoLink' : '');
-  const bridgeName = $derived(nodeLabel(app.dvswitch, node.node));
+  const title = (l: Link) => l.info?.callsign || nodeLabel(app.dv, l.node) || (l.kind === 'echolink' ? 'EchoLink' : '');
+  const bridgeName = $derived(nodeLabel(app.dv, node.node));
   const nodeLine = $derived(bridgeName || [node.info?.callsign, node.info?.description, node.info?.location].filter(Boolean).join(' '));
-  const rxTarget = $derived(bridgeName && node.rxKeyed ? bridgeRxTarget(app.dvswitch) : null);
-  const rxWho = $derived(rxTarget && !node.txKeyed ? rxCaller(app.dvswitch) : null);
+  const rxTarget = $derived(bridgeName && node.rxKeyed ? bridgeRxTarget(app.dv) : null);
+  const rxWho = $derived(rxTarget && !node.txKeyed ? rxCaller(app.dv) : null);
   const localTx = $derived(node.txKeyed);
   const localState = $derived(localTx ? 'TX keyed' : node.rxKeyed ? 'RX keyed' : 'Idle');
   const localClass = $derived(node.stale ? '' : localTx ? 'row-tx' : node.rxKeyed ? 'row-rx' : '');

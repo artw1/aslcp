@@ -27,9 +27,11 @@ import (
 	"github.com/artw1/aslcp/internal/configsvc"
 	"github.com/artw1/aslcp/internal/demo"
 	"github.com/artw1/aslcp/internal/diag"
-	"github.com/artw1/aslcp/internal/dvswitch"
+	"github.com/artw1/aslcp/internal/dv/ctl"
+	"github.com/artw1/aslcp/internal/dvpanel"
 	"github.com/artw1/aslcp/internal/favstats"
 	"github.com/artw1/aslcp/internal/helper"
+	"github.com/artw1/aslcp/internal/hostlists"
 	"github.com/artw1/aslcp/internal/nodelist"
 	"github.com/artw1/aslcp/internal/radioid"
 	"github.com/artw1/aslcp/internal/rpt"
@@ -49,11 +51,11 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "admin" {
 		os.Exit(adminMain(os.Args[2:]))
 	}
-	if len(os.Args) > 1 && os.Args[1] == "dvswitch" {
-		os.Exit(dvswitchMain(os.Args[2:]))
+	if len(os.Args) > 1 && os.Args[1] == "dv" {
+		os.Exit(dvMain(os.Args[2:]))
 	}
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n  aslcp [options]            run the web server\n  aslcp admin <command>      manage accounts (create, reset-password, list); see: aslcp admin --help\n  aslcp dvswitch install     install DVSwitch (root); see: aslcp dvswitch --help\n\nOptions:\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n  aslcp [options]            run the web server\n  aslcp admin <command>      manage accounts (create, reset-password, list); see: aslcp admin --help\n  aslcp dv <command>         digital modes: enable, disable, status (root); see: aslcp dv --help\n\nOptions:\n")
 		flag.PrintDefaults()
 	}
 	cfgPath := flag.String("config", config.DefaultConfigPath, "path to aslcp.conf")
@@ -198,9 +200,8 @@ func run(cfgPath string, dev, demoMode bool) error {
 	var sysHost api.SystemHost
 	var cfgHelper configsvc.Helper
 	var bkHelper backupsvc.Helper
-	var dvsw api.DVSwitch
-	var dvTrack *dvswitch.Tracker
-	var dvInstalled func() bool
+	var dvEng api.DVEngine
+	var dvCtl api.DVCtl
 	var restart func()
 	var restartReq atomic.Bool
 	var firewall func(context.Context) (helper.Firewall, error)
@@ -237,14 +238,14 @@ func run(cfgPath string, dev, demoMode bool) error {
 		upd.OS.FirstCheck, upd.OS.Tick = time.Second, time.Second
 		power = dh
 		sysHost = helper.NewDemoSystem()
-		ddv := helper.NewDemoDVSwitch()
-		ddv.Lists = ops
-		dvsw = ddv
-		dvInstalled = ddv.Installed
-		// The demo tracker reads the in-memory demo ABInfo, keeps its state in
-		// the demo database (a temporary dir) and polls fast.
-		dvTrack = &dvswitch.Tracker{Src: ddv, Store: st, Logger: logger, Installed: ddv.Installed, Interval: 3 * time.Second,
-			BootMode: dvBootMode(ddv), ModeEnabled: dvModeOn(ddv)}
+		ddv := newDemoDV()
+		sock, stopDV, err := ddv.serve(ctx)
+		if err != nil {
+			return err
+		}
+		defer stopDV()
+		dvEng = ddv
+		dvCtl = ctl.NewClient(sock)
 		bg(func() { upd.Run(ctx) })
 		bg(func() { upd.OS.Run(ctx) })
 	} else {
@@ -259,10 +260,8 @@ func run(cfgPath string, dev, demoMode bool) error {
 		upd.OS.Logger = logger
 		power = hc
 		sysHost = hc
-		dvsw = hc
-		dvInstalled = dvswitchInstalled
-		dvTrack = &dvswitch.Tracker{Src: hc, Store: st, Logger: logger, Installed: dvswitchInstalled,
-			BootMode: dvBootMode(hc), ModeEnabled: dvModeOn(hc)}
+		dvEng = hc
+		dvCtl = ctl.NewClient(ctl.SocketPath)
 		bg(func() { upd.Run(ctx) })
 		bg(func() { upd.OS.Run(ctx) })
 	}
@@ -301,12 +300,24 @@ func run(cfgPath string, dev, demoMode bool) error {
 	sched := &schedules.Engine{Store: st, Logger: logger, StartDelay: 5 * time.Second}
 	// The permanent link of the private bridge node: the API wires its
 	// Linker and Store; it checks at start (after the monitor knows the nodes).
-	dvLink := &dvswitch.LinkReconciler{Store: st, StartDelay: 15 * time.Second}
+	dvLink := &dvpanel.LinkReconciler{Store: st, StartDelay: 15 * time.Second}
 	if demoMode {
 		dvLink.StartDelay, dvLink.Tick = 3*time.Second, 5*time.Second
 	}
+	var srv *api.Server
+	dvOn := func() bool { return srv != nil && srv.DVEnabled() }
+	hlOpts := hostlists.Options{Dir: filepath.Join(cfg.DataDir, "hostlists"), Version: version, Settings: st, Logger: logger, Enabled: dvOn}
+	if demoMode {
+		hlOpts.FirstDelay = time.Hour // the demo never goes online
+	}
+	hl := hostlists.New(hlOpts)
+	dvTrack := &dvpanel.Tracker{Src: &dvSource{ctl: dvCtl, hl: hl}, Store: st, Logger: logger, Enabled: dvOn}
+	if demoMode {
+		dvTrack.Interval = 3 * time.Second
+	}
 	bg(func() { rid.Run(ctx) })
-	srv := api.New(api.Deps{
+	bg(func() { hl.Run(ctx) })
+	srv = api.New(api.Deps{
 		RadioID:      rid,
 		FavStats:     favScan,
 		Schedules:    sched,
@@ -314,7 +325,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 		RescanNodes:  func() { kick(rescan) },
 		Tuning:       tune,
 		ConfigEditor: cfgSvc,
-		Auth:         as, Store: st, AMI: proxy, Nodelist: nl, System: sys, Updates: upd, Power: power, SysHost: sysHost, DVSwitch: dvsw, DVResume: dvTrack, DVInstalled: dvInstalled, DVBridgeNode: dvBridgeNode(cfgHelper), Version: version,
+		Auth:         as, Store: st, AMI: proxy, Nodelist: nl, System: sys, Updates: upd, Power: power, SysHost: sysHost, DVEngine: dvEng, DVCtl: dvCtl, HostLists: hl, DVResume: dvTrack, DVBridgeNode: dvBridgeNode(cfgHelper), Version: version,
 		UI: webui.Handler(), AllowedOrigins: origins, AllScanDirs: allscan.DefaultDirs, Logger: logger,
 		Log: ring, Config: cfg, ConfigPath: cfgPath, Firewall: firewall,
 		PublicDefaultEnabled: demoMode,
@@ -652,16 +663,8 @@ func seedDemoSchedules(st *store.Store, now time.Time) {
 	}
 }
 
-// dvswitchInstalled says whether DVSwitch is on this node (Analog_Bridge's
-// ini is where its package puts it). The tracker polls the helper only then,
-// so a node without DVSwitch never wakes the helper for it.
-func dvswitchInstalled() bool {
-	fi, err := os.Stat(filepath.Join(helper.DefaultDVOptDir, "Analog_Bridge", "Analog_Bridge.ini"))
-	return err == nil && fi.Mode().IsRegular()
-}
-
 // dvBridgeNode finds the node with a USRP channel in rpt.conf (read-only), for
-// the "No bridge node yet" line of the DVSwitch card.
+// the "No bridge node yet" line of the digital modes card.
 func dvBridgeNode(src any) func(context.Context) (string, bool) {
 	cs, ok := src.(susb.ConfigSource)
 	if !ok {
@@ -670,26 +673,30 @@ func dvBridgeNode(src any) func(context.Context) (string, bool) {
 	return func(ctx context.Context) (string, bool) { return susb.USRPNode(ctx, cs) }
 }
 
-// dvBootSource is what the tracker's boot-mode hooks need of the helper.
-type dvBootSource interface {
-	DVSwitchSetup(ctx context.Context) (helper.DVSwitchSetup, error)
-	DVSwitchBootMode(ctx context.Context, mode string) (helper.DVApplyResult, error)
+// dvSource adapts the engine's control socket to the resume tracker.
+type dvSource struct {
+	ctl api.DVCtl
+	hl  *hostlists.Manager
 }
 
-// dvBootMode makes DVSwitch start in the last mode (docs/DVSWITCH.md, "Boot
-// mode"). It is not a user write: no audit, no history copy, no restart.
-func dvBootMode(h dvBootSource) func(context.Context, string) error {
-	return func(ctx context.Context, mode string) error {
-		_, err := h.DVSwitchBootMode(ctx, mode)
-		return err
+func (d *dvSource) Info(ctx context.Context) (dvpanel.Info, error) {
+	st, err := d.ctl.Status(ctx)
+	if err != nil {
+		return dvpanel.Info{}, err
 	}
+	return dvpanel.InfoFromStatus(st), nil
 }
 
-// dvModeOn says whether a mode's card is enabled; an unreadable setup counts
-// as on (the helper still refuses a disabled BM).
-func dvModeOn(h dvBootSource) func(context.Context, string) bool {
-	return func(ctx context.Context, mode string) bool {
-		v, err := h.DVSwitchSetup(ctx)
-		return err != nil || helper.DVModeOn(v, mode)
+// Tune switches the mode and tunes; it reports whether the engine answered.
+func (d *dvSource) Tune(ctx context.Context, mode, tune string) (bool, error) {
+	args, unlink, err := dvpanel.BuildTune(mode, tune, d.hl.Resolve)
+	if err != nil {
+		return false, err
 	}
+	if unlink {
+		_, err = d.ctl.Unlink(ctx, ctl.UnlinkArgs{Mode: args.Mode})
+	} else {
+		_, err = d.ctl.Tune(ctx, args)
+	}
+	return err == nil, err
 }
