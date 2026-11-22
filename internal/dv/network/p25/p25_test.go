@@ -235,9 +235,6 @@ func TestRegistered(t *testing.T) {
 }
 
 func TestBadOptions(t *testing.T) {
-	if _, err := New(ctl.NetConfig{Options: map[string]string{OptID: "99999999"}}, ctl.Identity{Callsign: "N0CALL"}); err == nil {
-		t.Fatal("accepted p25_id over 24 bits")
-	}
 	n, _ := New(ctl.NetConfig{}, ctl.Identity{Callsign: "N0CALL"})
 	if err := n.Tune(context.Background(), ctl.Target{TG: 1997}); err == nil {
 		t.Fatal("tune without host")
@@ -320,7 +317,7 @@ func TestRXLostEnd(t *testing.T) {
 }
 
 func TestTXFraming(t *testing.T) {
-	n, ref, _ := start(t, map[string]string{OptID: "1234567"})
+	n, ref, _ := start(t, nil)
 	frames, recs := loadVectors(t)
 	if err := n.WriteVoice(network.VoiceFrame{Data: make([]byte, 7)}); err == nil {
 		t.Fatal("7-byte frame accepted")
@@ -353,4 +350,28 @@ func TestTXFraming(t *testing.T) {
 	if p := ref.next(voiceRec, time.Second); !bytes.Equal(p, EndRecord()) {
 		t.Fatalf("terminator %x", p)
 	}
+}
+
+// A stored address is not linked at start (the config no longer carries one):
+// nothing is sent until the first Tune.
+func TestNoLinkAtStart(t *testing.T) {
+	ref := newFakeRef(t)
+	n, err := New(ctl.NetConfig{Mode: ctl.ModeP25, Enabled: true, Address: "127.0.0.1", Port: ref.port(),
+		Options: map[string]string{OptPollMS: "20", OptTickMS: "5"}}, ctl.Identity{Callsign: "N0CALL", DMRID: 1234567})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &sink{ch: make(chan event, 4096)}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { n.Run(ctx, s); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+	time.Sleep(150 * time.Millisecond)
+	if len(ref.got) != 0 {
+		t.Fatal("linked at start")
+	}
+	if err := n.Tune(ctx, ctl.Target{Room: "1997", Host: "127.0.0.1", Port: ref.port()}); err != nil {
+		t.Fatal(err)
+	}
+	s.wait(t, loginIs(ctl.LoginOK, "TG 1997"), time.Second)
 }

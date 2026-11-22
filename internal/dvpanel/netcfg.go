@@ -64,9 +64,6 @@ type NetSpec struct {
 	Password bool `json:"password"`
 	// DefaultPort is the master's port when none is set (0: none).
 	DefaultPort int `json:"defaultPort,omitempty"`
-	// AddressOptional: the address may stay empty (YSF, P25: the reflector is
-	// picked by Tune; a set address is linked when the engine starts).
-	AddressOptional bool `json:"addressOptional,omitempty"`
 	// DefaultAddress is the master used when no address is set (TGIF's public
 	// master); a network with one can be enabled without an address.
 	DefaultAddress string `json:"defaultAddress,omitempty"`
@@ -101,8 +98,6 @@ var NetOptions = map[string][]OptSpec{
 			Help: "End a received call that has no terminator after this silence."},
 	},
 	ModeP25: {
-		{Key: "p25_id", Label: "P25 unit ID", Kind: KindInt, Min: 1, Max: 16777215,
-			Help: "Your P25 source unit ID (up to 16777215). Default: the DMR ID of the identity."},
 		{Key: "poll_ms", Label: "Poll period (ms)", Kind: KindInt, Default: "5000", Min: 1000, Max: 60000, Advanced: true,
 			Help: "How often the reflector is polled to keep the link up."},
 		{Key: "timeout_ms", Label: "Link timeout (ms)", Kind: KindInt, Default: "15000", Min: 2000, Max: 120000, Advanced: true,
@@ -111,7 +106,7 @@ var NetOptions = map[string][]OptSpec{
 			Help: "End a received call that has no terminator after this silence."},
 	},
 	ModeNXDN: {
-		{Key: "nxdn_id", Label: "NXDN unit ID", Kind: KindInt, Min: 1, Max: 65535,
+		{Key: "nxdn_id", Label: "NXDN ID", Kind: KindInt, Min: 1, Max: 65535,
 			Help: "Your NXDN unit ID. Needed to transmit; receiving works without it."},
 		{Key: "nxdn_ran", Label: "RAN", Kind: KindInt, Default: "0", Min: 0, Max: 63, Advanced: true,
 			Help: "Radio access number sent with your transmissions."},
@@ -125,6 +120,16 @@ var NetOptions = map[string][]OptSpec{
 		{Key: "rx_timeout_ms", Label: "Call end timeout (ms)", Kind: KindInt, Default: "1500", Min: 200, Max: 10000, Advanced: true,
 			Help: "End a received call that has no terminator after this silence."},
 	},
+}
+
+// RetiredAddress lists the modes that stored a reflector address (and port)
+// before they became enable-only; a stored one is dropped on load.
+var RetiredAddress = map[string]bool{ModeYSF: true, ModeP25: true}
+
+// RetiredOptions are option keys a mode used to take; a stored one is dropped
+// on load instead of making the settings unreadable.
+var RetiredOptions = map[string]map[string]bool{
+	ModeP25: {"p25_id": true},
 }
 
 // hbOptions are the options of the Homebrew client, shared by TGIF and
@@ -166,12 +171,12 @@ var NetSpecs = []NetSpec{
 		Help: "The password is the hotspot security password of your TGIF profile. The public master tgif.network:62031 is used unless you set another."},
 	{Mode: ModeDMR, Label: "DMR - Other", Address: true, Port: true, Password: true, DefaultPort: 62031, NeedsIdentity: true,
 		Help: "A Homebrew (MMDVM) master such as FreeDMR, DMR+ or an hblink3 server. Ask its operator for the address, port and password."},
-	{Mode: ModeYSF, Label: "System Fusion (YSF)", Address: true, Port: true, AddressOptional: true, DefaultPort: 42000, NeedsIdentity: true,
-		Help: "YSF has no password and no login: tune a reflector on the dashboard. The address is optional; a reflector set here is linked when the engine starts. Calls are carried in V/D mode 2 (DN) and Voice FR (VW) is heard; your transmissions are sent in DN. The callsign of the identity is the node callsign."},
-	{Mode: ModeP25, Label: "P25", Address: true, Port: true, AddressOptional: true, DefaultPort: 41000, NeedsIdentity: true,
-		Help: "P25 has no password and no login: tune a talkgroup on the dashboard, picked from the P25 list. The address is optional; a reflector set here is linked when the engine starts. The callsign of the identity is the node callsign; set a P25 unit ID in Options or the DMR ID is used."},
+	{Mode: ModeYSF, Label: "System Fusion (YSF)", NeedsIdentity: true,
+		Help: "Enable it, then tune a reflector on the dashboard."},
+	{Mode: ModeP25, Label: "P25", NeedsIdentity: true,
+		Help: "Enable it, then tune a talkgroup on the dashboard."},
 	{Mode: ModeNXDN, Label: "NXDN", NeedsIdentity: true,
-		Help: "NXDN has no login: tune a reflector talkgroup on the dashboard. The callsign of the identity is sent to the reflector; set your NXDN unit ID in Options to transmit."},
+		Help: "NXDN has no login: tune a reflector talkgroup on the dashboard. The callsign of the identity is sent to the reflector; set your NXDN ID in Options to transmit."},
 }
 
 // NetSpecFor finds the spec of mode.
@@ -362,7 +367,7 @@ func ValidateIdentity(id IdentityState) (IdentityState, error) {
 // it can).
 func EnableBlock(sp NetSpec, st NetState, id IdentityState) string {
 	switch {
-	case sp.Address && st.Address == "" && sp.DefaultAddress == "" && !sp.AddressOptional:
+	case sp.Address && st.Address == "" && sp.DefaultAddress == "":
 		return "set the master address first"
 	case sp.Password && !st.PasswordSet:
 		return "set the password first"

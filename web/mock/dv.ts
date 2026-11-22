@@ -217,36 +217,35 @@ const YSF_OPTS = [
   intOpt('rx_timeout_ms', 'Call end timeout (ms)', '1500', 200, 10000, true),
 ];
 const P25_OPTS = [
-  intOpt('p25_id', 'P25 unit ID', '', 1, 16777215),
   intOpt('poll_ms', 'Poll period (ms)', '5000', 1000, 60000, true),
   intOpt('timeout_ms', 'Link timeout (ms)', '15000', 2000, 120000, true),
   intOpt('rx_timeout_ms', 'Call end timeout (ms)', '1500', 200, 10000, true),
 ];
 const NXDN_OPTS = [
-  intOpt('nxdn_id', 'NXDN unit ID', '', 1, 65535),
+  intOpt('nxdn_id', 'NXDN ID', '', 1, 65535),
   intOpt('nxdn_ran', 'RAN', '0', 0, 63, true),
   txtOpt('listen', 'Local address', '0.0.0.0:0', 32, true),
   intOpt('poll_interval_ms', 'Poll period (ms)', '5000', 1000, 60000, true),
   intOpt('missed_polls', 'Missed polls', '3', 1, 20, true),
 ];
-const NETSPEC: Record<NetId, { label: string; fields: { address: boolean; port: boolean; password: boolean }; defaultPort?: number; defaultAddress?: string; addressOptional?: boolean; help?: string; options: unknown[] }> = {
+const NETSPEC: Record<NetId, { label: string; fields: { address: boolean; port: boolean; password: boolean }; defaultPort?: number; defaultAddress?: string; help?: string; options: unknown[] }> = {
   BM: { label: 'BrandMeister', fields: { address: true, port: false, password: true }, help: BM_HELP, options: BM_OPTS },
   TGIF: { label: 'TGIF', fields: { address: true, port: true, password: true }, defaultPort: 62031, defaultAddress: 'tgif.network', options: HB_OPTS('Static talkgroups, for example TS2=1997; Without it the talkgroup you tune is linked on demand.'),
     help: 'The password is the hotspot security password of your TGIF profile. The public master tgif.network:62031 is used unless you set another.' },
   DMR: { label: 'DMR - Other', fields: { address: true, port: true, password: true }, defaultPort: 62031, options: HB_OPTS('Sent to the master after login, for example static talkgroups. Leave empty if unsure.'),
     help: 'A Homebrew (MMDVM) master such as FreeDMR, DMR+ or an hblink3 server. Ask its operator for the address, port and password.' },
-  YSF: { label: 'System Fusion (YSF)', fields: { address: true, port: true, password: false }, defaultPort: 42000, addressOptional: true, options: YSF_OPTS,
+  YSF: { label: 'System Fusion (YSF)', fields: { address: false, port: false, password: false }, options: YSF_OPTS,
     help: 'YSF has no password and no login: tune a reflector on the dashboard. The address is optional; a reflector set here is linked when the engine starts. Calls are carried in V/D mode 2 (DN) and Voice FR (VW) is heard; your transmissions are sent in DN. The callsign of the identity is the node callsign.' },
-  P25: { label: 'P25', fields: { address: true, port: true, password: false }, defaultPort: 41000, addressOptional: true, options: P25_OPTS,
-    help: 'P25 has no password and no login: tune a talkgroup on the dashboard, picked from the P25 list. The address is optional; a reflector set here is linked when the engine starts. The callsign of the identity is the node callsign; set a P25 unit ID in Options or the DMR ID is used.' },
+  P25: { label: 'P25', fields: { address: false, port: false, password: false }, options: P25_OPTS,
+    help: 'Enable it, then tune a talkgroup on the dashboard.' },
   NXDN: { label: 'NXDN', fields: { address: false, port: false, password: false }, options: NXDN_OPTS,
-    help: 'NXDN has no login: tune a reflector talkgroup on the dashboard. The callsign of the identity is sent to the reflector; set your NXDN unit ID in Options to transmit.' },
+    help: 'NXDN has no login: tune a reflector talkgroup on the dashboard. The callsign of the identity is sent to the reflector; set your NXDN ID in Options to transmit.' },
 };
 const netOf = (m: NetId) => (m === 'BM' ? bmNet : otherNets[m]);
 function netView(m: NetId) {
   const n = netOf(m), sp = NETSPEC[m], avail = NATIVE.includes(m);
   return {
-    mode: m, label: sp.label, available: avail, enabled: n.enabled, address: n.address, port: n.port, ...(sp.defaultPort ? { defaultPort: sp.defaultPort } : {}), ...(sp.defaultAddress ? { defaultAddress: sp.defaultAddress } : {}), ...(sp.addressOptional ? { addressOptional: true } : {}),
+    mode: m, label: sp.label, available: avail, enabled: n.enabled, address: n.address, port: n.port, ...(sp.defaultPort ? { defaultPort: sp.defaultPort } : {}), ...(sp.defaultAddress ? { defaultAddress: sp.defaultAddress } : {}),
     passwordSet: n.password !== '', fields: sp.fields, needsIdentity: true, ...(sp.help ? { help: sp.help } : {}), options: sp.options, values: { ...n.options },
     ...(avail && n.enabled && snapshot().running ? { login: m === 'BM' ? bmLogin() : 'off', detail: m === 'BM' ? bmDetail() : '' } : {}),
   };
@@ -290,7 +289,7 @@ function netsHandler(c: DVCtx): boolean {
   }
   const sp = NETSPEC[mode];
   if (next.enabled) {
-    const why = sp.fields.address && !sp.defaultAddress && !sp.addressOptional && !next.address ? 'set the master address first' : sp.fields.password && !next.password ? 'set the password first' : !ident.callsign ? 'set the callsign and DMR ID in the identity first' : '';
+    const why = sp.fields.address && !sp.defaultAddress && !next.address ? 'set the master address first' : sp.fields.password && !next.password ? 'set the password first' : !ident.callsign ? 'set the callsign and DMR ID in the identity first' : '';
     if (why) return c.err(422, `incomplete: ${why}`, 'incomplete'), true;
   }
   Object.assign(n, next);

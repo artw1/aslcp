@@ -83,7 +83,7 @@ export function passwordUx(passwordSet: boolean, editing: boolean): { status: st
 
 /** What blocks the Enable switch (the same checks the server makes), or ''. */
 export function enableBlock(v: DVNetView, f: NetForm, identity: DVIdentity | null): string {
-  if (v.fields.address && !v.defaultAddress && !v.addressOptional && f.address.trim() === '') return 'Set the master address first';
+  if (v.fields.address && !v.defaultAddress && f.address.trim() === '') return 'Set the master address first';
   if (v.fields.password && !v.passwordSet && f.password === '') return 'Set the password first';
   if (v.needsIdentity && (!identity || !identity.callsign || !identity.dmrId)) return 'Set the callsign and DMR ID in the identity first';
   return '';

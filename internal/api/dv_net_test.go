@@ -181,11 +181,10 @@ func TestDVNetworksYSF(t *testing.T) {
 	var list struct {
 		Modes []struct {
 			netView
-			AddressOptional bool
-			DefaultAddress  string
-			DefaultPort     int
-			NeedsIdentity   bool
-			Fields          struct{ Address, Port, Password bool }
+			DefaultAddress string
+			DefaultPort    int
+			NeedsIdentity  bool
+			Fields         struct{ Address, Port, Password bool }
 		}
 	}
 	if c := e.do("admin", "GET", "/api/dv/networks", nil, &list); c != 200 {
@@ -197,7 +196,7 @@ func TestDVNetworksYSF(t *testing.T) {
 			continue
 		}
 		found++
-		if !m.Available || !m.AddressOptional || m.DefaultAddress != "" || m.DefaultPort != 42000 || !m.Fields.Address || !m.Fields.Port || m.Fields.Password || !m.NeedsIdentity || len(m.Options) != 3 {
+		if !m.Available || m.DefaultAddress != "" || m.DefaultPort != 0 || m.Fields.Address || m.Fields.Port || m.Fields.Password || !m.NeedsIdentity || len(m.Options) != 3 {
 			t.Fatalf("%+v", m)
 		}
 		for _, o := range m.Options {
@@ -223,11 +222,10 @@ func TestDVNetworksP25(t *testing.T) {
 	var list struct {
 		Modes []struct {
 			netView
-			AddressOptional bool
-			DefaultAddress  string
-			DefaultPort     int
-			NeedsIdentity   bool
-			Fields          struct{ Address, Port, Password bool }
+			DefaultAddress string
+			DefaultPort    int
+			NeedsIdentity  bool
+			Fields         struct{ Address, Port, Password bool }
 		}
 	}
 	if c := e.do("admin", "GET", "/api/dv/networks", nil, &list); c != 200 {
@@ -239,7 +237,7 @@ func TestDVNetworksP25(t *testing.T) {
 			continue
 		}
 		found++
-		if !m.Available || !m.AddressOptional || m.DefaultAddress != "" || m.DefaultPort != 41000 || !m.Fields.Address || !m.Fields.Port || m.Fields.Password || !m.NeedsIdentity || len(m.Options) != 4 {
+		if !m.Available || m.DefaultAddress != "" || m.DefaultPort != 0 || m.Fields.Address || m.Fields.Port || m.Fields.Password || !m.NeedsIdentity || len(m.Options) != 3 {
 			t.Fatalf("%+v", m)
 		}
 		for _, o := range m.Options {
@@ -253,9 +251,11 @@ func TestDVNetworksP25(t *testing.T) {
 	}
 	expectErr(t, e, "admin", "PUT", "/api/dv/networks/P25", map[string]any{"password": "example-pass"}, 422, "invalid_field")
 	expectErr(t, e, "admin", "PUT", "/api/dv/networks/P25", map[string]any{"options": map[string]string{"tick_ms": "10"}}, 422, "invalid_field")
-	expectErr(t, e, "admin", "PUT", "/api/dv/networks/P25", map[string]any{"options": map[string]string{"p25_id": "16777216"}}, 422, "invalid_field")
+	expectErr(t, e, "admin", "PUT", "/api/dv/networks/P25", map[string]any{"options": map[string]string{"p25_id": "1999"}}, 422, "invalid_field")
+	expectErr(t, e, "admin", "PUT", "/api/dv/networks/P25", map[string]any{"address": "reflector.example.net"}, 422, "invalid_field")
+	expectErr(t, e, "admin", "PUT", "/api/dv/networks/YSF", map[string]any{"port": 42000}, 422, "invalid_field")
 	var v netView
-	if c := e.do("admin", "PUT", "/api/dv/networks/P25", map[string]any{"enabled": true, "options": map[string]string{"p25_id": "1999"}}, &v); c != 200 || !v.Enabled || v.Values["p25_id"] != "1999" {
+	if c := e.do("admin", "PUT", "/api/dv/networks/P25", map[string]any{"enabled": true, "options": map[string]string{"poll_ms": "4000"}}, &v); c != 200 || !v.Enabled || v.Values["poll_ms"] != "4000" {
 		t.Fatalf("%d %+v", c, v)
 	}
 }

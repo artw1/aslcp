@@ -284,8 +284,8 @@ func TestDVNetworkYSF(t *testing.T) {
 	dvNetDo(o, DVNetworkRequest{Identity: &DVIdentityView{Callsign: "N0CALL", DMRID: 1234567}})
 	for name, r := range map[string]DVNetworkRequest{
 		"password": {Mode: "YSF", Password: sp("example-pass")},
-		"port":     {Mode: "YSF", Port: ip(70000)},
-		"address":  {Mode: "YSF", Address: sp("bad address")},
+		"port":     {Mode: "YSF", Port: ip(42000)},
+		"address":  {Mode: "YSF", Address: sp("192.0.2.20")},
 		"poll":     {Mode: "YSF", Options: map[string]string{"poll_ms": "10"}},
 		"tick":     {Mode: "YSF", Options: map[string]string{"tick_ms": "100"}},
 		"nxdnopt":  {Mode: "YSF", Options: map[string]string{"nxdn_id": "1"}},
@@ -294,18 +294,11 @@ func TestDVNetworkYSF(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	// no address needed: the reflector is picked by Tune
+	// enable only: the reflector is picked by Tune
 	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "YSF", Enabled: bp(true), Options: map[string]string{"poll_ms": "4000", "rx_timeout_ms": ""}}); err != nil {
 		t.Fatal(err)
 	}
 	if n := renderedNet(t, o, "YSF"); !n.Enabled || n.Address != "" || n.Password != "" || n.Options["poll_ms"] != "4000" || len(n.Options) != 1 {
-		t.Fatalf("%+v", n)
-	}
-	// an optional reflector, linked when the engine starts
-	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "YSF", Address: sp("192.0.2.20"), Port: ip(42001)}); err != nil {
-		t.Fatal(err)
-	}
-	if n := renderedNet(t, o, "YSF"); !n.Enabled || n.Address != "192.0.2.20" || n.Port != 42001 {
 		t.Fatalf("%+v", n)
 	}
 }
@@ -318,29 +311,22 @@ func TestDVNetworkP25(t *testing.T) {
 	dvNetDo(o, DVNetworkRequest{Identity: &DVIdentityView{Callsign: "N0CALL", DMRID: 1234567}})
 	for name, r := range map[string]DVNetworkRequest{
 		"password": {Mode: "P25", Password: sp("example-pass")},
-		"port":     {Mode: "P25", Port: ip(70000)},
-		"address":  {Mode: "P25", Address: sp("bad address")},
+		"port":     {Mode: "P25", Port: ip(41000)},
+		"address":  {Mode: "P25", Address: sp("192.0.2.30")},
 		"poll":     {Mode: "P25", Options: map[string]string{"poll_ms": "10"}},
 		"tick":     {Mode: "P25", Options: map[string]string{"tick_ms": "100"}},
-		"id0":      {Mode: "P25", Options: map[string]string{"p25_id": "0"}},
-		"idbig":    {Mode: "P25", Options: map[string]string{"p25_id": "16777216"}},
+		"p25id":    {Mode: "P25", Options: map[string]string{"p25_id": "1999"}},
 		"nxdnopt":  {Mode: "P25", Options: map[string]string{"nxdn_id": "1"}},
 	} {
 		if _, err := dvNetDo(o, r); !errors.Is(err, ErrDVBadRequest) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	// no address needed: the reflector is picked by Tune
-	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "P25", Enabled: bp(true), Options: map[string]string{"p25_id": "16777215", "poll_ms": "4000"}}); err != nil {
+	// enable only: the reflector is picked by Tune
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "P25", Enabled: bp(true), Options: map[string]string{"poll_ms": "4000"}}); err != nil {
 		t.Fatal(err)
 	}
-	if n := renderedNet(t, o, "P25"); !n.Enabled || n.Address != "" || n.Password != "" || n.Options["p25_id"] != "16777215" || n.Options["poll_ms"] != "4000" {
-		t.Fatalf("%+v", n)
-	}
-	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "P25", Address: sp("192.0.2.30"), Port: ip(41001)}); err != nil {
-		t.Fatal(err)
-	}
-	if n := renderedNet(t, o, "P25"); !n.Enabled || n.Address != "192.0.2.30" || n.Port != 41001 {
+	if n := renderedNet(t, o, "P25"); !n.Enabled || n.Address != "" || n.Port != 0 || n.Password != "" || n.Options["poll_ms"] != "4000" || len(n.Options) != 1 {
 		t.Fatalf("%+v", n)
 	}
 }
@@ -353,5 +339,33 @@ func TestParseDVNetworksDropsBMPort(t *testing.T) {
 	}
 	if st.Networks["BM"].Port != 0 || st.Networks["BM"].Address != "192.0.2.10" {
 		t.Fatalf("%+v", st.Networks["BM"])
+	}
+}
+
+// YSF and P25 stored a reflector address and port, and P25 a unit ID, before
+// they became enable-only: an old file still loads and the fields are dropped.
+func TestParseDVNetworksDropsRetiredYSFP25Fields(t *testing.T) {
+	st, err := parseDVNetworks([]byte(`{"version":1,"networks":{` +
+		`"YSF":{"enabled":true,"address":"192.0.2.20","port":42001,"options":{"poll_ms":"4000"}},` +
+		`"P25":{"enabled":true,"address":"reflector.example.net","port":41001,"options":{"p25_id":"1999","poll_ms":"4000"}},` +
+		`"NXDN":{"enabled":true,"options":{"nxdn_id":"1234"}}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []string{"YSF", "P25"} {
+		n := st.Networks[m]
+		if !n.Enabled || n.Address != "" || n.Port != 0 || n.Options["poll_ms"] != "4000" || len(n.Options) != 1 {
+			t.Fatalf("%s: %+v", m, n)
+		}
+	}
+	if n := st.Networks["NXDN"]; n.Options["nxdn_id"] != "1234" {
+		t.Fatalf("NXDN: %+v", n)
+	}
+	// other networks keep refusing what they do not take
+	if _, err := parseDVNetworks([]byte(`{"version":1,"networks":{"NXDN":{"address":"192.0.2.10"}}}`)); err == nil {
+		t.Fatal("NXDN address accepted")
+	}
+	if _, err := parseDVNetworks([]byte(`{"version":1,"networks":{"YSF":{"options":{"p25_id":"1999"}}}}`)); err == nil {
+		t.Fatal("p25_id accepted on YSF")
 	}
 }

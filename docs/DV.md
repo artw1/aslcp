@@ -125,13 +125,13 @@ DMR - Other connects to any Homebrew (MMDVM) master, for example a FreeDMR, DMR+
 
 ## NXDN
 
-NXDN is a native reflector client. It has no password and no login: the engine registers with the reflector by sending polls, using the callsign of the identity. Set your NXDN unit ID (1-65535) in Options to transmit. Under "advanced" are the RAN, the local listen address and the poll and back-off timers. *Enable* needs the identity. On the dashboard, tune a reflector talkgroup; unlink is `9999`.
+NXDN is a native reflector client. It has no password and no login: the engine registers with the reflector by sending polls, using the callsign of the identity. Set your *NXDN ID* (1-65535) in Options to transmit. Under "advanced" are the RAN, the local listen address and the poll and back-off timers. *Enable* needs the identity. On the dashboard, tune a reflector talkgroup; unlink is `9999`.
 
 ## YSF (System Fusion)
 
 YSF is a native reflector client for System Fusion reflectors (YSFReflector style). It has no password and no login: the engine polls the reflector to keep the link up and uses the callsign of the identity as the node callsign, so *Enable* needs the identity.
 
-- *Reflector address* and *port*: optional. Normally leave them empty and tune a reflector on the dashboard, picked from the YSF list (the port defaults to 42000). A reflector set here is linked when the engine starts.
+- The card is enable/disable only: there is no address or port. Enable it, then tune a reflector on the dashboard, picked from the YSF list. Nothing is linked when the engine starts. An address or port stored by an earlier 2.0 build is ignored and dropped.
 - Under "advanced": the poll period, the link timeout and the call end timeout.
 - Voice is received in **DN (V/D mode 2)** and in **Voice FR (VW)**; a call may use either. Your transmissions are always sent in DN. Wires-X is not supported.
 - VW is IMBE-coded and decoded by the built-in pure-Go IMBE codec (see "Voice codecs"); DN uses the md380-emu vocoder.
@@ -142,8 +142,8 @@ On the dashboard, choose YSF, pick a reflector from the list (or type a 5-digit 
 
 P25 is a native reflector client for P25Reflector style reflectors (UDP, the link P25Gateway and MMDVMHost speak). It has no password and no login: the engine polls the reflector to keep the link up, and the link is "ok" once the reflector answers. The callsign of the identity is the node callsign, so *Enable* needs the identity.
 
-- *Reflector address* and *port*: optional. Normally leave them empty and tune a talkgroup on the dashboard, picked from the P25 list, which names the reflector (the port defaults to 41000). A reflector set here is linked when the engine starts.
-- *P25 unit ID* (Options, 1-16777215): the source ID sent with your transmissions. Default: the DMR ID of the identity.
+- The card is enable/disable only: there is no address or port. Enable it, then tune a talkgroup on the dashboard, picked from the P25 list, which names the reflector. Nothing is linked when the engine starts. An address, port or P25 unit ID stored by an earlier 2.0 build is ignored and dropped.
+- The DMR ID of the identity is always the P25 unit ID sent with your transmissions.
 - Under "advanced": the poll period, the link timeout and the call end timeout.
 - Voice is IMBE (full-rate Phase 1), carried in both directions. The source callsign is not sent on P25, so a received call shows the unit ID.
 

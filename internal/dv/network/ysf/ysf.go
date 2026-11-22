@@ -43,8 +43,8 @@
 //
 // Tune links to Target.Host:Target.Port (resolved by the server from
 // YSF_Hosts.txt, Room = reflector id). Without a host, Room may be
-// "host:port"; otherwise NetConfig.Address/Port is used. The default port is
-// 42000. NetConfig.Address, if set, is also linked when Run starts.
+// "host:port". The default port is 42000. Nothing is linked until the first
+// Tune.
 //
 // # Options (ctl.NetConfig.Options)
 //
@@ -235,9 +235,6 @@ func (n *Net) Run(ctx context.Context, s network.Sink) error {
 	}
 	n.mu.Lock()
 	n.sink, n.conn = s, conn
-	if n.target == nil && n.cfg.Address != "" {
-		n.setTarget(ctl.Target{}, time.Now())
-	}
 	if n.target == nil {
 		n.setLogin(ctl.LoginOff, "")
 	}
@@ -296,9 +293,6 @@ func (n *Net) resolveTarget(t ctl.Target) (string, int, error) {
 			host = h
 			port, _ = strconv.Atoi(p)
 		}
-	}
-	if host == "" {
-		host, port = n.cfg.Address, n.cfg.Port
 	}
 	if host == "" {
 		return "", 0, errors.New("ysf: target has no host")

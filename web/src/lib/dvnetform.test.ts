@@ -130,10 +130,10 @@ test('TGIF, DMR and NXDN forms', () => {
   assert.equal(modeAvailable(undefined, 'P25'), true);
 });
 
-test('YSF form: the reflector address is optional', () => {
+test('YSF form: enable only, no address or port', () => {
   const ysf: DVNetView = {
-    mode: 'YSF', label: 'System Fusion (YSF)', available: true, enabled: false, address: '', port: 0, defaultPort: 42000, addressOptional: true, passwordSet: false,
-    fields: { address: true, port: true, password: false }, needsIdentity: true,
+    mode: 'YSF', label: 'System Fusion (YSF)', available: true, enabled: false, address: '', port: 0, passwordSet: false,
+    fields: { address: false, port: false, password: false }, needsIdentity: true,
     options: [{ key: 'poll_ms', label: 'Poll period (ms)', kind: 'int', default: '5000', min: 1000, max: 60000, advanced: true }],
     values: {},
   };
@@ -142,21 +142,20 @@ test('YSF form: the reflector address is optional', () => {
   assert.equal(enableBlock(ysf, f, null), 'Set the callsign and DMR ID in the identity first');
   assert.match(formError(ysf, { ...f, options: { poll_ms: '10' } }), /1000 to 60000/);
   assert.deepEqual(buildPut(ysf, { ...f, enabled: true, address: '192.0.2.20', port: '42000', options: { poll_ms: '4000' } }),
-    { enabled: true, address: '192.0.2.20', port: 42000, options: { poll_ms: '4000' } });
+    { enabled: true, options: { poll_ms: '4000' } });
 });
 
-test('P25 form: unit ID range and optional address', () => {
+test('P25 form: enable only, no address, port or unit ID', () => {
   const p25: DVNetView = {
-    mode: 'P25', label: 'P25', available: true, enabled: false, address: '', port: 0, defaultPort: 41000, addressOptional: true, passwordSet: false,
-    fields: { address: true, port: true, password: false }, needsIdentity: true,
-    options: [{ key: 'p25_id', label: 'P25 unit ID', kind: 'int', default: '', min: 1, max: 16777215 }],
+    mode: 'P25', label: 'P25', available: true, enabled: false, address: '', port: 0, passwordSet: false,
+    fields: { address: false, port: false, password: false }, needsIdentity: true,
+    options: [{ key: 'poll_ms', label: 'Poll period (ms)', kind: 'int', default: '5000', min: 1000, max: 60000, advanced: true }],
     values: {},
   };
   const f = formOf(p25);
   assert.equal(enableBlock(p25, f, id), '');
   assert.equal(enableBlock(p25, f, null), 'Set the callsign and DMR ID in the identity first');
-  assert.match(formError(p25, { ...f, options: { p25_id: '16777216' } }), /1 to 16777215/);
-  assert.deepEqual(buildPut(p25, { ...f, enabled: true, options: { p25_id: '1999' } }), { enabled: true, options: { p25_id: '1999' } });
+  assert.deepEqual(buildPut(p25, { ...f, enabled: true }), { enabled: true });
 });
 
 test('masterChoice picks the list entry, Other or nothing', () => {

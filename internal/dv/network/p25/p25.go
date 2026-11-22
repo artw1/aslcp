@@ -47,14 +47,11 @@
 //
 // Tune takes the talkgroup from Target.TG, else from Room (decimal), and
 // the reflector from Target.Host:Target.Port (resolved by the server from
-// P25Hosts.txt), else NetConfig.Address/Port. The default port is 41000.
-// Talkgroup 9999 without a host unlinks, as in P25Gateway. NetConfig.Address
-// is linked when Run starts if nothing was tuned.
+// P25Hosts.txt). The default port is 41000. Talkgroup 9999 without a host
+// unlinks, as in P25Gateway. Nothing is linked until the first Tune.
 //
 // # Options (ctl.NetConfig.Options)
 //
-//	p25_id         24-bit P25 source unit id sent in the LC (record 0x66);
-//	               default Identity.DMRID
 //	poll_ms        poll interval, default 5000
 //	timeout_ms     no reply for this long = link lost (login pending,
 //	               "retrying"), default 15000; polls then back off
@@ -87,7 +84,6 @@ const (
 	DefaultTick      = 100 * time.Millisecond
 	maxBackoffPolls  = 12
 
-	OptID          = "p25_id"
 	OptPollMS      = "poll_ms"
 	OptTimeoutMS   = "timeout_ms"
 	OptRxTimeoutMS = "rx_timeout_ms"
@@ -307,18 +303,10 @@ func New(cfg ctl.NetConfig, id ctl.Identity) (*Net, error) {
 	if strings.TrimSpace(id.Callsign) == "" {
 		return nil, errors.New("p25: identity callsign is required")
 	}
-	src := id.DMRID
-	if v, ok := cfg.Options[OptID]; ok && v != "" {
-		n, err := strconv.ParseUint(v, 10, 32)
-		if err != nil || n == 0 || n > 0xFFFFFF {
-			return nil, fmt.Errorf("p25: bad %s %q", OptID, v)
-		}
-		src = uint32(n)
-	}
 	return &Net{
 		enabled:  cfg.Enabled,
 		callsign: pad(strings.ToUpper(strings.TrimSpace(id.Callsign))),
-		srcID:    src & 0xFFFFFF,
+		srcID:    id.DMRID & 0xFFFFFF,
 		cfg:      cfg,
 		poll:     optMS(cfg, OptPollMS, DefaultPoll),
 		timeout:  optMS(cfg, OptTimeoutMS, DefaultTimeout),
@@ -373,9 +361,6 @@ func (n *Net) Run(ctx context.Context, s network.Sink) error {
 	}
 	n.mu.Lock()
 	n.sink, n.conn = s, conn
-	if n.target == nil && n.cfg.Address != "" {
-		n.setTarget(ctl.Target{}, 0, time.Now())
-	}
 	n.next = time.Time{}
 	n.unlock()
 
@@ -427,9 +412,6 @@ func (n *Net) resolveTarget(t ctl.Target) (host string, port int, tg uint32, err
 		return "", 0, 0, errors.New("p25: talkgroup out of range")
 	}
 	host, port = t.Host, t.Port
-	if host == "" {
-		host, port = n.cfg.Address, n.cfg.Port
-	}
 	if host == "" {
 		return "", 0, 0, errors.New("p25: target has no host")
 	}

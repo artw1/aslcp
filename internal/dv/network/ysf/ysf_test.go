@@ -398,3 +398,27 @@ func b(v bool) byte {
 	}
 	return 0
 }
+
+// A stored address is not linked at start (the config no longer carries one):
+// nothing is sent until the first Tune.
+func TestNoLinkAtStart(t *testing.T) {
+	ref := newFakeRef(t)
+	n, err := New(ctl.NetConfig{Mode: ctl.ModeYSF, Enabled: true, Address: "127.0.0.1", Port: ref.port(), Options: fastOpts},
+		ctl.Identity{Callsign: "N0CALL", DMRID: 1234567})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := newSink()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { n.Run(ctx, s); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+	time.Sleep(150 * time.Millisecond)
+	if len(ref.got) != 0 {
+		t.Fatal("linked at start")
+	}
+	if err := n.Tune(ctx, ctl.Target{Room: "12345", Host: "127.0.0.1", Port: ref.port()}); err != nil {
+		t.Fatal(err)
+	}
+	ref.next("YSFP", time.Second)
+}

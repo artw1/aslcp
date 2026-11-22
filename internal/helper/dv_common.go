@@ -389,12 +389,21 @@ func parseDVNetworks(data []byte) (dvNetworksState, error) {
 			// before 2.0) is dropped: the engine uses its default
 			s.Port = 0
 		}
+		if !sp.Address && dvpanel.RetiredAddress[id] {
+			// YSF and P25 stored a reflector address and port before they
+			// became enable-only: dropped, the reflector is tuned instead
+			s.Address = ""
+		}
 		if s.Address != "" && (!sp.Address || !dvpanel.ValidAddress(s.Address)) ||
 			s.Port != 0 && !dvpanel.ValidNetPort(s.Port) ||
 			s.Password != "" && (!sp.Password || !dvpanel.ValidPassword(s.Password)) {
 			return dvNetworksState{}, bad
 		}
 		if len(s.Options) > 0 {
+			// options a mode no longer has (P25 unit ID) are dropped
+			for k := range dvpanel.RetiredOptions[id] {
+				delete(s.Options, k)
+			}
 			o, err := dvpanel.CleanOptions(id, s.Options)
 			if err != nil {
 				return dvNetworksState{}, bad
