@@ -321,6 +321,19 @@ Order of an apply (one place: `internal/api/nodesetup_run.go`): `files` (config-
 
 Errors: `400 bad_request` (invalid field, expired `amiToken`), `409 conflict` (a file changed since the plan: plan again), `422 refused` (with `refusal`; for example the old node is not local, the new node exists, a private node with registration, USBRadio, `no_stanza` for `manager.conf [admin]`), `422 blocked` (the after-state would be broken; `plan.errors`), `502 apply_failed` after the files were written (`step`, `steps`, `rollback`, `result`: the client offers the rollback). A secret is never in a response or in the audit log; the audit actions are `config.setup`, `config.setup.failed`, `config.setup.rollback` and `config.setup.skip`.
 
+### Node wizards (admin)
+
+Add node and Change node number (CONFIG "More wizards and forms"). Same conventions as Node setup: admin only, CSRF header, `503 config_unavailable` without the helper, `409 conflict` when a file changed since the plan, `422 refused` with `refusal`. Apply is the setup wizard's ordered runner and rollback is `POST /api/config/setup/rollback`.
+
+| Route | Body | Response |
+|---|---|---|
+| `POST /api/config/wizard/add-node/plan` | `node`, `password`, `callsign`, `radio` (`simpleusb`\|`hub`), `preset`, `registration {method, host?}`, `from?` (node whose template is inherited) | `{plan}` |
+| `POST /api/config/wizard/add-node/apply` | Plan body plus `base`, `message` | `{plan, result, steps, restarted, rollback}`; `rollback.added` is true |
+| `POST /api/config/wizard/renumber/plan` | `oldNode`, `node`, `password?`, `savenode` | `{plan}` |
+| `POST /api/config/wizard/renumber/apply` | Plan body plus `base`, `message` | `{plan, result, steps, restarted, rollback}` |
+
+The plan is a Plan of "Node forms" plus `oldNode`, `public`, `renumber`, `steps`, `manual` (what the wizard cannot change: shown as "Not changed by this wizard" and "Still to do by hand") and `notes` (what stays as it is). An add refuses a number that exists anywhere. `rollback.added` makes the rollback's health check look at the nodes that remain instead of the removed one. A radio interface change is `POST /api/config/form` with `radio:{type}`; the plan then has `notes` (hub switch) and the apply result may carry `notices` (strings, for example after an AMI secret change). `GET /api/config/nodes` gains `ami: {present, enabled, bindaddr, port, hasSecret, loopback, fields}` (the secret itself is never sent).
+
 ## Radio tuning (admin)
 
 SimpleUSB audio tuning (see [SIMPLEUSB_TUNE.md](SIMPLEUSB_TUNE.md)). Every route is admin only (`403` otherwise); writes need the CSRF header. The commands run through the Asterisk CLI over the AMI connection. `503 {"code":"radio_unavailable"}` is returned when the service is not wired (it never is in a normal install). `{dev}` is the SimpleUSB device name from `simpleusb.conf` (letters, digits, `_` and `-`, at most 32); an unknown one is `404 unknown_device`. Node numbers below are placeholders.

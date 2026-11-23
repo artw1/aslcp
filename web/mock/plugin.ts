@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { handleConfig } from './config.ts';
 import { handleNodeCfg } from './nodecfg.ts';
 import { handleNodeSetup } from './nodesetup.ts';
+import { handleNodeWizards } from './nodewizards.ts';
 import { handleBackup, downUntil } from './backup.ts';
 import { handleRadio } from './radio.ts';
 import { dvNodeLink, handleDV } from './dv.ts';
@@ -261,6 +262,7 @@ export function mockApi(): Plugin {
         if (handleNowCalling({ m, p, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleDV({ push: (ev, d) => broadcast(ev, () => d), m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleNodeSetup({ m, p, body, url, user, json: (c, b) => json(res, c, b), err: (c, msg, code, extra) => json(res, c, { error: msg, code, ...extra }) })) return;
+        if (handleNodeWizards({ m, p, body, url, user, json: (c, b) => json(res, c, b), err: (c, msg, code, extra) => json(res, c, { error: msg, code, ...extra }) })) return;
         if (handleNodeCfg({ m, p, body, url, user, json: (c, b) => json(res, c, b), err: (c, msg, code, extra) => json(res, c, { error: msg, code, ...extra }) })) return;
         if (handleConfig({ m, p, body, url, user, json: (c, b) => json(res, c, b), err: (c, msg, code, extra) => json(res, c, { error: msg, code, ...extra }) })) return;
 

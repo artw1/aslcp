@@ -383,3 +383,21 @@ func HasNodeStanza(rpt []byte, node string) bool {
 	}
 	return false
 }
+
+// FlatCopyKeys are the stanza keys a flat (template-less) new node copies
+// from an existing local node, so that it behaves like one.
+func FlatCopyKeys() []string { return append([]string(nil), flatCopy...) }
+
+// AddLocalNodesLine adds `<node> = radio@127.0.0.1/<node>,NONE` to the [nodes]
+// section of an rpt.conf file (creating the section when there is none). It
+// returns the new line, or "" when the node already has one.
+func AddLocalNodesLine(f *File, node string) string {
+	ns := nodesSection(f)
+	if ns == nil {
+		ns = f.AddSection("nodes", false, nil)
+	} else if len(ns.Get(node)) > 0 {
+		return ""
+	}
+	line, _ := addNodesLine(ns, node)
+	return line
+}

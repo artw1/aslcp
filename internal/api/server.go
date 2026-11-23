@@ -389,6 +389,7 @@ func (s *Server) routes() {
 	s.configRoutes()
 	s.nodeCfgRoutes()
 	s.setupRoutes()
+	s.nodeWizardRoutes()
 	s.backupRoutes()
 	s.radioRoutes()
 	s.dvRoutes()

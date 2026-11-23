@@ -67,6 +67,9 @@ type SetupPlan struct {
 	// Renumber: the node number changes.
 	Renumber bool        `json:"renumber"`
 	Steps    []SetupStep `json:"steps"`
+	// Manual lists what the wizard cannot change and the operator must do
+	// by hand (shown on the review page).
+	Manual []string `json:"manual"`
 }
 
 var (
@@ -99,9 +102,6 @@ func (w *World) PlanSetup(in SetupRequest) (*SetupPlan, error) {
 		return nil, refuse(Refusal{Code: "no_file", Message: "rpt.conf does not exist.", File: FileRpt})
 	}
 	old, node := in.OldNode, in.Node
-	if !reSetupNode.MatchString(node) {
-		return nil, invalid("the node number must be 1 to 7 digits")
-	}
 	local := map[string]bool{}
 	for _, n := range w.LocalNodes() {
 		local[n] = true
@@ -117,42 +117,9 @@ func (w *World) PlanSetup(in SetupRequest) (*SetupPlan, error) {
 	if si.refusal != nil {
 		return nil, refuse(*si.refusal)
 	}
-	public := !IsPrivate(node)
-	if !plainText(in.Password) || !regexp.MustCompile(`^[A-Za-z0-9._+=,:@%-]{1,64}$`).MatchString(in.Password) {
-		return nil, invalid("the password must be 1 to 64 letters, digits or . _ + = , : @ %% -")
-	}
-	cs := strings.ToUpper(strings.TrimSpace(in.Callsign))
-	if !ValidCallsign(cs) {
-		return nil, invalid("%q does not look like a callsign (letters and digits, for example N0CALL)", in.Callsign)
-	}
-	if in.Radio != RadioSimpleUSB && in.Radio != RadioHub {
-		return nil, invalid("the radio must be simpleusb or hub; USBRadio and other interfaces are edited in Advanced")
-	}
-	if in.Preset == "" {
-		return nil, invalid("choose a duplex preset")
-	}
-	if pr, ok := PresetByName(in.Preset); !ok {
-		return nil, invalid("unknown preset %q", in.Preset)
-	} else if pr.Hub != (in.Radio == RadioHub) {
-		return nil, invalid("the hub preset goes with the hub radio option, and the other presets with SimpleUSB")
-	}
-
-	rc := RegChange{Method: RegNone}
-	if in.Registration != nil {
-		rc = *in.Registration
-	} else if public {
-		rc.Method = RegHTTP
-	}
-	if rc.Method == "" {
-		rc.Method = RegNone
-	}
-	switch {
-	case !public && rc.Method != RegNone:
-		return nil, invalid("private nodes (1 to 1999) are not registered; use a number above 1999 to register")
-	case rc.Method != RegNone:
-		rc.Password = in.Password
-	default:
-		rc.Password = ""
+	cs, rc, public, err := normalizeAnswers(node, in.Password, in.Callsign, in.Radio, in.Preset, in.Registration)
+	if err != nil {
+		return nil, err
 	}
 
 	req := Request{Node: old, to: node, Preset: in.Preset, Callsign: &cs, Radio: &RadioChange{Type: in.Radio}, Registration: &rc}
@@ -214,7 +181,7 @@ func (w *World) PlanSetup(in SetupRequest) (*SetupPlan, error) {
 	}
 	p.Changes = ed.out
 	w.finishPlan(p, ed, old, node)
-	sp := &SetupPlan{Plan: p, OldNode: old, Public: public, Renumber: renumber}
+	sp := &SetupPlan{Plan: p, OldNode: old, Public: public, Renumber: renumber, Manual: []string{}}
 	if !p.Noop && (renumber || in.AMI) {
 		p.Restart = true
 		if renumber {

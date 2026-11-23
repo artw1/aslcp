@@ -1,18 +1,25 @@
 <script lang="ts">
   import { api } from '../../lib/api';
-  import { advancedLink, echolinkSummary, fieldById, keyById, radioSummary, registrationSummary, summaryLine, valueLabel, type Finding, type Overview, type NodeModel, type SchemaDoc } from '../../lib/nodecfg';
+  import { advancedLink, amiSummary, echolinkSummary, fieldById, keyById, radioSummary, registrationSummary, summaryLine, valueLabel, type Finding, type Overview, type NodeModel, type SchemaDoc } from '../../lib/nodecfg';
   import NodeCard from './NodeCard.svelte';
   import IdentityForm from './IdentityForm.svelte';
   import DuplexForm from './DuplexForm.svelte';
   import RegistrationForm from './RegistrationForm.svelte';
   import EchoLinkForm from './EchoLinkForm.svelte';
   import SetupWizard from './SetupWizard.svelte';
+  import AddNodeWizard from './AddNodeWizard.svelte';
+  import RenumberWizard from './RenumberWizard.svelte';
+  import RadioWizard from './RadioWizard.svelte';
+  import RadioForm from './RadioForm.svelte';
+  import LinkingForm from './LinkingForm.svelte';
+  import AmiForm from './AmiForm.svelte';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 
   let ov = $state<Overview | null>(null), doc = $state<SchemaDoc | null>(null), err = $state('');
   let sel = $state(read());
   let wizard = $state(false), skipped = $state(false), skipErr = $state('');
-  let form = $state<'identity' | 'duplex' | 'registration' | 'echolink' | null>(null);
+  let form = $state<'identity' | 'duplex' | 'registration' | 'echolink' | 'linking' | 'ami' | 'device' | null>(null);
+  let wiz = $state<'add' | 'renumber' | 'radio' | null>(null);
   function read() { try { return localStorage.getItem('aslcp.cfg.node') ?? ''; } catch { return ''; } }
   function pick(n: string) { sel = n; try { localStorage.setItem('aslcp.cfg.node', n); } catch { /* private window */ } }
 
@@ -65,13 +72,16 @@
 {:else if !node}
   <p class="card p-3 text-sm">rpt.conf has no node section yet. <a class="underline" href={'#' + advancedLink('rpt.conf')}>Open rpt.conf in Advanced</a>.</p>
 {:else}
-  {#if ov.nodes.length > 1}
-    <div class="mb-2 flex flex-wrap items-center gap-1.5" role="group" aria-label="Node">
-      {#each ov.nodes as n (n.node)}
-        <button type="button" class="btn btn-sm {n.node === node.node ? 'btn-primary' : ''}" aria-pressed={n.node === node.node} onclick={() => pick(n.node)}>Node {n.node}{#if n.callsign}<span class="font-normal opacity-80">&nbsp;{n.callsign}</span>{/if}</button>
-      {/each}
-    </div>
-  {/if}
+  <div class="mb-2 flex flex-wrap items-center gap-1.5">
+    {#if ov.nodes.length > 1}
+      <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Node">
+        {#each ov.nodes as n (n.node)}
+          <button type="button" class="btn btn-sm {n.node === node.node ? 'btn-primary' : ''}" aria-pressed={n.node === node.node} onclick={() => pick(n.node)}>Node {n.node}{#if n.callsign}<span class="font-normal opacity-80">&nbsp;{n.callsign}</span>{/if}</button>
+        {/each}
+      </div>
+    {/if}
+    <button type="button" class="btn btn-sm" onclick={() => (wiz = 'add')} title="Add a second node to this system">Add node</button>
+  </div>
 
   {#if node.placeholder && !skipped}
     <section class="mb-2 rounded border border-accent/50 bg-surface-2 p-3 text-sm" aria-label="Set up this node">
@@ -103,14 +113,19 @@
   {/each}
 
   <div class="mt-2 grid gap-2 md:grid-cols-2">
-    <NodeCard title="Identity" summary={identity(node)} onedit={() => (form = 'identity')} disabledReason={why} advanced="rpt.conf" advancedLine={stanzaLine} />
-    <NodeCard title="Radio" summary={radioSummary(node.radio)} advanced={node.radio.supported ? (node.radio.deviceFile || 'rpt.conf') : (node.radio.advancedFile || 'rpt.conf')}>
+    <NodeCard title="Identity" summary={identity(node)} onedit={() => (form = 'identity')} disabledReason={why} advanced="rpt.conf" advancedLine={stanzaLine}>
+      <p class="text-xs text-muted">Node number {node.node}. <button type="button" class="underline disabled:no-underline disabled:opacity-60" disabled={!!why} title={why} onclick={() => (wiz = 'renumber')}>Change node number</button></p>
+    </NodeCard>
+    <NodeCard title="Radio" summary={radioSummary(node.radio)} onedit={node.radio.supported && node.radio.type === 'simpleusb' && node.radio.deviceStanza ? () => (form = 'device') : undefined} disabledReason={why} advanced={node.radio.supported ? (node.radio.deviceFile || 'rpt.conf') : (node.radio.advancedFile || 'rpt.conf')}>
       {#if !node.radio.supported}
         <p class="text-xs text-warn">{node.radio.note ?? 'This interface is edited in Advanced; forms and wizards do not support it.'}</p>
-      {:else if node.radio.type === 'simpleusb' && !node.radio.deviceStanza}
-        <p class="text-xs text-warn">The device section for this radio is missing.</p>
       {:else}
-        <p class="text-xs text-muted">Levels are tuned under Audio Tuning. Radio forms come in a later release.</p>
+        {#if node.radio.type === 'simpleusb' && !node.radio.deviceStanza}
+          <p class="text-xs text-warn">The device section for this radio is missing. Change radio interface to SimpleUSB creates it.</p>
+        {:else}
+          <p class="text-xs text-muted">Levels are tuned under <a class="underline" href="#/tune">Audio Tuning</a>.</p>
+        {/if}
+        <p class="text-xs"><button type="button" class="underline disabled:no-underline disabled:opacity-60" disabled={!!why} title={why} onclick={() => (wiz = 'radio')}>Change radio interface</button></p>
       {/if}
     </NodeCard>
     <NodeCard title="Duplex and timers" summary={duplex(node)} onedit={() => (form = 'duplex')} disabledReason={why} advanced="rpt.conf" advancedLine={stanzaLine} />
@@ -118,8 +133,10 @@
       {#if node.registration.status?.state === 'failed'}<p class="text-xs text-danger">Registration is failing{node.registration.status.detail ? `: ${node.registration.status.detail}` : ''}</p>{/if}
     </NodeCard>
     <NodeCard title="EchoLink" summary={echolinkSummary(node.echolink)} onedit={() => (form = 'echolink')} disabledReason={why} advanced="echolink.conf" />
-    <NodeCard title="Linking and telemetry" summary={fmt(node, ['rpt.conf:node:context', 'rpt.conf:node:linkmongain', 'rpt.conf:node:erxgain', 'rpt.conf:node:etxgain', 'rpt.conf:node:startup_macro']) || 'Default settings'} advanced="rpt.conf" advancedLine={stanzaLine} />
-    <NodeCard title="Manager interface (AMI)" summary="The login that ASLCP and other programs use to talk to Asterisk. Its password is not shown here." advanced="manager.conf" />
+    <NodeCard title="Linking and telemetry" summary={fmt(node, ['rpt.conf:node:context', 'rpt.conf:node:linkmongain', 'rpt.conf:node:erxgain', 'rpt.conf:node:etxgain', 'rpt.conf:node:startup_macro', 'rpt.conf:node:telemwait', 'rpt.conf:node:telemnomdb', 'rpt.conf:node:telemduckdb', 'rpt.conf:node:parrottime']) || 'Default settings'} onedit={() => (form = 'linking')} disabledReason={why} advanced="rpt.conf" advancedLine={stanzaLine} />
+    <NodeCard title="Manager interface (AMI)" summary={amiSummary(ov.ami)} onedit={ov.ami?.present ? () => (form = 'ami') : undefined} advanced="manager.conf">
+      {#if ov.ami?.present && !ov.ami.loopback}<p class="flex items-start gap-1.5 text-xs text-warn"><TriangleAlert size={14} class="mt-0.5 shrink-0" /><span>Reachable from other computers.</span></p>{/if}
+    </NodeCard>
     <NodeCard title="Access lists" summary="Allow and deny lists for connecting nodes are kept in the Asterisk database, so there is no file to edit here yet." />
     <NodeCard title="Status reporting" summary={fmt(node, ['rpt.conf:node:statpost_url', 'rpt.conf:node:statpost_time']) || 'Not set up'} advanced="rpt.conf" advancedLine={stanzaLine} />
     <NodeCard title="DTMF commands and macros" summary={macroKeys(node) || 'Command and macro sections are defined in rpt.conf.'} advanced="rpt.conf" />
@@ -136,8 +153,14 @@
   {/if}
 
   {#if wizard && doc}<SetupWizard oldNode={node.node} presets={doc.presets} onclose={() => { wizard = false; }} ondone={load} />{/if}
+  {#if wiz === 'add'}<AddNodeWizard nodes={ov.nodes} from={node.node} presets={doc.presets} onclose={() => (wiz = null)} ondone={load} />
+  {:else if wiz === 'renumber'}<RenumberWizard {node} nodes={ov.nodes} onclose={() => (wiz = null)} ondone={load} />
+  {:else if wiz === 'radio'}<RadioWizard {node} onclose={() => (wiz = null)} ondone={load} />{/if}
   {#if form === 'identity'}<IdentityForm {node} {doc} onclose={() => (form = null)} ondone={load} />
   {:else if form === 'duplex'}<DuplexForm {node} {doc} onclose={() => (form = null)} ondone={load} />
   {:else if form === 'registration'}<RegistrationForm {node} onclose={() => (form = null)} ondone={load} />
-  {:else if form === 'echolink'}<EchoLinkForm {node} {doc} onclose={() => (form = null)} ondone={load} />{/if}
+  {:else if form === 'echolink'}<EchoLinkForm {node} {doc} onclose={() => (form = null)} ondone={load} />
+  {:else if form === 'linking'}<LinkingForm {node} {doc} onclose={() => (form = null)} ondone={load} />
+  {:else if form === 'device'}<RadioForm {node} {doc} onclose={() => (form = null)} ondone={load} />
+  {:else if form === 'ami' && ov.ami}<AmiForm node={node.node} ami={ov.ami} {doc} onclose={() => (form = null)} ondone={load} />{/if}
 {/if}

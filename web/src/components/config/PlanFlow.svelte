@@ -27,6 +27,7 @@
   let refusal = $state<Refusal | null>(null);
   let error = $state(''), blocked = $state<Plan | null>(null), stale = $state(false);
   let message = $state(`Form: node ${request.node}`);
+  let notices = $state<string[]>([]);
   let restart = $state(false), restarted = $state(false), restartPending = $state(false), rolledBack = $state(false);
   let changedOnce = false;
   $effect(() => { if (!open) { if (changedOnce) ondone(); onclose(); } });
@@ -53,7 +54,7 @@
     phase = 'applying'; error = '';
     try {
       const r = await api.nodeCfgForm(request, { dryRun: false, base: plan.base, restart: plan.restart && restart, message: message.trim() || undefined });
-      plan = r.plan; result = r.result ?? null; restarted = r.restarted; restartPending = r.restartPending;
+      plan = r.plan; result = r.result ?? null; restarted = r.restarted; restartPending = r.restartPending; notices = r.notices ?? [];
       changedOnce = !!r.result; phase = 'result';
     } catch (e) {
       // Files written but the restart failed: show what happened.
@@ -103,6 +104,7 @@
       <ResultView {result} {rolledBack} />
     {:else}<p class="text-sm">Everything was already as asked. No file was written.</p>{/if}
     {#if error}<p class="mt-3 text-sm text-danger" role="alert">{error}</p>{/if}
+    {#each notices as n}<p class="mt-3 text-sm" role="status">{n}</p>{/each}
     {#if result?.health && !result.health.ok && !rolledBack}
       <div class="mt-3 flex flex-wrap items-center gap-2 rounded border border-danger/50 bg-danger/10 p-2 text-sm">
         <TriangleAlert size={16} class="shrink-0 text-danger" />
@@ -128,6 +130,12 @@
         <ul class="list-inside list-disc space-y-0.5 text-sm">
           {#each plan.changes.filter((c) => c.action !== 'unchanged') as c}<li>{changeLine(c)}{#if c.note}<span class="text-muted"> · {c.note}</span>{/if}</li>{/each}
         </ul>
+      </section>
+    {/if}
+    {#if plan.notes?.length}
+      <section class="mb-3 rounded border border-line bg-surface-2 p-2" aria-label="What stays as it is">
+        <h3 class="label">What stays as it is</h3>
+        <ul class="list-inside list-disc space-y-0.5 text-sm">{#each plan.notes as n}<li>{n}</li>{/each}</ul>
       </section>
     {/if}
     {#if plan.errors.length}

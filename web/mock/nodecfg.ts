@@ -250,12 +250,22 @@ function nodeModel(node: string) {
   };
 }
 
+/** manager.conf's [general] values and whether [admin] has a secret (the secret itself never leaves the server). */
+function amiInfo() {
+  const t = tree['manager.conf'] ?? '';
+  const sec = (name: string) => { const m = new RegExp(`^\\[${name}\\]([^\\[]*)`, 'm').exec(t); return m ? m[1] : ''; };
+  const val = (body: string, k: string) => new RegExp(`^\\s*${k}\\s*=\\s*([^;\\n]*?)\\s*(;.*)?$`, 'mi').exec(body)?.[1];
+  const g = sec('general'), bind = val(g, 'bindaddr') ?? '0.0.0.0';
+  const present = 'manager.conf' in tree;
+  return { present, enabled: val(g, 'enabled') ?? 'no', bindaddr: bind, port: val(g, 'port') ?? '5038', hasSecret: !!val(sec('admin'), 'secret'), loopback: /^(127\.|::1$|localhost$)/.test(bind), fields: KEYS.filter((k) => k.file === 'manager.conf' && k.form === 'ami').map((k) => directField(k, 'manager.conf', tree['manager.conf'])) };
+}
+
 function overview(withStatus: boolean) {
   const nodes = localNodes().map(nodeModel);
   if (withStatus) for (const n of nodes) if (n.registration.method === 'http' || n.registration.method === 'iax') (n.registration as Record<string, unknown>).status = registrationStatus(n.node);
   const base: Record<string, string> = {};
   for (const f of ['rpt.conf', 'modules.conf', 'simpleusb.conf', 'echolink.conf', 'rpt_http_registrations.conf', 'iax.conf', 'manager.conf', 'extensions.conf']) if (f in tree) base[f] = sha(tree[f]);
-  return { nodes, base, placeholder: nodes.find((n) => n.placeholder)?.node ?? '', warnings: [] as Finding[] };
+  return { nodes, base, ami: amiInfo(), placeholder: nodes.find((n) => n.placeholder)?.node ?? '', warnings: [] as Finding[] };
 }
 
 // ---- planning
@@ -426,7 +436,7 @@ function plan(body: any) {
   const changed = Object.keys(work).filter((f) => work[f] !== tree[f]).sort();
   const files = changed.map((path) => ({ path, base: sha(tree[path]), changed: true, diff: mask(unified(path, tree[path], work[path])) }));
   const baseMap = Object.fromEntries(files.map((f) => [f.path, f.base]));
-  const result: Record<string, unknown> = { node, mode, files, base: baseMap, changes: applied, errors: [] as Finding[], warnings, reload: [], restart: false, restartReasons: [], noop: files.length === 0 };
+  const result: Record<string, unknown> = { node, mode, files, base: baseMap, changes: applied, errors: [] as Finding[], warnings, reload: [], restart: false, restartReasons: [], noop: files.length === 0, ...(body.radio?.type === 'hub' ? { notes: ['The device section stays in simpleusb.conf, so switching back to SimpleUSB needs no setup.', 'A hub has no radio: rxchannel becomes Local/pseudo.'] } : {}) };
   if (!files.length) return { plan: result, work };
   // after-state checks: new errors block
   const before = new Set(findings(node).map((f) => f.code + f.message));
@@ -476,7 +486,8 @@ export function handleNodeCfg({ m, p, body, url, user, json, err }: Ctx): boolea
     const restart = body.restart === true && (pl as { restart: boolean }).restart;
     for (const f of pl.files) { tree[f.path] = r.work[f.path]; mtimes[f.path] = new Date().toISOString(); }
     const id = snapshot(user.username, msg);
-    json(200, { plan: pl, result: { commit: id, before, ...runReload(pl.files.map((f) => f.path), !restart) }, restarted: restart, restartPending: pl.restart && !restart });
+    const notices = pl.files.some((f) => f.path === 'manager.conf') && /secret/.test(JSON.stringify((pl as any).changes ?? [])) ? ['ASLCP now uses the new AMI secret. Allmon3 is not updated: change its AMI password there.'] : [];
+    json(200, { plan: pl, result: { commit: id, before, ...runReload(pl.files.map((f) => f.path), !restart) }, restarted: restart, restartPending: pl.restart && !restart, ...(notices.length ? { notices } : {}) });
     return true;
   }
   err(405, 'method not allowed', 'method_not_allowed');

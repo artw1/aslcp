@@ -10,7 +10,7 @@ const PRESETS = (schemaDoc as unknown as { presets: Preset[] }).presets;
 let skipped = false;
 let amiSecrets = new Map<string, string>();
 // Registration comes up on the third status poll after an apply, so the wizard's wait is visible.
-const regPolls = new Map<string, number>();
+export const regPolls = new Map<string, number>();
 export function registrationStatus(node: string): { state: string; detail?: string } {
   const n = regPolls.get(node);
   if (n === undefined) return { state: 'registered', detail: `${node} Registered` };
@@ -18,21 +18,21 @@ export function registrationStatus(node: string): { state: string; detail?: stri
   return n >= 2 ? { state: 'registered', detail: `${node} Registered` } : { state: 'unknown' };
 }
 
-const hex = (n: number) => Array.from({ length: n }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-class Bad extends Error { constructor(public status: number, public code: string, msg: string, public extra: object = {}) { super(msg); } }
-const bad = (m: string) => new Bad(400, 'bad_request', m);
+export const hex = (n: number) => Array.from({ length: n }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+export class Bad extends Error { constructor(public status: number, public code: string, msg: string, public extra: object = {}) { super(msg); } }
+export const bad = (m: string) => new Bad(400, 'bad_request', m);
 
 type Req = {
   oldNode: string; node: string; password: string; callsign: string; radio: string; preset: string; ami?: boolean;
   registration?: { method: string; host?: string }; echolink?: { call: string; password: string; email: string; name: string; qth: string };
 };
-const reNode = /^[1-9]\d{0,6}$/, reSecret = /^[A-Za-z0-9._+=,:@%-]{1,64}$/;
+export const reNode = /^[1-9]\d{0,6}$/, reSecret = /^[A-Za-z0-9._+=,:@%-]{1,64}$/;
 
-function localNodes(): string[] {
+export function localNodes(): string[] {
   return [...(tree['rpt.conf'] ?? '').matchAll(/^\[(\d+)\]/gm)].map((m) => m[1]);
 }
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const setKey = (text: string, sec: string, key: string, value: string) => {
+export const setKey = (text: string, sec: string, key: string, value: string) => {
   const lines = text.split('\n');
   let i = lines.findIndex((l) => l.trim() === `[${sec}]`);
   if (i < 0) return text;
@@ -121,7 +121,35 @@ function plan(b: Req, amiSecret: string) {
   };
 }
 
-type Ctx = { m: string; p: string; body: any; url: URL; user: { username: string; role: string }; json: (code: number, body?: unknown) => void; err: (code: number, msg: string, c: string, extra?: object) => void };
+type Planned = { work: Record<string, string>; plan: { node: string; oldNode: string; base: Record<string, string>; noop: boolean; files: { path: string; changed: boolean }[] } };
+/** Shared apply of the wizards' mock: stale check, write, snapshot, reload, the fixed step list and the rollback handle. */
+export function applyWizard(r: Planned, body: any, user: { username: string }, json: (code: number, body?: unknown) => void, o: { ami: boolean; message: string; added?: boolean; savenode?: boolean }) {
+  const stale = Object.entries(body.base ?? {}).filter(([f, b]) => f in r.plan.base && b && b !== r.plan.base[f]).map(([f]) => f);
+  if (stale.length) throw new Bad(409, 'conflict', 'a file changed on disk since the plan was made: plan again', { files: stale });
+  if (r.plan.noop) { json(200, { plan: r.plan, steps: [], restarted: false }); return; }
+  const msg = (typeof body.message === 'string' && body.message.trim()) || o.message;
+  if (treeDiffers(tree, commits[0].tree)) snapshot('aslcp', `Before: ${msg}`);
+  const before = commits[0].commit;
+  const written = r.plan.files.filter((f) => f.changed).map((f) => f.path);
+  for (const f of written) { tree[f] = r.work[f]; mtimes[f] = new Date().toISOString(); }
+  const id = snapshot(user.username, msg);
+  regPolls.set(r.plan.node, 0);
+  const ran = runReload(written, false);
+  const health = runReload(written, true).health;
+  json(200, {
+    plan: r.plan, result: { commit: id, before, ...ran, health },
+    steps: [
+      { id: 'files', status: 'done' },
+      o.savenode === false ? { id: 'savenode', status: 'skipped', detail: 'not requested' } : { id: 'savenode', status: 'done' },
+      o.ami ? { id: 'ami', status: 'done' } : { id: 'ami', status: 'skipped', detail: 'the AMI secret was not changed' },
+      { id: 'restart', status: 'done' },
+      { id: 'allmon3', status: 'skipped', detail: 'Allmon3 is not installed' }, { id: 'health', status: health?.ok ? 'done' : 'failed' },
+    ],
+    restarted: true, rollback: { commit: before, node: r.plan.node, oldNode: r.plan.oldNode, ami: o.ami, restart: true, ...(o.added ? { added: true } : {}) },
+  });
+}
+
+export type Ctx = { m: string; p: string; body: any; url: URL; user: { username: string; role: string }; json: (code: number, body?: unknown) => void; err: (code: number, msg: string, c: string, extra?: object) => void };
 
 /** Returns true when the request was handled. Must run before handleConfig. */
 export function handleNodeSetup({ m, p, body, user, json, err }: Ctx): boolean {
@@ -143,27 +171,8 @@ export function handleNodeSetup({ m, p, body, user, json, err }: Ctx): boolean {
       const secret = amiSecrets.get(String(body.amiToken ?? ''));
       if (!secret) throw bad('the generated AMI secret expired: plan again');
       const r = plan(body, secret);
-      const stale = Object.entries(body.base ?? {}).filter(([f, b]) => f in r.plan.base && b && b !== r.plan.base[f]).map(([f]) => f);
-      if (stale.length) throw new Bad(409, 'conflict', 'a file changed on disk since the plan was made: plan again', { files: stale });
-      if (r.plan.noop) { json(200, { plan: r.plan, steps: [], restarted: false }); return true; }
-      const msg = (typeof body.message === 'string' && body.message.trim()) || `Setup wizard: node ${r.plan.node}`;
-      if (treeDiffers(tree, commits[0].tree)) snapshot('aslcp', `Before: ${msg}`);
-      const before = commits[0].commit;
-      const written = r.plan.files.filter((f) => f.changed).map((f) => f.path);
-      for (const f of written) { tree[f] = r.work[f]; mtimes[f] = new Date().toISOString(); }
-      const id = snapshot(user.username, msg);
+      applyWizard(r, body, user, json, { ami: true, message: `Setup wizard: node ${r.plan.node}` });
       amiSecrets.delete(String(body.amiToken));
-      regPolls.set(r.plan.node, 0);
-      const ran = runReload(written, false);
-      const health = runReload(written, true).health;
-      json(200, {
-        plan: r.plan, result: { commit: id, before, ...ran, health },
-        steps: [
-          { id: 'files', status: 'done' }, { id: 'savenode', status: 'done' }, { id: 'ami', status: 'done' }, { id: 'restart', status: 'done' },
-          { id: 'allmon3', status: 'skipped', detail: 'Allmon3 is not installed' }, { id: 'health', status: health?.ok ? 'done' : 'failed' },
-        ],
-        restarted: true, rollback: { commit: before, node: r.plan.node, oldNode: r.plan.oldNode, ami: true, restart: true },
-      });
       return true;
     }
     if (p === '/config/setup/rollback') {

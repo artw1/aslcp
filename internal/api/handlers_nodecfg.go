@@ -96,6 +96,9 @@ type cfgFormResult struct {
 	// restart and none was asked for.
 	Restarted      bool `json:"restarted"`
 	RestartPending bool `json:"restartPending"`
+	// Notices are things the server did or could not do besides writing the
+	// files (for example following a new AMI secret).
+	Notices []string `json:"notices,omitempty"`
 }
 
 func (s *Server) cfgFormError(w http.ResponseWriter, err error) {
@@ -164,6 +167,7 @@ func (s *Server) handleCfgForm(w http.ResponseWriter, r *http.Request, u store.U
 		return
 	}
 	out := cfgFormResult{Plan: plan, Result: &res}
+	out.Notices = s.followAMISecret(plan)
 	if plan.Restart && in.Restart {
 		if err := s.restartAsteriskNow(ctx); err != nil {
 			s.audit(u, "config.form.failed", map[string]any{"node": plan.Node, "step": "restart"})
@@ -192,4 +196,32 @@ func (s *Server) handleCfgForm(w http.ResponseWriter, r *http.Request, u store.U
 	s.audit(u, "config.form", map[string]any{"node": plan.Node, "mode": plan.Mode, "files": res.Files, "keys": ids, "commit": res.Commit, "restart": out.Restarted})
 	s.d.Logger.Printf("config form applied by %s: node %s, %d file(s), commit %s", u.Username, plan.Node, len(res.Files), res.Commit)
 	writeJSON(w, 200, out)
+}
+
+// followAMISecret makes ASLCP's own AMI login follow a changed [admin] secret
+// of manager.conf, so rotating it from the form does not lock ASLCP out. With
+// a literal secret in aslcp.conf the login is the operator's and stays; the
+// notice says so.
+func (s *Server) followAMISecret(plan *nodecfg.Plan) []string {
+	changed := false
+	for _, c := range plan.Changes {
+		if c.ID == "manager.conf:admin:secret" && (c.Action == "set" || c.Action == "add") {
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	reload := s.amiLoginReloader()
+	if reload == nil {
+		return []string{"The manager password was changed. ASLCP's own AMI connection is not managed here, so make sure it uses the new password."}
+	}
+	ok, err := reload(false)
+	switch {
+	case err != nil:
+		return []string{"The manager password was changed, but ASLCP could not read the new one: " + err.Error() + ". ASLCP may lose its connection at the next restart."}
+	case !ok:
+		return []string{"The manager password was changed. aslcp.conf sets ASLCP's AMI secret itself: update AMISecret there to match, or ASLCP loses its connection at the next restart of Asterisk."}
+	}
+	return []string{"The manager password was changed and ASLCP now uses the new one."}
 }

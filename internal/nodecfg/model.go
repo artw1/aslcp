@@ -179,6 +179,8 @@ type Overview struct {
 	// Refusal is set when nothing can be edited (rpt.conf missing or
 	// unusable).
 	Refusal *Refusal `json:"refusal,omitempty"`
+	// AMI is the manager interface card.
+	AMI AMIInfo `json:"ami"`
 }
 
 var reNum = regexp.MustCompile(`^[1-9][0-9]{0,9}$`)
@@ -624,6 +626,15 @@ func (w *World) Analyze() *Overview {
 		ov.Nodes = append(ov.Nodes, node)
 	}
 	ov.Warnings = append(ov.Warnings, w.globalFindings(nodes)...)
+	ov.AMI = w.ami()
+	if t := w.Trees[FileManager]; t != nil {
+		for _, k := range schema.ForForm(schema.FormAMI) {
+			if si := resolveStanza(t, k.Scope, FileManager); si.refusal == nil {
+				ov.AMI.Fields = append(ov.AMI.Fields, si.fieldOf(k))
+			}
+		}
+	}
+	ov.Warnings = append(ov.Warnings, w.amiFindings()...)
 	return ov
 }
 
