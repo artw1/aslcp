@@ -69,6 +69,7 @@ type Net struct {
 
 	relogin chan struct{} // a planned reconnect (DMR - Other retune), capacity 1
 
+	kcMu     sync.Mutex // serialises kerchunks (Tune/Unlink vs the session's relink)
 	mu       sync.Mutex
 	conn     net.Conn
 	sink     network.Sink
@@ -445,7 +446,13 @@ func (n *Net) slotsByte() byte { return n.info.Slots }
 // ---- DMR packets ----
 
 // nextSeq numbers the packets of a stream from 0, as MMDVMHost does.
-func (n *Net) nextSeq() byte { s := n.seq; n.seq++; return s }
+func (n *Net) nextSeq() byte {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	s := n.seq
+	n.seq++
+	return s
+}
 
 // newStream starts a stream: a new non-zero stream ID and sequence number 0.
 func (n *Net) newStream() uint32 {
@@ -472,6 +479,10 @@ func (n *Net) failIfNotReady() error {
 
 // kerchunkTo sends a header and terminator to tg.
 func (n *Net) kerchunkTo(tg uint32, slot int, private bool) error {
+	// One kerchunk at a time: otherwise two streams share the sequence
+	// counter and their frames interleave on the wire.
+	n.kcMu.Lock()
+	defer n.kcMu.Unlock()
 	n.mu.Lock()
 	if err := n.failIfNotReady(); err != nil {
 		n.mu.Unlock()
