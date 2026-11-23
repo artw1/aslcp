@@ -4,8 +4,27 @@
 # Run as root. Safe to run again (it also acts as an upgrade).
 # Update channel: stable (default). ASLCP_CHANNEL=beta selects the beta suite;
 # without it, the channel of an existing install is kept.
-# Web port: 8080 by default. ASLCP_PORT=<1024-65535> picks another one:
+# Web port: 8080 by default. ASLCP_PORT=<1024-65535, or 80> picks another one:
 #   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_PORT=8181 sh
+# Port 80 is the only port below 1024 that is accepted. ASLCP runs without
+# privileges, so for port 80 the installer writes the systemd drop-in
+# /etc/systemd/system/aslcp.service.d/port80.conf (AmbientCapabilities and
+# CapabilityBoundingSet = CAP_NET_BIND_SERVICE); default installs stay as they
+# are. It refuses to switch while another program holds port 80 (and names it).
+# Run ASLCP on port 80 and turn off the other ASL web services:
+# ASLCP_TAKEOVER=1 (or yes, true) implies ASLCP_PORT=80 unless ASLCP_PORT is
+# given, and stops and disables the services that would compete for the web
+# ports or duplicate the panel, whichever of them exist and are enabled or
+# running: Allmon3 (allmon3), the web server of the ASL web UIs (apache2,
+# lighttpd or nginx), the asl-web-ui backend and Supermon, if they run as
+# services. It prints each unit it turned off and records them in
+# /var/lib/aslcp/takeover.list. Asterisk, app_rpt and everything else the node
+# needs to stay on the air are never touched, nor is Cockpit (port 9090).
+#   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_TAKEOVER=1 sh
+# Undo (ASLCP goes back to its previous port and the recorded units are
+# enabled and started again; nothing is installed or removed):
+#   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_TAKEOVER=undo sh
+# Any other non-empty value is refused.
 # After the package is installed, the "listen" line in /etc/aslcp/aslcp.conf is
 # rewritten (an address part is kept), aslcp is restarted and the port is opened
 # in firewalld (if it is running). Without ASLCP_PORT the configured port is kept.
@@ -37,16 +56,32 @@ die() { printf '%s\n' "aslcp-install: error: $*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "run as root (for example: curl -fsSL $APT_URL/install.sh | sudo sh)"
 
+# --- takeover (ASLCP_TAKEOVER) ----------------------------------------------
+TAKEOVER_WANT=0
+TAKEOVER_UNDO=0
+TK_VAL="${ASLCP_TAKEOVER:-}"
+case "$TK_VAL" in
+"") ;;
+1 | [Yy][Ee][Ss] | [Tt][Rr][Uu][Ee]) TAKEOVER_WANT=1 ;;
+undo) TAKEOVER_UNDO=1 ;;
+*) die "ASLCP_TAKEOVER must be 1, yes, true or undo (got '$TK_VAL')" ;;
+esac
+
 # --- web port (ASLCP_PORT) -------------------------------------------------
 PORT_WANT=${ASLCP_PORT:-}
 if [ -n "$PORT_WANT" ]; then
 	case "$PORT_WANT" in
-	*[!0-9]* | 0*) die "ASLCP_PORT must be a number from 1024 to 65535 without leading zeros (got '$PORT_WANT')" ;;
+	*[!0-9]* | 0*) die "ASLCP_PORT must be a number from 1024 to 65535, or 80, without leading zeros (got '$PORT_WANT')" ;;
 	esac
-	{ [ "${#PORT_WANT}" -le 5 ] && [ "$PORT_WANT" -le 65535 ]; } || die "ASLCP_PORT must be a number from 1024 to 65535 (got '$PORT_WANT')"
-	# The service runs without capabilities, so it cannot listen below 1024
-	# (ASLCP can move itself to port 80 later: System tab, Web port).
-	[ "$PORT_WANT" -ge 1024 ] || die "ASLCP_PORT must be 1024 or higher: ASLCP runs without privileges and cannot listen on port $PORT_WANT (got '$PORT_WANT')"
+	{ [ "${#PORT_WANT}" -le 5 ] && [ "$PORT_WANT" -le 65535 ]; } || die "ASLCP_PORT must be a number from 1024 to 65535, or 80 (got '$PORT_WANT')"
+	# The service runs without capabilities. Port 80 works through a systemd
+	# drop-in this installer writes (see set_port); other low ports are refused.
+	{ [ "$PORT_WANT" -ge 1024 ] || [ "$PORT_WANT" = 80 ]; } || die "ASLCP_PORT must be 1024 or higher, or exactly 80: ASLCP runs without privileges and cannot listen on port $PORT_WANT (got '$PORT_WANT')"
+fi
+if [ "$TAKEOVER_UNDO" -eq 1 ]; then
+	[ "$PORT_WANT" != 80 ] || die "ASLCP_TAKEOVER=undo moves ASLCP off port 80; ASLCP_PORT can only name the port to go back to (1024-65535)"
+elif [ "$TAKEOVER_WANT" -eq 1 ] && [ -z "$PORT_WANT" ]; then
+	PORT_WANT=80
 fi
 
 # --- digital modes (ASLCP_DV) -------------------------------------------------
@@ -57,6 +92,7 @@ case "$DV_VAL" in
 1 | [Yy][Ee][Ss] | [Tt][Rr][Uu][Ee]) DV_WANT=1 ;;
 *) die "ASLCP_DV must be 1, yes or true (got '$DV_VAL')" ;;
 esac
+[ "$TAKEOVER_UNDO" -eq 0 ] || [ "$DV_WANT" -eq 0 ] || die "ASLCP_TAKEOVER=undo cannot be combined with ASLCP_DV"
 
 # --- pre-flight: first-boot setup / other package managers ------------------
 # preflight_busy: prints what is busy (one line) and succeeds, or fails when
@@ -114,77 +150,82 @@ if [ -e /var/run/reboot-required ]; then
 	say "warning: a reboot is pending (updates were installed); reboot first if anything misbehaves"
 fi
 
-# --- platform checks -------------------------------------------------------
-[ -r /etc/os-release ] || die "cannot read /etc/os-release; this installer supports Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS"
-# shellcheck disable=SC1091
-. /etc/os-release
-case " ${ID:-} ${ID_LIKE:-} " in
-*" debian "* | *" raspbian "*) ;;
-*) die "unsupported OS '${PRETTY_NAME:-unknown}'; ASLCP packages target Debian 12 (bookworm) or 13 (trixie)" ;;
-esac
-case "${VERSION_CODENAME:-}" in
-bookworm | trixie) ;;
-*) say "warning: this is '${VERSION_CODENAME:-unknown}', the packages are built for Debian 12 (bookworm) or 13 (trixie); continuing" ;;
-esac
-command -v dpkg >/dev/null 2>&1 || die "dpkg not found"
-ARCH=$(dpkg --print-architecture)
-case "$ARCH" in
-arm64 | armhf | amd64) ;;
-*) die "unsupported architecture '$ARCH' (supported: arm64, armhf, amd64)" ;;
-esac
-
-# --- downloader ------------------------------------------------------------
-fetch() { # fetch URL DEST
-	if command -v curl >/dev/null 2>&1; then
-		curl -fsSL --retry 3 -o "$2" "$1"
-	elif command -v wget >/dev/null 2>&1; then
-		wget -q -O "$2" "$1"
-	else
-		die "need curl or wget (apt-get install curl)"
-	fi
-}
-
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
-# --- signing key -----------------------------------------------------------
-say "downloading the repository key"
-fetch "$APT_URL/aslcp-archive-keyring.gpg" "$tmp/keyring.gpg" || die "could not download $APT_URL/aslcp-archive-keyring.gpg"
-[ -s "$tmp/keyring.gpg" ] || die "downloaded key is empty"
-if head -c 64 "$tmp/keyring.gpg" | grep -q 'BEGIN PGP'; then
-	die "downloaded key is ASCII-armored, expected a binary keyring"
-fi
-install -d -m 0755 /usr/share/keyrings
-install -m 0644 "$tmp/keyring.gpg" "$KEYRING"
+# ASLCP_TAKEOVER=undo needs no package work: it only restores what an earlier
+# takeover turned off (see takeover_undo below).
+if [ "$TAKEOVER_UNDO" -eq 0 ]; then
+	# --- platform checks -------------------------------------------------------
+	[ -r /etc/os-release ] || die "cannot read /etc/os-release; this installer supports Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS"
+	# shellcheck disable=SC1091
+	. /etc/os-release
+	case " ${ID:-} ${ID_LIKE:-} " in
+	*" debian "* | *" raspbian "*) ;;
+	*) die "unsupported OS '${PRETTY_NAME:-unknown}'; ASLCP packages target Debian 12 (bookworm) or 13 (trixie)" ;;
+	esac
+	case "${VERSION_CODENAME:-}" in
+	bookworm | trixie) ;;
+	*) say "warning: this is '${VERSION_CODENAME:-unknown}', the packages are built for Debian 12 (bookworm) or 13 (trixie); continuing" ;;
+	esac
+	command -v dpkg >/dev/null 2>&1 || die "dpkg not found"
+	ARCH=$(dpkg --print-architecture)
+	case "$ARCH" in
+	arm64 | armhf | amd64) ;;
+	*) die "unsupported architecture '$ARCH' (supported: arm64, armhf, amd64)" ;;
+	esac
 
-# --- apt source ------------------------------------------------------------
-SUITE=${ASLCP_CHANNEL:-}
-case "$SUITE" in
-"" | stable | beta) ;;
-*) die "ASLCP_CHANNEL must be 'stable' or 'beta'" ;;
-esac
-if [ -z "$SUITE" ] && [ -r "$LIST" ]; then
-	# keep the channel chosen earlier (Settings > Updates or an earlier install)
-	SUITE=$(awk '$1 == "deb" && ($(NF-1) == "stable" || $(NF-1) == "beta") { print $(NF-1); exit }' "$LIST")
-fi
-[ -n "$SUITE" ] || SUITE=stable
-printf '%s\n' "deb [signed-by=$KEYRING] $APT_URL $SUITE main" >"$tmp/aslcp.list"
-if ! cmp -s "$tmp/aslcp.list" "$LIST" 2>/dev/null; then
-	install -m 0644 "$tmp/aslcp.list" "$LIST"
-	say "wrote $LIST"
-fi
+	# --- downloader ------------------------------------------------------------
+	fetch() { # fetch URL DEST
+		if command -v curl >/dev/null 2>&1; then
+			curl -fsSL --retry 3 -o "$2" "$1"
+		elif command -v wget >/dev/null 2>&1; then
+			wget -q -O "$2" "$1"
+		else
+			die "need curl or wget (apt-get install curl)"
+		fi
+	}
 
-# --- install ---------------------------------------------------------------
-say "updating package lists (aslcp source only)"
-apt-get update -o DPkg::Lock::Timeout=600 \
-	-o Dir::Etc::sourcelist=sources.list.d/aslcp.list \
-	-o Dir::Etc::sourceparts=- \
-	-o APT::Get::List-Cleanup=0
-say "installing aslcp"
-# --force-confold: keep the edited /etc/aslcp/aslcp.conf (for example a changed
-# port) if a later package ships a different default, instead of prompting.
-# ASLCP_INSTALLER=1: the package skips its own "installed" banner; the setup link is printed once at the end.
-ASLCP_INSTALLER=1 DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold aslcp
+
+	# --- signing key -----------------------------------------------------------
+	say "downloading the repository key"
+	fetch "$APT_URL/aslcp-archive-keyring.gpg" "$tmp/keyring.gpg" || die "could not download $APT_URL/aslcp-archive-keyring.gpg"
+	[ -s "$tmp/keyring.gpg" ] || die "downloaded key is empty"
+	if head -c 64 "$tmp/keyring.gpg" | grep -q 'BEGIN PGP'; then
+		die "downloaded key is ASCII-armored, expected a binary keyring"
+	fi
+	install -d -m 0755 /usr/share/keyrings
+	install -m 0644 "$tmp/keyring.gpg" "$KEYRING"
+
+	# --- apt source ------------------------------------------------------------
+	SUITE=${ASLCP_CHANNEL:-}
+	case "$SUITE" in
+	"" | stable | beta) ;;
+	*) die "ASLCP_CHANNEL must be 'stable' or 'beta'" ;;
+	esac
+	if [ -z "$SUITE" ] && [ -r "$LIST" ]; then
+		# keep the channel chosen earlier (Settings > Updates or an earlier install)
+		SUITE=$(awk '$1 == "deb" && ($(NF-1) == "stable" || $(NF-1) == "beta") { print $(NF-1); exit }' "$LIST")
+	fi
+	[ -n "$SUITE" ] || SUITE=stable
+	printf '%s\n' "deb [signed-by=$KEYRING] $APT_URL $SUITE main" >"$tmp/aslcp.list"
+	if ! cmp -s "$tmp/aslcp.list" "$LIST" 2>/dev/null; then
+		install -m 0644 "$tmp/aslcp.list" "$LIST"
+		say "wrote $LIST"
+	fi
+
+	# --- install ---------------------------------------------------------------
+	say "updating package lists (aslcp source only)"
+	apt-get update -o DPkg::Lock::Timeout=600 \
+		-o Dir::Etc::sourcelist=sources.list.d/aslcp.list \
+		-o Dir::Etc::sourceparts=- \
+		-o APT::Get::List-Cleanup=0
+	say "installing aslcp"
+	# --force-confold: keep the edited /etc/aslcp/aslcp.conf (for example a changed
+	# port) if a later package ships a different default, instead of prompting.
+	# ASLCP_INSTALLER=1: the package skips its own "installed" banner; the setup link is printed once at the end.
+	ASLCP_INSTALLER=1 DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold aslcp
+fi
 
 # --- first-run setup link ---------------------------------------------------
 # ---8<--- admin-setup (exercised by a local test harness; keep self-contained)
@@ -268,6 +309,7 @@ setup_admin() {
 	esac
 	addr=$(pick_host "$listen")
 	url="http://$addr:$port"
+	[ "$port" != 80 ] || url="http://$addr"
 
 	# The service creates the data directory and database on its first start.
 	n=0
@@ -308,17 +350,87 @@ setup_admin() {
 }
 # --->8--- admin-setup
 
+# ---8<--- port-takeover (exercised by the Go tests in internal/pkgscripts; keep self-contained)
+# Paths. The ASLCP_* overrides exist for the tests; nothing sets them for real.
+SD_DIR="${ASLCP_SYSTEMD_DIR:-/run/systemd/system}"
+DROPIN_DIR="${ASLCP_DROPIN_DIR:-/etc/systemd/system/aslcp.service.d}"
+DROPIN="$DROPIN_DIR/port80.conf"
+WEBPORT_STATE="${ASLCP_WEBPORT_STATE:-/var/lib/aslcp-webport}"
+TK_LIST="${ASLCP_TAKEOVER_LIST:-/var/lib/aslcp/takeover.list}"
+TK_RECORD="${ASLCP_DISABLED_UNITS:-/var/lib/aslcp/disabled-units}"
+
+# The units a takeover may turn off, dependents first. Nothing else is ever
+# touched: not asterisk, app_rpt, the asl3-* units, aslcp or Cockpit.
+TK_UNITS="supermon.service supermon2.service supermon-ng.service asl-web-ui.service allmon3.service apache2.service lighttpd.service nginx.service"
+
+have_systemd() { [ -d "$SD_DIR" ]; }
+
+daemon_reload() {
+	have_systemd || return 0
+	systemctl daemon-reload || say "warning: systemctl daemon-reload failed"
+}
+
+restart_aslcp() {
+	if have_systemd; then
+		systemctl restart aslcp || say "warning: could not restart aslcp (see: journalctl -u aslcp)"
+	else
+		say "systemd is not running here; restart aslcp yourself to use the new port"
+	fi
+}
+
+# write_dropin: the same file the System tab (Web port) writes: it lets the
+# unprivileged service bind a port below 1024 and nothing else.
+write_dropin() {
+	mkdir -p "$DROPIN_DIR" || return 1
+	cat >"$DROPIN" <<'EOD'
+# Written by ASLCP (System tab, Web port). Removed again by "move back" and
+# by "apt purge aslcp".
+[Service]
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+EOD
+}
+
+remove_dropin() {
+	rm -f "$DROPIN"
+	rmdir "$DROPIN_DIR" 2>/dev/null || true
+}
+
+# port_report PORT: the listening sockets on PORT with their programs.
+port_report() {
+	command -v ss >/dev/null 2>&1 || return 0
+	ss -ltnpH "sport = :$1" 2>/dev/null | sed 's/^/    /' || true
+}
+
 # set_port PORT: point "listen" in the config at PORT (an address part is
-# kept), restart aslcp and open the port in firewalld.
+# kept), restart aslcp and open the port in firewalld. Port 80 also writes the
+# capability drop-in first and is refused (status 1, nothing changed) while
+# another program holds it; a port of 1024 or more removes the drop-in again.
 set_port() {
 	cur=$(conf_get listen :8080)
 	curport=${cur##*:}
-	[ "$curport" != "$1" ] || return 0
+	if [ "$curport" = "$1" ]; then
+		if [ "$1" -lt 1024 ] && [ ! -f "$DROPIN" ]; then
+			say "port $1 needs the capability drop-in; writing $DROPIN"
+			write_dropin || die "cannot write $DROPIN"
+			daemon_reload
+			restart_aslcp
+		fi
+		return 0
+	fi
 	say "setting the web port to $1 (was $curport)"
 	o=$(port_owner "$1")
 	case "$o" in
 	"" | aslcp) ;;
-	*) say "warning: TCP port $1 is already in use by \"$o\"" ;;
+	*)
+		if [ "$1" -lt 1024 ]; then
+			printf '\naslcp-install: WARNING: TCP port %s is in use by "%s", so ASLCP was NOT moved there.\n' "$1" "$o"
+			port_report "$1"
+			printf '  Stop that program, or pick another port with ASLCP_PORT=<port>, then run the installer again.\n'
+			return 1
+		fi
+		say "warning: TCP port $1 is already in use by \"$o\""
+		;;
 	esac
 	case "$cur" in
 	*:*) addr=${cur%:*} ;;
@@ -326,6 +438,14 @@ set_port() {
 	esac
 	new="listen = $addr:$1"
 	[ -f "$CONF" ] || die "$CONF not found; set listen = $addr:$1 in it yourself"
+	if [ "$1" -lt 1024 ]; then
+		# Remember where to go back to: the System tab's "Move back" and
+		# ASLCP_TAKEOVER=undo read it.
+		{ mkdir -p "$WEBPORT_STATE" && chmod 0700 "$WEBPORT_STATE"; } || die "cannot create $WEBPORT_STATE"
+		printf '%s\n' "$cur" >"$WEBPORT_STATE/previous-listen"
+		write_dropin || die "cannot write $DROPIN"
+		daemon_reload
+	fi
 	awk -v new="$new" '
 		/^[ \t]*\[/ { sec = ($0 ~ /^[ \t]*\[server\][ \t]*$/) }
 		sec && !/^[ \t]*[;#]/ && /^[ \t]*listen[ \t]*=/ { print new; next }
@@ -336,11 +456,12 @@ set_port() {
 	if [ "$(conf_get listen '')" != "$addr:$1" ]; then
 		printf '\n[server]\n%s\n' "$new" >>"$CONF"
 	fi
-	if [ -d /run/systemd/system ]; then
-		systemctl restart aslcp || say "warning: could not restart aslcp (see: journalctl -u aslcp)"
-	else
-		say "systemd is not running here; restart aslcp yourself to use the new port"
+	if [ "$1" -ge 1024 ] && [ -f "$DROPIN" ]; then
+		remove_dropin
+		rm -f "$WEBPORT_STATE/previous-listen"
+		daemon_reload
 	fi
+	restart_aslcp
 	fw_open "$1"
 }
 
@@ -362,6 +483,162 @@ fw_open() {
 	fi
 }
 
+# --- takeover: turn off the other ASL web services --------------------------
+tk_valid_unit() {
+	for v in $TK_UNITS; do
+		[ "$v" != "$1" ] || return 0
+	done
+	return 1
+}
+
+# tk_known: the service unit files systemd knows, one per line.
+tk_known() { systemctl list-unit-files --type=service --no-legend --no-pager 2>/dev/null | awk '{ print $1 }' || true; }
+
+# tk_unrecord UNIT: drop UNIT from the takeover list.
+tk_unrecord() {
+	[ -f "$TK_LIST" ] || return 0
+	awk -v u="$1" '$1 != u' "$TK_LIST" >"$tmp/takeover.list.new"
+	cat "$tmp/takeover.list.new" >"$TK_LIST"
+}
+
+# tk_record UNIT STATE: STATE is "enabled" (it was disabled and stopped) or
+# "active" (it was only running and was stopped). The list sits in a directory
+# the aslcp user owns, so reading it back trusts only the fixed unit names.
+tk_record() {
+	[ ! -L "$TK_LIST" ] || die "$TK_LIST is a symbolic link; not using it"
+	mkdir -p "${TK_LIST%/*}"
+	tk_unrecord "$1"
+	printf '%s %s\n' "$1" "$2" >>"$TK_LIST"
+}
+
+# tk_mirror_add / tk_mirror_remove UNIT: the services page of ASLCP (System,
+# ASL services) and "apt purge aslcp" know Apache and Allmon3 by the names in
+# disabled-units; keeping that file in step lets them show and restore them.
+tk_mirror_name() {
+	case "$1" in
+	apache2.service) printf '%s\n' apache2 ;;
+	allmon3.service) printf '%s\n' allmon3 ;;
+	esac
+}
+tk_mirror_add() {
+	m=$(tk_mirror_name "$1")
+	[ -n "$m" ] || return 0
+	[ ! -L "$TK_RECORD" ] || return 0
+	mkdir -p "${TK_RECORD%/*}"
+	if [ -f "$TK_RECORD" ] && grep -qxF "$m" "$TK_RECORD"; then
+		return 0
+	fi
+	printf '%s\n' "$m" >>"$TK_RECORD"
+}
+tk_mirror_remove() {
+	m=$(tk_mirror_name "$1")
+	[ -n "$m" ] || return 0
+	{ [ -f "$TK_RECORD" ] && [ ! -L "$TK_RECORD" ]; } || return 0
+	grep -vxF "$m" "$TK_RECORD" >"$tmp/disabled-units.new" || true
+	cat "$tmp/disabled-units.new" >"$TK_RECORD"
+}
+
+# takeover_disable: stop and disable each unit of TK_UNITS that exists and is
+# enabled or running, and record it. A failure only warns.
+takeover_disable() {
+	if ! have_systemd || ! command -v systemctl >/dev/null 2>&1; then
+		say "takeover: systemd is not running here, so there is nothing to turn off"
+		return 0
+	fi
+	say "takeover: turning off the other ASL web services"
+	known=$(tk_known)
+	n=0
+	for u in $TK_UNITS; do
+		printf '%s\n' "$known" | grep -qxF "$u" || continue
+		en=$(systemctl is-enabled "$u" 2>/dev/null || true)
+		ac=$(systemctl is-active "$u" 2>/dev/null || true)
+		case "$en" in
+		enabled | enabled-runtime)
+			if systemctl disable --now "$u"; then
+				tk_record "$u" enabled
+				tk_mirror_add "$u"
+				say "  disabled and stopped: $u"
+				n=$((n + 1))
+			else
+				say "  warning: could not disable $u; left as it is"
+			fi
+			continue
+			;;
+		esac
+		case "$ac" in
+		active | activating)
+			if systemctl stop "$u"; then
+				tk_record "$u" active
+				say "  stopped (it was running but not enabled): $u"
+				n=$((n + 1))
+			else
+				say "  warning: could not stop $u; left as it is"
+			fi
+			;;
+		esac
+	done
+	if [ "$n" -eq 0 ]; then
+		say "  none of the known units was enabled or running; nothing was turned off"
+	fi
+	say "  not touched: asterisk and everything else the node needs on the air, aslcp, Cockpit (port 9090)"
+}
+
+# takeover_undo: ASLCP leaves port 80 (back to the saved port, or 8080, or the
+# port in ASLCP_PORT), then each recorded unit is enabled and started again
+# (or only started, when it was merely running). Status 1 if a step failed.
+takeover_undo() {
+	if [ ! -f "$TK_LIST" ] || [ -L "$TK_LIST" ]; then
+		say "takeover undo: nothing is recorded in $TK_LIST, so there is nothing to undo"
+		return 0
+	fi
+	if ! have_systemd || ! command -v systemctl >/dev/null 2>&1; then
+		say "takeover undo: systemd is not running here; the units in $TK_LIST stay as they are"
+		return 1
+	fi
+	cur=$(conf_get listen :8080)
+	if [ "${cur##*:}" = 80 ]; then
+		back=${PORT_WANT:-}
+		if [ -z "$back" ]; then
+			prev=$(head -n 1 "$WEBPORT_STATE/previous-listen" 2>/dev/null || true)
+			back=${prev##*:}
+			case "$back" in
+			'' | *[!0-9]* | 0*) back=8080 ;;
+			esac
+			{ [ "${#back}" -le 5 ] && [ "$back" -ge 1024 ] && [ "$back" -le 65535 ]; } || back=8080
+		fi
+		set_port "$back" || return 1
+	fi
+	: >"$tmp/takeover.failed"
+	while IFS=' ' read -r u st || [ -n "$u" ]; do
+		tk_valid_unit "$u" || {
+			[ -z "$u" ] || say "  ignoring an unknown entry in $TK_LIST: $u"
+			continue
+		}
+		case "$st" in
+		enabled) act="enable --now" ;;
+		active) act=start ;;
+		*) continue ;;
+		esac
+		# shellcheck disable=SC2086
+		if systemctl $act "$u"; then
+			say "  turned back on: $u"
+			tk_mirror_remove "$u"
+		else
+			say "  warning: could not turn $u back on"
+			printf '%s %s\n' "$u" "$st" >>"$tmp/takeover.failed"
+		fi
+	done <"$TK_LIST"
+	if [ -s "$tmp/takeover.failed" ]; then
+		cat "$tmp/takeover.failed" >"$TK_LIST"
+		say "takeover undo: some units are still off; they stay in $TK_LIST, run this again to retry"
+		return 1
+	fi
+	rm -f "$TK_LIST"
+	cur=$(conf_get listen :8080)
+	say "takeover undone: ASLCP listens on port ${cur##*:} again and the recorded units are back"
+}
+# --->8--- port-takeover
+
 # dv_enable: run "aslcp dv enable" once the service is running.
 # Sets DV_RESULT for the closing lines; a failure only warns.
 DV_RESULT=
@@ -382,7 +659,18 @@ dv_enable() {
 	fi
 }
 
-[ -z "$PORT_WANT" ] || set_port "$PORT_WANT"
+if [ "$TAKEOVER_UNDO" -eq 1 ]; then
+	rc=0
+	takeover_undo || rc=$?
+	exit "$rc"
+fi
+if [ "$TAKEOVER_WANT" -eq 1 ]; then
+	takeover_disable
+fi
+# Port 80 is refused while another program holds it: ASLCP then stays where it
+# is and the installer exits with status 1 after the closing lines.
+PORT_FAIL=0
+[ -z "$PORT_WANT" ] || set_port "$PORT_WANT" || PORT_FAIL=1
 # Digital modes go first so the setup link stays the last thing on the screen.
 [ "$DV_WANT" -eq 0 ] || dv_enable
 setup_admin
@@ -396,3 +684,18 @@ aslcp-install: done.
   Configuration:  /etc/aslcp/aslcp.conf     Logs:  journalctl -u aslcp
   Updates:  Settings > Updates in the web UI, or: sudo apt update && sudo apt install --only-upgrade aslcp
 EOM
+if [ "$TAKEOVER_WANT" -eq 1 ] && [ "$PORT_FAIL" -eq 0 ]; then
+	cat <<EOM
+
+Takeover: the units listed above are turned off and ASLCP answers on port 80.
+  Undo:  curl -fsSL $APT_URL/install.sh | sudo ASLCP_TAKEOVER=undo sh
+  (record: $TK_LIST)
+EOM
+fi
+if [ "$PORT_FAIL" -ne 0 ]; then
+	printf '\naslcp-install: ASLCP was NOT moved to port %s (see the warning above); it stays on its previous port.\n' "$PORT_WANT" >&2
+	if [ "$TAKEOVER_WANT" -eq 1 ]; then
+		printf '  The services listed above stay turned off; undo with ASLCP_TAKEOVER=undo.\n' >&2
+	fi
+	exit 1
+fi
