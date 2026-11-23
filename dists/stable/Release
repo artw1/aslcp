@@ -1,13 +1,13 @@
 Architectures: arm64 armhf amd64
 Codename: stable
 Components: main
-Date: Mon, 23 Nov 2026 00:38:34 +0000
+Date: Mon, 23 Nov 2026 01:45:43 +0000
 Description: ASLCP packages for Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS (stable)
 Label: ASLCP
 Origin: ASLCP
 Suite: stable
 MD5Sum:
- 21349e9f15c7db0ad9e944eafedaf3fa             3374 Release
+ 64a84939b86542df80067f791335aabf             3374 Release
  1ccd4e773d1ef5d6687f1e13e0ba6617             4455 main/binary-amd64/Packages
  a67d5a2fee1d1caad6eb44c853e8f5e6             1404 main/binary-amd64/Packages.gz
  840ff44e50358796a3e133a49b155b23             4450 main/binary-arm64/Packages
@@ -15,7 +15,7 @@ MD5Sum:
  a198054b158471136816582a56555e2a             4451 main/binary-armhf/Packages
  9d46ff5da19cefcf6ba576f392ef5062             1412 main/binary-armhf/Packages.gz
 SHA1:
- 950508aaf1d45af777332b76e7b0a21123dabbe1             3374 Release
+ 81e8d336255eead455e4a67255c92d12496ea629             3374 Release
  273546c7e0a4a684c4c3448f296ccdffc9db5ce8             4455 main/binary-amd64/Packages
  fb2e514b1e989bb0547535bb5ad783c9f11092df             1404 main/binary-amd64/Packages.gz
  6eeeb7933c95a7b34d613579056d9f07522eac98             4450 main/binary-arm64/Packages
@@ -23,7 +23,7 @@ SHA1:
  cfccaaf17d378e8fc19de7be387d009cbaecca62             4451 main/binary-armhf/Packages
  d813cde9f8d135cd11e9a81f77d32dd834e0c032             1412 main/binary-armhf/Packages.gz
 SHA256:
- 111725ba37df833936f2dc20d6a57f3aa8c6bf0603e5341d091bb9e9defcc78c             3374 Release
+ 46ead3e7941f285fb69b5e658b7fdb0406322b0803d5f60b92521651c361a321             3374 Release
  e549c11924de94dc66d12f0909250558ca4e9bdd4100ffa272441fd6605b483e             4455 main/binary-amd64/Packages
  8564babe997989d148afaf6523a46b30e6556849e92daf8bfec1eecc26e62ae7             1404 main/binary-amd64/Packages.gz
  7a65fffd7fc70d8a29bef730983eff5309e7976f1e3e2d4009262001cb573a4c             4450 main/binary-arm64/Packages
@@ -31,7 +31,7 @@ SHA256:
  4a74f0d324ecdb40e13213d3f7cc643398bad6bb3ab6123e2bb307d9e5cf7e47             4451 main/binary-armhf/Packages
  c8fedd57ed644a5409009f4584a50d532e8eb4ab402f3de131c93ceffb81cd59             1412 main/binary-armhf/Packages.gz
 SHA512:
- a9c483cc4d28813ad019906cb838c8b97a478e87df1c4960e901c38a2439c8cb496354ac469dc58bf8ebcb46abc319801277ef6eaf7ae887611d56e0dedb9f74             3374 Release
+ 136d9eb56d015b7941815284925bbb4de7970a6781d1cf803433a385865a4ed3363ab1109b6f6a629b8d0ac48cc4fc3dba253a9330ee7a947e91866df8dbdde9             3374 Release
  ea6143b52854ab270c173d1c8f79541fa353661cd979196c4136e3d12aac2ba4c5d8f237c07c84f1c8fdfbb22aa2fda95861360a42e960c7df055845b59f753f             4455 main/binary-amd64/Packages
  ae00f58863be42a84c0ad892c47db57a2a5f7faaa2db8a3b841b17123bad28f69da11ff0aa8e98d19ed54018c2c12dd451137f54add076666870b54c1d0913e7             1404 main/binary-amd64/Packages.gz
  6ccbb4eab3f27c3e4e811737c7d0e03cd407f432879ec09025dc97f7049383e92efaa9e66a772d54be6ddc9a80fb4bbf2d2c2324badaf5957f2fe6fd1c845268             4450 main/binary-arm64/Packages
