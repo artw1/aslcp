@@ -17,14 +17,16 @@
 //	MSTCL "MSTCL"+id(4) / RPTCL "RPTCL"+id(4)           close
 //	DMRD  55-byte voice/data packet                     see dmrd.go
 //
-// Defaults: TGIF uses tgif.network port 62031 (public master). DMR has no
+// Defaults: TGIF uses timeslot 2 and ignores the slot and options keys. Its
+// master address and port are set by the helper from the DMR host list (first
+// TGIF entry), else tgif.network port 62031; a TGIF entry has no saved address. DMR has no
 // default address; NetConfig.Address is required.
 //
 // Option keys (ctl.NetConfig.Options):
 //
-//	slot            1 or 2, default 2 (hotspot simplex style)
+//	slot            1 or 2, default 2 (hotspot simplex style); TGIF is always 2
 //	colour_code     0..15, default 1
-//	options         RPTO string, e.g. "TS2=1997;" (TGIF static TGs); omitted if empty
+//	options         RPTO string, e.g. "TS2=1997;"; omitted if empty; never sent for TGIF
 //	repeater_id     overrides Identity.RepeaterID, then Identity.DMRID
 //	rx_freq,tx_freq Hz for RPTC, default 0 (see rptc.go note)
 //	location, description, url   RPTC text fields

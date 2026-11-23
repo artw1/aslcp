@@ -838,3 +838,19 @@ func TestDMRRetuneReconnects(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 }
+
+func TestTGIFIgnoresSlotAndOptions(t *testing.T) {
+	m := newMaster(t)
+	n, s, _, _ := start(t, ctl.ModeTGIF, m, testPW, map[string]string{"options": "TS2=1997;", "slot": "1"})
+	waitFor(t, "ok", func() bool { return s.hasLogin(ctl.LoginOK) })
+	if got := len(m.all("RPTO")); got != 0 {
+		t.Fatalf("TGIF sent %d RPTO", got)
+	}
+	if err := n.Tune(context.Background(), ctl.Target{TG: 1997}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "kerchunk", func() bool { return len(dmrdTo(m, 0)) > 0 })
+	if d := dmrdTo(m, 0)[0]; d.Slot != 2 {
+		t.Fatalf("TGIF used slot %d", d.Slot)
+	}
+}

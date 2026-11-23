@@ -14,6 +14,7 @@ import (
 	"github.com/artw1/aslcp/internal/astconf"
 	dvctl "github.com/artw1/aslcp/internal/dv/ctl"
 	"github.com/artw1/aslcp/internal/dvpanel"
+	"github.com/artw1/aslcp/internal/hostlists"
 )
 
 // The engine's config.json (docs/DV.md): rendered by the helper only, from the
@@ -60,7 +61,10 @@ func dvUSRPPorts(rpt []byte, node string) (listen, peer int, ok bool) {
 // build carries natively (disabled until set up) and, from networks.json, the
 // settings of the networks that are not in this build yet (carried so the
 // operator's settings are not lost). The identity comes from networks.json.
-func renderDVConfig(listen, peer int, nets dvNetworksState) dvctl.Config {
+//
+// tgifHost and tgifPort are TGIF's master (the host list's first TGIF entry, else the
+// built-in one): a saved address or port never reaches the engine for TGIF.
+func renderDVConfig(listen, peer int, nets dvNetworksState, tgifHost string, tgifPort int) dvctl.Config {
 	cfg := dvctl.Config{
 		Version: dvctl.ConfigVersion,
 		USRP:    dvctl.USRPConfig{Listen: fmt.Sprintf("%s:%d", dvUSRPAddress, listen), Peer: fmt.Sprintf("%s:%d", dvUSRPAddress, peer)},
@@ -89,6 +93,9 @@ func renderDVConfig(listen, peer int, nets dvNetworksState) dvctl.Config {
 			on = dvpanel.EnableBlock(sp, dvpanel.NetState{Enabled: true, Address: s.Address, Port: s.Port, PasswordSet: s.Password != "", Options: s.Options}, id) == ""
 		}
 		nc := dvctl.NetConfig{Mode: sp.Mode, Enabled: on, Address: s.Address, Port: s.Port, Password: s.Password}
+		if sp.Mode == dvctl.ModeTGIF {
+			nc.Address, nc.Port = tgifHost, tgifPort
+		}
 		if len(s.Options) > 0 {
 			nc.Options = s.Options
 		}
@@ -116,7 +123,8 @@ func (o *Ops) dvConfigLocked() (DVConfigResult, error) {
 			}
 		}
 	}
-	data, err := json.MarshalIndent(renderDVConfig(listen, peer, o.dvNetLoad()), "", "  ")
+	tgifHost, tgifPort := hostlists.TGIFFromFile(o.dvHostListsDir(), dvctl.TGIFAddress, dvctl.TGIFPort)
+	data, err := json.MarshalIndent(renderDVConfig(listen, peer, o.dvNetLoad(), tgifHost, tgifPort), "", "  ")
 	if err != nil {
 		return res, err
 	}

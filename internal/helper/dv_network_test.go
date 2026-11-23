@@ -168,7 +168,7 @@ func TestDVNetworkTGIFAndDMR(t *testing.T) {
 	}
 	// TGIF needs no address: the public master is the default
 	rep, err := dvNetDo(o, DVNetworkRequest{Mode: "TGIF", Password: sp("example-pass"), Enabled: bp(true),
-		Options: map[string]string{"options": "TS2=1997;", "tune_kerchunk": "0", "slot": ""}})
+		Options: map[string]string{"tune_kerchunk": "0", "colour_code": ""}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestDVNetworkTGIFAndDMR(t *testing.T) {
 		t.Fatalf("password in reply: %s", b)
 	}
 	n := renderedNet(t, o, "TGIF")
-	if !n.Enabled || n.Password != "example-pass" || n.Address != "" || n.Options["options"] != "TS2=1997;" || n.Options["tune_kerchunk"] != "false" || len(n.Options) != 2 {
+	if !n.Enabled || n.Password != "example-pass" || n.Address != dvctl.TGIFAddress || n.Port != dvctl.TGIFPort || n.Options["tune_kerchunk"] != "false" || len(n.Options) != 1 {
 		t.Fatalf("%+v", n)
 	}
 	// DMR with its own master
@@ -187,7 +187,9 @@ func TestDVNetworkTGIFAndDMR(t *testing.T) {
 		t.Fatalf("%+v", n)
 	}
 	for name, r := range map[string]DVNetworkRequest{
-		"slot":     {Mode: "TGIF", Options: map[string]string{"slot": "3"}},
+		"slot":     {Mode: "DMR", Options: map[string]string{"slot": "3"}},
+		"tgifslot": {Mode: "TGIF", Options: map[string]string{"slot": "1"}},
+		"tgifopts": {Mode: "TGIF", Options: map[string]string{"options": "TS2=1997;"}},
 		"bool":     {Mode: "DMR", Options: map[string]string{"tune_kerchunk": "maybe"}},
 		"optlen":   {Mode: "DMR", Options: map[string]string{"options": strings.Repeat("x", 201)}},
 		"location": {Mode: "DMR", Options: map[string]string{"location": strings.Repeat("x", 21)}},
@@ -389,7 +391,7 @@ func TestParseDVNetworksDropsLoop(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cfg := renderDVConfig(34001, 32001, st)
+		cfg := renderDVConfig(34001, 32001, st, dvctl.TGIFAddress, dvctl.TGIFPort)
 		if len(cfg.Networks) != 7 || cfg.Networks[0].Mode != dvctl.ModeLoop || !cfg.Networks[0].Enabled {
 			t.Fatalf("%+v", cfg.Networks)
 		}
@@ -503,4 +505,60 @@ func TestDVNetworkNXDNIDRequired(t *testing.T) {
 	if n := renderedNet(t, o, "NXDN"); n.Enabled || n.Options["nxdn_id"] != "" {
 		t.Fatalf("%+v", n)
 	}
+}
+
+func TestDVNetworkTGIFSavedOptionsDropped(t *testing.T) {
+	// an install that saved master options and a slot for TGIF: both are
+	// dropped on load, DMR - Other keeps its own
+	o := dvCfgOps(t)
+	os.MkdirAll(o.DVStateDir, 0o700)
+	old := `{"version":1,"networks":{"TGIF":{"password":"example-pass","options":{"options":"TS2=1997;","slot":"1","tune_kerchunk":"false"}},"DMR":{"address":"192.0.2.10","options":{"options":"TS2=1998;","slot":"1"}}}}`
+	if err := os.WriteFile(filepath.Join(o.DVStateDir, "networks.json"), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dvNetDo(o, DVNetworkRequest{Identity: &DVIdentityView{Callsign: "N0CALL", DMRID: 1234567}}); err != nil {
+		t.Fatal(err)
+	}
+	if n := renderedNet(t, o, "TGIF"); n.Options["options"] != "" || n.Options["slot"] != "" || n.Options["tune_kerchunk"] != "false" {
+		t.Fatalf("%+v", n.Options)
+	}
+	raw, _ := os.ReadFile(filepath.Join(o.DVStateDir, "networks.json"))
+	if strings.Contains(string(raw), "TS2=1997") {
+		t.Fatalf("TGIF options still saved: %s", raw)
+	}
+	if n := renderedNet(t, o, "DMR"); n.Options["options"] != "TS2=1998;" || n.Options["slot"] != "1" {
+		t.Fatalf("%+v", n.Options)
+	}
+}
+
+func TestDVConfigTGIFMasterFollowsHostList(t *testing.T) {
+	o := dvCfgOps(t)
+	o.DVHostListsDir = filepath.Join(t.TempDir(), "hostlists")
+	os.MkdirAll(o.DVStateDir, 0o700)
+	// an install that saved an address and port for TGIF: they have no effect
+	old := `{"version":1,"networks":{"TGIF":{"enabled":true,"password":"example-pass","address":"192.0.2.99","port":1234}}}`
+	if err := os.WriteFile(filepath.Join(o.DVStateDir, "networks.json"), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dvNetDo(o, DVNetworkRequest{Identity: &DVIdentityView{Callsign: "N0CALL", DMRID: 1234567}})
+	check := func(what, host string, port int) {
+		t.Helper()
+		if _, err := o.DVConfig(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		n := renderedNet(t, o, "TGIF")
+		if n.Address != host || n.Port != port || n.Password != "example-pass" {
+			t.Fatalf("%s: %s:%d pw=%q", what, n.Address, n.Port, n.Password)
+		}
+	}
+	// list missing: the built-in master
+	check("missing", dvctl.TGIFAddress, dvctl.TGIFPort)
+	// list without a TGIF entry
+	os.MkdirAll(o.DVHostListsDir, 0o755)
+	list := filepath.Join(o.DVHostListsDir, "DMR_Hosts.txt")
+	os.WriteFile(list, []byte("BM_0000_Example\t\t0000\t\tbm.example.net\t\tpassw0rd\t\t62031\nDMR_Example\t\t0000\t\tdmr.example.net\t\tpassw0rd\t\t62031\n"), 0o644)
+	check("no TGIF entry", dvctl.TGIFAddress, dvctl.TGIFPort)
+	// list with TGIF entries: the first one, never the list's password
+	os.WriteFile(list, []byte("BM_0000_Example\t\t0000\t\tbm.example.net\t\tpassw0rd\t\t62031\nTGIF_Network\t\t0000\t\ttgif1.example.net\t\tlistpass\t\t62032\nTGIF_Two\t\t0000\t\ttgif2.example.net\t\tlistpass\t\t62033\n"), 0o644)
+	check("list", "tgif1.example.net", 62032)
 }

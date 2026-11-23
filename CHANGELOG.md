@@ -3,6 +3,11 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [2.0.3] - 2026-11-23
+
+### Changed
+- TGIF: the master options, timeslot, address and port fields are gone; TGIF always uses timeslot 2, and its master follows the DMR host list (first TGIF entry, else tgif.network:62031). Values saved earlier are dropped and have no effect. DMR - Other keeps its fields.
+
 ## [2.0.2] - 2026-11-23
 
 ### Changed

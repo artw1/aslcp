@@ -1,6 +1,9 @@
 package hostlists
 
 import (
+	"io"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -215,4 +218,35 @@ func OtherDMRMasters(items []Item) []Item {
 		out = append(out, it)
 	}
 	return out
+}
+
+// TGIFMaster is the first TGIF entry (name starting TGIF, any case) of a parsed
+// DMR list. Only its address and port are used: the password of a TGIF master is
+// the operator's own, never the list's.
+func TGIFMaster(items []Item) (Item, bool) {
+	for _, it := range items {
+		if strings.HasPrefix(strings.ToUpper(it.Name), "TGIF") {
+			return it, true
+		}
+	}
+	return Item{}, false
+}
+
+// TGIFFromFile reads the downloaded DMR list in dir and returns the address and
+// port of its first TGIF entry; fallbackHost and fallbackPort when the file is
+// missing, unreadable or has no TGIF entry.
+func TGIFFromFile(dir, fallbackHost string, fallbackPort int) (string, int) {
+	f, err := os.Open(filepath.Join(dir, files["dmr"]))
+	if err != nil {
+		return fallbackHost, fallbackPort
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, MaxFile))
+	if err != nil {
+		return fallbackHost, fallbackPort
+	}
+	if it, ok := TGIFMaster(ParseDMR(data)); ok {
+		return it.Address, it.Port
+	}
+	return fallbackHost, fallbackPort
 }

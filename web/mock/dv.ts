@@ -201,9 +201,9 @@ const BM_OPTS = [
 const txtOpt = (key: string, label: string, def: string, maxLen: number, advanced = false, help = '') => ({ key, label, kind: 'text', default: def, maxLen, ...(advanced ? { advanced } : {}), ...(help ? { help } : {}) });
 const boolOpt = (key: string, label: string, def: string, advanced = false) => ({ key, label, kind: 'bool', default: def, ...(advanced ? { advanced } : {}) });
 // The Homebrew client's options (TGIF and DMR - Other), as the server lists them.
+// Master options and timeslot are DMR - Other only (an empty help leaves them out; TGIF is always slot 2).
 const HB_OPTS = (optionsHelp: string) => [
-  txtOpt('options', 'Master options', '', 200, false, optionsHelp),
-  intOpt('slot', 'Timeslot', '2', 1, 2),
+  ...(optionsHelp ? [txtOpt('options', 'Master options', '', 200, false, optionsHelp), intOpt('slot', 'Timeslot', '2', 1, 2)] : []),
   intOpt('repeater_id', 'Repeater ID', '', 1, 999999999, true),
   intOpt('colour_code', 'Colour code', '1', 0, 15, true),
   boolOpt('tune_kerchunk', 'Link by short key-up', 'true', true),
@@ -235,8 +235,8 @@ const NXDN_OPTS = [
 ];
 const NETSPEC: Record<NetId, { label: string; fields: { address: boolean; port: boolean; password: boolean }; defaultPort?: number; defaultAddress?: string; defaultPassword?: string; help?: string; options: unknown[] }> = {
   BM: { label: 'BrandMeister', fields: { address: true, port: false, password: true }, help: BM_HELP, options: BM_OPTS },
-  TGIF: { label: 'TGIF', fields: { address: true, port: true, password: true }, defaultPort: 62031, defaultAddress: 'tgif.network', options: HB_OPTS('Static talkgroups, for example TS2=1997; Without it the talkgroup you tune is linked on demand.'),
-    help: 'The password is the hotspot security password of your TGIF profile. The public master tgif.network:62031 is used unless you set another.' },
+  TGIF: { label: 'TGIF', fields: { address: false, port: false, password: true }, options: HB_OPTS(''),
+    help: 'The password is the hotspot security password of your TGIF profile. The master follows the DMR host list (the first TGIF entry), else tgif.network:62031.' },
   DMR: { label: 'DMR - Other', fields: { address: true, port: true, password: true }, defaultPort: 62031, defaultPassword: 'passw0rd', options: HB_OPTS('Sent to the master after login, for example static talkgroups. Leave empty if unsure.'),
     help: 'A Homebrew (MMDVM) master such as FreeDMR, DMR+ or an hblink3 server. Pick one from the list (BrandMeister and TGIF have their own cards), or choose Other and enter its address and port. The password is only needed when the master asks for a different one than passw0rd.' },
   YSF: { label: 'System Fusion (YSF)', fields: { address: false, port: false, password: false }, options: YSF_OPTS,

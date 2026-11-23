@@ -19,8 +19,8 @@ import (
 
 // TGIF defaults (public master).
 const (
-	TGIFAddress = "tgif.network"
-	TGIFPort    = 62031
+	TGIFAddress = ctl.TGIFAddress
+	TGIFPort    = ctl.TGIFPort
 
 	softwareID = "ASLCP"
 	packageVer = "ASLCP-2.0"
@@ -139,11 +139,18 @@ func New(cfg ctl.NetConfig, id ctl.Identity) (*Net, error) {
 	n.srcDefault = id.DMRID
 	n.call = id.Callsign
 	n.slot = optInt(o, "slot", 2)
+	if n.mode == ctl.ModeTGIF {
+		// TGIF is always timeslot 2 with no master options; a saved or sent
+		// slot or options value has no effect.
+		n.slot = 2
+	}
 	if n.slot != 1 && n.slot != 2 {
 		return nil, fmt.Errorf("homebrew: bad slot %d", n.slot)
 	}
 	n.cc = optInt(o, "colour_code", 1)
-	n.opts = o["options"]
+	if n.mode != ctl.ModeTGIF {
+		n.opts = o["options"]
+	}
 	n.kerchunk = optBool(o, "tune_kerchunk", true)
 	n.unlinkTG = uint32(optInt(o, "unlink_tg", 4000))
 	n.pingEvery = optMS(o, "ping_interval_ms", 5000)

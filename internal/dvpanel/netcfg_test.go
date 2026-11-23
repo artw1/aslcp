@@ -20,3 +20,18 @@ func TestEnableBlockDefaultPassword(t *testing.T) {
 		}
 	}
 }
+
+func TestTGIFHasNoOptionsOrSlot(t *testing.T) {
+	for _, o := range OptSpecs(ModeTGIF) {
+		if o.Key == "options" || o.Key == "slot" {
+			t.Errorf("TGIF lists %s", o.Key)
+		}
+	}
+	has := map[string]bool{}
+	for _, o := range OptSpecs(ModeDMR) {
+		has[o.Key] = true
+	}
+	if !has["options"] || !has["slot"] {
+		t.Error("DMR - Other lost options or slot")
+	}
+}
