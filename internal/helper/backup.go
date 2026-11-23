@@ -25,6 +25,7 @@ import (
 	_ "modernc.org/sqlite" // pure-Go driver (AstDB snapshot)
 
 	"github.com/artw1/aslcp/internal/backup"
+	"github.com/artw1/aslcp/internal/legacy"
 )
 
 // Default locations of the backup parts.
@@ -137,7 +138,7 @@ var reMD5 = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 // wantedPackage selects the packages recorded in the manifest.
 func wantedPackage(n string) bool {
-	for _, p := range []string{"asl3", "asterisk", "allmon", "supermon", "dvswitch"} {
+	for _, p := range []string{"asl3", "asterisk", "allmon", "supermon", legacy.PackagePrefix} {
 		if strings.HasPrefix(n, p) {
 			return true
 		}
@@ -528,12 +529,12 @@ func (o *Ops) BackupCreate(ctx context.Context, req *BackupRequest, w io.Writer)
 			hdr.Parts.Sounds = append(hdr.Parts.Sounds, d.id)
 		}
 	}
-	if req.DVSwitch && o.dvInstalled() {
-		added, err := o.collectDVSwitch(c)
+	if req.DV {
+		added, err := o.collectDV(c)
 		if err != nil {
 			return false, err
 		}
-		hdr.Parts.DVSwitch = added
+		hdr.Parts.DV = added
 	}
 	hdr.Skipped = append(hdr.Skipped, c.skipped...)
 	hdr.Entries = make([]backup.Entry, len(c.entries))

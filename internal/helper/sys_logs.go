@@ -31,11 +31,11 @@ const (
 )
 
 // logUnits is the allowlist of the journal viewer: no unit name comes from a
-// client except to select one of these. The DVSwitch units are the ones the
-// DVSwitch code already knows.
+// client except to select one of these. The digital modes units are
+// the engine, the vocoder and the enable job.
 func logUnits() []string {
 	units := []string{"asterisk", "aslcp", "aslcp-helper", "NetworkManager", "systemd-networkd", "aslcp-wifi-watchdog"}
-	return append(units, dvUnits...)
+	return append(units, dvEngineUnit, dvMD380Unit, dvEnableUnit)
 }
 
 // LogUnits returns the units the journal viewer accepts.

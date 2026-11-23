@@ -771,16 +771,13 @@ func TestChannelOpsOverSocket(t *testing.T) {
 	}
 }
 
-// A DVSwitch purge or install prints apt's "0 upgraded, ..." summary; that
-// must read as succeeded, not as the upgrade units' "noop" (which the DVSwitch
-// page treats as a failure).
-func TestJobStateFromDVSwitchNotNoop(t *testing.T) {
+// The digital modes enable job prints apt's "0 upgraded, ..." summary; that
+// must read as succeeded, not as the upgrade units' "noop".
+func TestJobStateFromDVNotNoop(t *testing.T) {
 	inactive := map[string]string{"ActiveState": "inactive", "Result": "success"}
-	log := "0 upgraded, 0 newly installed, 6 to remove and 0 not upgraded.\ndvswitch uninstall finished\naslcp-dvswitch-uninstall.service: Deactivated successfully.\n"
-	for _, u := range []string{dvInstallUnit, dvUninstallUnit, dvSTFUJobUnit} {
-		if got := jobStateFrom(inactive, log, u); got != JobSucceeded {
-			t.Errorf("%s: got %s", u, got)
-		}
+	log := "0 upgraded, 2 newly installed, 0 to remove and 0 not upgraded.\naslcp-dv-enable.service: Deactivated successfully.\n"
+	if got := jobStateFrom(inactive, log, dvEnableUnit); got != JobSucceeded {
+		t.Errorf("%s: got %s", dvEnableUnit, got)
 	}
 	if got := jobStateFrom(inactive, log, upgradeUnit); got != JobNoop {
 		t.Errorf("upgrade unit: got %s", got)

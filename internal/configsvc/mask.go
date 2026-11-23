@@ -10,7 +10,7 @@ const Masked = "********"
 
 var (
 	reSecretKey = regexp.MustCompile(`(?i)^(\s*)(secret|password|passwd|pass|md5secret|dbsecret)(\s*=>?\s*)(.*)$`)
-	// Any key with "password" in its name (DVSwitch inis: Password,
+	// Any key with "password" in its name (old stack inis: Password,
 	// RemotePassword, ...).
 	rePasswordKey = regexp.MustCompile(`(?i)^(\s*)(\w*password\w*)(\s*=>?\s*)(.*)$`)
 	reRegister    = regexp.MustCompile(`(?i)^(\s*register)(\s*=>?\s*)(.*)$`)

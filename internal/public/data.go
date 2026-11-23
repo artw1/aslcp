@@ -26,7 +26,7 @@ type Info struct {
 // are hidden.
 type Link struct {
 	Node       string `json:"node"`
-	Label      string `json:"label,omitempty"` // the DVSwitch bridge node's display name
+	Label      string `json:"label,omitempty"` // the digital modes bridge node's display name
 	Kind       string `json:"kind"`
 	Info       *Info  `json:"info,omitempty"`
 	Direction  string `json:"direction"`
@@ -41,7 +41,7 @@ type Link struct {
 // callsigns are hidden.
 type NetNode struct {
 	Node     string `json:"node"`
-	Label    string `json:"label,omitempty"` // the DVSwitch bridge node's display name
+	Label    string `json:"label,omitempty"` // the digital modes bridge node's display name
 	Callsign string `json:"callsign,omitempty"`
 }
 
@@ -62,7 +62,7 @@ type Node struct {
 type Activity struct {
 	Node     string `json:"node"`            // local node
 	Link     string `json:"link"`            // link node number, or "local" for the local receiver
-	Label    string `json:"label,omitempty"` // the DVSwitch bridge node's display name
+	Label    string `json:"label,omitempty"` // the digital modes bridge node's display name
 	Callsign string `json:"callsign,omitempty"`
 	At       int64  `json:"at"`       // unix seconds
 	Duration int64  `json:"duration"` // seconds, at least 1
@@ -146,7 +146,7 @@ type View struct {
 	Callsigns bool
 	Network   bool
 	Now       time.Time
-	// Bridge is the private DVSwitch bridge node and BridgeName its display
+	// Bridge is the private digital modes bridge node and BridgeName its display
 	// name (as on the dashboard). Both empty when there is none. The number
 	// is shown as is (scrubNode only hides addresses); the label tells
 	// visitors what it is.
@@ -154,7 +154,7 @@ type View struct {
 	BridgeName string
 }
 
-// label is the display name of node when it is the DVSwitch bridge node.
+// label is the display name of node when it is the digital modes bridge node.
 func (v View) label(node string) string {
 	if v.Bridge != "" && node == v.Bridge {
 		return v.BridgeName

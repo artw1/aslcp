@@ -204,6 +204,11 @@ func (s *Server) AttachMonitor(ctx context.Context, m *rpt.Monitor) {
 			s.rec.Process(u)
 			s.ncRPT(u)
 			s.pub.HandleUpdate(u)
+			if linkStateChanged(u.Changes) {
+				// The dv snapshot carries the bridge node's link (Link.Linked, read from
+				// this monitor); without this it only changed when something else did.
+				s.dvLinkChanged()
+			}
 			if u.Changes.Recovered || u.Changes.Resync || u.Changes.Added || u.Changes.Removed {
 				// Full state after an AMI reconnect, a dropped-update resync or a
 				// change of the node set (the client drops nodes missing from it).
@@ -274,6 +279,17 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request, u store.Us
 	if c.admin.Load() && s.d.Updates != nil && !write(frame("updates", s.updatesBadge())) {
 		return
 	}
+	// The digital modes snapshot is sent on every connect too: the browser
+	// reconnects by itself after a restart of the panel, and a change that was
+	// published while it was away (or before it came back) is never repeated.
+	if s.dvs != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		sn := s.dvs.snapshot(ctx)
+		cancel()
+		if !write(frame("dv", sn)) {
+			return
+		}
+	}
 	// Initial favorites/system are available via REST; the contract only
 	// requires hello + nodes on connect.
 
@@ -318,4 +334,10 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request, u store.Us
 			}
 		}
 	}
+}
+
+// linkStateChanged says whether an update can change a node's direct links,
+// which the dv snapshot reports as link.linked.
+func linkStateChanged(c rpt.Changes) bool {
+	return len(c.LinksAdded) > 0 || len(c.LinksRemoved) > 0 || c.Initial || c.Added || c.Removed || c.Stale || c.Recovered || c.Resync
 }

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/artw1/aslcp/internal/legacy"
 )
 
 // postrm.sh is exercised with a fake systemctl and a temporary root: it must
@@ -70,6 +72,9 @@ func (e *postrmEnv) populate(t *testing.T, record string) {
 	write(t, e.path("var/lib/aslcp-webport/previous-listen"), ":8080\n", 0o600)
 	write(t, e.path("etc/systemd/system/aslcp.service.d/port80.conf"), "[Service]\n", 0o644)
 	write(t, e.path("var/lib/aslcp-config-history/x"), "x", 0o600)
+	for _, d := range []string{"aslcp-dvstate", "aslcp-dvstate-history", filepath.Base(legacy.OldStateDir), filepath.Base(legacy.OldHistoryDir)} {
+		write(t, e.path("var/lib/"+d+"/x"), "x", 0o600)
+	}
 }
 
 func TestPostrmPurgeReenablesRecordedUnits(t *testing.T) {
@@ -89,7 +94,7 @@ func TestPostrmPurgeReenablesRecordedUnits(t *testing.T) {
 	if exists(e.path("etc/systemd/system/aslcp.service.d")) {
 		t.Fatal("drop-in left")
 	}
-	for _, p := range []string{"var/lib/aslcp", "var/lib/aslcp-webport", "var/lib/aslcp-config-history"} {
+	for _, p := range []string{"var/lib/aslcp", "var/lib/aslcp-webport", "var/lib/aslcp-config-history", "var/lib/aslcp-dvstate", "var/lib/aslcp-dvstate-history", legacy.OldStateDir[1:], legacy.OldHistoryDir[1:]} {
 		if exists(e.path(p)) {
 			t.Errorf("%s left", p)
 		}

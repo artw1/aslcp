@@ -1,4 +1,4 @@
-// Search and labels for the DVSwitch host and TG pickers (docs/DVSWITCH.md, "Host and TG lists").
+// Search and labels for the digital modes host and TG pickers (docs/DV.md, "Host and TG lists").
 // A list holds a few thousand entries: each gets one lowercase haystack once, a query then
 // needs every word in it, so a keystroke costs one pass of string searches.
 import type { DVListItem, DVListMode } from './types';

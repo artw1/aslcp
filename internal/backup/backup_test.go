@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/artw1/aslcp/internal/legacy"
 	"io"
 	"math/rand"
 	"strings"
@@ -263,17 +264,17 @@ func TestReadTruncatedWithHandlerIsBadBackup(t *testing.T) {
 	}
 }
 
-func TestDVSwitchPartLayout(t *testing.T) {
-	ini := "dvswitch/opt/MMDVM_Bridge/MMDVM_Bridge.ini"
+func TestDVPartLayout(t *testing.T) {
+	ini := "dv/opt/MMDVM_Bridge/MMDVM_Bridge.ini"
 	m := baseManifest(fileEntry(ini, "[General]\n"))
-	m.Parts.DVSwitch = true
+	m.Parts.DV = true
 	arc := rawArchive(t, m, reg(ini, "[General]\n"))
 	m2, err := Read(bytes.NewReader(arc), nil)
-	if err != nil || !m2.Parts.DVSwitch {
+	if err != nil || !m2.Parts.DV {
 		t.Fatalf("%+v %v", m2, err)
 	}
-	// only the fixed files are valid: anything else below dvswitch/ is refused
-	for _, p := range []string{"dvswitch/opt/MMDVM_Bridge/evil.sh", "dvswitch/opt/../x", "dvswitch/etc/passwd", "dvswitch/opt", "dvswitch/opt/Analog_Bridge/Analog_Bridge"} {
+	// only the fixed files are valid: anything else below dv/ is refused
+	for _, p := range []string{"dv/opt/MMDVM_Bridge/evil.sh", "dv/opt/../x", "dv/etc/passwd", "dv/opt", "dv/opt/Analog_Bridge/Analog_Bridge"} {
 		bm := baseManifest(fileEntry(p, "x"))
 		if err := bm.Validate(); err == nil {
 			t.Errorf("%s accepted", p)
@@ -283,11 +284,43 @@ func TestDVSwitchPartLayout(t *testing.T) {
 	if err := baseManifest(dirEntry(ini)).Validate(); err == nil {
 		t.Error("directory accepted for a single file")
 	}
-	// the flag is optional: a manifest of an older backup (no dvswitch key)
+	// the flag is optional: a manifest of an older backup (no dv key)
 	// is still valid format 1
 	var old Manifest
 	raw := `{"format":1,"created":"2026-01-02T03:04:00Z","createdBy":"a","aslcpVersion":"1","asl3Version":"","asteriskVersion":"","hostname":"n","timezone":"UTC","arch":"arm64","nodes":[],"channel":"stable","packages":[],"parts":{"history":false,"allmon3":false,"sa818":false,"astdb":false,"sounds":[]},"missingStock":[],"files":[]}`
-	if err := json.Unmarshal([]byte(raw), &old); err != nil || old.Validate() != nil || old.Parts.DVSwitch {
+	if err := json.Unmarshal([]byte(raw), &old); err != nil || old.Validate() != nil || old.Parts.DV {
 		t.Fatalf("%v %v", err, old.Validate())
+	}
+}
+
+// A 1.x backup carries the part flag and the archive paths under the previous
+// part id (internal/legacy); it still reads, validates and is found by the
+// FindDV* helpers.
+func TestDVPartLegacyIDStillRestores(t *testing.T) {
+	ini := legacy.OldBackupPart + "/opt/MMDVM_Bridge/MMDVM_Bridge.ini"
+	priv := legacy.OldBackupPart + "/state/privatenode.json"
+	nets := legacy.OldBackupPart + "/state/networks.json"
+	m := baseManifest(fileEntry(ini, "[General]\n"), fileEntry(priv, "{}"), fileEntry(nets, "{}"))
+	arc := rawArchive(t, m, reg(ini, "[General]\n"), reg(priv, "{}"), reg(nets, "{}"))
+	m2, err := Read(bytes.NewReader(arc), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m2.FindDV("MMDVM_Bridge/MMDVM_Bridge.ini") == nil || m2.FindDVPrivate() == nil || m2.FindDVNetworks() == nil {
+		t.Error("old paths not found")
+	}
+	if m2.FindDV("Analog_Bridge/Analog_Bridge.ini") != nil {
+		t.Error("absent file found")
+	}
+	// the manifest flag under the old key sets DV
+	var old Manifest
+	raw := `{"format":1,"created":"2026-01-02T03:04:00Z","createdBy":"a","aslcpVersion":"1","asl3Version":"","asteriskVersion":"","hostname":"n","timezone":"UTC","arch":"arm64","nodes":[],"channel":"stable","packages":[],"parts":{"history":false,"allmon3":false,"sa818":false,"astdb":false,"` + legacy.OldBackupPart + `":true,"sounds":[]},"missingStock":[],"files":[]}`
+	if err := json.Unmarshal([]byte(raw), &old); err != nil || !old.Parts.DV {
+		t.Fatalf("old flag: %v %+v", err, old.Parts)
+	}
+	// new paths win when both exist
+	both := baseManifest(fileEntry("dv/state/networks.json", "{}"), fileEntry(nets, "{}"))
+	if e := both.FindDVNetworks(); e == nil || e.Path != "dv/state/networks.json" {
+		t.Errorf("%+v", e)
 	}
 }

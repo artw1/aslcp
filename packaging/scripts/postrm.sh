@@ -68,15 +68,25 @@ purge)
 	# The record lives in /var/lib/aslcp: read it before that goes away.
 	restore_units
 	rm -rf "$ROOT/var/lib/aslcp" "$ROOT/run/aslcp"
+	# The digital voice engine: its config (may hold network passwords), its
+	# runtime directory and its system user.
+	rm -rf "$ROOT/var/lib/aslcp-dv" "$ROOT/run/aslcp-dv"
 	# The root-only state of the helper: the config history (git), the
-	# DVSwitch install and bridge-node records, pending restored DVSwitch
-	# settings and the DVSwitch ini history (both hold passwords), and the
-	# port 80 move state.
-	# /etc/asterisk and DVSwitch's own files are not touched.
-	rm -rf "$ROOT/var/lib/aslcp-config-history" "$ROOT/var/lib/aslcp-dvswitch" "$ROOT/var/lib/aslcp-dvswitch-history" "$ROOT/var/lib/aslcp-webport"
+	# digital modes install and bridge-node records, pending restored settings
+	# and the ini history of the previous stack (both hold passwords), and the
+	# port 80 move state. The directories of 1.x installs are removed too (the
+	# helper renames them on start; this covers a node purged before that).
+	# /etc/asterisk and the previous stack's own files are not touched.
+	rm -rf "$ROOT/var/lib/aslcp-config-history" "$ROOT/var/lib/aslcp-dvstate" "$ROOT/var/lib/aslcp-dvstate-history" "$ROOT"/var/lib/aslcp-dvswitch* "$ROOT/var/lib/aslcp-webport"
 	# The hotspot setting (WiFi networks saved in NetworkManager stay).
 	rm -rf "$ROOT/var/lib/aslcp-wifi"
 	rmdir "$ROOT/etc/aslcp" 2>/dev/null || true
+	if getent passwd aslcp-dv >/dev/null 2>&1; then
+		deluser --system aslcp-dv >/dev/null 2>&1 || true
+	fi
+	if getent group aslcp-dv >/dev/null 2>&1; then
+		delgroup --system aslcp-dv >/dev/null 2>&1 || true
+	fi
 	if getent passwd aslcp >/dev/null 2>&1; then
 		deluser --system aslcp >/dev/null 2>&1 || true
 	fi

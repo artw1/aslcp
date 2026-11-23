@@ -34,6 +34,14 @@ test('main line leaves out what is unknown', () => {
   assert.equal(mainLine({ ...base, call: '', city: '', state: '', country: '', first: '', name: '' }), 'ID 1234567');
 });
 
+test('DMR source label shows the slot when known', () => {
+  assert.equal(sourceLabel({ ...base, slot: 1 }), 'DMR · TG 91 · TS1');
+  assert.equal(sourceLabel({ ...base, slot: 2 }), 'DMR · TG 91 · TS2');
+  assert.equal(sourceLabel({ ...base, slot: 0 }), 'DMR · TG 91');
+  assert.equal(sourceLabel({ ...base, slot: undefined }), 'DMR · TG 91');
+  assert.equal(sourceLabel({ ...base, kind: 'ysf', room: 'Example Room', slot: 2 }), 'YSF · Example Room');
+});
+
 test('source labels', () => {
   assert.equal(sourceLabel(base), 'DMR · TG 91');
   assert.equal(sourceLabel({ ...base, tgName: '' }), 'DMR · TG 91');
@@ -52,12 +60,12 @@ test('source detail for the sheet', () => {
   assert.equal(sourceDetail({ id: 'n', kind: 'allstar', start: base.start, active: true }), 'AllStar');
   assert.equal(
     sourceDetail({ ...base, network: 'Example net', tgName: 'Example hub', slot: 2 }),
-    'DVSwitch · Example net · TG 91 Example hub · slot 2',
+    'Digital modes · Example net · TG 91 Example hub · slot 2',
   );
-  assert.equal(sourceDetail({ ...base, network: '', tgName: '', slot: undefined }), 'DVSwitch · DMR · TG 91');
-  assert.equal(sourceDetail({ ...base, private: true, slot: 1 }), 'DVSwitch · DMR · private call · slot 1');
-  assert.equal(sourceDetail({ ...base, kind: 'ysf', room: 'Example Room' }), 'DVSwitch · YSF · room Example Room');
-  assert.equal(sourceDetail({ ...base, kind: 'ysf', room: '' }), 'DVSwitch · YSF');
+  assert.equal(sourceDetail({ ...base, network: '', tgName: '', slot: undefined }), 'Digital modes · DMR · TG 91');
+  assert.equal(sourceDetail({ ...base, private: true, slot: 1 }), 'Digital modes · DMR · private call · slot 1');
+  assert.equal(sourceDetail({ ...base, kind: 'ysf', room: 'Example Room' }), 'Digital modes · YSF · room Example Room');
+  assert.equal(sourceDetail({ ...base, kind: 'ysf', room: '' }), 'Digital modes · YSF');
 });
 
 test('links', () => {

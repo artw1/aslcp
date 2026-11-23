@@ -292,7 +292,7 @@ func knownOp(op string) bool {
 		return true
 	}
 	switch op {
-	case OpUpdateStatus, OpUpdateCheck, OpUpdateApply, OpOSCheck, OpOSStatus, OpOSApply, OpReboot, OpAslcpRestart, OpDVSwitchStatus, OpDVSwitchJob, OpDVSwitchInstall, OpDVSwitchUninstall, OpDVSwitchRestoreDiscard, OpDVSwitchSetup, OpDVSwitchInfo, OpDVSwitchDMRStatus, OpDVSwitchIdentity, OpDVSwitchCredentials, OpDVSwitchModes, OpDVSwitchBootMode, OpDVSwitchRollback, OpDVSwitchRestart, OpDVSwitchLists, OpDVSwitchTune, OpDVSwitchUSRP, OpDVSwitchPrivate, OpDVSwitchBM, OpDVSwitchNetwork, OpDVSwitchSTFUInstall, OpFirewallStatus, OpFirewallOpen, OpChannelStable, OpChannelBeta, OpAsteriskRestart, OpConfigList, OpConfigRead, OpConfigApply, OpConfigLog, OpConfigShow, OpConfigRestore, OpConfigRecord, OpBackupInfo, OpBackupCreate, OpBackupRestore:
+	case OpUpdateStatus, OpUpdateCheck, OpUpdateApply, OpOSCheck, OpOSStatus, OpOSApply, OpReboot, OpAslcpRestart, OpDVStatus, OpDVJob, OpDVEnable, OpDVDisable, OpDVPrivate, OpDVNetwork, OpDVConfig, OpDVRestart, OpFirewallStatus, OpFirewallOpen, OpChannelStable, OpChannelBeta, OpAsteriskRestart, OpConfigList, OpConfigRead, OpConfigApply, OpConfigLog, OpConfigShow, OpConfigRestore, OpConfigRecord, OpBackupInfo, OpBackupCreate, OpBackupRestore:
 		return true
 	}
 	return false

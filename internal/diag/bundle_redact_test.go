@@ -23,7 +23,7 @@ func TestRedactConfLine(t *testing.T) {
 		{"upper case key", "Password=example-pass", "Password=<redacted>", false, Counts{Secrets: 1}},
 		{"md5secret", "md5secret=0123456789abcdef", "md5secret=<redacted>", false, Counts{Secrets: 1}},
 		{"pwd (echolink)", "pwd=example-pass", "pwd=<redacted>", false, Counts{Secrets: 1}},
-		{"pass (DVSwitch)", "Pass=example-pass", "Pass=<redacted>", false, Counts{Secrets: 1}},
+		{"pass (old stack)", "Pass=example-pass", "Pass=<redacted>", false, Counts{Secrets: 1}},
 		{"psk", "psk=example-pass", "psk=<redacted>", false, Counts{Secrets: 1}},
 		{"wpa-psk", "wpa-psk example-pass", "wpa-psk example-pass", false, Counts{}}, // no "=": handled by the text rules
 		{"wep key", "wep-key0=abcdef1234", "wep-key0=<redacted>", false, Counts{Secrets: 1}},

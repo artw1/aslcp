@@ -30,7 +30,7 @@ type Options struct {
 	// OnClients is called with the number of connected SSE clients whenever
 	// it changes (the monitor polls fast while anyone watches).
 	OnClients func(n int)
-	// Bridge returns the private DVSwitch bridge node and its display name,
+	// Bridge returns the private digital modes bridge node and its display name,
 	// or "" when there is none. Optional.
 	Bridge func() (node, name string)
 	Now    func() time.Time

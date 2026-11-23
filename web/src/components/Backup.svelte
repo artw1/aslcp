@@ -6,15 +6,15 @@
   import Download from '@lucide/svelte/icons/download';
 
   // Backup
-  let binfo = $state<BackupInfo | null>(null), bsel = $state({ history: true, allmon3: true, sounds: true, dvswitch: false }), bbusy = $state(false), restoring = $state(false);
+  let binfo = $state<BackupInfo | null>(null), bsel = $state({ history: true, allmon3: true, sounds: true, dv: false }), bbusy = $state(false), restoring = $state(false);
   const sizeText = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
-  const PART_LABEL = { history: 'Config history', allmon3: 'Allmon3 configuration', sounds: 'Custom sounds', dvswitch: 'DVSwitch configuration (ini files and macro, with its passwords)' } as const;
-  async function loadBackup() { try { binfo = await api.backupInfo(); bsel.dvswitch = !!binfo.parts.find((p) => p.id === 'dvswitch')?.present; } catch (e) { toastError(e); } }
+  const PART_LABEL = { history: 'Config history', allmon3: 'Allmon3 configuration', sounds: 'Custom sounds', dv: 'Digital modes configuration (engine settings, with its passwords)' } as const;
+  async function loadBackup() { try { binfo = await api.backupInfo(); bsel.dv = !!binfo.parts.find((p) => p.id === 'dv')?.present; } catch (e) { toastError(e); } }
   async function downloadBackup() {
     bbusy = true;
     try {
-      const on = (id: 'history' | 'allmon3' | 'sounds' | 'dvswitch') => !!binfo?.parts.find((p) => p.id === id)?.present && bsel[id];
-      const name = await api.backup({ history: on('history'), allmon3: on('allmon3'), sounds: on('sounds'), dvswitch: on('dvswitch') });
+      const on = (id: 'history' | 'allmon3' | 'sounds' | 'dv') => !!binfo?.parts.find((p) => p.id === id)?.present && bsel[id];
+      const name = await api.backup({ history: on('history'), allmon3: on('allmon3'), sounds: on('sounds'), dv: on('dv') });
       toast(`Saved ${name}. Store it like a password.`, 'info');
     } catch (e) { toastError(e); } finally { bbusy = false; }
   }
@@ -38,7 +38,7 @@
         {/if}
       {/if}
       <div class="rounded border border-warn bg-warn/10 p-3 text-sm" role="note">
-        <strong class="text-warn">The backup file is NOT encrypted.</strong> It contains every secret of this node: node passwords, IAX and AMI secrets, the EchoLink password and the ASLCP password hashes{#if binfo?.parts.find((p) => p.id === 'dvswitch')?.present && bsel.dvswitch}, and the DVSwitch password for the DMR master (in MMDVM_Bridge.ini){/if}. Store it like a password and never share it.
+        <strong class="text-warn">The backup file is NOT encrypted.</strong> It contains every secret of this node: node passwords, IAX and AMI secrets, the EchoLink password and the ASLCP password hashes{#if binfo?.parts.find((p) => p.id === 'dv')?.present && bsel.dv}, and the digital modes password for the DMR master{/if}. Store it like a password and never share it.
       </div>
       <div class="flex flex-wrap gap-2">
         <button class="btn btn-primary" disabled={bbusy || !binfo} onclick={downloadBackup}><Download size={14} class={bbusy ? 'animate-pulse' : ''} />{bbusy ? 'Preparing…' : 'Download backup'}</button>

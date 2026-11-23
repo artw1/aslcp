@@ -31,6 +31,25 @@ configure_user() {
 	install -d -m 0750 -o aslcp -g aslcp "$DATADIR"
 }
 
+# The digital voice engine runs as its own user, so it never gets access to
+# /var/lib/aslcp. The aslcp user joins its group to reach the control socket
+# (mode 0660, /run/aslcp-dv/ctl.sock).
+configure_dv_user() {
+	if ! getent passwd aslcp-dv >/dev/null 2>&1; then
+		if getent group aslcp-dv >/dev/null 2>&1; then
+			adduser --system --ingroup aslcp-dv --home /var/lib/aslcp-dv --no-create-home \
+				--gecos "ASLCP digital voice engine" --shell /usr/sbin/nologin aslcp-dv
+		else
+			adduser --system --group --home /var/lib/aslcp-dv --no-create-home \
+				--gecos "ASLCP digital voice engine" --shell /usr/sbin/nologin aslcp-dv
+		fi
+	fi
+	if ! id -nG aslcp | tr ' ' '\n' | grep -qx aslcp-dv; then
+		adduser aslcp aslcp-dv >/dev/null
+		GROUP_CHANGED=1
+	fi
+}
+
 configure_asterisk_access() {
 	getent group asterisk >/dev/null 2>&1 || return 0
 	if ! id -nG aslcp | tr ' ' '\n' | grep -qx asterisk; then
@@ -76,9 +95,32 @@ prepare_services() {
 	if systemctl is-enabled aslcp-wifi-watchdog.timer >/dev/null 2>&1; then
 		systemctl restart aslcp-wifi-watchdog.timer >/dev/null 2>&1 || true
 	fi
+	# The engine is never enabled here (the web UI does that); a node that
+	# enabled it runs the new binary after an upgrade.
+	if systemctl is-enabled aslcp-dv.service >/dev/null 2>&1; then
+		systemctl restart aslcp-dv.service >/dev/null 2>&1 || echo "aslcp: warning: could not restart aslcp-dv.service (see: journalctl -u aslcp-dv)"
+	fi
 	# Restart (not just start) so an upgrade runs the new helper binary.
 	systemctl stop aslcp-helper.service >/dev/null 2>&1 || true
 	systemctl restart aslcp-helper.socket || echo "aslcp: warning: could not start aslcp-helper.socket"
+}
+
+# Upgrade from 1.x: remove the previous digital voice stack that ASLCP
+# installed (its units, packages, apt source and keyring; md380-emu stays).
+# apt cannot run inside postinst (dpkg holds its lock), so a transient unit
+# does it once this upgrade has finished. It removes nothing ASLCP did not
+# install, is repeated by "aslcp dv enable" if it fails, and its log is in:
+#   journalctl -u aslcp-dv-purge
+purge_previous_stack() {
+	have_systemd || return 0
+	[ -n "$1" ] || return 0
+	dpkg --compare-versions "$1" lt 2.0.0 || return 0
+	[ -x /usr/libexec/aslcp/aslcp-helper ] || return 0
+	systemctl reset-failed aslcp-dv-purge.service >/dev/null 2>&1 || true
+	systemd-run --no-block --unit=aslcp-dv-purge --collect --property=Type=oneshot \
+		--setenv=DEBIAN_FRONTEND=noninteractive --setenv=APT_LISTCHANGES_FRONTEND=none --setenv=LC_ALL=C \
+		/usr/libexec/aslcp/aslcp-helper dv-step purge-legacy >/dev/null 2>&1 ||
+		echo "aslcp: note: could not start the removal of the previous digital voice stack; run: sudo aslcp dv enable"
 }
 
 # The LAST step: the web interface is down only for the restart itself.
@@ -195,11 +237,13 @@ configure)
 	[ -n "$2" ] || FIRST_INSTALL=1
 	migrate_urls
 	configure_user
+	configure_dv_user
 	configure_asterisk_access
 	prepare_services
+	purge_previous_stack "$2"
 	configure_firewalld
 	restart_app
-	# install.sh prints the setup link itself once everything (port, DVSwitch)
+	# install.sh prints the setup link itself once everything (port, digital modes)
 	# is done, so it sets ASLCP_INSTALLER=1 to keep this one from showing early.
 	if [ -z "$2" ] && [ -z "${ASLCP_INSTALLER:-}" ]; then
 		first_install_message

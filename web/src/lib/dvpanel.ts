@@ -1,6 +1,8 @@
-// Pure logic of the dashboard DVSwitch card (docs/DVSWITCH.md "Dashboard card"): the state line,
+// Pure logic of the dashboard digital modes card (docs/DV.md "Dashboard card"): the state line,
 // favourite and tune validation (the same rules as the server), and the pending/confirm logic.
+import { ECHO_RUNNING } from './dvecho.ts';
 import { isDVNetwork, networkLabel } from './dvnetworks.ts';
+import { slotLabel } from './nowcalling.ts';
 import type { DVBridge, DVCaller, DVFavorite, DVSnapshot, DVTuneMode, NodeStatus } from './types';
 
 export { PANEL_MODES } from './dvnetworks.ts';
@@ -10,17 +12,45 @@ export const isDMRFamily = (mode: string): boolean => isDVNetwork(mode);
 export const modeLabel = (mode: string): string => networkLabel(mode);
 /** The name of a panel mode button: the snapshot's label when it has one, else modeLabel. */
 export const modeButtonLabel = (m: { id: string; label?: string }): string => m.label || modeLabel(m.id);
+/** The mode buttons of the dashboard card: the echo test has none (it starts in Digital modes setup), and a disabled DMR network has none. */
+export const dashboardModes = <M extends { id: string; enabled: boolean }>(modes: M[]): M[] => modes.filter((m) => m.id !== 'LOOP' && (!isDMRFamily(m.id) || m.enabled));
 /** How long a mode switch may stay unconfirmed before the card says so. */
 export const CONFIRM_MS = 5000;
 export const FAV_NAME_MAX = 40;
 export const FAV_PER_MODE = 50;
 
-/** "Mode YSF, tuned to Example room (192.0.2.10:42000)", "Mode DMR, tuned to 91", "Mode P25", or "Mode unknown". */
-export function stateLine(b: Pick<DVBridge, 'mode' | 'tune' | 'targetName' | 'source'> | null | undefined): string {
+/** True when a YSF, P25 or NXDN reflector is tuned and sends nothing back (the engine's `silent` flag of that mode). Nothing tuned never counts. */
+export function reflectorSilent(s: Pick<DVSnapshot, 'bridge' | 'modes'> | null | undefined): boolean {
+  const b = s?.bridge;
+  if (!s || !b || b.source === 'none' || !b.mode || !b.tune) return false;
+  return !!s.modes?.some((m) => m.id === b.mode && m.silent);
+}
+
+/** "Mode YSF, tuned to Example room (192.0.2.10:42000)", "Mode DMR, tuned to 91", "Mode P25", or "Mode unknown"; "..., Reflector not answering" when `silent` (see reflectorSilent). */
+export function stateLine(b: Pick<DVBridge, 'mode' | 'tune' | 'targetName' | 'source'> | null | undefined, silent = false): string {
   if (!b || b.source === 'none' || !b.mode) return 'Mode unknown';
+  if (b.mode === 'LOOP') return ECHO_RUNNING;
   const m = modeLabel(b.mode);
   if (!b.tune) return `Mode ${m}`;
-  return b.targetName ? `Mode ${m}, tuned to ${b.targetName} (${b.tune})` : `Mode ${m}, tuned to ${b.tune}`;
+  const line = b.targetName ? `Mode ${m}, tuned to ${b.targetName} (${b.tune})` : `Mode ${m}, tuned to ${b.tune}`;
+  return silent ? `${line}, Reflector not answering` : line;
+}
+
+/** Longest master name the dashboard shows; the title holds the whole name. */
+export const MASTER_MAX = 40;
+
+/**
+ * The master line of the Digital modes card: "Logged in to <master>" when the engine's login is ok, else "Master <master>".
+ * Only BrandMeister and DMR - Other have one (the server sends `master` for those two); '' for any other mode or no name.
+ * A long name is cut to MASTER_MAX characters with an ellipsis.
+ */
+export function masterLine(s: Pick<DVSnapshot, 'modes'> | null | undefined, mode: string): string {
+  if (mode !== 'BM' && mode !== 'DMR') return '';
+  const m = s?.modes?.find((x) => x.id === mode);
+  const name = (m?.master ?? '').trim();
+  if (!name) return '';
+  const short = name.length > MASTER_MAX ? `${name.slice(0, MASTER_MAX - 1)}…` : name;
+  return m?.login === 'ok' ? `Logged in to ${short}` : `Master ${short}`;
 }
 
 /** The unit dots: a unit that is down, or no snapshot of the bridge at all, is amber. */
@@ -31,9 +61,10 @@ export function serviceDots(s: DVSnapshot | null | undefined): { unit: string; o
 }
 export const allOk = (s: DVSnapshot | null | undefined): boolean => !!s && s.bridge.source !== 'none' && serviceDots(s).every((d) => d.ok);
 
-/** Colour of the state line: warn when a service is down or the state is unknown, ok when all is well and a target is tuned, else neutral. */
+/** Colour of the state line: warn when a service is down, the state is unknown or the reflector does not answer, ok when all is well and a target is tuned, else neutral. */
 export function stateTone(s: DVSnapshot | null | undefined): 'ok' | 'warn' | '' {
   if (!s || !allOk(s) || !s.bridge.mode) return 'warn';
+  if (reflectorSilent(s)) return 'warn';
   return s.bridge.tune ? 'ok' : '';
 }
 
@@ -43,6 +74,7 @@ export function stateTitle(s: DVSnapshot | null | undefined): string {
   const down = serviceDots(s).filter((d) => !d.ok).map((d) => `${d.unit}: not running`);
   if (down.length) return down.join(', ');
   if (s.bridge.source === 'none' || !s.bridge.mode) return 'The bridge state is unknown';
+  if (reflectorSilent(s)) return 'The reflector has sent nothing back for a while';
   return s.services.length ? 'All services running' : 'No service state';
 }
 
@@ -124,7 +156,7 @@ export function shownMode(p: Pending | null, outcome: Outcome, bridgeMode: strin
 export const controlsLocked = (busy: boolean, outcome: Outcome): boolean => busy || outcome === 'waiting';
 
 /** The label of the bridge node when the operator set no name (the same default as the server). */
-export const DEFAULT_NODE_NAME = 'DVSwitch linked node';
+export const DEFAULT_NODE_NAME = 'Digital modes linked node';
 export const NODE_NAME_MAX = 40;
 
 /** The display name of the bridge node: the saved one, else the default. */
@@ -176,7 +208,7 @@ export function callerLabel(c: DVCaller): string {
 
 /** "N0CALL" or "N0CALL (1234567)" for the Last heard list, with the target ("TG 91") and the log time. */
 export function heardLine(c: DVCaller): string {
-  return [callerLabel(c), c.dst ? `TG ${c.dst}` : '', c.at ? c.at.slice(11, 19) : ''].filter(Boolean).join(' · ');
+  return [callerLabel(c), c.dst ? `TG ${c.dst}` : '', slotLabel(c.slot), c.at ? c.at.slice(11, 19) : ''].filter(Boolean).join(' · ');
 }
 
 /** The Frequency field in MHz as Hz (an integer), or null when it is not a number in the 30 to 3000 MHz range the server accepts. Hz input (30000000 to 3000000000) is taken as it is. */
@@ -201,3 +233,18 @@ export function validCoord(v: string, max: number): boolean {
 export const validInfoText = (v: string, max: number): boolean => v.length >= 1 && v.length <= max && /^[A-Za-z0-9][\x20-\x7e]*$/.test(v) && v === v.trimEnd() && !/[;#="]/.test(v);
 /** [Info] URL: empty, or http(s) with no space, quote, ; or #, at most 124 characters. */
 export const validInfoUrl = (v: string): boolean => v === '' || (v.length <= 124 && /^https?:\/\/[A-Za-z0-9._~:/?&=%+-]{1,116}$/.test(v));
+
+/** How long a DMR - Other talkgroup may stay quiet before the card suggests a retune (DMR+ masters drop an idle key-up talkgroup after about 15 minutes). */
+export const QUIET_MS = 15 * 60 * 1000;
+/** How often the card re-checks quietHint (no server frame is needed). */
+export const QUIET_TICK_MS = 30_000;
+export const QUIET_TEXT = 'No traffic for 15 min, the master may have dropped this talkgroup';
+
+/** The retune hint of DMR - Other: the tune to resend when that mode is active, a (non-private) talkgroup is tuned and the snapshot's quietSince is 15 minutes old at `nowMs`; else null. */
+export function quietHint(s: Pick<DVSnapshot, 'bridge' | 'modes'> | null | undefined, nowMs: number): { text: string; tune: string } | null {
+  const b = s?.bridge;
+  if (!s || !b || b.source === 'none' || b.mode !== 'DMR' || !b.tune || b.private) return null;
+  const since = Date.parse(s.modes?.find((m) => m.id === 'DMR')?.quietSince ?? '');
+  if (!Number.isFinite(since) || nowMs - since < QUIET_MS) return null;
+  return { text: QUIET_TEXT, tune: b.tune };
+}

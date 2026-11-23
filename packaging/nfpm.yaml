@@ -35,6 +35,10 @@ contents:
     dst: /usr/libexec/aslcp/aslcp-helper
     file_info:
       mode: 0755
+  - src: "@BUILD_DIR@/aslcp-dv"
+    dst: /usr/libexec/aslcp/aslcp-dv
+    file_info:
+      mode: 0755
   - src: packaging/aslcp.conf
     dst: /etc/aslcp/aslcp.conf
     type: config|noreplace
@@ -50,6 +54,10 @@ contents:
       mode: 0644
   - src: packaging/systemd/aslcp-helper.service
     dst: /lib/systemd/system/aslcp-helper.service
+    file_info:
+      mode: 0644
+  - src: packaging/systemd/aslcp-dv.service
+    dst: /lib/systemd/system/aslcp-dv.service
     file_info:
       mode: 0644
   - src: packaging/systemd/aslcp-wifi-watchdog.service

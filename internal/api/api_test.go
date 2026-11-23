@@ -25,8 +25,9 @@ import (
 	"github.com/artw1/aslcp/internal/config"
 	"github.com/artw1/aslcp/internal/configsvc"
 	"github.com/artw1/aslcp/internal/diag"
-	"github.com/artw1/aslcp/internal/dvswitch"
+	"github.com/artw1/aslcp/internal/dvpanel"
 	"github.com/artw1/aslcp/internal/favstats"
+	"github.com/artw1/aslcp/internal/hostlists"
 	"github.com/artw1/aslcp/internal/nodelist"
 	"github.com/artw1/aslcp/internal/rpt"
 	"github.com/artw1/aslcp/internal/schedules"
@@ -166,20 +167,22 @@ type opts struct {
 	updatesFn func(st *store.Store) *updates.Manager
 	power     api.Power
 	sysHost   api.SystemHost
-	dvswitch  api.DVSwitch
+	dvengine  api.DVEngine
+	dvctl     api.DVCtl
+	hostlists *hostlists.Manager
 	dvresume  api.DVResume
-	// dvInstalled and dvNode feed the DVSwitch snapshot; without dvInstalled
-	// the node has no DVSwitch and the snapshot never calls the fake.
-	dvInstalled func() bool
-	dvNode      func(context.Context) (string, bool)
-	config      *configsvc.Service
-	configFn    func(rpt.API) *configsvc.Service
-	log         *diag.Ring
-	cfg         func(secret string) config.Config
-	backupFn    func(st *store.Store) *backupsvc.Service
-	restart     func()
-	tuning      func() *susb.Service
-	favstats    *favstats.Service
+	// dvEnabled and dvNode feed the digital modes snapshot; without dvEnabled
+	// the node has them off and the snapshot never calls the fakes.
+	dvEnabled func() bool
+	dvNode    func(context.Context) (string, bool)
+	config    *configsvc.Service
+	configFn  func(rpt.API) *configsvc.Service
+	log       *diag.Ring
+	cfg       func(secret string) config.Config
+	backupFn  func(st *store.Store) *backupsvc.Service
+	restart   func()
+	tuning    func() *susb.Service
+	favstats  *favstats.Service
 	// schedules builds a schedule engine on a fake clock (env.clk), in New
 	// York time; the clock starts on Tuesday 2026-11-17 18:59:50.
 	schedules bool
@@ -235,11 +238,11 @@ func newEnv(t *testing.T, o opts) *env {
 	}
 	deps.Power = o.power
 	deps.SysHost = o.sysHost
-	deps.DVSwitch = o.dvswitch
+	deps.DVEngine, deps.DVCtl, deps.HostLists = o.dvengine, o.dvctl, o.hostlists
 	deps.DVResume = o.dvresume
-	deps.DVInstalled, deps.DVBridgeNode = o.dvInstalled, o.dvNode
-	if deps.DVInstalled == nil {
-		deps.DVInstalled = func() bool { return false }
+	deps.DVEnabled, deps.DVBridgeNode = o.dvEnabled, o.dvNode
+	if deps.DVEnabled == nil {
+		deps.DVEnabled = func() bool { return false }
 	}
 	if o.backupFn != nil {
 		deps.Backup = o.backupFn(st)
@@ -261,7 +264,7 @@ func newEnv(t *testing.T, o opts) *env {
 		deps.Schedules = eng
 	}
 	if o.dvlink {
-		deps.DVLink = &dvswitch.LinkReconciler{Tick: 100 * time.Millisecond, Retry: 150 * time.Millisecond}
+		deps.DVLink = &dvpanel.LinkReconciler{Tick: 100 * time.Millisecond, Retry: 150 * time.Millisecond}
 	}
 	if o.cfg != nil {
 		deps.Config = o.cfg(fake.Secret)

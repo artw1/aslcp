@@ -27,6 +27,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/artw1/aslcp/internal/debver"
+	"github.com/artw1/aslcp/internal/legacy"
 )
 
 // Format limits.
@@ -72,44 +73,79 @@ const (
 	PathSoundsUsr   = "sounds/usr-share"
 )
 
-// PathDVSwitchOpt is the archive prefix of the DVSwitch part: the file
-// /opt/<rel> is stored as dvswitch/opt/<rel>.
-const PathDVSwitchOpt = "dvswitch/opt"
+// PathDVOpt is the archive prefix of the digital modes part: the file
+// /opt/<rel> of the previous stack is stored as dv/opt/<rel>.
+const PathDVOpt = "dv/opt"
 
-// DVSwitchFiles lists the only files of the DVSwitch part, relative to /opt:
-// the allowlisted ini files and the macro file. Each is a single-file entry
-// of the layout, so no other path below dvswitch/ is valid.
-var DVSwitchFiles = []string{
+// DVFiles lists the files below /opt that archives made by 1.x carry for the
+// digital modes part: the ini files and the macro file of the previous stack.
+// New archives do not contain them and restore ignores them; they stay in the
+// layout so that a 1.x archive still validates. Each is a single-file entry of
+// the layout, so no other path below dv/ is valid.
+var DVFiles = []string{
 	"Analog_Bridge/Analog_Bridge.ini",
 	"Analog_Bridge/dvsm.macro",
 	"MMDVM_Bridge/MMDVM_Bridge.ini",
-	"MMDVM_Bridge/DVSwitch.ini",
+	legacy.IniMainRel,
 	"YSFGateway/YSFGateway.ini",
 	"P25Gateway/P25Gateway.ini",
 	"NXDNGateway/NXDNGateway.ini",
 }
 
-// DVSwitchPath returns the archive path of a DVSwitch part file.
-func DVSwitchPath(rel string) string { return PathDVSwitchOpt + "/" + rel }
+// DVPath returns the archive path of a digital modes part file.
+func DVPath(rel string) string { return PathDVOpt + "/" + rel }
 
-// PathDVSwitchPrivate is the archive path of the record of the private bridge
-// node (privatenode.json of the helper's DVSwitch state directory, not a file
-// of /opt). It is the DVSwitch part's one file outside dvswitch/opt, optional
-// (older backups lack it), and on restore it is kept only when the restored
-// rpt.conf has the node's stanza.
-const PathDVSwitchPrivate = "dvswitch/state/privatenode.json"
+// PathDVPrivate is the archive path of the record of the private bridge
+// node (privatenode.json of the helper's state directory, not a file of
+// /opt). It is the part's one file outside dv/opt, optional (older backups
+// lack it), and on restore it is kept only when the restored rpt.conf has
+// the node's stanza.
+const PathDVPrivate = "dv/state/privatenode.json"
 
-// PathDVSwitchNetworks is the archive path of the DMR network settings
-// (networks.json of the helper's DVSwitch state directory): each DMR network
-// mode's settings, password included, and enabled state, and the BM stay
-// setting. Optional (older backups lack it).
-const PathDVSwitchNetworks = "dvswitch/state/networks.json"
+// PathDVNetworks is the archive path of the DMR network settings
+// (networks.json of the helper's state directory): each DMR network mode's
+// settings, password included, and enabled state, and the BM stay setting.
+// Optional (older backups lack it).
+const PathDVNetworks = "dv/state/networks.json"
+
+// Backups made by 1.x store the same part under the previous stack's part id.
+// They stay restorable: the old paths are valid in the layout and the finders
+// below try the new path first, then the old one.
+var (
+	legacyPathDVOpt      = legacy.OldBackupPart + "/opt"
+	legacyPathDVPrivate  = legacy.OldBackupPart + "/state/privatenode.json"
+	legacyPathDVNetworks = legacy.OldBackupPart + "/state/networks.json"
+)
+
+// FindDV returns the entry of the part file rel (relative to /opt), under the
+// current or the 1.x archive path, or nil.
+func (m *Manifest) FindDV(rel string) *Entry {
+	if e := m.Find(DVPath(rel)); e != nil {
+		return e
+	}
+	return m.Find(legacyPathDVOpt + "/" + rel)
+}
+
+// FindDVPrivate returns the bridge node record entry, or nil.
+func (m *Manifest) FindDVPrivate() *Entry { return m.findEither(PathDVPrivate, legacyPathDVPrivate) }
+
+// FindDVNetworks returns the DMR network settings entry, or nil.
+func (m *Manifest) FindDVNetworks() *Entry {
+	return m.findEither(PathDVNetworks, legacyPathDVNetworks)
+}
+
+func (m *Manifest) findEither(a, b string) *Entry {
+	if e := m.Find(a); e != nil {
+		return e
+	}
+	return m.Find(b)
+}
 
 var treeRoots = []string{PathAsteriskEtc, PathHistory, PathAllmon3, PathSoundsVar, PathSoundsUsr}
 var singleFiles = func() []string {
-	f := []string{PathAstDB, PathAslcpDB, PathAslcpConf, PathSA818, PathDVSwitchPrivate, PathDVSwitchNetworks}
-	for _, r := range DVSwitchFiles {
-		f = append(f, DVSwitchPath(r))
+	f := []string{PathAstDB, PathAslcpDB, PathAslcpConf, PathSA818, PathDVPrivate, PathDVNetworks, legacyPathDVPrivate, legacyPathDVNetworks}
+	for _, r := range DVFiles {
+		f = append(f, DVPath(r), legacyPathDVOpt+"/"+r)
 	}
 	return f
 }()
@@ -154,14 +190,38 @@ type Parts struct {
 	Allmon3 bool `json:"allmon3"`
 	SA818   bool `json:"sa818"`
 	AstDB   bool `json:"astdb"`
-	// DVSwitch is true when the archive holds files under dvswitch/ (the ini
-	// files of dvswitch/opt, and the bridge node record).
+	// DV is true when the archive holds files under dv/ (the old ini files
+	// of dv/opt, and the bridge node record). Archives of 1.x carry the flag
+	// and the files under the previous part id; UnmarshalJSON maps it.
 	// Added after format 1 shipped: older archives lack it (false) and stay
 	// valid; the format number did not change.
-	DVSwitch bool `json:"dvswitch,omitempty"`
+	DV bool `json:"dv,omitempty"`
 	// Sounds lists the archived custom sound directories ("var-lib",
 	// "usr-share"); one only when both are the same directory.
 	Sounds []string `json:"sounds"`
+}
+
+// UnmarshalJSON reads the part flags, accepting the 1.x key of the digital
+// modes flag.
+func (p *Parts) UnmarshalJSON(b []byte) error {
+	type plain Parts
+	var v plain
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	if o, ok := raw[legacy.OldBackupPart]; ok {
+		var old bool
+		if err := json.Unmarshal(o, &old); err != nil {
+			return err
+		}
+		v.DV = v.DV || old
+	}
+	*p = Parts(v)
+	return nil
 }
 
 // Manifest is manifest.json.

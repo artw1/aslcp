@@ -1,6 +1,6 @@
 # Configuration editing (2.0)
 
-Milestone 2 of `docs/DESIGN.md` (sections 4-6), built in slices on `main` and released as 2.0 betas.
+Configuration editing of `docs/DESIGN.md` (sections 4-6), released in 2.0.
 
 | Slice | Content |
 |---|---|

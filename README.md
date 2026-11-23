@@ -47,21 +47,21 @@ On a freshly flashed ASL3 card, wait for the first-boot setup and its reboot (20
 
 Prefer to do it by hand? See the manual steps on <https://artw1.github.io/aslcp/>.
 
-### DVSwitch at install
+### Digital modes at install
 
-To install DVSwitch as well, set `ASLCP_DVSWITCH=1` (`yes` and `true` work too; any other value is refused):
+To enable digital modes as well, set `ASLCP_DV=1` (`yes` and `true` work too; any other value is refused):
 
 ```sh
-curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DVSWITCH=1 sh
+curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DV=1 sh
 ```
 
 It combines with `ASLCP_PORT`:
 
 ```sh
-curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DVSWITCH=1 ASLCP_PORT=8181 sh
+curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DV=1 ASLCP_PORT=8181 sh
 ```
 
-Once ASLCP is running, the installer runs `aslcp dvswitch install`, the same install as the DVSwitch page, and shows its log. It takes a few minutes. If it fails, the installer warns and finishes anyway; retry with `sudo aslcp dvswitch install`. DVSwitch settings from a restored backup are applied at the end of that install.
+Once ASLCP is running, the installer runs `aslcp dv enable`, the same as enabling digital modes on the Digital modes page, and shows its log. It takes a few minutes. If it fails, the installer warns and finishes anyway; retry with `sudo aslcp dv enable`. Digital modes settings from a restored backup are applied at the end of that install.
 
 ### First login
 
@@ -113,6 +113,10 @@ Either of:
 - **System, Updates** in the web page (administrators): *Check now*, then *Update*. Links are not affected; the page reconnects by itself.
 - `sudo apt update && sudo apt upgrade`
 
+### Upgrading to 2.0
+
+**You have to redo the digital-modes configuration in 2.0.** The BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN settings and your identity (callsign and DMR ID) are not carried over, and nothing is imported from the previous stack. Enter them again on the Digital modes page. The previous digital voice stack is removed on upgrade, except md380-emu, which stays installed and working. Only what ASLCP installed is removed. See docs/DV.md.
+
 ## WiFi
 
 **System, WiFi** (administrators): scan, add a network (with or without a password), remove one, reorder the saved networks, connect now. If the node has no network for 3 minutes and no Ethernet cable, it opens an unprotected setup network called `ASLCP-<hostname>`; join it and open `http://10.42.0.1:<port>`. It switches off when a saved network connects. Use it only to set up WiFi, because others nearby can see what you type. Administrators can turn it off there. It needs NetworkManager and a WiFi device.
@@ -124,7 +128,7 @@ sudo apt remove aslcp     # keeps users and favorites in /var/lib/aslcp
 sudo apt purge aslcp      # also deletes them
 ```
 
-`apt purge` also deletes the config history (`/var/lib/aslcp-config-history`) and ASLCP's DVSwitch state (`/var/lib/aslcp-dvswitch`, `/var/lib/aslcp-dvswitch-history`). Your Asterisk config and DVSwitch itself stay; uninstall DVSwitch from its page first if you want it gone too.
+`apt purge` also deletes the config history (`/var/lib/aslcp-config-history`) and ASLCP's digital modes state (`/var/lib/aslcp-dvstate`, `/var/lib/aslcp-dvstate-history`). Your Asterisk config stays.
 
 ## Reporting bugs
 

@@ -3,10 +3,11 @@ package helper
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/artw1/aslcp/internal/astconf"
 	"github.com/artw1/aslcp/internal/backup"
@@ -15,20 +16,16 @@ import (
 // The record of the private bridge node in the backup (docs/BACKUP.md). It
 // decides whether ASLCP manages the node (renumber, remove, uninstall), and
 // the restored rpt.conf has the stanza again, so the record has to come with
-// it. It is not under /opt: the archive path is dvswitch/state/privatenode.json
+// it. It is not under /opt: the archive path is dv/state/privatenode.json
 // and the target is the helper's state directory. Nothing here logs the
 // record: only the node number goes into a step detail.
-
-// dvPrivateStaged is the name of the record inside a pending set (next to the
-// ini files, whose names always contain "__", and manifest.json).
-const dvPrivateStaged = dvPrivateFile
 
 // collectDVPrivate adds the record to c when there is a usable one. A symlink
 // or non-regular file, an oversized, unreadable or invalid record is skipped
 // and said so; no record is not an error. It reports whether it was added.
 func (o *Ops) collectDVPrivate(c *collector) (bool, error) {
 	p := o.dvPrivatePath()
-	rel := backup.PathDVSwitchPrivate
+	rel := backup.PathDVPrivate
 	fi, err := os.Lstat(p)
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
@@ -69,7 +66,7 @@ func (o *Ops) collectDVPrivate(c *collector) (bool, error) {
 // A record that cannot be used is dropped with the reason in note; it is never
 // an error, the rest of the restore does not depend on it.
 func (o *Ops) dvRestoredPrivate(sp *spool, m *backup.Manifest) (data []byte, node, note string) {
-	e := m.Find(backup.PathDVSwitchPrivate)
+	e := m.FindDVPrivate()
 	if e == nil {
 		return nil, "", ""
 	}
@@ -115,31 +112,24 @@ func (o *Ops) dvWritePrivate(data []byte) error {
 	return atomicWrite(filepath.Join(parent, dvPrivateFile), parent, data, 0, 0, 0o600)
 }
 
-// dvStagePrivate puts the record into a pending directory being built.
-func dvStagePrivate(dir string, data []byte) error {
-	return writeNew(filepath.Join(dir, dvPrivateStaged), data)
-}
-
-// dvApplyPendingPrivate writes the staged record of a pending set. The
-// restored rpt.conf is checked again: the node must still have its stanza.
-func (o *Ops) dvApplyPendingPrivate() (string, error) {
-	raw, err := dvReadNoFollow(filepath.Join(o.dvPendingDir(), dvPrivateStaged), dvPrivateMax)
+// dvReadNoFollow reads a regular file of at most max bytes without following
+// a symlink.
+func dvReadNoFollow(p string, max int) ([]byte, error) {
+	fd, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	rec, err := parseDVPrivate(raw)
-	if err != nil || !rec.valid() {
-		return "", errors.New("the saved bridge node record is not valid")
+	defer fd.Close()
+	fi, err := fd.Stat()
+	if err != nil || !fi.Mode().IsRegular() {
+		return nil, errors.New("not a regular file")
 	}
-	if !o.dvRestoredHasStanza(rec.Node) {
-		return "", fmt.Errorf("rpt.conf has no node %s any more", rec.Node)
-	}
-	out, err := json.MarshalIndent(rec, "", "  ")
+	data, err := io.ReadAll(io.LimitReader(fd, int64(max)+1))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if err := o.dvWritePrivate(append(out, '\n')); err != nil {
-		return "", err
+	if len(data) > max {
+		return nil, errors.New("too large")
 	}
-	return rec.Node, nil
+	return data, nil
 }

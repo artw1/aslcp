@@ -1,7 +1,7 @@
 // Package nowcalling works out who is talking right now (AllStar, DMR or
 // YSF) for the dashboard's "Now calling" strip, and keeps the last few
 // talkers. State is in memory on the server, so a page reload shows the same
-// thing; a restart of ASLCP starts with what the DVSwitch logs still hold.
+// thing; a restart of ASLCP starts with what the digital modes logs still hold.
 package nowcalling
 
 import (
@@ -23,14 +23,14 @@ const (
 	// MinDuration: shorter AllStar keyups are glitches, not recorded (the
 	// same limit as the activity recorder).
 	MinDuration = 500 * time.Millisecond
-	// noBridgeGrace is how long a DVSwitch call without an end line may wait
+	// noBridgeGrace is how long a digital modes call without an end line may wait
 	// for the bridge link to key (the log line can come first) before it is
 	// recorded as a finished call of unknown length.
 	noBridgeGrace = 6 * time.Second
-	// maxOpen is how long a DVSwitch call without an end line may stay
+	// maxOpen is how long a digital modes call without an end line may stay
 	// "talking" on the bridge link's keyed state alone.
 	maxOpen = 15 * time.Minute
-	// dvHangover is how long an open DVSwitch call without an end line is
+	// dvHangover is how long an open digital modes call without an end line is
 	// held open after the bridge link unkeys. A choppy YSF or DMR stream
 	// makes Analog_Bridge stop sending audio for a moment, ASL unkeys the
 	// link, and when audio resumes there is no new "Begin TX" line: without
@@ -105,6 +105,11 @@ func Select(active []Call) *Call {
 	return best
 }
 
+// ViaEngine is the source of every call the native engine (aslcp-dv)
+// reports. The engine sends an end event, so a call needs neither the bridge
+// link's keyed state nor a hangover.
+const ViaEngine = "aslcp-dv"
+
 // Keyed is one keyed adjacent AllStar link of a local node.
 type Keyed struct {
 	Node string
@@ -113,10 +118,12 @@ type Keyed struct {
 	Desc  string
 }
 
-// Talk is one DVSwitch call as the helper read it from the logs.
+// Talk is one digital modes call as the helper read it from the logs.
 type Talk struct {
-	Kind    string // KindDMR or KindYSF (anything else is shown as DMR)
-	Via     string // "stfu" or "analog_bridge"
+	Kind string // KindDMR or KindYSF (anything else is shown as DMR)
+	Via  string // ViaEngine (the previous stack's log sources are gone)
+	// Network names the network of the call ("" shows DMR).
+	Network string
 	Call    string
 	DMRID   string
 	Dst     string
@@ -138,9 +145,9 @@ type Tracker struct {
 
 	mu      sync.Mutex
 	as      map[string]*Call // active AllStar calls by "local/node"
-	dv      *Call            // active DVSwitch call
+	dv      *Call            // active digital modes call
 	dvDown  time.Time        // when the bridge link first unkeyed under dv (zero: keyed)
-	dvDone  map[string]bool  // DVSwitch calls already finished
+	dvDone  map[string]bool  // digital modes calls already finished
 	talks   []Talk           // as the helper read them
 	eff     []Talk           // talks that count: started while the bridge was linked
 	bridge  map[string]bool  // local node -> bridge link keyed
@@ -160,8 +167,8 @@ func New() *Tracker {
 func (t *Tracker) now() time.Time { return t.Now() }
 
 // UpdateAllStar reports the keyed adjacent links of one local node, as the
-// monitor saw them (the DVSwitch bridge link and local monitor links are left
-// out by the caller). bridgeSeen says the node has a link to the DVSwitch
+// monitor saw them (the digital modes bridge link and local monitor links are left
+// out by the caller). bridgeSeen says the node has a link to the digital modes
 // bridge node and bridgeKeyed whether that link is keyed. stale: the state is
 // unknown, open calls are dropped without a record.
 func (t *Tracker) UpdateAllStar(local string, keyed []Keyed, bridgeSeen, bridgeKeyed, stale bool) {
@@ -210,7 +217,7 @@ func (t *Tracker) UpdateAllStar(local string, keyed []Keyed, bridgeSeen, bridgeK
 	t.emit(snap, changed)
 }
 
-// UpdateDV reports the DVSwitch calls of the logs, oldest first (the helper
+// UpdateDV reports the digital modes calls of the logs, oldest first (the helper
 // reads them on every poll of the bridge).
 func (t *Tracker) UpdateDV(talks []Talk) {
 	t.mu.Lock()
@@ -222,7 +229,7 @@ func (t *Tracker) UpdateDV(talks []Talk) {
 	t.emit(snap, changed)
 }
 
-// Tick re-evaluates time based rules (a DVSwitch call that has no end line
+// Tick re-evaluates time based rules (a digital modes call that has no end line
 // and no bridge link information ends after a few seconds). Call it about
 // once a second.
 func (t *Tracker) Tick() {
@@ -281,8 +288,8 @@ func talkID(k Talk) string {
 	return "dv:" + k.Start.UTC().Format("20060102150405.000") + ":" + k.DMRID + k.Call
 }
 
-// syncDV decides whether the newest DVSwitch call is talking (caller holds
-// mu). DVSwitch calls only count while the bridge node is linked to a local
+// syncDV decides whether the newest digital modes call is talking (caller holds
+// mu). digital modes calls only count while the bridge node is linked to a local
 // node: while unlinked nothing is current or recorded, and a call open when
 // the link drops ends at that moment like a finished call. Talks that started
 // before the link came up are ignored (the logs are re-read on every poll).
@@ -393,10 +400,10 @@ func (t *Tracker) talking(k Talk, now time.Time, bridgeKeyed bool) bool {
 	if !k.End.IsZero() || age > maxOpen {
 		return false
 	}
-	return bridgeKeyed || k.Via == "stfu" && age < bridgeLag
+	return bridgeKeyed || k.Via == ViaEngine || k.Via == "stfu" && age < bridgeLag
 }
 
-// endDV closes the open DVSwitch call when it is over.
+// endDV closes the open digital modes call when it is over.
 func (t *Tracker) endDV(now time.Time, bridgeKeyed bool) {
 	if t.dv == nil {
 		return
@@ -415,7 +422,7 @@ func (t *Tracker) endDV(now time.Time, bridgeKeyed bool) {
 	// is not: hold it open for dvHangover (it is still reported as talking,
 	// so the strip stays red) and end it at the moment the link unkeyed.
 	down := now
-	if k != nil && k.End.IsZero() && k.Via != "stfu" && !bridgeKeyed && now.Sub(k.Start) <= maxOpen {
+	if k != nil && k.End.IsZero() && k.Via != "stfu" && k.Via != ViaEngine && !bridgeKeyed && now.Sub(k.Start) <= maxOpen {
 		if t.dvDown.IsZero() {
 			t.dvDown = now
 		}
@@ -445,6 +452,9 @@ func (t *Tracker) newDV(k Talk) *Call {
 		c.Network = "DMR"
 		if k.Via == "stfu" {
 			c.Network = "BrandMeister"
+		}
+		if k.Network != "" {
+			c.Network = k.Network
 		}
 	} else {
 		c.TG, c.Slot, c.DMRID = "", 0, k.DMRID

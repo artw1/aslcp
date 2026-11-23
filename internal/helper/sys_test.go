@@ -211,7 +211,7 @@ func TestLogsRead(t *testing.T) {
 		{"asterisk", 0, "", "journalctl -u asterisk -n 200 --no-pager -o short-iso"},
 		{"aslcp", 5, "", "journalctl -u aslcp -n 50 --no-pager -o short-iso"},
 		{"NetworkManager", 99999, "1h", "journalctl -u NetworkManager -n 1000 --no-pager -o short-iso --since 1 hour ago"},
-		{"mmdvm_bridge", 300, "24h", "journalctl -u mmdvm_bridge -n 300 --no-pager -o short-iso --since 24 hours ago"},
+		{"aslcp-dv", 300, "24h", "journalctl -u aslcp-dv -n 300 --no-pager -o short-iso --since 24 hours ago"},
 		{"aslcp-helper", 100, "boot", "journalctl -u aslcp-helper -n 100 --no-pager -o short-iso -b"},
 	}
 	for _, c := range cases {
@@ -242,7 +242,7 @@ func TestCapTail(t *testing.T) {
 }
 
 func TestLogUnitsContainRequired(t *testing.T) {
-	for _, u := range []string{"asterisk", "aslcp", "aslcp-helper", "NetworkManager", "systemd-networkd", "mmdvm_bridge", "analog_bridge", "ysfgateway", "p25gateway", "nxdngateway"} {
+	for _, u := range []string{"asterisk", "aslcp", "aslcp-helper", "NetworkManager", "systemd-networkd", "aslcp-dv", "md380-emu", "aslcp-dv-enable"} {
 		if !ValidLogUnit(u) {
 			t.Errorf("%s missing", u)
 		}
@@ -267,7 +267,7 @@ func TestServicesStatusArgv(t *testing.T) {
 		t.Fatalf("%+v", res)
 	}
 	c := f.calls[0]
-	for _, w := range []string{"asterisk.service", "cockpit.socket", "apache2.service", "allmon3.service", "stfu.service", " -- "} {
+	for _, w := range []string{"asterisk.service", "cockpit.socket", "apache2.service", "allmon3.service", "aslcp-dv.service", "md380-emu.service", " -- "} {
 		if !strings.Contains(c, w) {
 			t.Errorf("%s missing from %s", w, c)
 		}

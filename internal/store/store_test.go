@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/artw1/aslcp/internal/legacy"
 	"github.com/artw1/aslcp/internal/schedules"
 )
 
@@ -375,5 +376,46 @@ func TestDVFavorites(t *testing.T) {
 	}
 	if _, err := st.AddDVFavorite("NXDN", "9000", "x"); !errors.Is(err, ErrLimit) {
 		t.Fatalf("limit: %v", err)
+	}
+}
+
+// A 1.x database holds the favourites table and the settings keys under the
+// previous stack's names; opening it moves them to the dv names.
+func TestMigrateOldDVNames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Turn the fresh database back into a 1.x one.
+	_, err = s.db.Exec(`ALTER TABLE dv_favorites RENAME TO ` + legacy.OldFavoritesTable + `;
+		DELETE FROM schema_version WHERE version>5;
+		INSERT INTO settings(k,v) VALUES ('` + legacy.OldSettingsPrefix + `node','1999'), ('` + legacy.OldSettingsPrefix + `resume','{"a":1}'), ('dv.resume','new'), ('other','x');
+		INSERT INTO ` + legacy.OldFavoritesTable + `(mode,value,name,sort,created) VALUES ('YSF','00001','Test',0,1)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if v, err := s.GetSetting("dv.node"); err != nil || v != "1999" {
+		t.Errorf("dv.node = %q, %v", v, err)
+	}
+	if v, _ := s.GetSetting("dv.resume"); v != "new" {
+		t.Errorf("existing dv.resume overwritten: %q", v)
+	}
+	if v, _ := s.GetSetting("other"); v != "x" {
+		t.Errorf("other = %q", v)
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM settings WHERE k LIKE ?`, legacy.OldSettingsPrefix+"%").Scan(&n); err != nil || n != 0 {
+		t.Errorf("old keys left: %d %v", n, err)
+	}
+	favs, err := s.ListDVFavorites()
+	if err != nil || len(favs) != 1 || favs[0].Name != "Test" {
+		t.Errorf("favourites %+v %v", favs, err)
 	}
 }

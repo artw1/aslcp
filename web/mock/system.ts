@@ -21,14 +21,14 @@ const DIAG_PLAN = {
     { name: 'report.txt', desc: 'ASLCP status report: versions, nodes and links, AMI state, updates, recent ASLCP log' },
     { name: 'versions.txt', desc: 'ASLCP, Asterisk, operating system, kernel, and package versions' },
     { name: 'system.txt', desc: 'Uptime and load, memory, disk use' },
-    { name: 'services.txt', desc: 'State of the Asterisk, ASLCP, network, DVSwitch and ASL3 services, and listening ports' },
+    { name: 'services.txt', desc: 'State of the Asterisk, ASLCP, network, digital modes and ASL3 services, and listening ports' },
     { name: 'network.txt', desc: 'Interfaces, addresses, default gateway, DNS servers (no WiFi passwords or saved networks)' },
     { name: 'journal/<unit>.txt', desc: 'Last 500 journal lines of each allowed unit' },
-    { name: 'config/', desc: 'Asterisk config files, aslcp.conf, Allmon3 and DVSwitch ini files, with secret values replaced by <redacted>' },
+    { name: 'config/', desc: 'Asterisk config files, aslcp.conf, Allmon3 and digital modes config files, with secret values replaced by <redacted>' },
     { name: 'audit.txt', desc: 'The last 200 audit log entries' },
   ],
   excluded: ['/etc/shadow and every other password file', 'Private keys and certificates', 'The ASLCP database and session tokens', 'Saved WiFi networks', 'The Allmon3 user list'],
-  redacted: ['Asterisk, AMI, IAX and registration passwords', 'EchoLink and DVSwitch passwords', 'ASLCP secrets', 'WiFi pre-shared keys', 'Your node callsigns and public IP addresses (when masking is on)'],
+  redacted: ['Asterisk, AMI, IAX and registration passwords', 'EchoLink and digital modes passwords', 'ASLCP secrets', 'WiFi pre-shared keys', 'Your node callsigns and public IP addresses (when masking is on)'],
 };
 const status = () => { const d = new Date(); return { ...host, now: d.toISOString(), clock: d.toString() }; };
 

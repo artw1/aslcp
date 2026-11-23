@@ -9,7 +9,7 @@ const SCRIPT: { at: number; len: number; c: MockCall }[] = [
 ];
 const CYCLE = 40;
 // The single shared timeline: the one link that is keyed right now, or null. The DMR and YSF talkers come in through
-// the DVSwitch bridge link (node 1900) and the AllStar talker is the hub link 1998, all on local node 2001.
+// the digital modes bridge link (node 1900) and the AllStar talker is the hub link 1998, all on local node 2001.
 export const BRIDGE_NODE = '1900';
 export function talkerLink(now = Date.now()): { local: string; node: string; len: number } | null {
   const c = (nowCalling(now).current as MockCall | null);
@@ -39,11 +39,11 @@ const view = () => ({ ...userList, busy: Date.now() < busyUntil });
 
 export function handleNowCalling(c: { m: string; p: string; body?: unknown; user?: { role: string }; json: (code: number, body?: unknown) => void; err: (code: number, msg: string, c: string) => void }): boolean {
   if (c.m === 'GET' && c.p === '/nowcalling') { if (!c.user) c.err(401, 'authentication required', 'unauthorized'); else c.json(200, nowCalling()); return true; }
-  if (!c.p.startsWith('/dvswitch/userlist')) return false;
+  if (!c.p.startsWith('/dv/userlist')) return false;
   if (c.user?.role !== 'admin') { c.err(c.user ? 403 : 401, 'insufficient permissions', c.user ? 'forbidden' : 'unauthorized'); return true; }
-  if (c.m === 'GET' && c.p === '/dvswitch/userlist') { c.json(200, view()); return true; }
-  if (c.m === 'PUT' && c.p === '/dvswitch/userlist') { userList.enabled = !!(c.body as { enabled?: boolean } | undefined)?.enabled; c.json(200, view()); return true; }
-  if (c.m === 'POST' && c.p === '/dvswitch/userlist/download') {
+  if (c.m === 'GET' && c.p === '/dv/userlist') { c.json(200, view()); return true; }
+  if (c.m === 'PUT' && c.p === '/dv/userlist') { userList.enabled = !!(c.body as { enabled?: boolean } | undefined)?.enabled; c.json(200, view()); return true; }
+  if (c.m === 'POST' && c.p === '/dv/userlist/download') {
     if (!userList.enabled) { c.err(409, 'the user list is off', 'userlist_off'); return true; }
     busyUntil = Date.now() + 3000;
     setTimeout(() => { userList.updated = userList.checked = iso(Date.now()); }, 3000);

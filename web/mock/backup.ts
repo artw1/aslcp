@@ -27,7 +27,7 @@ const preview = () => ({
   node: { asl3Version: '3.10.8-1.deb13', asteriskVersion: '22.10.1+asl3-3.10.8-1.deb13', arch: 'arm64', osId: 'debian', osCodename: 'trixie', osName: 'Debian GNU/Linux 13 (trixie)' },
   warnings: [
     { code: 'os_release', message: "This backup was made on Debian 12 (bookworm); this node runs Debian 13 (trixie). Files you edited will replace the new release's defaults; the new defaults are kept next to them as .dpkg-dist. ASL3 changes some configs between releases (for example DAHDI timing is no longer needed), so if Asterisk or app_rpt does not start, compare your files against the .dpkg-dist copies." },
-    { code: 'dvswitch_not_installed', message: 'DVSwitch is not installed on this node: install DVSwitch, then restore this part again. The rest of the backup is restored as usual.' },
+    { code: 'dv_settings_not_restored', message: 'The backup holds the settings of the previous digital voice stack. ASLCP 2.0 does not restore them: set up digital modes again on the Digital modes page after the restore.' },
     { code: 'asl3_version', message: 'The backup was made on ASL3 3.10.7; this node runs 3.10.8. Stock files keep the new version.' },
   ],
   files,
@@ -42,7 +42,7 @@ const preview = () => ({
     { item: 'Other software', value: 'm17-gateway (service)' },
   ],
   radio: { band: 'UHF', freqRx: '446.0000', freqTx: '446.0000', tone: 'CTCSS 123.0 / 123.0', ctcssRx: '123.0', ctcssTx: '123.0', dcsRx: '', dcsTx: '', port: '/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0', portPresent: false },
-  parts: { history: true, allmon3: true, sounds: true, sa818: true, dvswitch: true },
+  parts: { history: true, allmon3: true, sounds: true, sa818: true, dv: true },
 });
 
 /** Returns true when the request was handled. Runs before the login check: the first-run page uploads with a setup code. */
@@ -50,7 +50,7 @@ export function handleBackup({ m, p, raw, res, user, setupNeeded, setupDone, bod
   if (p === '/backup/info' && m === 'GET') {
     if (!user) return err(401, 'authentication required', 'unauthorized'), true;
     if (user.role !== 'admin') return err(403, 'forbidden', 'forbidden'), true;
-    json(200, { parts: [{ id: 'history', present: true, size: 2.4e6 }, { id: 'allmon3', present: true, size: 18e3 }, { id: 'sounds', present: true, size: 5.8e6 }, { id: 'dvswitch', present: true, size: 9e3 }], sa818: true });
+    json(200, { parts: [{ id: 'history', present: true, size: 2.4e6 }, { id: 'allmon3', present: true, size: 18e3 }, { id: 'sounds', present: true, size: 5.8e6 }, { id: 'dv', present: true, size: 9e3 }], sa818: true });
     return true;
   }
   if (p === '/backup' && m === 'POST') {

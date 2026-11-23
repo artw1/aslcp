@@ -32,12 +32,15 @@ web:
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/aslcp ./cmd/aslcp
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/aslcp-dv ./cmd/aslcp-dv
 
 build-arm64:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/aslcp-linux-arm64 ./cmd/aslcp
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/aslcp-dv-linux-arm64 ./cmd/aslcp-dv
 
 build-armhf:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/aslcp-linux-armhf ./cmd/aslcp
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/aslcp-dv-linux-armhf ./cmd/aslcp-dv
 
 test:
 	go test -race ./...
@@ -63,7 +66,7 @@ deb-pkg:
 	  *) echo "usage: make deb ARCH=arm64|armhf|amd64"; exit 2 ;; \
 	esac; \
 	d=dist/build/$(ARCH); mkdir -p $$d; \
-	for c in aslcp aslcp-helper; do \
+	for c in aslcp aslcp-helper aslcp-dv; do \
 	  CGO_ENABLED=0 GOOS=linux GOARCH=$$goarch GOARM=$$goarm go build -trimpath -ldflags "$(DEB_LDFLAGS)" -o $$d/$$c ./cmd/$$c || exit 1; \
 	done; \
 	sed "s|@BUILD_DIR@|$$d|g" packaging/nfpm.yaml > $$d/nfpm.yaml; \

@@ -48,14 +48,17 @@ export function mainLine(c: NowCall): string {
   return [who(c), firstName(c), placeText(c)].filter(Boolean).join(' · ');
 }
 
-/** "AllStar", "DMR · TG 91", "YSF · Room". The TG name is left to sourceDetail. */
+/** "TS1" or "TS2" for a DMR call; "" when the slot is not known (0 or missing). */
+export const slotLabel = (slot: number | undefined): string => (slot === 1 || slot === 2 ? `TS${slot}` : '');
+
+/** "AllStar", "DMR · TG 91 · TS2", "YSF · Room". The TG name is left to sourceDetail. */
 export function sourceLabel(c: NowCall): string {
-  if (c.kind === 'dmr') return ['DMR', c.private ? 'Private call' : c.tg ? `TG ${c.tg}` : ''].filter(Boolean).join(' · ');
+  if (c.kind === 'dmr') return ['DMR', c.private ? 'Private call' : c.tg ? `TG ${c.tg}` : '', slotLabel(c.slot)].filter(Boolean).join(' · ');
   if (c.kind === 'ysf') return ['YSF', c.room].filter(Boolean).join(' · ');
   return 'AllStar';
 }
 
-/** The full source for the details sheet: "AllStar node 2001 · link 1998 (Example hub)", "DVSwitch · DMR · TG 91 Example · slot 2". */
+/** The full source for the details sheet: "AllStar node 2001 · link 1998 (Example hub)", "Digital modes · DMR · TG 91 Example · slot 2". */
 export function sourceDetail(c: NowCall): string {
   if (c.kind === 'allstar') {
     return [
@@ -65,13 +68,13 @@ export function sourceDetail(c: NowCall): string {
   }
   if (c.kind === 'dmr') {
     return [
-      'DVSwitch',
+      'Digital modes',
       c.network || 'DMR',
       c.private ? 'private call' : c.tg ? `TG ${c.tg}${c.tgName ? ' ' + c.tgName : ''}` : '',
       c.slot ? `slot ${c.slot}` : '',
     ].filter(Boolean).join(' · ');
   }
-  return ['DVSwitch', 'YSF', c.room ? `room ${c.room}` : ''].filter(Boolean).join(' · ');
+  return ['Digital modes', 'YSF', c.room ? `room ${c.room}` : ''].filter(Boolean).join(' · ');
 }
 
 /** The short form for the idle line: "AllStar", "DMR TG 91", "YSF Room". */

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ADOPT_CONFIRM, DUPLEX_TEXT, canAdopt, NODE_HINT, canChange, doneText, formError, planApplyLabel, planOrder, planTitle, linkButton, linkLine, nodeError, pausedHint, planConfirm, prefill, linkExclusiveOnClick, exclusiveHint, suggestNode, uninstallNote, validPort } from './dvbridge.ts';
+import { ADOPT_CONFIRM, DUPLEX_TEXT, canAdopt, NODE_HINT, canChange, doneText, formError, planApplyLabel, planOrder, planTitle, linkButton, linkLine, nodeError, pausedHint, planConfirm, prefill, linkExclusiveOnClick, exclusiveHint, suggestNode, validPort, stepLabel } from './dvbridge.ts';
 import type { DVLink } from './types';
 
 const L = (o: Partial<DVLink> = {}): DVLink => ({ mode: 'ondemand', localNode: '1997', linked: false, paused: false, exclusive: false, ...o });
@@ -77,14 +77,11 @@ test('Link node honours the saved "Disconnect other links first"', () => {
 });
 
 test('confirmation texts', () => {
-  assert.match(planConfirm({ node: '1900', restartAsterisk: true, restarts: ['asterisk', 'analog_bridge'] }), /restarts Asterisk.*analog_bridge/);
+  assert.match(planConfirm({ node: '1900', restartAsterisk: true, restarts: ['asterisk', 'aslcp-dv'] }), /restarts Asterisk.*aslcp-dv/);
   assert.match(planConfirm({ node: '1900', restartAsterisk: false, restarts: [] }), /Nothing needs a restart/);
-  const s = { bridgeNode: { present: true, node: '1999' }, link: L({ mode: 'permanent' }) };
-  const t = uninstallNote(s, true);
-  assert.match(t[0], /restarts Asterisk/);
-  assert.match(t[1], /permanent link/);
-  assert.match(uninstallNote(s, false)[0], /not added by ASLCP/);
-  assert.deepEqual(uninstallNote({ bridgeNode: { present: false }, link: L() }, false), []);
+  assert.equal(stepLabel('engine_config'), 'engine config');
+  assert.equal(stepLabel('engine_reload'), 'engine reload');
+  assert.equal(stepLabel('something_new'), 'something_new');
 });
 
 test('change number and remove are for an ASLCP-owned node only', () => {
@@ -101,7 +98,7 @@ test('fixed texts', () => {
 });
 
 test('review dialog texts per kind', () => {
-  const p = { node: '1999', restartAsterisk: true, restarts: ['asterisk', 'analog_bridge'] };
+  const p = { node: '1999', restartAsterisk: true, restarts: ['asterisk', 'aslcp-dv'] };
   assert.equal(planTitle('remove'), 'Remove the bridge node?');
   assert.equal(planTitle('renumber'), 'Change the bridge node number?');
   assert.equal(planTitle('set'), 'Apply the bridge node?');
@@ -114,7 +111,7 @@ test('review dialog texts per kind', () => {
   assert.equal(planApplyLabel({ kind: 'remove', restartAsterisk: true }, true), 'Removing…');
   assert.match(planOrder({ kind: 'remove', unlinks: ['2006'] }), /^Disconnect 2006 from the bridge node, then revert/);
   assert.match(planOrder({ kind: 'remove', unlinks: [] }), /^Revert the Asterisk config/);
-  assert.match(planOrder({ kind: 'set', unlinks: [] }), /^Asterisk config, the Analog_Bridge ini/);
+  assert.match(planOrder({ kind: 'set', unlinks: [] }), /^Asterisk config, the engine configuration/);
   assert.equal(doneText({ kind: 'remove', node: '1999' }), 'Bridge node 1999 removed.');
   assert.match(doneText({ kind: 'remove', node: '1999', keepRecord: true }), /record/);
   assert.equal(doneText({ kind: 'renumber', node: '1996' }), 'Bridge node renumbered to 1996.');
@@ -123,7 +120,7 @@ test('review dialog texts per kind', () => {
 
 test('the link line names the bridge node when it has a name', () => {
   assert.equal(linkLine('1999', L({ mode: 'permanent', localNode: '2006', linked: true }), 'Example room'), 'Example room (node 1999) linked to 2006 (permanent)');
-  assert.equal(linkLine('1999', L({ localNode: '2006' }), 'DVSwitch linked node'), 'DVSwitch linked node (node 1999) not linked to 2006 (on demand)');
+  assert.equal(linkLine('1999', L({ localNode: '2006' }), 'Digital modes linked node'), 'Digital modes linked node (node 1999) not linked to 2006 (on demand)');
 });
 
 test('"Manage this bridge node with ASLCP" is offered only for a found, adoptable node that is not ASLCP\'s', () => {

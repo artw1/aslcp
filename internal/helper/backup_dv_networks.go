@@ -10,22 +10,18 @@ import (
 )
 
 // The DMR network settings in the backup (docs/BACKUP.md): networks.json of
-// the state directory, archive path dvswitch/state/networks.json. It holds
+// the state directory, archive path dv/state/networks.json. It holds
 // every DMR network mode's settings and enabled state, so a restore brings
 // back the networks that are not the one in [DMR Network] too. Passwords are
 // stored as they are, like the ini files of the part (the archive is
 // root-only); nothing here logs the content.
-
-// dvNetworksStaged is the name of the settings inside a pending set (the ini
-// files always contain "__").
-const dvNetworksStaged = dvNetworksFile
 
 // collectDVNetworks adds networks.json to c when it is usable. Without the
 // file nothing is added: a node still on the 1.3 state has its settings in
 // the ini files of the part.
 func (o *Ops) collectDVNetworks(c *collector) (bool, error) {
 	p := o.dvNetworksPath()
-	rel := backup.PathDVSwitchNetworks
+	rel := backup.PathDVNetworks
 	dvNetMu.Lock()
 	defer dvNetMu.Unlock()
 	fi, err := os.Lstat(p)
@@ -66,7 +62,7 @@ func (o *Ops) collectDVNetworks(c *collector) (bool, error) {
 // backup; nil when there are none. Unusable settings are dropped with the
 // reason in note, never an error.
 func dvRestoredNetworks(sp *spool, m *backup.Manifest) (data []byte, note string) {
-	e := m.Find(backup.PathDVSwitchNetworks)
+	e := m.FindDVNetworks()
 	if e == nil {
 		return nil, ""
 	}
@@ -94,8 +90,7 @@ func dvReencodeNetworks(raw []byte) ([]byte, error) {
 }
 
 // dvWriteNetworks writes the settings root-only (0600) into the state
-// directory (0700), atomically, never following a symlink. The 1.3 state
-// files go with it.
+// directory (0700), atomically, never following a symlink.
 func (o *Ops) dvWriteNetworks(data []byte) error {
 	dvNetMu.Lock()
 	defer dvNetMu.Unlock()
@@ -110,26 +105,5 @@ func (o *Ops) dvWriteNetworks(data []byte) error {
 	if err := atomicWrite(filepath.Join(parent, dvNetworksFile), parent, data, 0, 0, 0o600); err != nil {
 		return err
 	}
-	for _, name := range []string{dvSTFUStayFile, dvBMEnabledFile} {
-		os.Remove(filepath.Join(parent, name))
-	}
 	return nil
-}
-
-// dvStageNetworks puts the settings into a pending directory being built.
-func dvStageNetworks(dir string, data []byte) error {
-	return writeNew(filepath.Join(dir, dvNetworksStaged), data)
-}
-
-// dvApplyPendingNetworks writes the staged settings of a pending set.
-func (o *Ops) dvApplyPendingNetworks() error {
-	raw, err := dvReadNoFollow(filepath.Join(o.dvPendingDir(), dvNetworksStaged), dvNetworksMax)
-	if err != nil {
-		return err
-	}
-	out, err := dvReencodeNetworks(raw)
-	if err != nil {
-		return errors.New("the saved DMR network settings are not valid")
-	}
-	return o.dvWriteNetworks(out)
 }

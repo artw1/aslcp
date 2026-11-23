@@ -1,25 +1,27 @@
-import type { DVSwitchJob, DVSwitchJobs } from './types';
+// The enable job of the digital modes engine (plan C.1/C.2): GET /api/dv/job and /status report one job
+// (the transient unit aslcp-dv-enable). The state and log helpers here are pure so node --test can cover them.
+// Adapted from the old install/uninstall job helpers: one job instead of two, no kind.
+import type { DVJob, DVJobState } from './types';
 
-export type DVJobKind = 'install' | 'uninstall';
+export interface JobView { state: 'idle' | 'running' | 'succeeded' | 'failed'; log: string; at?: number }
 
-/** The job whose log the panel shows: the running one, else the newer of the two (an old uninstall must not hide a later install). */
-export function pickJobKind(s: DVSwitchJobs): DVJobKind {
-  const i = s.install, u = s.uninstall;
-  if (u.job === 'running') return 'uninstall';
-  if (i.job === 'running' || u.job === 'idle') return 'install';
-  if (i.job === 'idle') return 'uninstall';
-  return (u.at ?? 0) > (i.at ?? 0) ? 'uninstall' : 'install';
+/** The job as the panel shows it. The server's state is `job` ("", running, failed, done); `done` and `succeeded` both mean success. The log is `log` text or `lines`. */
+export function jobView(j: Partial<DVJob> | null | undefined): JobView {
+  const raw = (j?.job ?? '') as DVJobState;
+  const state = raw === 'running' ? 'running' : raw === 'failed' ? 'failed' : raw === 'done' || raw === 'succeeded' ? 'succeeded' : 'idle';
+  const log = typeof j?.log === 'string' ? j.log : Array.isArray(j?.lines) ? j.lines.join('\n') : '';
+  return { state, log, ...(j?.at ? { at: j.at } : {}) };
 }
 
-/** One line for a finished job, e.g. "Last install: succeeded, <date>". Empty for a job that never ran. */
-export function jobSummary(kind: DVJobKind, j: DVSwitchJob, fmtAt: (unix: number) => string): string {
-  if (j.job !== 'succeeded' && j.job !== 'failed') return '';
-  return `Last ${kind}: ${j.job === 'succeeded' ? 'succeeded' : 'failed'}${j.at ? ', ' + fmtAt(j.at) : ''}`;
+/** One line for a finished job, e.g. "Last enable: succeeded, <date>". Empty for a job that never ran or still runs. */
+export function jobSummary(j: JobView, fmtAt: (unix: number) => string): string {
+  if (j.state !== 'succeeded' && j.state !== 'failed') return '';
+  return `Last enable: ${j.state}${j.at ? ', ' + fmtAt(j.at) : ''}`;
 }
 
 /** localStorage key of a dismissed summary: a newer job (other `at`) shows again. */
-export function dismissKey(kind: DVJobKind, j: DVSwitchJob): string {
-  return `aslcp.dvjob.dismissed.${kind}.${j.at ?? 0}`;
+export function dismissKey(j: JobView): string {
+  return `aslcp.dvjob.dismissed.enable.${j.at ?? 0}`;
 }
 
 type Store = Pick<Storage, 'getItem' | 'setItem'>;

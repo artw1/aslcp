@@ -91,8 +91,8 @@ type PartsPresent struct {
 	Allmon3 bool `json:"allmon3"`
 	Sounds  bool `json:"sounds"`
 	SA818   bool `json:"sa818"`
-	// DVSwitch: the ini files and dvsm.macro of /opt (with secrets).
-	DVSwitch bool `json:"dvswitch"`
+	// DV: the ini files and dvsm.macro of /opt (with secrets).
+	DV bool `json:"dv"`
 }
 
 // Preview is what the restore page shows before anything changes.
@@ -318,7 +318,7 @@ func (s *Service) preview(m *backup.Manifest, plan helper.RestoreResult, insp st
 		Warnings: []Warning{}, Files: []File{}, Users: []User{}, MissingPackages: []string{}, Checklist: []ChecklistItem{},
 		Favorites: insp.Favorites,
 		Schedules: insp.Schedules,
-		Parts:     PartsPresent{History: m.Parts.History, Allmon3: m.Parts.Allmon3, Sounds: len(m.Parts.Sounds) > 0, SA818: m.Parts.SA818, DVSwitch: m.Parts.DVSwitch},
+		Parts:     PartsPresent{History: m.Parts.History, Allmon3: m.Parts.Allmon3, Sounds: len(m.Parts.Sounds) > 0, SA818: m.Parts.SA818, DV: m.Parts.DV},
 	}
 	offered := map[string]bool{}
 	dist := 0
@@ -358,8 +358,8 @@ func (s *Service) preview(m *backup.Manifest, plan helper.RestoreResult, insp st
 		p.Warnings = append(p.Warnings, Warning{"dist_files",
 			fmt.Sprintf("%d file(s) were changed by you and ASL3 changed the default since: your version is restored and the new default is kept beside it as .dpkg-dist. Review them.", dist)})
 	}
-	if plan.DVSwitchNotInstalled {
-		p.Warnings = append(p.Warnings, Warning{"dvswitch_not_installed", "DVSwitch was set up on the old node; its settings are kept and applied automatically when you install DVSwitch from the DVSwitch page after the restore."})
+	if plan.DVLegacySettings {
+		p.Warnings = append(p.Warnings, Warning{"dv_settings_not_restored", "The backup holds the settings of the previous digital voice stack. ASLCP 2.0 does not restore them: set up digital modes again on the Digital modes page after the restore."})
 	}
 	if len(m.Skipped) > 0 {
 		p.Warnings = append(p.Warnings, Warning{"skipped_files",
@@ -372,9 +372,9 @@ func (s *Service) preview(m *backup.Manifest, plan helper.RestoreResult, insp st
 		have[pk.Name] = true
 	}
 	for _, pk := range m.Packages {
-		// DVSwitch is installed by ASLCP's own DVSwitch install, never by a
-		// plain apt command (its exact package set, no recommends).
-		if !have[pk.Name] && backup.ValidPackageName(pk.Name) && !helper.IsDVSwitchPackage(pk.Name) {
+		// Digital modes packages are installed by the enable job, never by a
+		// plain apt command.
+		if !have[pk.Name] && backup.ValidPackageName(pk.Name) && !helper.IsDVPackage(pk.Name) {
 			p.MissingPackages = append(p.MissingPackages, pk.Name)
 		}
 	}

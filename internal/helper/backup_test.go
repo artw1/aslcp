@@ -76,7 +76,6 @@ func newBkNode(t *testing.T, ver string, conf map[string]string) *bkNode {
 		SA818Conf:    filepath.Join(base, "etc", "sa818.conf"),
 		AllmonDir:    filepath.Join(base, "etc", "allmon3"),
 		AslcpConf:    filepath.Join(base, "etc", "aslcp", "aslcp.conf"),
-		DVOptDir:     filepath.Join(base, "opt"),
 		DVHistoryDir: filepath.Join(base, "var", "dv-history"),
 		DVStateDir:   filepath.Join(base, "var", "dv-state"),
 		SourceList:   filepath.Join(base, "etc", "aslcp.list"),
@@ -453,7 +452,7 @@ func TestBackupInfo(t *testing.T) {
 		if p.ID == "sounds" && (!p.Present || p.Size != 5) {
 			t.Errorf("%+v", p)
 		}
-		if (p.ID == "allmon3" || p.ID == "dvswitch") && p.Present {
+		if (p.ID == "allmon3" || p.ID == "dv") && p.Present {
 			t.Errorf("%+v", p)
 		}
 	}

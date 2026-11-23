@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// publicBridge gives the public status page the private DVSwitch bridge node
+// publicBridge gives the public status page the private digital modes bridge node
 // and its display name, cached briefly (the lookup reads rpt.conf). nil when
 // the bridge lookup is not configured.
 func (s *Server) publicBridge() func() (string, string) {

@@ -12,11 +12,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/artw1/aslcp/internal/legacy"
 )
 
 // Planted values (placeholders). None may appear in any file of a bundle.
 var diagPlanted = []string{
-	"example-pass-iax", "example-pass-ami", "example-pass-reg", "example-pass-echo", "example-pass-dv",
+	"example-pass-iax", "example-pass-ami", "example-pass-reg", "example-pass-echo",
 	"example-pass-aslcp", "example-pass-wifi", "example-pass-allmon", "example-pass-old", "example-pass-req",
 	"example-pass-journal", "example-pass-url", "example-pass-bearer",
 }
@@ -30,7 +32,6 @@ const (
 	diagEcho    = "[el0]\ncall=N0CALL-L\npwd=example-pass-echo\nemail=someone@example.net\nqth=Example Town\n"
 	diagAslcp   = "[server]\nlisten=:8080\n[ami]\nsecret=example-pass-aslcp\n"
 	diagAllmon  = "[1999]\nip=127.0.0.1\npass=example-pass-allmon\n"
-	diagDV      = "[DMR Network]\nPassword=example-pass-dv\nAddress=198.51.100.9\n[Info]\nLatitude=00.0\nLongitude=00.0\n"
 	diagWifi    = "[wifi-security]\npsk=example-pass-wifi\n"
 )
 
@@ -71,14 +72,13 @@ func newDiagFixture(t *testing.T) *diagFixture {
 	aslcp := w("etc-aslcp/aslcp.conf", diagAslcp)
 	w("etc-allmon3/allmon3.ini", diagAllmon)
 	w("etc-allmon3/users", "admin:$argon2id$example-hash\n")
-	w("opt/MMDVM_Bridge/MMDVM_Bridge.ini", diagDV)
 	w("etc-nm/ExampleNet.nmconnection", diagWifi)
 	w("os-release", "PRETTY_NAME=\"Debian GNU/Linux 12 (bookworm)\"\n")
 
 	rules := map[string]resp{
 		"asterisk -V": {out: "Asterisk 22.0.0\n"},
 		"uname -srm":  {out: "Linux 6.1.0 aarch64\n"},
-		"dpkg-query":  {out: "ii  asl3 3.5.0\nii  asterisk 22.0.0\nrc  asl3-old 1.0\nii  aslcp 1.3.4\nii  dvswitch-server 1.0\n"},
+		"dpkg-query":  {out: "ii  asl3 3.5.0\nii  asterisk 22.0.0\nrc  asl3-old 1.0\nii  aslcp 1.3.4\nii  " + legacy.PackagePrefix + "-server 1.0\n"},
 		"uptime":      {out: " 12:00:00 up 1 day, load average: 0.01, 0.02, 0.03\n"},
 		"free -m":     {out: "              total used\nMem: 1000 100\n"},
 		"df -hP":      {out: "Filesystem Size Used\n/dev/root 30G 5G\n"},
@@ -95,7 +95,7 @@ func newDiagFixture(t *testing.T) *diagFixture {
 	f := &fakeRunner{rules: rules}
 	o := &Ops{Run: f, Now: func() time.Time { return time.Date(2026, 11, 20, 15, 15, 2, 0, time.UTC) },
 		ConfigRoot: filepath.Join(root, "asterisk"), AslcpConf: aslcp, AllmonDir: filepath.Join(root, "etc-allmon3"),
-		DVOptDir: filepath.Join(root, "opt"), OSRelease: filepath.Join(root, "os-release"),
+		OSRelease:  filepath.Join(root, "os-release"),
 		ResolvConf: filepath.Join("testdata", "resolv.conf")}
 	old := diagTempBases
 	diagTempBases = []string{filepath.Join(root, "tmp")}
@@ -159,7 +159,7 @@ func TestDiagBundleContentAndSecrets(t *testing.T) {
 		}
 		for _, want := range []string{"report.txt", "versions.txt", "system.txt", "services.txt", "network.txt", "audit.txt",
 			"journal/asterisk.txt", "journal/aslcp.txt", "config/asterisk/iax.conf", "config/asterisk/manager.conf", "config/asterisk/rpt.conf",
-			"config/aslcp.conf", "config/allmon3/allmon3.ini", "config/dvswitch/MMDVM_Bridge.ini"} {
+			"config/aslcp.conf", "config/allmon3/allmon3.ini"} {
 			if _, ok := files[want]; !ok {
 				t.Errorf("mask=%v: missing %s (have %v)", mask, want, names)
 			}
@@ -198,9 +198,6 @@ func TestDiagBundleContentAndSecrets(t *testing.T) {
 		}
 		if !strings.Contains(files["config/asterisk/manager.conf"], "secret = <redacted>") {
 			t.Errorf("manager.conf: %q", files["config/asterisk/manager.conf"])
-		}
-		if !strings.Contains(files["config/dvswitch/MMDVM_Bridge.ini"], "Password=<redacted>") {
-			t.Errorf("dvswitch: %q", files["config/dvswitch/MMDVM_Bridge.ini"])
 		}
 		// Configuration that is not secret stays readable.
 		if !strings.Contains(files["config/asterisk/iax.conf"], "bindport=4569") || !strings.Contains(files["journal/asterisk.txt"], "login failed") {

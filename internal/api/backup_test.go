@@ -115,7 +115,7 @@ func code(m map[string]any) string { s, _ := m["code"].(string); return s }
 
 func (e *bkEnv) backupBytes(role string) []byte {
 	e.t.Helper()
-	st, b, h := e.create(role, map[string]bool{"history": true, "allmon3": true, "sounds": true, "dvswitch": true})
+	st, b, h := e.create(role, map[string]bool{"history": true, "allmon3": true, "sounds": true, "dv": true})
 	if st != 200 {
 		e.t.Fatalf("create: %d %s", st, b)
 	}
@@ -206,17 +206,17 @@ func TestBackupRoundTripDemo(t *testing.T) {
 		t.Errorf("users: %v", prev["users"])
 	}
 	parts := prev["parts"].(map[string]any)
-	if parts["sa818"] != true || parts["sounds"] != true || parts["allmon3"] != true || parts["dvswitch"] != true {
+	if parts["sa818"] != true || parts["sounds"] != true || parts["allmon3"] != true || parts["dv"] != true {
 		t.Errorf("parts: %v", parts)
 	}
 	if b := prev["backup"].(map[string]any); b["hostname"] != "node-a" || b["aslcpVersion"] != "1.0.0" {
 		t.Errorf("backup: %v", b)
 	}
 
-	// the DVSwitch part restores into the demo's own /opt (installed there),
-	// and the preview has no "install DVSwitch" warning
+	// the preview of a current backup has no "settings not restored" warning
+
 	for _, w := range prev["warnings"].([]any) {
-		if code(w.(map[string]any)) == "dvswitch_not_installed" {
+		if code(w.(map[string]any)) == "dv_settings_not_restored" {
 			t.Errorf("unexpected warning %v", w)
 		}
 	}

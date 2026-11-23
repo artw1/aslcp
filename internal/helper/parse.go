@@ -111,11 +111,11 @@ func jobStateFrom(show map[string]string, log, unit string) string {
 	return JobIdle
 }
 
-// dvJobUnit reports whether unit is one of the DVSwitch install, uninstall or
-// STFU units, whose apt output ("0 upgraded, 0 newly installed, N to remove")
-// must never read as "nothing to upgrade".
+// dvJobUnit reports whether unit is the digital modes enable unit, whose apt
+// output ("0 upgraded, 0 newly installed") must never read as "nothing to
+// upgrade".
 func dvJobUnit(unit string) bool {
-	return unit == dvInstallUnit || unit == dvUninstallUnit || unit == dvSTFUJobUnit
+	return unit == dvEnableUnit
 }
 
 // LastLines returns at most n trailing lines of s.

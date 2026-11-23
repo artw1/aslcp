@@ -98,9 +98,9 @@ export interface ConfigCommit { commit: string; date: string; author: string; me
 export interface ConfigCommitDetail extends Omit<ConfigCommit, 'files'> { files: { path: string; status: 'added' | 'modified' | 'deleted'; diff: string }[] }
 
 // Backup and full restore (docs/BACKUP.md, /api/backup/*, /api/restore/*). Admin only (restore upload also with a setup code).
-export type BackupPartId = 'history' | 'allmon3' | 'sounds' | 'dvswitch';
+export type BackupPartId = 'history' | 'allmon3' | 'sounds' | 'dv';
 export interface BackupInfo { parts: { id: BackupPartId; present: boolean; size: number }[]; sa818: boolean }
-export interface BackupSelection { history: boolean; allmon3: boolean; sounds: boolean; dvswitch: boolean }
+export interface BackupSelection { history: boolean; allmon3: boolean; sounds: boolean; dv: boolean }
 export type RestoreAction = 'restore' | 'restore_dist' | 'keep_stock' | 'keep_new' | 'delete_optional' | 'skip';
 export interface RestoreRadio {
   band: string; freqRx: string; freqTx: string; tone: string; ctcssRx: string; ctcssTx: string; dcsRx: string; dcsTx: string; port: string; portPresent: boolean;
@@ -117,7 +117,7 @@ export interface RestorePreview {
   installCommand: string;
   checklist: { item: string; value: string }[];
   radio: RestoreRadio | null;
-  parts: { history: boolean; allmon3: boolean; sounds: boolean; sa818: boolean; dvswitch?: boolean };
+  parts: { history: boolean; allmon3: boolean; sounds: boolean; sa818: boolean; dv?: boolean };
 }
 export interface RestoreUpload { id: string; preview: RestorePreview }
 export interface RestoreStep { name: string; ok: boolean; detail: string }
@@ -171,40 +171,31 @@ export interface SchedulesSnapshot {
   schedules: Schedule[]; active: { id: number; start: string; end: string }[]; upcoming: ScheduleEvent[];
 }
 
-/** GET /api/dvswitch (admin only; docs/API.md "DVSwitch"). */
-export interface DVSwitchJob { job: 'idle' | 'running' | 'succeeded' | 'failed'; log: string; at?: number }
-export interface DVSwitchStatus {
-  installed: boolean;
-  /** "aslcp": ASLCP installed it (marker); "external": installed outside ASLCP; "": not installed. */
-  installedBy: '' | 'aslcp' | 'external';
-  version: string; arch: string; osCodename: string; supported: boolean; unsupportedReason?: string;
-  repoPresent: boolean; keyPresent: boolean; keyOk: boolean; keyFingerprint?: string;
-  packages: { name: string; installed: boolean; version?: string }[];
-  units: { name: string; loaded: boolean; active: string; enabled: string }[];
-  hostFiles: { name: string; present: boolean; size: number }[]; hostFilesOk: boolean;
-  marker: { version: number; installedAt: string; wgetPreinstalled: boolean; packages: string[] } | null;
-  canInstall: boolean; canUninstall: boolean;
-  uninstallPackages: string[]; uninstallPaths: string[]; uninstallUnits: string[];
-  install: DVSwitchJob; uninstall: DVSwitchJob;
-  /** The stfu package (BrandMeister through STFU; installed with DVSwitch, separately on older installs) and its install job. */
-  stfu: DVSTFUStatus;
-  /** DVSwitch settings saved by a backup restore on a node without DVSwitch; applied when DVSwitch is installed. `backupDate` is UTC ("2026-11-20 08:15"), `files` the target paths (no content). */
-  restorePending: { pending: boolean; backupDate?: string; files: string[] };
+/** GET /api/dv/status (admin; plan C.1 DVStatus). `job` is the state of the enable job unit; its log is GET /api/dv/job. */
+export type DVJobState = '' | 'idle' | 'running' | 'failed' | 'done' | 'succeeded';
+export interface DVStatus {
+  /** The platform can run the engine (bookworm/trixie; amd64/arm64/armhf with ARMv7 or newer). `reason` says why not ("armv6_unsupported"). */
+  supported: boolean; reason?: string;
+  md380Installed: boolean;
+  /** aslcp-dv.service is enabled / running; md380-emu.service is running. */
+  enabled: boolean; active: boolean; md380Active: boolean;
+  job?: DVJobState;
+  /** Units of the previous stack still loaded on the node (stopped by Enable; the upgrade removes the ones ASLCP installed). */
+  legacyUnits?: string[];
 }
-export interface DVSTFUStatus { installed: boolean; version?: string; canInstall: boolean; job: DVSwitchJob }
-export interface DVSwitchJobs { install: DVSwitchJob; uninstall: DVSwitchJob }
+/** GET /api/dv/job: the enable job's state and the last lines of its log (`log` text, or `lines`). */
+export interface DVJob { job: DVJobState; log?: string; lines?: string[]; at?: number }
 
-/** GET /api/dvswitch/setup and the reply of the PUT writes (docs/API.md "DVSwitch setup"). No secret value: the DMR password is write-only. */
+/** The private-node part of GET /api/dv/setup. `files[].sha256` is the version a private-node write is checked against (`base`). */
 export interface DVFileView { id: string; present: boolean; writable: boolean; sha256: string; history: number }
-export interface DVSwitchInfo { found: boolean; version: string; mode: string; tg: string; slot: string; colorCode: string; tune: string; mute: string; gatewayId: string; repeaterId: string; updated: string }
-/** The "Bridge node" part of GET /api/dvswitch/setup. `suggested` is the first free node of 1900-1997. */
+/** The "Bridge node" part of GET /api/dv/setup. `suggested` is the first free node of 1900-1997. */
 export interface DVBridgeSetup {
   node: string; owned: boolean; /** Found but not added by ASLCP, and it looks exactly like the node ASLCP adds: "Manage this bridge node with ASLCP" works. */ adoptable?: boolean; suggested: string; used: string[]; localNodes: string[];
   rxPort: number; txPort: number; link: { mode: DVLinkMode; localNode: string; bridge: string; exclusive: boolean }; paused: boolean;
   /** Display name of the bridge node (the default when none was saved). */
   name?: string;
 }
-/** PUT /api/dvswitch/private-node (docs/API.md "DVSwitch private node"). */
+/** PUT /api/dv/private-node (docs/API.md "Digital modes private node"). */
 export interface DVPrivateReq { node: string; rxPort: number; txPort: number; linkMode: DVLinkMode; localNode: string; /** "Disconnect other links first"; absent keeps the saved value. */ linkExclusive?: boolean; dryRun?: boolean; restart?: boolean; base?: Record<string, string>; renumber?: boolean }
 export type DVPlanKind = 'set' | 'renumber' | 'remove';
 /** `kind` says what the plan does: save the node, renumber it (`oldNode` goes away) or remove it. `unlinks` are the local nodes disconnected first; `keepRecord` says the removal leaves ASLCP's record because something could not be reverted. */
@@ -219,100 +210,65 @@ export interface DVStep { name: string; ok: boolean; detail?: string }
 export interface DVRollbackInfo { available: boolean; before?: boolean; ini?: boolean }
 export interface DVApplyResult { applied: boolean; kind: DVPlanKind; node: string; steps: DVStep[]; warnings?: string[]; keepRecord?: boolean; health?: unknown; rollback: DVRollbackInfo }
 export interface DVRollbackResult { rolledBack: boolean; problems: string[]; steps: DVStep[] }
-/** Which service holds a DMR login (docs/DVSWITCH.md "BrandMeister and DMR - Other"): MMDVM_Bridge for DMR - Other, STFU for BrandMeister. */
-export type DVDMRVia = 'mmdvm_bridge' | 'stfu';
-/** The BrandMeister part of the setup view. `installed`: the stfu unit is there; `present`: DVSwitch.ini has [STFU]; `enabled`: the unit starts at boot (only with `stayLoggedIn`); `stayLoggedIn`: STFU stays logged in outside BM mode (off: it runs only while BM is the active mode); `configured`: password saved and a 7-digit DMR ID, so the panel offers BM whether stfu runs or not. The password only as `passwordSet`. */
-/** The BrandMeister card. `enabled`: turned on with the card's Enable (off by default; separate from `configured`, a saved password and DMR ID). `unitEnabled`: stfu starts at boot (stay logged in). */
-export interface DVBMView {
-  installed: boolean; present: boolean; enabled: boolean; unitEnabled: boolean; stayLoggedIn: boolean; configured: boolean;
-  server: string; port: number; talkerAlias: string; startTg: string; txPort: number; rxPort: number; passwordSet: boolean;
-}
-/** PUT /api/dvswitch/brandmeister. `password` is write-only; absent fields keep the saved values. */
-export interface DVBMReq { server?: string; password?: string; talkerAlias?: string; startTg?: string; stayLoggedIn?: boolean; base?: Record<string, string> }
-/** The [Info] section of MMDVM_Bridge.ini. `frequencyHz` is 0 when RX and TX differ; `stock` is true while the stock sample values are in place. */
-export interface DVInfoView { location: string; description: string; url: string; frequencyHz: number; rxHz: number; txHz: number; latitude: string; longitude: string; stock: boolean }
-/** What PUT /api/dvswitch/identity takes for [Info]: one frequency, written to both RX and TX. */
-export interface DVInfoInput { location: string; description: string; url?: string; frequencyHz: number; latitude?: string; longitude?: string }
-export interface DVSwitchSetup {
-  identity: { callsign: string; dmrId: string; essid: string; nxdnId: string; consistent: boolean; info: DVInfoView };
-  warnings?: string[];
-  /** The DMR networks' cards, in registry order (BM, TGIF, DMR; web/src/lib/dvnetworks.ts). No secret value. */
-  networks: DVNetworkView[];
-  usrp: { address: string; rxPort: number; txPort: number };
-  /** The Enable flags of MMDVM_Bridge.ini; `dmr` is on while any MMDVM_Bridge DMR network is enabled (informational). */
-  modes: { dmr: boolean; ysf: boolean; p25: boolean; nxdn: boolean };
-  gateways: { ysf: { present: boolean }; p25: { present: boolean }; nxdn: { present: boolean } };
-  files: DVFileView[];
-  current: DVSwitchInfo;
-  bridgeNode: DVBridgeSetup;
-  brandmeister: DVBMView;
-  changed?: string[]; skipped?: string[]; restartHint?: string[];
-  /** After a BrandMeister save: STFU's login, checked by the helper before it stops STFU again. `stfuStopFailed`: it should be stopped and was not. */
-  bmLogin?: 'logged_in' | 'pending'; stfuStopFailed?: boolean;
-}
-/** GET /api/dvswitch/dmr-status (operator and admin; docs/API.md "DVSwitch DMR login status"). Never holds the password. */
-export type DVDMRState = 'not_installed' | 'disabled' | 'idle' | 'not_running' | 'connecting' | 'logged_in' | 'unknown' | 'login_failed' | 'timed_out' | 'socket_failed' | 'master_closing';
-/** A transmission received from the network (STFU only). */
-export interface DVDMRRx { active: boolean; src?: string; dst?: string; group: boolean; time?: string; frames?: number }
-export interface DVDMRStatus { state: DVDMRState; via?: DVDMRVia; master?: string; at?: string; since?: string; lastLine?: string; rx?: DVDMRRx;
-  /** BrandMeister's login (STFU) next to DMR - Other's on the top level; absent when stfu is not installed. */
-  bm?: DVDMRStatus }
-export type DVRestartScope = 'dmr' | 'bridge' | 'gateways' | 'all';
-export interface DVSwitchRestartResult { action: 'restart' | 'start'; units: string[]; skipped: string[]; states: DVSwitchStatus['units']; warning: string }
+/** GET /api/dv/setup (admin): only the private-node view and the file versions are used. */
+export interface DVSetup { bridgeNode: DVBridgeSetup; files?: DVFileView[] }
 
-/** GET /api/dvswitch/lists?mode=... (operator and admin; docs/API.md "DVSwitch host lists"). 404 `no_list` when the node has no file for the mode. */
-export type DVListMode = 'dmr' | 'ysf' | 'p25' | 'nxdn';
+/** GET /api/dv/lists?mode=... (operator and admin; docs/API.md "Digital modes host lists"). 404 `no_list` when the node has no file for the mode. */
+export type DVListMode = 'dmr' | 'ysf' | 'p25' | 'nxdn' | 'bm' | 'dmr-other';
 /** `value` is what gets written: the master address (dmr), the 5-digit reflector ID (ysf) or the TG (p25, nxdn). `port` is the master port for dmr. The DMR list never carries a password. */
-export interface DVListItem { value: string; name: string; detail?: string; address: string; port: number }
+export interface DVListItem { value: string; name: string; detail?: string; address: string; port: number; password?: string }
 export interface DVList { mode: DVListMode; items: DVListItem[]; truncated?: boolean; etag: string }
 
-/** GET and PUT /api/dvswitch/resume (docs/API.md "DVSwitch tune and resume"): the last tune of each mode and the toggle. */
-/** The DMR networks BM (BrandMeister through STFU), TGIF and DMR (DMR - Other, both through MMDVM_Bridge) are separate modes, each with its own remembered tune and favourites. */
-export type DVTuneMode = 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN';
+/** GET and PUT /api/dv/resume (docs/API.md "Digital modes tune and resume"): the last tune of each mode and the toggle. */
+/** LOOP is the echo test (the local test network) of the native engine; BM, TGIF, DMR, YSF, P25 and NXDN are carried but marked unavailable in M1. */
+export type DVTuneMode = 'LOOP' | 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN';
 export interface DVRemembered { tune: string; ts?: string; at: string }
-/**
- * One DMR network's card (GET /api/dvswitch/setup `networks`). `address`/`port`: the typed-in master (`master` "user"),
- * or the fixed one (`master` "fixed": `source` "hosts" with the row's `name`, or "default"). The password only as `passwordSet`.
- * `configured`: it can be enabled. `live`: MMDVM_Bridge's [DMR Network] holds it now. `pointsAtBm`: its master is a BrandMeister one.
- * BrandMeister's details are in `brandmeister`.
- */
-export interface DVNetworkView {
-  id: 'BM' | 'TGIF' | 'DMR'; label: string; via: 'stfu' | 'mmdvm'; master?: 'fixed' | 'user';
-  address: string; port: number; source?: 'hosts' | 'default'; name?: string;
-  passwordSet: boolean; enabled: boolean; configured: boolean; live: boolean; pointsAtBm?: boolean;
-}
-/** PUT /api/dvswitch/networks/{id} of an MMDVM_Bridge network: the fields of its registry entry (TGIF: the password only). */
-export interface DVNetworkReq { address?: string; port?: number; password?: string; clearPassword?: boolean; base?: Record<string, string> }
 export interface DVResume { resume: boolean; lastMode?: string; perMode: Partial<Record<DVTuneMode, DVRemembered>> }
 
-/** GET /api/dvswitch/snapshot and the SSE `dvswitch` event (all roles; docs/API.md "DVSwitch panel"). No install log, no identity, no secret. */
-export interface DVBridge { mode: string; tune: string; targetName?: string; slot: number; muted: boolean; /** The last tune was a DMR private call (the Parrot): `tune` is empty then. */ private?: boolean; source: 'abinfo' | 'none'; updated: string }
+/** GET /api/dv/snapshot and the SSE `dv` event (all roles; docs/API.md "Digital modes panel"). No install log, no identity, no secret. */
+export interface DVBridge { mode: string; tune: string; targetName?: string; slot: number; muted: boolean; /** The last tune was a DMR private call (the BrandMeister Parrot): `tune` is empty then. */ private?: boolean; source: 'aslcp-dv' | 'abinfo' | 'none'; updated: string }
 /** One talker from the Analog_Bridge log. `at` is the log's own time, no zone. */
 export interface DVCaller { call?: string; private?: boolean; dmrId?: string; dst?: string; slot?: number; at?: string }
 export interface DVSnapshot {
   installed: boolean; running: boolean; configured: boolean;
   bridge: DVBridge;
-  /** `label`: the button's name when it is not the id (a DMR network's registry label: "BrandMeister", "TGIF", "DMR - Other"). */
-  modes: { id: DVTuneMode; enabled: boolean; unlink: string; label?: string }[];
+  /** `label`: the button's name when it is not the id (a DMR network's registry label: "BrandMeister", "TGIF", "DMR - Other"). `available`: the engine implements the mode (LOOP and BM in this build). */
+  modes: { id: DVTuneMode; enabled: boolean; available: boolean; unlink: string; label?: string; /** The engine's login state of an enabled network (`off`, `pending`, `ok`, `failed`) and its detail. */ login?: DVLogin; detail?: string; /** A tuned YSF, P25 or NXDN reflector sends nothing back (the engine's lost state). */ silent?: boolean; /** DMR - Other: when the tuned talkgroup last had traffic (RFC 3339); absent during a call or when none is tuned. */ quietSince?: string; /** BrandMeister and DMR - Other: the master the mode is set to (its name in the host list, else the address as saved). */ master?: string }[];
+  /** M1: aslcp-dv and md380-emu. */
   services: { unit: string; active: boolean }[];
-  /** `name` is the display name of the bridge node (the default "DVSwitch linked node" when none was saved); present with `present`. */
+  /** md380 vocoder health (`ok`; `timeouts` counts the calls that timed out) and the engine's version and uptime in seconds; absent while the engine is not reachable. */
+  vocoder?: { ok: boolean; timeouts: number };
+  engine?: { version: string; uptime: number };
+  /** `name` is the display name of the bridge node (the default "Digital modes linked node" when none was saved); present with `present`. */
   bridgeNode: { present: boolean; node?: string; name?: string };
-  /** The link of the bridge node to a local node (docs/DVSWITCH.md "Link mode"). */
+  /** The link of the bridge node to a local node (docs/DV.md "Link mode"). */
   link: DVLink;
   /** Who is talking now (the log's last call that has not ended); only meaningful while RX is keyed. */
   caller?: DVCaller;
   /** The last few distinct callers, newest first. */
   heard: DVCaller[];
 }
+export type DVLogin = 'off' | 'pending' | 'ok' | 'failed';
+/** One option of a network (GET /api/dv/networks): `kind` text, int or bool; `default` is what the engine uses when it is unset. */
+export interface DVOptSpec { key: string; label: string; kind: 'text' | 'int' | 'bool'; default: string; help?: string; min?: number; max?: number; maxLen?: number; advanced?: boolean }
+/** One network of GET /api/dv/networks and the reply of PUT /api/dv/networks/{mode}. The password is write-only: only `passwordSet` comes back. */
+export interface DVNetView {
+  mode: DVTuneMode; label: string; available: boolean; enabled: boolean; address: string; port: number; defaultPort?: number; defaultAddress?: string; defaultPassword?: string; passwordSet: boolean;
+  fields: { address: boolean; port: boolean; password: boolean }; needsIdentity: boolean; help?: string;
+  options: DVOptSpec[]; values: Record<string, string>; login?: DVLogin; detail?: string;
+  /** PUT only: the engine took the new settings; otherwise `applyError` says why not. */
+  applied?: boolean; applyError?: string;
+}
+export interface DVIdentity { callsign: string; dmrId: number; repeaterId?: number; applied?: boolean; applyError?: string }
+export interface DVNetworks { identity: DVIdentity; modes: DVNetView[] }
+/** PUT /api/dv/networks/{mode}: only the fields that change. `password` sets, `clearPassword` removes. */
+export interface DVNetPut { enabled?: boolean; address?: string; port?: number; password?: string; clearPassword?: boolean; options?: Record<string, string> }
 export type DVLinkMode = 'ondemand' | 'permanent';
-/** `exclusive` is the saved "Disconnect other links first" (dvswitch.link_exclusive). */
+/** `exclusive` is the saved "Disconnect other links first" (dv.link_exclusive). */
 export interface DVLink { mode: DVLinkMode; localNode: string; linked: boolean; paused: boolean; exclusive: boolean }
-/** The reply of POST /api/dvswitch/mode, /unlink and /tune. */
+/** The reply of POST /api/dv/mode, /unlink and /tune. */
 /** `left`: the mode a switch unlinked before leaving it (it reconnects when switched back). */
-/** `bmLoginPending`: BM was entered but STFU's login was not seen in time (the switch went ahead). `stfuStopFailed`: leaving BM, stfu could not be stopped. */
-export interface DVCmdReply { mode: string; switched: boolean; confirmed: boolean; left?: string; bmLoginPending?: boolean; stfuStopFailed?: boolean;
-  /** Entering TGIF or DMR - Other rewrote [DMR Network] and restarted mmdvm_bridge; `netLoginPending`: its login was not seen in time. */
-  netRestarted?: boolean; netLoginPending?: boolean; snapshot: DVSnapshot }
+export interface DVCmdReply { mode: string; switched: boolean; confirmed: boolean; left?: string; snapshot: DVSnapshot }
 export interface DVFavorite { id: number; mode: DVTuneMode; value: string; name: string; sort: number }
 
 // System tab (docs/API.md "System"); all admin-only.
@@ -355,5 +311,5 @@ export interface NowCall {
   slot?: number; private?: boolean; room?: string; start: string; end?: string; active: boolean;
 }
 export interface NowCalling { current: NowCall | null; recent: NowCall[] }
-/** The radioid.net user list (admin, DVSwitch settings). */
+/** The radioid.net user list (admin, digital modes settings). */
 export interface UserListStatus { enabled: boolean; entries: number; updated?: string; checked?: string; error?: string; busy?: boolean; size?: number }
