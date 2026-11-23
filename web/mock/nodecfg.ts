@@ -365,6 +365,11 @@ function plan(body: any) {
   const nodeKey = (name: string) => byId.get(`rpt.conf:node:${name}`)!;
   if (radio) {
     if (mode !== 'override') throw bad('the radio type is set on the node itself');
+    const curRadio = nodeModel(node).radio as { type: string; advancedFile?: string; deviceFile?: string };
+    if (!['simpleusb', 'hub', 'none'].includes(curRadio.type)) {
+      const f = curRadio.advancedFile || curRadio.deviceFile || 'rpt.conf';
+      throw refused(f, `This node uses a radio interface (${curRadio.type}) that forms do not change. Edit rxchannel and the device file in Advanced (${f}).`, 'radio_unsupported');
+    }
     if (radio.type === 'hub') templated(nodeKey('rxchannel'), 'rpt.conf', node, 'override', 'Local/pseudo');
     else if (radio.type === 'simpleusb') {
       const cur = nodeModel(node).radio as { type: string; device?: string };

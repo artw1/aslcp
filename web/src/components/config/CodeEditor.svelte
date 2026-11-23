@@ -1,5 +1,5 @@
 <script lang="ts">
-  // CodeMirror 6 editor. Loaded lazily (see Config.svelte) so the dashboard bundle does not grow.
+  // CodeMirror 6 editor. Loaded lazily (see Advanced.svelte) so the dashboard bundle does not grow.
   // `value` is only the initial document: the parent re-creates the editor (via {#key}) to replace it.
   import { untrack } from 'svelte';
   import { EditorState } from '@codemirror/state';
@@ -8,7 +8,7 @@
   import { search, searchKeymap, openSearchPanel, highlightSelectionMatches } from '@codemirror/search';
   import { asterisk } from './asterisk';
 
-  let { value, onchange, onsave, label = 'Configuration file' }: { value: string; onchange: (text: string) => void; onsave?: () => void; label?: string } = $props();
+  let { value, onchange, onsave, label = 'Configuration file', line = 0 }: { value: string; onchange: (text: string) => void; onsave?: () => void; label?: string; line?: number } = $props();
   let host: HTMLDivElement | undefined = $state();
   let view: EditorView | undefined;
 
@@ -32,6 +32,11 @@
       }),
     });
     view = v;
+    const ln = untrack(() => line);
+    if (ln > 0 && ln <= v.state.doc.lines) {
+      const at = v.state.doc.line(ln).from;
+      v.dispatch({ selection: { anchor: at }, effects: EditorView.scrollIntoView(at, { y: 'center' }) });
+    }
     return () => { v.destroy(); if (view === v) view = undefined; };
   });
 </script>

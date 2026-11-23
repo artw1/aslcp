@@ -1,4 +1,5 @@
 import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVStatus, DVJob, DVSetup, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVNetworks, DVNetView, DVNetPut, DVIdentity, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage, WifiState, WifiScan, TerminalStatus, TerminalTicket, TerminalSessionInfo, DiagPlan, NowCalling, UserListStatus } from './types';
+import type { Overview as NodeOverview, SchemaDoc as NodeSchemaDoc, FormRequest as NodeFormRequest, Plan as NodePlan } from './nodecfg';
 import type { SvcStatus, SvcSetResult, WebPortStatus } from './svcweb';
 
 export class ApiError extends Error {
@@ -222,6 +223,10 @@ export const api = {
   configApply: (files: ConfigDraft[], message: string, reload: boolean) => req<ConfigApplyResult>('POST', '/config/apply', { files, message, reload }),
   configHistory: (limit: number, offset: number) => req<ConfigCommit[]>('GET', `/config/history?limit=${limit}&offset=${offset}`),
   configCommit: (commit: string, reveal = false) => req<ConfigCommitDetail>('GET', `/config/history/${q(commit)}${reveal ? '?reveal=1' : ''}`),
+  nodeCfgOverview: (status = false) => req<NodeOverview>('GET', `/config/nodes${status ? '?status=1' : ''}`),
+  nodeCfgSchema: () => req<NodeSchemaDoc>('GET', '/config/schema'),
+  nodeCfgForm: (r: NodeFormRequest, o: { dryRun: boolean; base?: Record<string, string>; restart?: boolean; message?: string }) =>
+    req<{ plan: NodePlan; result?: ConfigApplyResult; restarted: boolean; restartPending: boolean }>('POST', '/config/form', { ...r, ...o }),
   configRestore: (commit: string, reload: boolean) => req<ConfigApplyResult>('POST', `/config/history/${q(commit)}/restore`, { reload }),
   restartAsteriskNow: () => req<{ ok: boolean }>('POST', '/system/asterisk/restart'),
   restartAsterisk: () => req<void>('POST', '/system/restart-asterisk'),

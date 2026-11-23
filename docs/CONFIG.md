@@ -130,13 +130,13 @@ Registration is not a schema key: it is the line `register => <node>:<password>@
 
 **Wizard steps** (Identity, Duty, Radio interface, Registration, EchoLink, Review) and the presets (simplex, halfduplexlink, repeater, hub) are listed in DESIGN 8. A wizard step is one `POST /api/config/form` call with the matching fields (`callsign`, `preset`, `radio`, `registration`, `link`, `modules`, `changes`); every call is a complete, valid plan.
 
-**Phases.** 2.0.3 ships the planner and API and the mock. The web forms and wizards come next, then renumbering and add-node.
+**Phases.** 2.0.3 ships the planner and API, the mock, the node overview and the Identity, Duplex and timers, Registration and EchoLink forms. The setup wizard comes next, then renumbering and add-node.
 
 **Save semantics.** `mode` is `override` (default: write the node's own stanza; a value already in effect is a no-op), `reset` (remove the node's own key) or `template` (change it in the template it is inherited from, the "change for all nodes" option). `dryRun: true` returns the plan with per-file diffs, applied changes, warnings, errors and base shas and writes nothing. A real call re-plans, refuses on conflict (`base` differs from disk), and applies through `configsvc` (snapshot, write, reload, health), the same pipeline as the raw editor. The server never writes `/etc/asterisk` itself.
 
 **Cross-field checks** (run on the after-state; new errors block, old ones are warnings): `driver_not_loaded` and `driver_noload` (rxchannel driver versus `modules.conf`), `no_device_stanza` (device section missing in the radio file), `registered_both`, `private_registered` (node 1 to 1999 with a register line), `public_not_registered` (node above 1999 with none), `register_node_mismatch`, `callsign_format`, `echolink_module` (EchoLink set up but `chan_echolink.so` not loaded), `node_not_in_nodes`.
 
-**Refusals.** `no_file`, `no_stanza`, `multiple_stanzas`, `is_template`, `split_stanza`, `broken_inheritance`: the stanza cannot be edited with confidence, so the answer is `422 refused` with the file and line and the UI links to the raw editor.
+**Refusals.** `radio_unsupported` (a radio change or the hub preset on a node whose radio is USBRadio, Voter, USRP or another channel; only SimpleUSB, hub and no radio nodes may switch), `no_file`, `no_stanza`, `multiple_stanzas`, `is_template`, `split_stanza`, `broken_inheritance`: the stanza cannot be edited with confidence, so the answer is `422 refused` with the file and line and the UI links to the raw editor.
 
 **USBRadio.** Not supported by forms or wizards: `rxchannel = Radio/...` nodes show a note and a link to Advanced (`usbradio.conf`). The same for Voter, USRP and other channels.
 
@@ -144,14 +144,19 @@ Registration is not a schema key: it is the line `register => <node>:<password>@
 
 ## UI
 
-New top-level "Config" page (admin only, hidden for others):
+The Config page (admin only, hidden for others) has two tabs. The route is `#/config` (Overview, the default) or `#/config?tab=advanced`. Advanced links open a file, and a line, directly: `#/config?tab=advanced&file=rpt.conf&line=12`; `&view=history` opens the History tab. Cards, refusals and "Edit in Advanced" buttons use these links.
 
-- Left: file list grouped (Core, Radio, Linking, Platform, Custom, Other), filter box. Right: editor (CodeMirror 6, line numbers, simple Asterisk highlighting for `[section]`, `key = value`, `;` comments, `#include`), dirty marker, Revert.
-- Save opens a review dialog: per-file diff, syntax errors (block apply), reload plan or "needs Asterisk restart", commit message (default "Edit <file>"), "Reload after apply" checkbox (on). Apply shows progress, then reload results and health checks; failed health shows "Roll back".
-- Conflict (409): explain the file changed on disk, offer reload-from-disk (the user's text is kept in a side buffer to copy from).
-- History tab: commits (date, author, message, files), click for diffs with a Reveal secrets button, Restore button (same review/result flow).
-- "Restart Asterisk" button with confirmation (warns that links drop).
-- Demo mode and the mock API provide an in-memory `/etc/asterisk` with a few anonymized files.
+**Overview.** One page per local node (a row of node buttons appears when there are several; the choice is remembered in the browser). Cards in plain language: Identity, Radio, Duplex and timers, Registration (with the last registration status from Asterisk when it answers), EchoLink, Linking and telemetry, Manager interface, Access lists, Status reporting, DTMF commands and macros. Identity, Duplex and timers, Registration and EchoLink have an Edit form; the others show a read-only summary with "Edit in Advanced" (Access lists has no file yet). Settings the schema does not know are listed read-only under "Other settings on this node". Warnings from the checks and any refusal for the node are shown above the cards with a link to the file.
+
+**USBRadio.** The Radio card of a USBRadio, Voter, USRP or other node is read-only and points to Advanced (`usbradio.conf` and so on). Duplex presets that need a hub radio are disabled for such nodes.
+
+**Forms.** Each field shows where its value comes from: "set on this node", "from template node-main", "default" or "set in echolink.conf". Save writes an override on the node's own stanza. Two separate buttons per field: "Reset to template" (removes the node's line; "Remove from this node" when no template sets it) and "Change for all nodes" (writes the value into the template). Duplex and timers starts with an optional preset; choosing one fills the inputs and lists what it sets, and values you change afterwards win. Secret fields (EchoLink password, registration password) are never pre-filled and are empty when you open the form; an empty field keeps the saved value.
+
+**Every save is a dry run first.** "Review changes" sends the request with `dryRun`, then shows what changes, new problems (these block Apply), warnings, the per-file diff, and the reload plan or "needs an Asterisk restart" with a checkbox to restart right after saving. Apply sends the same request with the plan's `base` (a changed file gives a conflict message and "Plan again"), then shows the result of the config pipeline: reload, health check, history snapshot and, on a failed health check, "Roll back". A refusal explains why forms do not edit this and links to the file in Advanced. When a restart is still needed after saving, the result offers "Restart Asterisk".
+
+**Advanced tab.** The raw editor and History, as before: file list grouped (Core, Radio, Linking, Platform, Custom, Other) with a filter, CodeMirror editor, Revert and Save with a review dialog (diff, syntax errors, reload plan, commit message, rollback on failed health), 409 conflict handling with a side buffer, History with Restore. Unsaved drafts survive switching to Overview and back. The "Restart Asterisk" button (with confirmation) is in the page header.
+
+Demo mode and the mock API (`npm run dev:mock`) provide an in-memory `/etc/asterisk` with a few anonymized files, including a second node on USBRadio.
 
 ## Test plan
 

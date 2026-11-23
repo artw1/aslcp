@@ -533,3 +533,27 @@ func replaceLast(s, old, repl string) string {
 	}
 	return s[:i] + repl + s[i+len(old):]
 }
+
+func TestRadioChangeRefusedOnUnsupportedNode(t *testing.T) {
+	for _, ch := range []string{"Radio/1999", "Voter/1999", "USRP/127.0.0.1:34001:32001", "DAHDI/1"} {
+		rpt := replaceLast(readCorpus(t, "rpt.conf"), "rxchannel = SimpleUSB/1999", "rxchannel = "+ch)
+		w := fixture(t, map[string]string{FileRpt: rpt})
+		for name, req := range map[string]Request{
+			"radio":  {Node: "1999", Radio: &RadioChange{Type: RadioSimpleUSB}},
+			"hubby":  {Node: "1999", Radio: &RadioChange{Type: RadioHub}},
+			"preset": {Node: "1999", Preset: "hub"},
+		} {
+			_, err := w.Plan(req)
+			re, ok := err.(*RefuseError)
+			if !ok || re.Code != "radio_unsupported" || re.File == "" {
+				t.Errorf("%s %s: err = %T %v", ch, name, err, err)
+			}
+		}
+		// other changes on such a node still work
+		mustPlan(t, w, Request{Node: "1999", Changes: []Change{{ID: "rpt.conf:node:hangtime", Value: "2000"}}})
+	}
+	// SimpleUSB and hub nodes may switch
+	w := corpusWorld(t)
+	mustPlan(t, w, Request{Node: "1999", Radio: &RadioChange{Type: RadioHub}})
+	mustPlan(t, w, Request{Node: "1999", Preset: "hub"})
+}

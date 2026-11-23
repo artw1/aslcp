@@ -10,6 +10,7 @@ const RPT = `; rpt.conf (anonymized sample)
 [nodes]
 1999 = radio@127.0.0.1/1999,NONE
 1000 = radio@192.0.2.20:4569/1000,192.0.2.20
+2001 = radio@127.0.0.1/2001,NONE
 
 [1999](node-main)
 rxchannel = SimpleUSB/usb
@@ -24,6 +25,12 @@ functions = functions
 macro = macro
 tailmessagetime = 600000
 hangtime = 5000
+
+[2001](node-main)
+rxchannel = Radio/2001
+duplex = 0
+idrecording = |iN0CALL
+hangtime = 0
 
 [node-main](!)
 context = radio
@@ -58,6 +65,13 @@ txmixaset = 500
 carrierfrom = usbinvert
 ctcssfrom = no
 `,
+  'usbradio.conf': `[general]
+
+[2001]
+devstr = 1-1.2:1.0
+rxmixerset = 500
+txmixaset = 500
+`,
   'manager.conf': `[general]
 enabled = yes
 port = 5038
@@ -72,6 +86,7 @@ write = system,call,agent,user,config,command,reporting,originate
 autoload = yes
 noload = pbx_gtkconsole.so
 load = chan_simpleusb.so
+load = chan_usbradio.so
 noload = chan_echolink.so
 `,
   'echolink.conf': `[el0]

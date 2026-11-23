@@ -10,7 +10,9 @@ Release notes are taken from the section of the tag being released
 - `POST /api/config/form` plans and applies form changes with a dry run that shows the per-file diff. A save sets the node's own value by default; it can also reset the node to the template or change the template for all nodes.
 - Checks before saving: the radio driver must be loaded in `modules.conf` and have its device section, a node is not registered over both HTTP and IAX, private (1 to 1999) and public node numbers, callsign format, and EchoLink needs `chan_echolink.so`.
 - `GET /api/config/schema` lists the known settings, their limits and the setup presets.
+- Config page: the node overview is now the default view, with cards for each part of a node and forms for Identity, Duplex and timers (with presets), Registration and EchoLink. Every save shows a preview of the file changes first. The file editor and history moved to an Advanced tab.
 - USBRadio is not changed by forms or wizards; the node page points to Advanced.
+- A radio change or the hub preset is refused on a node whose radio is not SimpleUSB or a hub.
 - A change that needs an Asterisk restart offers it and never restarts on its own.
 
 ## [2.0.2] - 2026-11-23

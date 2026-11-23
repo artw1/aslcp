@@ -579,6 +579,11 @@ func (w *World) Plan(req Request) (*Plan, error) {
 	// radio first, so the device stanza exists for later steps
 	if req.Radio != nil {
 		cur := w.radio(si)
+		switch cur.Type {
+		case RadioSimpleUSB, RadioHub, RadioNone:
+		default:
+			return nil, refuse(radioUnsupported(cur))
+		}
 		switch req.Radio.Type {
 		case RadioHub:
 			k, _ := schema.Find(FileRpt, schema.ScopeNode, "rxchannel")
@@ -786,4 +791,19 @@ func (ed *editor) ensureDevice(dev string) error {
 	ed.out = append(ed.out, Applied{Key: "[" + dev + "]", File: FileSimple, Section: dev, Action: "add",
 		Note: "new device section" + map[bool]string{true: " based on " + strings.Join(parents, ""), false: ""}[len(parents) > 0]})
 	return nil
+}
+
+// radioUnsupported is the refusal for a node whose current radio interface
+// forms do not edit (USBRadio, Voter, USRP, other). Changing it to SimpleUSB or
+// a hub would drop a setup that cannot be tested here.
+func radioUnsupported(cur Radio) Refusal {
+	file := cur.AdvancedFile
+	if file == "" {
+		file = cur.DeviceFile
+	}
+	if file == "" {
+		file = FileRpt
+	}
+	return Refusal{Code: "radio_unsupported", File: file,
+		Message: "This node uses a radio interface (" + cur.Type + ") that forms do not change. Edit rxchannel and the device file in Advanced (" + file + ")."}
 }
