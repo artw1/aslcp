@@ -92,8 +92,8 @@ func TestDVEnableFailure(t *testing.T) {
 }
 
 func TestDVEnableRefusals(t *testing.T) {
-	f := &fakeDVClient{status: helper.DVStatus{Supported: false, Reason: "ARMv6"}}
-	if code, _, errs := dvRun(t, f, true, "enable"); code != 1 || !strings.Contains(errs, "ARMv6") || f.enables != 0 {
+	f := &fakeDVClient{status: helper.DVStatus{Supported: false, Reason: helper.DVReasonArmhf}}
+	if code, _, errs := dvRun(t, f, true, "enable"); code != 1 || !strings.Contains(errs, "64-bit") || f.enables != 0 {
 		t.Errorf("unsupported: %d %s", code, errs)
 	}
 	f = &fakeDVClient{status: helper.DVStatus{Supported: true}}

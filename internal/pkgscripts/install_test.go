@@ -287,8 +287,8 @@ func TestUndoKeepsFailedUnits(t *testing.T) {
 	}
 }
 
-// installHead runs the option parsing of install.sh (up to the pre-flight
-// section) with the given environment and reports the result.
+// installHead runs the option parsing of install.sh (up to the architecture
+// check) with the given environment and reports the result.
 func installHead(t *testing.T, env ...string) (string, error) {
 	t.Helper()
 	if _, err := exec.LookPath("sh"); err != nil {
@@ -296,7 +296,7 @@ func installHead(t *testing.T, env ...string) (string, error) {
 	}
 	s := installScript(t)
 	i := strings.Index(s, "# --- takeover (ASLCP_TAKEOVER)")
-	j := strings.Index(s, "# --- pre-flight")
+	j := strings.Index(s, "# --- architecture")
 	if i < 0 || j < i {
 		t.Fatal("option parsing not found")
 	}
@@ -346,6 +346,89 @@ func TestInstallOptionParsing(t *testing.T) {
 	for _, env := range bad {
 		if got, err := installHead(t, env...); err == nil {
 			t.Errorf("%v accepted: %q", env, got)
+		}
+	}
+}
+
+// archCheck runs check_arch of install.sh with a fake dpkg (reporting arch)
+// and uname (reporting kernel). The fake dpkg logs every call, so a test can
+// see that nothing but --print-architecture was run.
+func archCheck(t *testing.T, arch, kernel string) (string, string, error) {
+	t.Helper()
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	s := installScript(t)
+	i := strings.Index(s, "# ---8<--- arch-check")
+	j := strings.Index(s, "# --->8--- arch-check")
+	if i < 0 || j < i {
+		t.Fatal("arch-check markers not found")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	calls := filepath.Join(dir, "calls")
+	fake := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fake("dpkg", "echo \"dpkg $*\" >> "+calls+"\n[ \"$1\" = --print-architecture ] && echo "+arch+" && exit 0\nexit 1\n")
+	fake("uname", "echo "+kernel+"\n")
+	script := `die() { printf '%s\n' "error: $*" >&2; exit 1; }
+` + s[i:j] + "check_arch\necho ok\n"
+	cmd := exec.Command("sh", "-c", script)
+	cmd.Env = []string{"PATH=" + bin + ":" + os.Getenv("PATH")}
+	out, err := cmd.CombinedOutput()
+	log, _ := os.ReadFile(calls)
+	return strings.TrimSpace(string(out)), string(log), err
+}
+
+func TestInstallArchAccepted(t *testing.T) {
+	for _, c := range [][2]string{{"arm64", "aarch64"}, {"amd64", "x86_64"}} {
+		out, _, err := archCheck(t, c[0], c[1])
+		if err != nil || out != "ok" {
+			t.Errorf("%s: %q (%v)", c[0], out, err)
+		}
+	}
+}
+
+func TestInstallArchRefusesArmhf(t *testing.T) {
+	for _, kernel := range []string{"armv7l", "aarch64"} { // 32-bit userland, 32- or 64-bit kernel
+		out, log, err := archCheck(t, "armhf", kernel)
+		if err == nil {
+			t.Fatalf("armhf on %s accepted: %q", kernel, out)
+		}
+		for _, want := range []string{"64-bit", "Raspberry Pi OS Lite (64-bit)", "armhf"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("message lacks %q: %q", want, out)
+			}
+		}
+		if log != "dpkg --print-architecture\n" {
+			t.Errorf("dpkg calls = %q", log)
+		}
+	}
+}
+
+func TestInstallArchRefusesOthers(t *testing.T) {
+	if _, _, err := archCheck(t, "i386", "i686"); err == nil {
+		t.Error("i386 accepted")
+	}
+}
+
+// The check runs before the pre-flight, the keyring and the apt source, so a
+// refused system is left untouched.
+func TestInstallArchCheckBeforeChanges(t *testing.T) {
+	s := installScript(t)
+	call := strings.Index(s, "check_arch\n\n# --- pre-flight")
+	if call < 0 {
+		t.Fatal("check_arch call not found before the pre-flight")
+	}
+	for _, later := range []string{"install -m 0644 \"$tmp/keyring.gpg\"", "apt-get "} {
+		if k := strings.Index(s, later); k >= 0 && k < call {
+			t.Errorf("%q comes before the architecture check", later)
 		}
 	}
 }

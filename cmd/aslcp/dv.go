@@ -145,7 +145,7 @@ func printDVStatus(w io.Writer, st helper.DVStatus) {
 	}
 	fmt.Fprintf(w, "supported:  %s", yn(st.Supported))
 	if st.Reason != "" {
-		fmt.Fprintf(w, " (%s)", st.Reason)
+		fmt.Fprintf(w, " (%s)", helper.DVReasonText(st.Reason))
 	}
 	fmt.Fprintf(w, "\nenabled:    %s\nactive:     %s\nmd380:      installed %s, active %s\n",
 		yn(st.Enabled), yn(st.Active), yn(st.MD380Installed), yn(st.MD380Active))
@@ -168,7 +168,7 @@ func dvEnable(ctx context.Context, c dvClient, env dvEnv) error {
 	var baseAt int64
 	if !seenRunning {
 		if !st.Supported {
-			return fmt.Errorf("this host is not supported: %s", st.Reason)
+			return fmt.Errorf("this host is not supported: %s", helper.DVReasonText(st.Reason))
 		}
 		fmt.Fprintln(env.out, "Enabling digital modes (this takes a few minutes)...")
 		if _, err := c.DVEnable(ctx); err != nil {

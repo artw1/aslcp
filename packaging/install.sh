@@ -36,6 +36,9 @@
 # the job fails the installer warns and still finishes; run "sudo aslcp dv
 # enable" later to retry. It combines with ASLCP_PORT:
 #   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_DV=1 ASLCP_PORT=8181 sh
+# 64-bit only: arm64 and amd64. On a 32-bit system (dpkg architecture armhf,
+# including a 32-bit userland on a 64-bit kernel) the installer refuses before
+# anything is changed; reinstall with Raspberry Pi OS Lite (64-bit).
 # Pre-flight: before anything is changed the installer refuses to run while
 # ASL3 is still finishing its first-boot setup (systemd still starting, or
 # asl3-boot-oneshot.service / resize2fs_once.service running) or while another
@@ -55,6 +58,23 @@ say() { printf '%s\n' "aslcp-install: $*"; }
 die() { printf '%s\n' "aslcp-install: error: $*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "run as root (for example: curl -fsSL $APT_URL/install.sh | sudo sh)"
+
+# ---8<--- arch-check (exercised by the Go tests in internal/pkgscripts; keep self-contained)
+# check_arch: succeeds on arm64 and amd64 (the dpkg architecture, i.e. the
+# userland); refuses everything else. A 32-bit userland on a 64-bit kernel
+# reports armhf too. Read-only; changes nothing.
+check_arch() {
+	command -v dpkg >/dev/null 2>&1 || die "dpkg not found"
+	ARCH=$(dpkg --print-architecture)
+	case "$ARCH" in
+	arm64 | amd64) ;;
+	armhf | armel)
+		die "this system is 32-bit ($ARCH, kernel $(uname -m 2>/dev/null || echo unknown)). ASL3 and ASLCP need a 64-bit OS: reinstall with Raspberry Pi OS Lite (64-bit), then install ASL3 and ASLCP again. Nothing was changed."
+		;;
+	*) die "unsupported architecture '$ARCH' (supported: arm64, amd64)" ;;
+	esac
+}
+# --->8--- arch-check
 
 # --- takeover (ASLCP_TAKEOVER) ----------------------------------------------
 TAKEOVER_WANT=0
@@ -93,6 +113,9 @@ case "$DV_VAL" in
 *) die "ASLCP_DV must be 1, yes or true (got '$DV_VAL')" ;;
 esac
 [ "$TAKEOVER_UNDO" -eq 0 ] || [ "$DV_WANT" -eq 0 ] || die "ASLCP_TAKEOVER=undo cannot be combined with ASLCP_DV"
+
+# --- architecture: 64-bit only (before anything is changed) -----------------
+[ "$TAKEOVER_UNDO" -eq 1 ] || check_arch
 
 # --- pre-flight: first-boot setup / other package managers ------------------
 # preflight_busy: prints what is busy (one line) and succeeds, or fails when
@@ -168,13 +191,6 @@ if [ "$TAKEOVER_UNDO" -eq 0 ]; then
 	bookworm | trixie) ;;
 	*) say "warning: this is '${VERSION_CODENAME:-unknown}', the packages are built for Debian 12 (bookworm) or 13 (trixie); continuing" ;;
 	esac
-	command -v dpkg >/dev/null 2>&1 || die "dpkg not found"
-	ARCH=$(dpkg --print-architecture)
-	case "$ARCH" in
-	arm64 | armhf | amd64) ;;
-	*) die "unsupported architecture '$ARCH' (supported: arm64, armhf, amd64)" ;;
-	esac
-
 	# --- downloader ------------------------------------------------------------
 	fetch() { # fetch URL DEST
 		if command -v curl >/dev/null 2>&1; then

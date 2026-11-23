@@ -55,7 +55,7 @@ func newBkNode(t *testing.T, ver string, conf map[string]string) *bkNode {
 	rules := map[string]resp{
 		"systemctl stop asterisk":           {},
 		"systemctl start asterisk":          {},
-		"dpkg --print-architecture":         {out: "armhf\n"},
+		"dpkg --print-architecture":         {out: "arm64\n"},
 		"dpkg-query -W -f=${Version} aslcp": {out: "2.0.0"},
 		"dpkg-query -W -f=${Package}\\t":    {out: "asl3-asterisk-config\t" + ver + "\tii \nasl3\t" + ver + "\tii \nasterisk-core\t20.1\tii \nvim\t9\tii \nallmon3\t1.0\trc \n"},
 	}
@@ -256,7 +256,7 @@ func TestBackupRestoreRoundTripAndClassification(t *testing.T) {
 	if len(m.MissingStock) != 1 || m.MissingStock[0].Path != "gone.conf" {
 		t.Errorf("missing stock %v", m.MissingStock)
 	}
-	if len(m.Packages) != 3 || m.Arch != "armhf" || m.ASL3Version != "1.0" || m.Channel != "beta" {
+	if len(m.Packages) != 3 || m.Arch != "arm64" || m.ASL3Version != "1.0" || m.Channel != "beta" {
 		t.Errorf("header %+v", m)
 	}
 	for _, p := range m.Packages {

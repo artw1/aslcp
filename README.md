@@ -40,7 +40,7 @@ ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly w
 ## Requirements
 
 - AllStarLink 3 (ASL3) on Debian 12 (bookworm) or Debian 13 (trixie), or Raspberry Pi OS based on either.
-- A 64-bit or 32-bit ARM board (arm64, armhf) or a PC (amd64). A Raspberry Pi Zero 2 W or newer is plenty.
+- A 64-bit system: an ARM board (arm64) or a PC (amd64). A Raspberry Pi Zero 2 W or newer running Raspberry Pi OS Lite (64-bit) is plenty. 32-bit (armhf) is not supported, because ASL3 has no armhf packages; on a 32-bit system the installer refuses, so reinstall with the 64-bit OS.
 - Root access (sudo) for the installation.
 
 ## Install
@@ -139,7 +139,7 @@ ASLCP 2.0 has its own digital voice engine, `aslcp-dv`, so a node can talk on di
 - **YSF** (System Fusion) reflectors, **P25** and **NXDN** talkgroups. P25 and NXDN are tested against recorded traffic but not yet on air.
 - **Echo test**: a local test with no network and no account. You hear yourself back a second after you unkey, which proves the audio path.
 
-Enable digital modes on the **Digital modes** page (or `sudo aslcp dv enable`, or `ASLCP_DV=1` at install). Enter your callsign and DMR ID, then turn on and set up the networks you want. `sudo aslcp dv status` shows the state and `sudo aslcp dv disable` stops the engine and keeps your settings. Enabling installs only the md380 vocoder. ARMv6 boards (Pi Zero, Pi 1) are not supported.
+Enable digital modes on the **Digital modes** page (or `sudo aslcp dv enable`, or `ASLCP_DV=1` at install). Enter your callsign and DMR ID, then turn on and set up the networks you want. `sudo aslcp dv status` shows the state and `sudo aslcp dv disable` stops the engine and keeps your settings. Enabling installs only the md380 vocoder. It needs a 64-bit OS (32-bit armhf is not supported).
 
 On the dashboard, the **Digital modes** card shows the bridge node, switches mode, tunes a talkgroup or reflector, unlinks, has a Parrot button for BrandMeister and keeps favorites. **Now calling** (a red strip on every page) shows who is talking, with callsign, name, place, network, talkgroup and timeslot, and **Last heard** lists recent calls. The engine resumes in the last mode after a restart. More in [docs/DV.md](docs/DV.md).
 
@@ -236,7 +236,7 @@ make web         # build the web UI into internal/webui/dist
 make build       # bin/aslcp for this machine
 make test        # go test -race ./...
 make demo        # simulated node, no Asterisk needed; login demo / demo
-make debs        # dist/aslcp_<version>_{arm64,armhf,amd64}.deb
+make debs        # dist/aslcp_<version>_{arm64,amd64}.deb
 make print-version
 cd web && npm run dev:mock   # UI dev server with a mock API
 ```
