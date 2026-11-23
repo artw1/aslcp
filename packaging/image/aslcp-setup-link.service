@@ -1,0 +1,12 @@
+[Unit]
+Description=ASLCP image: show the one-time setup link on the console
+Documentation=file:///usr/share/doc/aslcp/README
+After=aslcp.service
+Wants=aslcp.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/aslcp-image/aslcp-setup-link.sh
+
+[Install]
+WantedBy=multi-user.target
