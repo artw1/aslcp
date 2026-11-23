@@ -36,6 +36,19 @@
 # the job fails the installer warns and still finishes; run "sudo aslcp dv
 # enable" later to retry. It combines with ASLCP_PORT:
 #   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_DV=1 ASLCP_PORT=8181 sh
+# AllStarLink 3: ASLCP_ASL3 controls whether the installer installs ASL3 itself.
+# auto (default, also 1, yes, true): if the asl3 package is missing, install
+# asl3 and asl3-menu; if asl3 is there but asl3-menu is not, install asl3-menu.
+# This happens before aslcp is installed. If ASL's apt repository is not set up
+# yet, the installer downloads asl-apt-repos from https://repo.allstarlink.org/public/,
+# checks its signing key against a pinned fingerprint and installs it, then runs
+# apt-get update. It can take several minutes. allmon3 and the Pi appliance
+# package are not installed. 0 (or no, false) never touches ASL3 (panel only).
+# ASL3 exists for Debian 12/13 on arm64 and amd64. On armhf or another release
+# the installer says so and carries on with a panel-only install, unless
+# ASLCP_ASL3=1 (yes, true) was given: then it stops with an error. Any other
+# value is refused.
+#   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL3=0 sh
 # Pre-flight: before anything is changed the installer refuses to run while
 # ASL3 is still finishing its first-boot setup (systemd still starting, or
 # asl3-boot-oneshot.service / resize2fs_once.service running) or while another
@@ -93,6 +106,17 @@ case "$DV_VAL" in
 *) die "ASLCP_DV must be 1, yes or true (got '$DV_VAL')" ;;
 esac
 [ "$TAKEOVER_UNDO" -eq 0 ] || [ "$DV_WANT" -eq 0 ] || die "ASLCP_TAKEOVER=undo cannot be combined with ASLCP_DV"
+
+# --- ASL3 (ASLCP_ASL3) -------------------------------------------------------
+# ASL3_MODE: auto (install what is missing, carry on if unavailable), force
+# (the same, but unavailable is an error) or skip.
+ASL3_MODE=auto
+case "${ASLCP_ASL3:-}" in
+"" | [Aa][Uu][Tt][Oo]) ;;
+1 | [Yy][Ee][Ss] | [Tt][Rr][Uu][Ee]) ASL3_MODE=force ;;
+0 | [Nn][Oo] | [Ff][Aa][Ll][Ss][Ee]) ASL3_MODE=skip ;;
+*) die "ASLCP_ASL3 must be auto, 1, yes, true, 0, no or false (got '${ASLCP_ASL3}')" ;;
+esac
 
 # --- pre-flight: first-boot setup / other package managers ------------------
 # preflight_busy: prints what is busy (one line) and succeeds, or fails when
@@ -186,6 +210,81 @@ if [ "$TAKEOVER_UNDO" -eq 0 ]; then
 		fi
 	}
 
+	# --- ASL3 and asl3-menu (ASLCP_ASL3) ---------------------------------------
+	# ---8<--- asl3-install (exercised by the Go tests in internal/pkgscripts; keep self-contained)
+	# Fingerprint of the ASL repository signing key: the key shipped in
+	# asl-apt-repos (deb12 and deb13 carry the same one), uid "AllStarLink
+	# Repository <repo@allstarlink.org>". Checked after asl-apt-repos is installed.
+	ASL_KEY_FPR=F2AF416869932ABB39E165E5409D50181BD84509
+	ASL_KEYRING="${ASLCP_ASL_KEYRING:-/etc/apt/keyrings/allstarlink.gpg}"
+	ASL_REPO_URL=https://repo.allstarlink.org/public
+
+	# pkg_installed PKG: succeeds when dpkg says PKG is fully installed.
+	pkg_installed() {
+		st=$(dpkg-query -W -f='${Status}' "$1" 2>/dev/null || true)
+		[ "$st" = "install ok installed" ]
+	}
+
+	# asl3_unavailable WHY: ASL3 cannot be installed here. Fatal when it was
+	# asked for explicitly, else the install goes on with the panel only.
+	asl3_unavailable() {
+		if [ "$ASL3_MODE" = force ]; then
+			die "ASL3 is not available for this system ($1) and ASLCP_ASL3=1 was given"
+		fi
+		say "ASL3 is not available for this system ($1); installing the panel only."
+		say "  (ASL3 needs Debian 12 or 13 on arm64 or amd64, for example Raspberry Pi OS 64-bit.)"
+		return 0
+	}
+
+	asl3_ensure() {
+		[ "$ASL3_MODE" != skip ] || return 0
+		missing=
+		pkg_installed asl3 || missing="asl3 asl3-menu"
+		if [ -z "$missing" ] && ! pkg_installed asl3-menu; then
+			missing=asl3-menu
+		fi
+		if [ -z "$missing" ]; then
+			say "ASL3 and asl3-menu are already installed"
+			return 0
+		fi
+		case "${VERSION_CODENAME:-}" in
+		bookworm) asl_nn=12 ;;
+		trixie) asl_nn=13 ;;
+		*)
+			asl3_unavailable "release '${VERSION_CODENAME:-unknown}'"
+			return 0
+			;;
+		esac
+		case "$ARCH" in
+		arm64 | amd64) ;;
+		*)
+			asl3_unavailable "architecture $ARCH"
+			return 0
+			;;
+		esac
+		say "installing $missing; this can take several minutes and downloads many packages"
+		if ! pkg_installed asl-apt-repos; then
+			asl_deb="$tmp/asl-apt-repos.deb${asl_nn}_all.deb"
+			say "adding the AllStarLink apt repository ($ASL_REPO_URL)"
+			fetch "$ASL_REPO_URL/asl-apt-repos.deb${asl_nn}_all.deb" "$asl_deb" || die "could not download $ASL_REPO_URL/asl-apt-repos.deb${asl_nn}_all.deb"
+			[ "$(dpkg-deb -f "$asl_deb" Package 2>/dev/null || true)" = asl-apt-repos ] || die "the downloaded file is not the asl-apt-repos package"
+			dpkg -i "$asl_deb" || die "could not install asl-apt-repos"
+			fpr=$(gpg --show-keys --with-colons --fingerprint "$ASL_KEYRING" 2>/dev/null | awk -F: '$1 == "pub" { p = 1; next } p && $1 == "fpr" { print $10; exit }' || true)
+			if [ "$fpr" != "$ASL_KEY_FPR" ]; then
+				dpkg --purge asl-apt-repos || true
+				die "the AllStarLink repository key does not match the expected fingerprint (got '${fpr:-none}', expected $ASL_KEY_FPR); asl-apt-repos was removed again"
+			fi
+			say "repository key verified ($ASL_KEY_FPR)"
+		fi
+		say "updating package lists"
+		apt-get update -o DPkg::Lock::Timeout=600 || die "apt-get update failed"
+		# shellcheck disable=SC2086
+		DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 $missing || die "could not install $missing"
+		say "installed $missing"
+	}
+	# --->8--- asl3-install
+
+	asl3_ensure
 
 	# --- signing key -----------------------------------------------------------
 	say "downloading the repository key"

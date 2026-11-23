@@ -349,3 +349,274 @@ func TestInstallOptionParsing(t *testing.T) {
 		}
 	}
 }
+
+func TestInstallASL3OptionParsing(t *testing.T) {
+	script := func(env ...string) (string, error) {
+		s := installScript(t)
+		i := strings.Index(s, "# --- ASL3 (ASLCP_ASL3)")
+		j := strings.Index(s, "# --- pre-flight")
+		if i < 0 || j < i {
+			t.Fatal("ASL3 option parsing not found")
+		}
+		cmd := exec.Command("sh", "-c", `die() { printf '%s\n' "error: $*" >&2; exit 1; }
+`+s[i:j]+`printf '%s\n' "$ASL3_MODE"
+`)
+		cmd.Env = append([]string{"PATH=" + os.Getenv("PATH")}, env...)
+		out, err := cmd.CombinedOutput()
+		return strings.TrimSpace(string(out)), err
+	}
+	for env, want := range map[string]string{
+		"": "auto", "auto": "auto", "1": "force", "yes": "force", "TRUE": "force",
+		"0": "skip", "no": "skip", "False": "skip",
+	} {
+		var e []string
+		if env != "" {
+			e = []string{"ASLCP_ASL3=" + env}
+		}
+		if got, err := script(e...); err != nil || got != want {
+			t.Errorf("ASLCP_ASL3=%q: got %q (%v), want %q", env, got, err, want)
+		}
+	}
+	for _, v := range []string{"2", "maybe", "on"} {
+		if got, err := script("ASLCP_ASL3=" + v); err == nil {
+			t.Errorf("ASLCP_ASL3=%s accepted: %q", v, got)
+		}
+	}
+}
+
+// asl3Env is a temporary root with fake dpkg-query, dpkg, dpkg-deb, apt-get
+// and gpg. Every call is appended to fake/calls, in order.
+type asl3Env struct{ *tkEnv }
+
+func newASL3Env(t *testing.T, installed ...string) *asl3Env {
+	t.Helper()
+	e := &asl3Env{newTkEnv(t, nil, ":8080")}
+	for _, p := range installed {
+		e.write("fake/inst-"+p, "")
+	}
+	e.write("fake/fpr", "F2AF416869932ABB39E165E5409D50181BD84509")
+	e.write("keyring.gpg", "x")
+	d := filepath.Join(e.dir, "fake")
+	e.writeExec("bin/dpkg-query", `#!/bin/sh
+echo "dpkg-query $*" >>`+d+`/calls
+for a; do p=$a; done
+if [ -f `+d+`/inst-$p ]; then printf 'install ok installed'; else echo "dpkg-query: no packages found matching $p" >&2; exit 1; fi
+`)
+	e.writeExec("bin/dpkg", `#!/bin/sh
+echo "dpkg $*" >>`+d+`/calls
+case "$1" in
+-i) : >`+d+`/inst-asl-apt-repos ;;
+--purge) rm -f `+d+`/inst-$2 ;;
+esac
+`)
+	e.writeExec("bin/dpkg-deb", `#!/bin/sh
+echo "dpkg-deb $*" >>`+d+`/calls
+cat `+d+`/debpkg 2>/dev/null || echo asl-apt-repos
+`)
+	e.writeExec("bin/apt-get", `#!/bin/sh
+echo "apt-get $*" >>`+d+`/calls
+case " $* " in
+*" install "*) for a; do case "$a" in asl3 | asl3-menu) : >`+d+`/inst-$a ;; esac; done ;;
+esac
+[ ! -f `+d+`/fail-apt ] || exit 100
+`)
+	e.writeExec("bin/gpg", `#!/bin/sh
+echo "gpg $*" >>`+d+`/calls
+printf 'pub:-:4096:1:409D50181BD84509:1714690500:::-:::scESC::::::23::0:\nfpr:::::::::%s:\nuid:-::::1714690500::D8C4::AllStarLink Repository:::::::::0:\nfpr:::::::::603F619811204DB98E1C7FD771EB4BABF529759F:\n' "$(cat `+d+`/fpr)"
+`)
+	return e
+}
+
+// ensure runs asl3_ensure with the given mode, codename and architecture.
+func (e *asl3Env) ensure(t *testing.T, mode, codename, arch string) (string, error) {
+	t.Helper()
+	s := installScript(t)
+	i := strings.Index(s, "# ---8<--- asl3-install")
+	j := strings.Index(s, "# --->8--- asl3-install")
+	if i < 0 || j < i {
+		t.Fatal("asl3-install markers not found")
+	}
+	d := filepath.Join(e.dir, "fake")
+	script := `say() { printf '%s\n' "aslcp-install: $*"; }
+die() { printf '%s\n' "aslcp-install: error: $*" >&2; exit 1; }
+tmp="$ASLCP_T"
+fetch() { echo "fetch $1" >>` + d + `/calls; : >"$2"; }
+ASL3_MODE=` + mode + `
+VERSION_CODENAME=` + codename + `
+ARCH=` + arch + `
+` + s[i:j] + "\nasl3_ensure\n"
+	cmd := exec.Command("sh", "-c", script)
+	cmd.Env = []string{
+		"PATH=" + e.bin + ":" + os.Getenv("PATH"),
+		"ASLCP_T=" + filepath.Join(e.dir, "tmp"),
+		"ASLCP_ASL_KEYRING=" + filepath.Join(e.dir, "keyring.gpg"),
+	}
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func (e *asl3Env) calls() string { return e.read("fake/calls") }
+
+func (e *asl3Env) installs() []string {
+	var r []string
+	for _, l := range strings.Split(e.calls(), "\n") {
+		if strings.HasPrefix(l, "apt-get ") && strings.Contains(l, " install ") {
+			r = append(r, l)
+		}
+	}
+	return r
+}
+
+func TestASL3InstallsBothWhenMissing(t *testing.T) {
+	e := newASL3Env(t)
+	out, err := e.ensure(t, "auto", "trixie", "arm64")
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	c := e.calls()
+	for _, want := range []string{
+		"fetch https://repo.allstarlink.org/public/asl-apt-repos.deb13_all.deb",
+		"dpkg-deb -f " + filepath.Join(e.dir, "tmp", "asl-apt-repos.deb13_all.deb") + " Package",
+		"dpkg -i " + filepath.Join(e.dir, "tmp", "asl-apt-repos.deb13_all.deb"),
+		"apt-get update",
+	} {
+		if !strings.Contains(c, want) {
+			t.Errorf("calls lack %q:\n%s", want, c)
+		}
+	}
+	in := e.installs()
+	if len(in) != 1 || !strings.HasSuffix(in[0], " asl3 asl3-menu") {
+		t.Errorf("installs = %q", in)
+	}
+	if strings.Index(c, "dpkg -i") > strings.Index(c, "apt-get update") || strings.Index(c, "apt-get update") > strings.Index(c, "apt-get install") {
+		t.Errorf("wrong order:\n%s", c)
+	}
+	if strings.Contains(c, "allmon3") || strings.Contains(c, "appliance") {
+		t.Errorf("unexpected packages:\n%s", c)
+	}
+}
+
+func TestASL3BookwormUsesDeb12(t *testing.T) {
+	e := newASL3Env(t)
+	if out, err := e.ensure(t, "auto", "bookworm", "amd64"); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if !strings.Contains(e.calls(), "asl-apt-repos.deb12_all.deb") {
+		t.Errorf("calls:\n%s", e.calls())
+	}
+}
+
+func TestASL3RepoAlreadyConfigured(t *testing.T) {
+	e := newASL3Env(t, "asl-apt-repos")
+	if out, err := e.ensure(t, "auto", "bookworm", "amd64"); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if c := e.calls(); strings.Contains(c, "fetch") || strings.Contains(c, "dpkg -i") || !strings.Contains(c, "apt-get update") {
+		t.Errorf("calls:\n%s", c)
+	}
+}
+
+func TestASL3OnlyMenuWhenAsl3Present(t *testing.T) {
+	e := newASL3Env(t, "asl3")
+	out, err := e.ensure(t, "auto", "trixie", "amd64")
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	in := e.installs()
+	if len(in) != 1 || !strings.HasSuffix(in[0], " asl3-menu") || strings.Contains(in[0], "asl3 ") {
+		t.Errorf("installs = %q", in)
+	}
+}
+
+func TestASL3NothingWhenBothPresent(t *testing.T) {
+	e := newASL3Env(t, "asl3", "asl3-menu")
+	out, err := e.ensure(t, "auto", "trixie", "amd64")
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	for _, bad := range []string{"apt-get", "dpkg -i", "fetch"} {
+		if strings.Contains(e.calls(), bad) {
+			t.Errorf("unexpected %q:\n%s", bad, e.calls())
+		}
+	}
+}
+
+func TestASL3SkipTouchesNothing(t *testing.T) {
+	e := newASL3Env(t)
+	out, err := e.ensure(t, "skip", "trixie", "amd64")
+	if err != nil || e.calls() != "" {
+		t.Fatalf("%v: %s\ncalls: %s", err, out, e.calls())
+	}
+}
+
+func TestASL3UnavailableContinuesOrFails(t *testing.T) {
+	for _, c := range []struct{ codename, arch string }{{"trixie", "armhf"}, {"bullseye", "amd64"}, {"", "arm64"}} {
+		e := newASL3Env(t)
+		out, err := e.ensure(t, "auto", c.codename, c.arch)
+		if err != nil || !strings.Contains(out, "ASL3 is not available for this system") {
+			t.Errorf("%v auto: %v: %s", c, err, out)
+		}
+		if strings.Contains(e.calls(), "apt-get") || strings.Contains(e.calls(), "fetch") {
+			t.Errorf("%v: touched apt:\n%s", c, e.calls())
+		}
+		e = newASL3Env(t)
+		out, err = e.ensure(t, "force", c.codename, c.arch)
+		if err == nil || !strings.Contains(out, "ASL3 is not available for this system") {
+			t.Errorf("%v force: %v: %s", c, err, out)
+		}
+	}
+}
+
+func TestASL3UnavailableButInstalledIsFine(t *testing.T) {
+	e := newASL3Env(t, "asl3", "asl3-menu")
+	if out, err := e.ensure(t, "force", "trixie", "armhf"); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+}
+
+func TestASL3FingerprintMismatchRemoves(t *testing.T) {
+	e := newASL3Env(t)
+	e.write("fake/fpr", "0000000000000000000000000000000000000000")
+	out, err := e.ensure(t, "auto", "trixie", "amd64")
+	if err == nil || !strings.Contains(out, "does not match") {
+		t.Fatalf("want failure: %v: %s", err, out)
+	}
+	c := e.calls()
+	if !strings.Contains(c, "dpkg --purge asl-apt-repos") {
+		t.Errorf("package not removed:\n%s", c)
+	}
+	if strings.Contains(c, "apt-get") {
+		t.Errorf("apt-get ran after a bad key:\n%s", c)
+	}
+}
+
+func TestASL3WrongPackageRefused(t *testing.T) {
+	e := newASL3Env(t)
+	e.write("fake/debpkg", "something-else")
+	out, err := e.ensure(t, "auto", "trixie", "amd64")
+	if err == nil || strings.Contains(e.calls(), "dpkg -i") {
+		t.Fatalf("want failure before dpkg -i: %v: %s\n%s", err, out, e.calls())
+	}
+}
+
+func TestASL3InstallFailureIsFatal(t *testing.T) {
+	e := newASL3Env(t, "asl-apt-repos")
+	e.write("fake/fail-apt", "")
+	if _, err := e.ensure(t, "auto", "trixie", "amd64"); err == nil {
+		t.Fatal("expected failure")
+	}
+}
+
+func TestASL3RunsBeforeAslcpInstall(t *testing.T) {
+	s := installScript(t)
+	call := strings.Index(s, "\n\tasl3_ensure\n")
+	inst := strings.Index(s, "say \"installing aslcp\"")
+	pre := strings.Index(s, "ASLCP_SKIP_PREFLIGHT")
+	take := strings.Index(s, "takeover_disable\nfi")
+	if call < 0 || inst < 0 || pre < 0 || take < 0 {
+		t.Fatalf("markers missing: %d %d %d %d", call, inst, pre, take)
+	}
+	if !(pre < call && call < inst && inst < take) {
+		t.Errorf("order wrong: preflight %d, asl3 %d, aslcp install %d, takeover %d", pre, call, inst, take)
+	}
+}
