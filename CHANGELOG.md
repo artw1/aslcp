@@ -3,6 +3,22 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [2.1.0] - 2026-11-23
+
+### Added
+- Config page: a node overview with a card per concept, and forms for Identity, Duplex & timers (with presets), Registration, EchoLink, the SimpleUSB device (levels stay in Audio Tuning), the Manager interface and Linking & telemetry. The raw editor moves to an Advanced tab.
+- Fields show whether a value comes from the template or from the node, and can be reset to the template or changed for all nodes. Every change is shown as a diff for review before it is applied.
+- "Set up this node" wizard for a fresh install: renumbers the sample node, sets the callsign, radio, duplex preset, registration and optional EchoLink, shows the combined diff, applies it, runs health and registration checks and offers a one-click rollback. Skipping it is remembered.
+- "Add node" wizard adds a second node (from the template, with radio, registration and duplex preset). It refuses a node number that already exists.
+- "Change node number" wizard renumbers every supported place including `savenode.conf` and Allmon3's `allmon3.ini`, restarts Asterisk, offers rollback and lists what it cannot change.
+- "Change radio interface" wizard switches between SimpleUSB and hub and keeps the device section. Other interfaces are refused.
+- Radio changes through the forms are refused on USBRadio, Voter and other unsupported interfaces; edit those in Advanced.
+- Manager (AMI) form: the secret is never shown, and rotating it generates a new one on the server, switches ASLCP's own AMI connection to it and updates `savenode.conf` and `allmon3.ini` when present. A warning shows for a non-loopback `bindaddr`.
+- Node, registration and AMI passwords are limited to characters that are safe in Asterisk files; the registration password may not contain `:`.
+- Access lists form: view, add and remove allow/deny entries per node. They take effect at once.
+- Status reporting form turns statistics posting on or off and sets its interval. `statpost_url` does not accept a user name or password.
+- Read-only DTMF commands and macros view explains each code and links to its line in Advanced.
+
 ## [2.0.5] - 2026-11-23
 
 ### Added
