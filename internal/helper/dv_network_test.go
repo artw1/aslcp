@@ -474,13 +474,28 @@ func TestDVNetworkNXDNIDRequired(t *testing.T) {
 	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "NXDN", Enabled: bp(true), Options: map[string]string{"nxdn_id": "12345"}}); err != nil {
 		t.Fatal(err)
 	}
-	// clearing it while NXDN is enabled is refused and changes nothing
-	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "NXDN", Options: map[string]string{}}); !errors.Is(err, ErrDVNetIncomplete) {
+	// clearing it while NXDN is enabled saves and turns NXDN off
+	rep, err := dvNetDo(o, DVNetworkRequest{Mode: "NXDN", Options: map[string]string{}})
+	if err != nil {
 		t.Fatalf("clear while enabled: %v", err)
 	}
-	if n := renderedNet(t, o, "NXDN"); n.Options["nxdn_id"] != "12345" {
+	for _, v := range rep.Networks {
+		if v.Mode == "NXDN" && (v.Enabled || v.Options["nxdn_id"] != "") {
+			t.Fatalf("%+v", v)
+		}
+	}
+	if n := renderedNet(t, o, "NXDN"); n.Enabled || n.Options["nxdn_id"] != "" {
 		t.Fatalf("%+v", n)
 	}
+	// enabling again without an ID is refused
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "NXDN", Enabled: bp(true)}); !errors.Is(err, ErrDVNetIncomplete) {
+		t.Fatalf("enable without ID: %v", err)
+	}
+	// enabling and clearing in one request is refused too
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "NXDN", Enabled: bp(true), Options: map[string]string{}}); !errors.Is(err, ErrDVNetIncomplete) {
+		t.Fatalf("enable and clear: %v", err)
+	}
+	dvNetDo(o, DVNetworkRequest{Mode: "NXDN", Enabled: bp(true), Options: map[string]string{"nxdn_id": "12345"}})
 	// switched off, it can be cleared
 	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "NXDN", Enabled: bp(false), Options: map[string]string{}}); err != nil {
 		t.Fatal(err)

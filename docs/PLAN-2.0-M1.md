@@ -381,7 +381,7 @@ GET /job is kept as the job log for the enable unit, so the UI's job poller logi
   - 5000 items per list, as today.
 - **User-Agent:** `ASLCP/<version>`, generic, with no callsign, node or ID.
 - **API:** `Get(mode) (DVList, error)` (same JSON shape as today, so dvlist.ts is unchanged), `Resolve(mode, value) (Target, bool)` and `Status()`.
-- **DMRIds.dat is not downloaded.** internal/radioid's user.csv already supplies ID→callsign plus name and location (a superset), weekly, with ETag. A second list would duplicate data and bandwidth. If the engine ever needs IDs offline, add DMRIds.dat as one more entry in the same manager. Flag this to the owner as a decision.
+- **DMRIds.dat is not downloaded.** internal/radioid's user.csv already supplies ID→callsign plus name and location (a superset), checked daily, with ETag. A second list would duplicate data and bandwidth. If the engine ever needs IDs offline, add DMRIds.dat as one more entry in the same manager. Flag this to the owner as a decision.
 - **Format check.** The Pi-Star file names differ from the previous stack's (YSF_Hosts vs YSFHosts). Before writing the parsers, verify the column layouts against a downloaded copy. Commit only synthetic fixtures.
 
 ### C.5 UI

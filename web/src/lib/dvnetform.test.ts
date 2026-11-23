@@ -1,7 +1,7 @@
 // Run with `npm test`. The generic network form and the availability helpers.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BM_HELP, MASTER_OTHER, applyMaster, masterChoice, masterListMode, buildPut, enableBlock, essidToRepeaterId, formError, formOf, hasChanges, identityError, loginText, liveLogin, savedMessage, modeAvailable, passwordUx, repeaterIdToEssid, validAddress } from './dvnetform.ts';
+import { nxdnOffNote, BM_HELP, MASTER_OTHER, applyMaster, masterChoice, masterListMode, buildPut, enableBlock, essidToRepeaterId, formError, formOf, hasChanges, identityError, loginText, liveLogin, savedMessage, modeAvailable, passwordUx, repeaterIdToEssid, validAddress } from './dvnetform.ts';
 import { cardState } from './dvmodes.ts';
 import type { DVListItem, DVNetView } from './types';
 
@@ -129,6 +129,14 @@ test('TGIF, DMR and NXDN forms', () => {
   assert.equal(enableBlock(nxdnId, { ...formOf(nxdnId), options: { nxdn_id: '   ' } }, id), 'Set the NXDN ID first');
   assert.equal(enableBlock(nxdnId, { ...formOf(nxdnId), options: { nxdn_id: '12345' } }, id), '');
   assert.equal(enableBlock(nxdnId, { ...formOf(nxdnId), options: { nxdn_id: '12345' } }, null), 'Set the callsign and DMR ID in the identity first');
+  // an enabled NXDN network with the ID erased is not blocked: saving turns it off, and the form says so
+  const on: DVNetView = { ...nxdnId, enabled: true, values: { nxdn_id: '12345' } };
+  const erased = { ...formOf(on), options: { nxdn_id: '' } };
+  assert.equal(enableBlock(on, erased, id), '');
+  assert.equal(nxdnOffNote(on, erased), 'Saving without an NXDN ID turns NXDN off.');
+  assert.equal(nxdnOffNote(on, formOf(on)), '');
+  assert.equal(nxdnOffNote(nxdnId, { ...formOf(nxdnId), enabled: true }), ''); // turning on: the enable block applies instead
+  assert.equal(savedMessage('NXDN', {}, undefined, true), 'NXDN settings saved, NXDN is off');
   assert.equal(enableBlock(tgif, f, id) === '', false); // other modes are not asked for it
   // erasing the NXDN ID, or the DMR master options, is sent as a cleared field
   const stored: DVNetView = { ...nxdnId, enabled: true, values: { nxdn_id: '12345' } };

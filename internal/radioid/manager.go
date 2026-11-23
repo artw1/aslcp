@@ -27,7 +27,7 @@ const (
 	// MaxSize caps one download (the list is 15 to 20 MB).
 	MaxSize = 64 << 20
 	// Refresh is the interval between checks.
-	Refresh = 7 * 24 * time.Hour
+	Refresh = 24 * time.Hour
 
 	downloadTimeout = 5 * time.Minute
 	firstDelay      = 45 * time.Second
@@ -217,7 +217,7 @@ func (g *Manager) ByID(id uint32) (User, bool) { return g.index().ByID(id) }
 func (g *Manager) ByCallsign(call string) (User, bool) { return g.index().ByCallsign(call) }
 
 // Run loads the list, then checks for a newer one every hour once the last
-// check is a week old, until ctx is done.
+// check is a day old, until ctx is done.
 func (g *Manager) Run(ctx context.Context) {
 	g.Load()
 	d := g.o.FirstDelay

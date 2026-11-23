@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/user"
+	"strings"
 
 	"github.com/artw1/aslcp/internal/dvpanel"
 )
@@ -153,6 +154,11 @@ func (o *Ops) DVNetwork(ctx context.Context, req *DVRequest) (DVNetworkReply, er
 		}
 		if u.Enabled != nil {
 			s.Enabled = *u.Enabled
+		}
+		// erasing the NXDN ID of an enabled NXDN network turns it off; turning it
+		// on without an ID is refused below
+		if sp.Mode == dvpanel.ModeNXDN && s.Enabled && strings.TrimSpace(s.Options["nxdn_id"]) == "" && (u.Enabled == nil || !*u.Enabled) {
+			s.Enabled = false
 		}
 		if s.Enabled {
 			id := dvpanel.IdentityState{}

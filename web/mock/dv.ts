@@ -293,6 +293,8 @@ function netsHandler(c: DVCtx): boolean {
     next.options = Object.fromEntries(Object.entries(body.options as Record<string, string>).filter(([, v]) => String(v) !== ''));
   }
   const sp = NETSPEC[mode];
+  // erasing the NXDN ID of an enabled NXDN network turns it off; turning it on without one is refused below
+  if (mode === 'NXDN' && next.enabled && !next.options.nxdn_id && body.enabled !== true) next.enabled = false;
   if (next.enabled) {
     const why = sp.fields.address && !sp.defaultAddress && !next.address ? 'set the master address first' : sp.fields.password && !sp.defaultPassword && !next.password ? 'set the password first' : !ident.callsign ? 'set the callsign and DMR ID in the identity first' : mode === 'NXDN' && !next.options.nxdn_id ? 'set the NXDN ID first' : '';
     if (why) return c.err(422, `incomplete: ${why}`, 'incomplete'), true;
