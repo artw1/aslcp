@@ -33,10 +33,19 @@ package instead of the repository's), `BASE_URL`/`BASE_SHA256` (another base
 image), `OUT_DIR`, `WORKDIR`, `GROW_MIB`, `MARGIN_MIB`, `XZ_LEVEL`, `SKIP_CHROOT=1`
 (dry run without packages). The script header lists them all.
 
-On GitHub: Actions, "Pi image", Run workflow. Inputs: `channel` (stable or beta)
-and `aslcp_source` (`build`: build the arm64 deb from the selected ref, or `repo`:
-install the published package). The result is a run artifact kept for 14 days.
-The workflow runs on `ubuntu-24.04-arm`, needs no secrets and has read-only
+On GitHub, the "Pi image" workflow (`.github/workflows/pi-image.yml`) runs in three ways:
+
+- Test build from any branch: push a tag `image-test-*`, for example
+  `git tag image-test-1 && git push origin image-test-1`.
+- Release build: push a release tag `vX.Y.Z` (the same tags as the Release
+  workflow). Once the workflow is on `main`, release tags build automatically.
+- Manual: Actions, "Pi image", Run workflow. Inputs: `channel` (stable or beta)
+  and `aslcp_source` (`build`: build the arm64 deb from the selected ref, or `repo`:
+  install the published package).
+
+Tag builds use the defaults: channel `stable`, `aslcp_source` `build`. The result
+is a run artifact kept for 14 days. No release asset is attached yet. The
+workflow runs on `ubuntu-24.04-arm`, needs no secrets and has read-only
 permissions.
 
 What the script does:
