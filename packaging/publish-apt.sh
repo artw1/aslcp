@@ -464,6 +464,10 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <div class="opt"><input type="checkbox" id="o-dvs"><label for="o-dvs">Also enable digital modes<small>Runs <code>aslcp dv enable</code> once ASLCP is up. It takes a few minutes.</small></label></div>
 </fieldset>
 <fieldset>
+<legend>ASL3 telemetry</legend>
+<div class="opt"><input type="checkbox" id="o-telem"><label for="o-telem">Turn off ASL3 telemetry<small>Disables and masks <code>asl-telemetry.timer</code>, the anonymous usage report ASL3 sends to AllStarLink every day. Left unchecked, ASL3 stays as it is.</small></label></div>
+</fieldset>
+<fieldset>
 <legend>Port 80 and other ASL web services</legend>
 <div class="opt"><input type="checkbox" id="o-take"><label for="o-take">Run ASLCP on port 80 and turn off the other ASL web services<small>Stops and disables Allmon3, the web server of the ASL web UIs (Apache, lighttpd or nginx), asl-web-ui and Supermon, if they are there. Asterisk keeps running. The panel is then at <code>http://your-node/</code>. You can undo it (see below).</small></label></div>
 </fieldset>
@@ -493,6 +497,7 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <dt><code>ASLCP_DV=1</code></dt><dd>Also enable digital modes (<code>yes</code> and <code>true</code> work too).</dd>
 <dt><code>ASLCP_PORT=8181</code></dt><dd>Web port, 1024-65535, or 80. The default is 8080. Avoid 9090 (Cockpit on ASL3).</dd>
 <dt><code>ASLCP_TAKEOVER=1</code></dt><dd>Run ASLCP on port 80 and turn off the other ASL web services (<code>yes</code> and <code>true</code> work too). See below.</dd>
+<dt><code>ASLCP_ASL_TELEMETRY=off</code></dt><dd>Turn off ASL3 telemetry, the anonymous usage report ASL3 sends to AllStarLink every day, and mask it (<code>0</code>, <code>no</code> and <code>false</code> work too). <code>ASLCP_ASL_TELEMETRY=on</code> turns it back on. By default it is left as ASL3 ships it (on).</dd>
 <dt><code>ASLCP_CHANNEL=beta</code></dt><dd>Use the beta channel (new builds before they are promoted to stable). The default is <code>stable</code>.</dd>
 </dl>
 <p style="margin-top:10px">Example with several options:</p>
@@ -583,7 +588,7 @@ sudo apt update &amp;&amp; sudo apt install aslcp</code></pre><button type="butt
 
   var wiz = document.getElementById("wizard"), stat = document.getElementById("params-static");
   var dvs = document.getElementById("o-dvs"), port = document.getElementById("o-port"),
-    beta = document.getElementById("o-beta"), take = document.getElementById("o-take"), out = document.getElementById("cmd-gen"),
+    beta = document.getElementById("o-beta"), take = document.getElementById("o-take"), telem = document.getElementById("o-telem"), out = document.getElementById("cmd-gen"),
     err = document.getElementById("o-port-err"), warn = document.getElementById("o-port-warn"),
     copyGen = document.getElementById("copy-gen");
   wiz.hidden = false; stat.hidden = true;
@@ -602,6 +607,7 @@ sudo apt update &amp;&amp; sudo apt install aslcp</code></pre><button type="butt
     if (dvs.checked) vars.push("ASLCP_DV=1");
     if (take.checked) vars.push("ASLCP_TAKEOVER=1");
     if (raw !== "" && raw !== "8080" && !(take.checked && raw === "80")) vars.push("ASLCP_PORT=" + raw);
+    if (telem.checked) vars.push("ASLCP_ASL_TELEMETRY=off");
     if (beta.checked) vars.push("ASLCP_CHANNEL=beta");
     out.textContent = "curl -fsSL " + BASE + "/install.sh | sudo " + (vars.length ? vars.join(" ") + " " : "") + "sh";
   }

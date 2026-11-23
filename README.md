@@ -136,6 +136,21 @@ curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_TAKEOVER=undo s
 
 ASLCP moves back to the port it had before (8080 unless you set another), then exactly the recorded units are enabled and started again. Apache and Allmon3 are also recorded in the list of the System tab (ASL services), so `apt purge aslcp` turns them back on; the other units are only restored by the undo command.
 
+#### ASL3 telemetry at install (`ASLCP_ASL_TELEMETRY`)
+
+ASL3 sends AllStarLink an anonymous usage report once a day (`asl-telemetry.timer`, which starts `asl-telemetry.service`). ASLCP leaves it on by default, as ASL3 ships it. To turn it off when installing, set `ASLCP_ASL_TELEMETRY=off` (`0`, `no` and `false` work too); the installer then runs `systemctl disable --now asl-telemetry.timer` and masks the timer and the service, so an ASL3 update does not turn it back on:
+
+```sh
+curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL_TELEMETRY=off sh
+```
+
+`ASLCP_ASL_TELEMETRY=on` (`1`, `yes`, `true`) unmasks and enables it again. Unset, the installer changes nothing. Any other value is refused, and so is a combination with `ASLCP_TAKEOVER=undo`. If the units are not there, the installer says there is nothing to turn off. By hand, on any node:
+
+```sh
+sudo systemctl disable --now asl-telemetry.timer
+sudo systemctl mask asl-telemetry.timer asl-telemetry.service
+```
+
 ### ASL services (Cockpit, Apache, Allmon3)
 
 **System, ASL services** has one switch each for Cockpit, Apache and Allmon3. A switch only stops and disables the service (`systemctl disable --now`); nothing is uninstalled, so the ASL3 Pi appliance package keeps working, and turning it on again is one click. ASLCP asks first and says what you lose (Cockpit is a fallback terminal and WiFi settings if ASLCP ever breaks: keep it until you are sure SSH works). Turning Apache off offers to turn Allmon3 off too, because Allmon3 answers on ports 16080 and 16700+ on every address even without Apache. The page lists which of ports 80, 443, 9090, 16080 and 16700+ are really listening, and can close or reopen the matching firewalld services. ASLCP never touches these services during an install or update, unless you ask for it with `ASLCP_TAKEOVER=1` (above). `apt purge aslcp` turns back on the services ASLCP itself had turned off (and no others); `apt remove` leaves everything as it is.

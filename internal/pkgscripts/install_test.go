@@ -359,6 +359,7 @@ func TestInstallASL3OptionParsing(t *testing.T) {
 			t.Fatal("ASL3 option parsing not found")
 		}
 		cmd := exec.Command("sh", "-c", `die() { printf '%s\n' "error: $*" >&2; exit 1; }
+TAKEOVER_UNDO=0
 `+s[i:j]+`printf '%s\n' "$ASL3_MODE"
 `)
 		cmd.Env = append([]string{"PATH=" + os.Getenv("PATH")}, env...)
@@ -689,5 +690,176 @@ func TestASL3GPGInstallFailureIsFatalAndLeavesNothing(t *testing.T) {
 	c := e.calls()
 	if strings.Contains(c, "dpkg -i") || strings.Contains(c, "fetch") {
 		t.Errorf("asl-apt-repos touched after gpg failure:\n%s", c)
+	}
+}
+
+// installTelemHead runs the option parsing of install.sh and prints the
+// telemetry mode.
+func installTelemHead(t *testing.T, env ...string) (string, error) {
+	t.Helper()
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	s := installScript(t)
+	i := strings.Index(s, "# --- takeover (ASLCP_TAKEOVER)")
+	j := strings.Index(s, "# --- pre-flight")
+	if i < 0 || j < i {
+		t.Fatal("option parsing not found")
+	}
+	script := `die() { printf '%s\n' "error: $*" >&2; exit 1; }
+` + s[i:j] + `printf 'telem=%s\n' "$TELEM_MODE"
+`
+	cmd := exec.Command("sh", "-c", script)
+	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH")}, env...)
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
+func TestInstallTelemetryOptionParsing(t *testing.T) {
+	ok := map[string]string{
+		"": "", "off": "off", "OFF": "off", "Off": "off", "0": "off", "no": "off", "NO": "off", "false": "off", "False": "off",
+		"on": "on", "ON": "on", "1": "on", "yes": "on", "Yes": "on", "true": "on", "TRUE": "on",
+	}
+	for v, want := range ok {
+		got, err := installTelemHead(t, "ASLCP_ASL_TELEMETRY="+v)
+		if err != nil || got != "telem="+want {
+			t.Errorf("%q: got %q (%v), want telem=%s", v, got, err, want)
+		}
+	}
+	if got, err := installTelemHead(t); err != nil || got != "telem=" {
+		t.Errorf("unset: got %q (%v)", got, err)
+	}
+	for _, v := range []string{"maybe", "2", "offf", "disable", "auto", " off"} {
+		if got, err := installTelemHead(t, "ASLCP_ASL_TELEMETRY="+v); err == nil || !strings.Contains(got, "ASLCP_ASL_TELEMETRY must be") {
+			t.Errorf("%q accepted or wrong error: %q (%v)", v, got, err)
+		}
+	}
+	if got, err := installTelemHead(t, "ASLCP_ASL_TELEMETRY=off", "ASLCP_TAKEOVER=undo"); err == nil {
+		t.Errorf("telemetry with takeover undo accepted: %q", got)
+	}
+	if got, err := installTelemHead(t, "ASLCP_ASL_TELEMETRY=off", "ASLCP_TAKEOVER=1", "ASLCP_DV=1"); err != nil || got != "telem=off" {
+		t.Errorf("combined: %q (%v)", got, err)
+	}
+}
+
+// telemRun runs asl_telemetry_apply with a fake systemctl. units lists the
+// asl-telemetry units that exist (systemctl cat succeeds for them). failOn
+// names a systemctl verb that fails. It returns the output and the calls.
+func telemRun(t *testing.T, mode string, units []string, failOn string) (string, string) {
+	t.Helper()
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	have := strings.Join(units, " ")
+	fake := `#!/bin/sh
+echo "$*" >>` + dir + `/calls
+[ "$1" != "` + failOn + `" ] || exit 1
+if [ "$1" = cat ]; then case " ` + have + ` " in *" $2 "*) exit 0 ;; *) exit 1 ;; esac; fi
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(dir, "bin", "systemctl"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := installScript(t)
+	i := strings.Index(s, "# ---8<--- asl-telemetry")
+	j := strings.Index(s, "# --->8--- asl-telemetry")
+	if i < 0 || j < i {
+		t.Fatal("asl-telemetry markers not found")
+	}
+	script := `say() { printf '%s\n' "aslcp-install: $*"; }
+set -eu
+TELEM_MODE="` + mode + `"
+` + s[i:j] + "\nasl_telemetry_apply\n"
+	cmd := exec.Command("sh", "-c", script)
+	cmd.Env = []string{"PATH=" + filepath.Join(dir, "bin") + ":" + os.Getenv("PATH")}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "calls"))
+	return string(out), string(b)
+}
+
+var telemUnits = []string{"asl-telemetry.timer", "asl-telemetry.service"}
+
+func TestTelemetryOffWithUnits(t *testing.T) {
+	out, calls := telemRun(t, "off", telemUnits, "")
+	for _, want := range []string{"disable --now asl-telemetry.timer\n", "mask asl-telemetry.timer asl-telemetry.service\n"} {
+		if !strings.Contains(calls, want) {
+			t.Errorf("missing %q in calls:\n%s", want, calls)
+		}
+	}
+	if strings.Contains(calls, "unmask") || strings.Contains(calls, "enable") {
+		t.Errorf("unexpected calls:\n%s", calls)
+	}
+	if strings.Index(calls, "disable") > strings.Index(calls, "mask") {
+		t.Errorf("disable must come before mask:\n%s", calls)
+	}
+	if !strings.Contains(out, "ASL3 telemetry turned off (asl-telemetry.timer masked)") {
+		t.Errorf("output: %s", out)
+	}
+}
+
+func TestTelemetryOffWithoutUnits(t *testing.T) {
+	out, calls := telemRun(t, "off", nil, "")
+	if strings.Contains(calls, "disable") || strings.Contains(calls, "mask") {
+		t.Errorf("must not disable or mask:\n%s", calls)
+	}
+	if !strings.Contains(out, "not installed, nothing to turn off") {
+		t.Errorf("output: %s", out)
+	}
+}
+
+func TestTelemetryOffFailureIsOnlyAWarning(t *testing.T) {
+	for _, verb := range []string{"disable", "mask"} {
+		out, _ := telemRun(t, "off", telemUnits, verb)
+		if !strings.Contains(out, "warning:") {
+			t.Errorf("%s failure: no warning: %s", verb, out)
+		}
+	}
+}
+
+func TestTelemetryOn(t *testing.T) {
+	out, calls := telemRun(t, "on", telemUnits, "")
+	for _, want := range []string{"unmask asl-telemetry.timer asl-telemetry.service\n", "enable --now asl-telemetry.timer\n"} {
+		if !strings.Contains(calls, want) {
+			t.Errorf("missing %q in calls:\n%s", want, calls)
+		}
+	}
+	if strings.Index(calls, "unmask") > strings.Index(calls, "enable") {
+		t.Errorf("unmask must come before enable:\n%s", calls)
+	}
+	if !strings.Contains(out, "ASL3 telemetry turned on") {
+		t.Errorf("output: %s", out)
+	}
+	_, calls = telemRun(t, "on", nil, "")
+	if strings.Contains(calls, "enable") || strings.Contains(calls, "unmask") {
+		t.Errorf("no units: unexpected calls:\n%s", calls)
+	}
+}
+
+func TestTelemetryUnsetCallsNothing(t *testing.T) {
+	out, calls := telemRun(t, "", telemUnits, "")
+	if calls != "" || out != "" {
+		t.Errorf("calls %q, output %q", calls, out)
+	}
+}
+
+func TestTelemetryRunsAfterASL3Ensure(t *testing.T) {
+	s := installScript(t)
+	ens := strings.Index(s, "\n\tasl3_ensure\n")
+	tel := strings.Index(s, "\n\tasl_telemetry_apply\n")
+	inst := strings.Index(s, "say \"installing aslcp\"")
+	if ens < 0 || tel < 0 || inst < 0 || !(ens < tel && tel < inst) {
+		t.Errorf("order wrong: asl3_ensure %d, telemetry %d, aslcp install %d", ens, tel, inst)
+	}
+	pre := strings.Index(s, "# --- pre-flight")
+	parse := strings.Index(s, "# --- ASL3 telemetry (ASLCP_ASL_TELEMETRY)")
+	if parse < 0 || parse > pre {
+		t.Errorf("telemetry option must be parsed before the pre-flight (%d, %d)", parse, pre)
 	}
 }

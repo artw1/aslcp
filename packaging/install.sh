@@ -49,6 +49,17 @@
 # ASLCP_ASL3=1 (yes, true) was given: then it stops with an error. Any other
 # value is refused.
 #   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL3=0 sh
+# ASL3 telemetry: ASL3 ships asl-telemetry.timer, which once a day sends
+# AllStarLink an anonymous usage report (asl-telemetry.service). ASLCP leaves
+# it as it is by default. ASLCP_ASL_TELEMETRY=off (also 0, no, false) turns it
+# off: "systemctl disable --now asl-telemetry.timer" and "systemctl mask" of the
+# timer and the service, if they exist (otherwise it says there is nothing to
+# turn off). ASLCP_ASL_TELEMETRY=on (also 1, yes, true) undoes that (unmask and
+# "enable --now" of the timer). Unset or empty changes nothing. It runs right
+# after the ASL3 step, so it also works when ASL3 was just installed. A failure
+# only produces a warning. Any other value is refused, and so is a combination
+# with ASLCP_TAKEOVER=undo (which does no package work and stops before this).
+#   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL_TELEMETRY=off sh
 # Pre-flight: before anything is changed the installer refuses to run while
 # ASL3 is still finishing its first-boot setup (systemd still starting, or
 # asl3-boot-oneshot.service / resize2fs_once.service running) or while another
@@ -117,6 +128,17 @@ case "${ASLCP_ASL3:-}" in
 0 | [Nn][Oo] | [Ff][Aa][Ll][Ss][Ee]) ASL3_MODE=skip ;;
 *) die "ASLCP_ASL3 must be auto, 1, yes, true, 0, no or false (got '${ASLCP_ASL3}')" ;;
 esac
+
+# --- ASL3 telemetry (ASLCP_ASL_TELEMETRY) ------------------------------------
+# TELEM_MODE: empty (leave as is), off or on.
+TELEM_MODE=
+case "${ASLCP_ASL_TELEMETRY:-}" in
+"") ;;
+[Oo][Ff][Ff] | 0 | [Nn][Oo] | [Ff][Aa][Ll][Ss][Ee]) TELEM_MODE=off ;;
+[Oo][Nn] | 1 | [Yy][Ee][Ss] | [Tt][Rr][Uu][Ee]) TELEM_MODE=on ;;
+*) die "ASLCP_ASL_TELEMETRY must be off, 0, no, false, on, 1, yes or true (got '${ASLCP_ASL_TELEMETRY}')" ;;
+esac
+[ "$TAKEOVER_UNDO" -eq 0 ] || [ -z "$TELEM_MODE" ] || die "ASLCP_TAKEOVER=undo cannot be combined with ASLCP_ASL_TELEMETRY"
 
 # --- pre-flight: first-boot setup / other package managers ------------------
 # preflight_busy: prints what is busy (one line) and succeeds, or fails when
@@ -294,6 +316,47 @@ if [ "$TAKEOVER_UNDO" -eq 0 ]; then
 	# --->8--- asl3-install
 
 	asl3_ensure
+
+	# ---8<--- asl-telemetry (exercised by a local test harness; keep self-contained)
+	# asl_telemetry_apply: acts on TELEM_MODE (off, on or empty). Never fatal.
+	asl_telemetry_apply() {
+		[ -n "$TELEM_MODE" ] || return 0
+		telem_t=0
+		telem_s=0
+		if command -v systemctl >/dev/null 2>&1; then
+			systemctl cat asl-telemetry.timer >/dev/null 2>&1 && telem_t=1
+			systemctl cat asl-telemetry.service >/dev/null 2>&1 && telem_s=1
+		fi
+		if [ "$telem_t" -eq 0 ] && [ "$telem_s" -eq 0 ]; then
+			say "ASL3 telemetry: asl-telemetry.timer is not installed, nothing to turn $TELEM_MODE"
+			return 0
+		fi
+		if [ "$TELEM_MODE" = off ]; then
+			if [ "$telem_t" -eq 1 ] && ! systemctl disable --now asl-telemetry.timer >/dev/null 2>&1; then
+				say "warning: could not disable asl-telemetry.timer"
+			fi
+			if systemctl mask asl-telemetry.timer asl-telemetry.service >/dev/null 2>&1; then
+				say "ASL3 telemetry turned off (asl-telemetry.timer masked)"
+			else
+				say "warning: could not mask asl-telemetry.timer and asl-telemetry.service"
+			fi
+		else
+			if ! systemctl unmask asl-telemetry.timer asl-telemetry.service >/dev/null 2>&1; then
+				say "warning: could not unmask asl-telemetry.timer and asl-telemetry.service"
+			fi
+			if [ "$telem_t" -eq 1 ]; then
+				if systemctl enable --now asl-telemetry.timer >/dev/null 2>&1; then
+					say "ASL3 telemetry turned on (asl-telemetry.timer enabled)"
+				else
+					say "warning: could not enable asl-telemetry.timer"
+				fi
+			fi
+		fi
+		return 0
+	}
+	# --->8--- asl-telemetry
+
+	asl_telemetry_apply
 
 	# --- signing key -----------------------------------------------------------
 	say "downloading the repository key"
