@@ -18,3 +18,5 @@ bin/
 # Build output (debs, apt repo staging)
 dist/
 .tmp-apt/
+image-out/
+image-work/

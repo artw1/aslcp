@@ -1,0 +1,90 @@
+name: Pi image
+
+# Builds the flashable Raspberry Pi image "ASLCP for ASL3" (latest Raspberry Pi OS
+# Lite arm64 + ASL3 + ASLCP) and attaches it to the run as an artifact (kept 14
+# days). Nothing is released or published: no GitHub release, no gh-pages.
+# Three triggers:
+#  - tag v*.*.* (release tags, same pattern as release.yml): builds automatically
+#    with the default inputs (channel stable, aslcp_source build);
+#  - tag image-test-*: test builds from any branch (git tag image-test-1 && git push origin image-test-1);
+#  - workflow_dispatch: manual run with the channel and aslcp_source inputs.
+# Inputs do not exist on tag pushes, so every use of inputs has a default.
+# See packaging/image/README.md.
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: ASLCP update channel configured in the image
+        type: choice
+        options: [stable, beta]
+        default: stable
+      aslcp_source:
+        description: "ASLCP package: build it from this ref, or install the published one from the apt repository"
+        type: choice
+        options: [build, repo]
+        default: build
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+', 'image-test-*']
+
+concurrency:
+  group: pi-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    # Native arm64: the chroot runs without emulation.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env:
+      CHANNEL: ${{ inputs.channel || 'stable' }}
+      ASLCP_SOURCE: ${{ inputs.aslcp_source || 'build' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history and tags: the package version comes from git describe
+      - uses: actions/setup-go@v5
+        if: ${{ (inputs.aslcp_source || 'build') == 'build' }}
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        if: ${{ (inputs.aslcp_source || 'build') == 'build' }}
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build the arm64 deb
+        if: ${{ (inputs.aslcp_source || 'build') == 'build' }}
+        run: make deb ARCH=arm64
+      - name: Host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y parted e2fsprogs xz-utils curl jq dosfstools util-linux zerofree
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost || true
+          df -h /
+      - name: Build the image
+        run: |
+          if [ "$ASLCP_SOURCE" = build ]; then
+            deb=$(ls "$PWD"/dist/aslcp_*_arm64.deb)
+            export ASLCP_DEB="$deb"
+          fi
+          sudo --preserve-env=CHANNEL,ASLCP_DEB env OUT_DIR="$PWD/image-out" packaging/image/build-image.sh
+      - name: Result
+        run: |
+          ls -l image-out
+          cat image-out/image-info.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pi-image-${{ env.CHANNEL }}-${{ github.run_id }}
+          path: |
+            image-out/*.img.xz
+            image-out/*.sha256
+            image-out/*.manifest.txt
+            image-out/image-info.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0 # the image is already xz-compressed
