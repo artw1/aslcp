@@ -13,6 +13,9 @@ Release notes are taken from the section of the tag being released
 ### Removed
 - 32-bit (armhf) builds: ASL3 only ships arm64 and amd64. Existing armhf installs keep working but get no further updates; reinstall with Raspberry Pi OS Lite (64-bit). `install.sh` refuses on a 32-bit system before changing anything, and the Updates and Digital modes pages tell armhf users to reinstall.
 
+### Fixed
+- DMR networks using the Homebrew protocol: retuning right after the network logged in could send two link bursts at once with mixed-up packet sequence numbers. They are now sent one at a time.
+
 ## [2.0.5] - 2026-11-23
 
 ### Added
