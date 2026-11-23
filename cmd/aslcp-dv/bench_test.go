@@ -42,3 +42,20 @@ func TestVersionAndUsage(t *testing.T) {
 		t.Fatal(rc)
 	}
 }
+
+func TestBenchCodec2(t *testing.T) {
+	for _, m := range []string{"encode", "decode", "roundtrip"} {
+		var out, errb bytes.Buffer
+		args := []string{"bench", "-codec", "codec2", "-fake", "-frames", "100", "-mode", m}
+		if rc := dispatch(context.Background(), args, &out, &errb); rc != 0 {
+			t.Fatalf("%s rc=%d\n%s%s", m, rc, out.String(), errb.String())
+		}
+		if !strings.Contains(out.String(), "codec2 native mode="+m) || !strings.Contains(out.String(), "timeouts   0") {
+			t.Fatal(out.String())
+		}
+	}
+	var out, errb bytes.Buffer
+	if rc := dispatch(context.Background(), []string{"bench", "-codec", "bogus"}, &out, &errb); rc != 2 {
+		t.Fatalf("rc=%d", rc)
+	}
+}

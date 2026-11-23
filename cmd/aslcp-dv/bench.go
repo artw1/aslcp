@@ -50,15 +50,18 @@ func bench(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	frames := fs.Int("frames", 1500, "total frames")
 	mode := fs.String("mode", "roundtrip", "encode, decode or roundtrip")
 	conc := fs.Int("concurrency", 1, "parallel clients")
-	useFake := fs.Bool("fake", false, "use the in-process fake server")
+	useFake := fs.Bool("fake", false, "use the in-process fake server (relaxes the p99 bound for codec2)")
+	codec := fs.String("codec", "ambe", "ambe (md380-emu) or codec2 (native Go, in process)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if *frames < 1 || *conc < 1 || (*mode != "encode" && *mode != "decode" && *mode != "roundtrip") {
+	if *frames < 1 || *conc < 1 || (*mode != "encode" && *mode != "decode" && *mode != "roundtrip") ||
+		(*codec != "ambe" && *codec != "codec2") {
 		fmt.Fprintln(stderr, "aslcp-dv bench: bad flags")
 		return 2
 	}
-	if *useFake {
+	c2 := *codec == "codec2"
+	if *useFake && !c2 {
 		srv, err := fake.New("127.0.0.1:0")
 		if err != nil {
 			fmt.Fprintln(stderr, "aslcp-dv bench:", err)
@@ -78,27 +81,53 @@ func bench(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			m := vocoder.NewMD380(*addr, 0) // one client (two sockets) per worker
-			defer m.Close()
+			var m *vocoder.MD380
+			var enc, dec *vocoder.C2 // codec2: one encoder and decoder per worker
+			if c2 {
+				enc, dec = vocoder.NewCodec2(), vocoder.NewCodec2()
+			} else {
+				m = vocoder.NewMD380(*addr, 0) // one client (two sockets) per worker
+				defer m.Close()
+			}
 			local := make([]time.Duration, 0, per)
 			ambe := vocoder.SilenceAMBE
+			var c2sil [vocoder.C2Bytes]byte
+			if c2 {
+				c2sil = enc.Encode(new([vocoder.PCMSamples]int16))
+			}
 			for n := 0; n < per && ctx.Err() == nil; n++ {
 				t0 := time.Now()
-				switch *mode {
-				case "encode":
-					m.Encode(ctx, sineFrame(n))
-				case "decode":
-					m.Decode(ctx, ambe)
+				switch {
+				case c2:
+					switch *mode {
+					case "encode":
+						enc.Encode(sineFrame(n))
+					case "decode":
+						dec.Decode(&c2sil)
+					default:
+						f := enc.Encode(sineFrame(n))
+						dec.Decode(&f)
+					}
 				default:
-					a, _ := m.Encode(ctx, sineFrame(n))
-					m.Decode(ctx, a)
+					switch *mode {
+					case "encode":
+						m.Encode(ctx, sineFrame(n))
+					case "decode":
+						m.Decode(ctx, ambe)
+					default:
+						a, _ := m.Encode(ctx, sineFrame(n))
+						m.Decode(ctx, a)
+					}
 				}
 				local = append(local, time.Since(t0))
 			}
-			s := m.Stats()
+			var tmo uint64
+			if m != nil {
+				tmo = m.Stats().Timeouts
+			}
 			mu.Lock()
 			lat = append(lat, local...)
-			timeouts += s.Timeouts
+			timeouts += tmo
 			done += uint64(len(local))
 			mu.Unlock()
 		}()
@@ -112,7 +141,11 @@ func bench(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	sort.Slice(lat, func(i, j int) bool { return lat[i] < lat[j] })
 	fps := float64(done) / el.Seconds()
 	p99 := percentile(lat, 0.99)
-	fmt.Fprintf(stdout, "md380 %s mode=%s concurrency=%d frames=%d\n", *addr, *mode, *conc, done)
+	if c2 {
+		fmt.Fprintf(stdout, "codec2 native mode=%s concurrency=%d frames=%d\n", *mode, *conc, done)
+	} else {
+		fmt.Fprintf(stdout, "md380 %s mode=%s concurrency=%d frames=%d\n", *addr, *mode, *conc, done)
+	}
 	fmt.Fprintf(stdout, "frames/s   %.0f\n", fps)
 	fmt.Fprintf(stdout, "real-time  %.1fx\n", fps/50)
 	fmt.Fprintf(stdout, "latency    p50 %v  p90 %v  p99 %v  max %v\n",
