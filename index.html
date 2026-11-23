@@ -2,7 +2,7 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>ASLCP - web control panel for AllStarLink 3</title>
-<meta name="description" content="Install ASLCP, a web control panel for AllStarLink 3 nodes (with DVSwitch), from the signed apt repository.">
+<meta name="description" content="Install ASLCP, a web control panel for AllStarLink 3 nodes (with digital modes), from the signed apt repository.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230ea5e9'/%3E%3Cpath d='M8 22a11 11 0 0 1 16 0M11.5 18.5a6 6 0 0 1 9 0' stroke='%23fff' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='23' r='2' fill='%23fff'/%3E%3C/svg%3E">
 <style>
 :root{--bg:#f3f5f8;--surface:#fff;--surface-2:#e9edf2;--line:#cfd6df;--fg:#0f172a;--muted:#566274;--accent:#0369a1;--accent-fg:#fff;--ok:#15803d;--warn:#a16207;--danger:#b91c1c;
@@ -81,10 +81,10 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <main class="wrap" id="top">
 <section class="hero">
 <h1>A web control panel for your AllStarLink 3 node</h1>
-<p class="lead">ASLCP lets you connect, monitor and manage favorites with live status from any browser, and it can set up DVSwitch for you. It runs on Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS (arm64, armhf, amd64).</p>
+<p class="lead">ASLCP lets you connect, monitor and manage favorites with live status from any browser, and it can set up digital modes for you. It runs on Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS (arm64, armhf, amd64).</p>
 <ul class="badges">
 <li class="badge">Latest release <b>1.4.0</b></li>
-<li class="badge">Latest beta <b>1.4.0</b> (same as stable)</li>
+<li class="badge">Latest beta <b>2.0.0</b></li>
 </ul>
 <p class="muted">Docs, screenshots and bug reports are on <a href="https://github.com/artw1/aslcp">GitHub</a>.</p>
 </section>
@@ -105,8 +105,8 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <p class="muted">Pick what you need and copy the command. Everything is optional.</p>
 <form id="opts" onsubmit="return false" novalidate>
 <fieldset>
-<legend>DVSwitch</legend>
-<div class="opt"><input type="checkbox" id="o-dvs"><label for="o-dvs">Also install DVSwitch<small>Runs <code>aslcp dvswitch install</code> once ASLCP is up. It takes a few minutes.</small></label></div>
+<legend>Digital modes</legend>
+<div class="opt"><input type="checkbox" id="o-dvs"><label for="o-dvs">Also enable digital modes<small>Runs <code>aslcp dv enable</code> once ASLCP is up. It takes a few minutes.</small></label></div>
 </fieldset>
 <fieldset>
 <legend>Web port</legend>
@@ -130,12 +130,12 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <div id="params-static">
 <p>Add these before <code>sh</code>, after <code>sudo</code>, separated by spaces. All are optional:</p>
 <dl class="params">
-<dt><code>ASLCP_DVSWITCH=1</code></dt><dd>Also install DVSwitch (<code>yes</code> and <code>true</code> work too).</dd>
+<dt><code>ASLCP_DV=1</code></dt><dd>Also enable digital modes (<code>yes</code> and <code>true</code> work too).</dd>
 <dt><code>ASLCP_PORT=8181</code></dt><dd>Web port, 1024-65535. The default is 8080. Avoid 9090 (Cockpit on ASL3).</dd>
 <dt><code>ASLCP_CHANNEL=beta</code></dt><dd>Use the beta channel (new builds before they are promoted to stable). The default is <code>stable</code>.</dd>
 </dl>
 <p style="margin-top:10px">Example with all three:</p>
-<div class="cmd"><pre tabindex="0"><code id="cmd-example">curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DVSWITCH=1 ASLCP_PORT=8181 ASLCP_CHANNEL=beta sh</code></pre><button type="button" class="copy" data-copy="cmd-example" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
+<div class="cmd"><pre tabindex="0"><code id="cmd-example">curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DV=1 ASLCP_PORT=8181 ASLCP_CHANNEL=beta sh</code></pre><button type="button" class="copy" data-copy="cmd-example" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
 </div>
 </section>
 
@@ -144,15 +144,15 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <h3>Web port</h3>
 <p>The web interface listens on port <strong>8080</strong> by default. To change it, run the installer again with <code>ASLCP_PORT</code> (1024-65535), or edit <code>listen</code> in <code>/etc/aslcp/aslcp.conf</code> (for example <code>listen = :8181</code>) and run <code>sudo systemctl restart aslcp</code>. The installer warns if another program already uses the port.</p>
 <p>If firewalld is running, the installer and the package open the configured port for you. With another firewall (ufw, nftables, a router) open the TCP port yourself. If you edit <code>listen</code> by hand while firewalld is running, open the new port too.</p>
-<h3>DVSwitch</h3>
-<p>Run <code>sudo aslcp dvswitch install</code>, or use the DVSwitch page in the web UI. If the install fails during the installer, the installer still finishes and you can retry with this command.</p>
+<h3>Digital modes</h3>
+<p>Run <code>sudo aslcp dv enable</code>, or use the Digital modes page in the web UI. If enabling fails during the installer, the installer still finishes and you can retry with this command.</p>
 <h3>Update</h3>
 <p>Use Settings &rarr; Updates in the web UI, or:</p>
 <div class="cmd"><pre tabindex="0"><code id="cmd-update">sudo apt update &amp;&amp; sudo apt upgrade</code></pre><button type="button" class="copy" data-copy="cmd-update" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
 <h3>Uninstall</h3>
 <div class="cmd"><pre tabindex="0"><code id="cmd-remove">sudo apt remove aslcp   # keeps users and favorites
 sudo apt purge aslcp    # also deletes them</code></pre><button type="button" class="copy" data-copy="cmd-remove" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
-<p><code>apt purge</code> also deletes the config history and ASLCP's DVSwitch state (which holds copies of the DVSwitch passwords). Your Asterisk config and DVSwitch itself stay. Uninstall DVSwitch from its page first if you want it gone too.</p>
+<p><code>apt purge</code> also deletes the config history and ASLCP's digital modes state (which holds copies of network passwords). Your Asterisk config stays.</p>
 </section>
 
 <section class="card" aria-labelledby="h-manual">
@@ -229,7 +229,7 @@ sudo apt update &amp;&amp; sudo apt install aslcp</code></pre><button type="butt
     warn.textContent = w; warn.hidden = !w;
     if (!valid) return;
     var vars = [];
-    if (dvs.checked) vars.push("ASLCP_DVSWITCH=1");
+    if (dvs.checked) vars.push("ASLCP_DV=1");
     if (raw !== "" && raw !== "8080") vars.push("ASLCP_PORT=" + raw);
     if (beta.checked) vars.push("ASLCP_CHANNEL=beta");
     out.textContent = "curl -fsSL " + BASE + "/install.sh | sudo " + (vars.length ? vars.join(" ") + " " : "") + "sh";

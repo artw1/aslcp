@@ -10,12 +10,13 @@
 # rewritten (an address part is kept), aslcp is restarted and the port is opened
 # in firewalld (if it is running). Without ASLCP_PORT the configured port is kept.
 # The installer warns when another program already uses the port.
-# DVSwitch: ASLCP_DVSWITCH=1 (or yes, true) also installs DVSwitch once ASLCP is
-# running, with "aslcp dvswitch install" (the same install as the DVSwitch page;
-# it takes a few minutes and follows the log). Any other non-empty value is
-# refused. If that install fails the installer warns and still finishes; run
-# "sudo aslcp dvswitch install" later to retry. It combines with ASLCP_PORT:
-#   curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DVSWITCH=1 ASLCP_PORT=8181 sh
+# Digital modes: ASLCP_DV=1 (or yes, true) also enables digital modes once ASLCP
+# is running, with "aslcp dv enable" (the same job as the Enable button of the
+# digital modes page; it takes a few minutes and follows the log). Any other
+# non-empty value is refused. If
+# the job fails the installer warns and still finishes; run "sudo aslcp dv
+# enable" later to retry. It combines with ASLCP_PORT:
+#   curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DV=1 ASLCP_PORT=8181 sh
 # Pre-flight: before anything is changed the installer refuses to run while
 # ASL3 is still finishing its first-boot setup (systemd still starting, or
 # asl3-boot-oneshot.service / resize2fs_once.service running) or while another
@@ -48,12 +49,13 @@ if [ -n "$PORT_WANT" ]; then
 	[ "$PORT_WANT" -ge 1024 ] || die "ASLCP_PORT must be 1024 or higher: ASLCP runs without privileges and cannot listen on port $PORT_WANT (got '$PORT_WANT')"
 fi
 
-# --- DVSwitch (ASLCP_DVSWITCH) ----------------------------------------------
+# --- digital modes (ASLCP_DV) -------------------------------------------------
 DV_WANT=0
-case "${ASLCP_DVSWITCH:-}" in
+DV_VAL="${ASLCP_DV:-}"
+case "$DV_VAL" in
 "") ;;
 1 | [Yy][Ee][Ss] | [Tt][Rr][Uu][Ee]) DV_WANT=1 ;;
-*) die "ASLCP_DVSWITCH must be 1, yes or true (got '$ASLCP_DVSWITCH')" ;;
+*) die "ASLCP_DV must be 1, yes or true (got '$DV_VAL')" ;;
 esac
 
 # --- pre-flight: first-boot setup / other package managers ------------------
@@ -360,11 +362,11 @@ fw_open() {
 	fi
 }
 
-# dvswitch_install: run "aslcp dvswitch install" once the service is running.
+# dv_enable: run "aslcp dv enable" once the service is running.
 # Sets DV_RESULT for the closing lines; a failure only warns.
 DV_RESULT=
-dvswitch_install() {
-	say "installing DVSwitch (this takes a few minutes)"
+dv_enable() {
+	say "enabling digital modes (this takes a few minutes)"
 	n=0
 	if [ -d /run/systemd/system ]; then
 		while ! systemctl is-active --quiet aslcp 2>/dev/null && [ "$n" -lt "${ASLCP_WAIT:-10}" ]; do
@@ -372,20 +374,20 @@ dvswitch_install() {
 			n=$((n + 1))
 		done
 	fi
-	if aslcp dvswitch install --config "$CONF"; then
-		DV_RESULT="installed. Set it up on the DVSwitch page of the web UI."
+	if aslcp dv enable --config "$CONF"; then
+		DV_RESULT="enabled. Set it up on the digital modes page of the web UI."
 	else
-		DV_RESULT="NOT installed (see the messages above). ASLCP itself is installed; retry with: sudo aslcp dvswitch install"
-		say "warning: the DVSwitch install failed; continuing"
+		DV_RESULT="NOT enabled (see the messages above). ASLCP itself is installed; retry with: sudo aslcp dv enable"
+		say "warning: enabling digital modes failed; continuing"
 	fi
 }
 
 [ -z "$PORT_WANT" ] || set_port "$PORT_WANT"
-# DVSwitch goes first so the setup link stays the last thing on the screen.
-[ "$DV_WANT" -eq 0 ] || dvswitch_install
+# Digital modes go first so the setup link stays the last thing on the screen.
+[ "$DV_WANT" -eq 0 ] || dv_enable
 setup_admin
 if [ -n "$DV_RESULT" ]; then
-	printf '\nDVSwitch: %s\n' "$DV_RESULT"
+	printf '\nDigital modes: %s\n' "$DV_RESULT"
 fi
 
 cat <<EOM
