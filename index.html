@@ -76,7 +76,7 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 </head><body>
 <header class="top"><div class="wrap">
 <a class="brand" href="#top" aria-label="ASLCP"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.9 16.1C1 12.2 1 5.8 4.9 1.9"/><path d="M7.8 4.7a6.14 6.14 0 0 0-.8 7.5"/><circle cx="12" cy="9" r="2"/><path d="M16.2 4.8c2 2 2.26 5.11.8 7.47"/><path d="M19.1 1.9a9.96 9.96 0 0 1 0 14.1"/><path d="M9.5 18h5"/><path d="m8 22 4-11 4 11"/></svg>ASLCP</a>
-<a class="btn gh" href="https://github.com/artw1/aslcp">GitHub</a>
+<a class="btn gh" href="https://github.com/w1jar/aslcp">GitHub</a>
 </div></header>
 <main class="wrap" id="top">
 <section class="hero">
@@ -84,16 +84,16 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <p class="lead">ASLCP lets you connect, monitor and manage favorites with live status from any browser, and it can set up digital modes for you. It runs on Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS (arm64, armhf, amd64).</p>
 <ul class="badges">
 <li class="badge">Latest release <b>2.0.2</b></li>
-<li class="badge">Latest beta <b>2.0.3</b></li>
+<li class="badge">Latest beta <b>2.0.4</b></li>
 </ul>
-<p class="muted">Docs, screenshots and bug reports are on <a href="https://github.com/artw1/aslcp">GitHub</a>.</p>
+<p class="muted">Docs, screenshots and bug reports are on <a href="https://github.com/w1jar/aslcp">GitHub</a>.</p>
 </section>
 
 <section class="card" aria-labelledby="h-quick">
 <h2 id="h-quick">Quick install</h2>
 <p>Run this on the node (over SSH or in a terminal):</p>
 <div class="cmd">
-<pre tabindex="0"><code id="cmd-default">curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo sh</code></pre><button type="button" class="copy" data-copy="cmd-default" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
+<pre tabindex="0"><code id="cmd-default">curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo sh</code></pre><button type="button" class="copy" data-copy="cmd-default" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
 </div>
 <p class="note warn"><strong>Fresh ASL3 card?</strong> Wait for the ASL3 first-boot setup and its reboot (20-30 minutes) before you install. The installer checks this and tells you if it is not done yet.</p>
 <p class="note">At the end the installer prints a one-time setup link. Open it to create the administrator or to restore a backup from an existing node. <code>sudo aslcp admin setup-code</code> shows the code again.</p>
@@ -124,7 +124,7 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 </form>
 <h3>Your command</h3>
 <div class="cmd">
-<pre tabindex="0"><code id="cmd-gen">curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo sh</code></pre><button type="button" class="copy" id="copy-gen" data-copy="cmd-gen" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
+<pre tabindex="0"><code id="cmd-gen">curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo sh</code></pre><button type="button" class="copy" id="copy-gen" data-copy="cmd-gen" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
 </div>
 </div>
 <div id="params-static">
@@ -135,7 +135,7 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <dt><code>ASLCP_CHANNEL=beta</code></dt><dd>Use the beta channel (new builds before they are promoted to stable). The default is <code>stable</code>.</dd>
 </dl>
 <p style="margin-top:10px">Example with all three:</p>
-<div class="cmd"><pre tabindex="0"><code id="cmd-example">curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DV=1 ASLCP_PORT=8181 ASLCP_CHANNEL=beta sh</code></pre><button type="button" class="copy" data-copy="cmd-example" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
+<div class="cmd"><pre tabindex="0"><code id="cmd-example">curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_DV=1 ASLCP_PORT=8181 ASLCP_CHANNEL=beta sh</code></pre><button type="button" class="copy" data-copy="cmd-example" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
 </div>
 </section>
 
@@ -158,22 +158,22 @@ sudo apt purge aslcp    # also deletes them</code></pre><button type="button" cl
 <section class="card" aria-labelledby="h-manual">
 <h2 id="h-manual">Manual apt setup</h2>
 <p>Prefer not to pipe a script? Add the signed repository yourself:</p>
-<div class="cmd"><pre tabindex="0"><code id="cmd-manual">sudo curl -fsSL -o /usr/share/keyrings/aslcp-archive-keyring.gpg https://artw1.github.io/aslcp/aslcp-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/aslcp-archive-keyring.gpg] https://artw1.github.io/aslcp stable main" | sudo tee /etc/apt/sources.list.d/aslcp.list
+<div class="cmd"><pre tabindex="0"><code id="cmd-manual">sudo curl -fsSL -o /usr/share/keyrings/aslcp-archive-keyring.gpg https://w1jar.github.io/aslcp/aslcp-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/aslcp-archive-keyring.gpg] https://w1jar.github.io/aslcp stable main" | sudo tee /etc/apt/sources.list.d/aslcp.list
 sudo apt update &amp;&amp; sudo apt install aslcp</code></pre><button type="button" class="copy" data-copy="cmd-manual" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
 <p>Signing key fingerprint: <code>9BA6A82745D8B69A9812848FAB83EBF1976B5855</code> (<a href="aslcp-archive-keyring.asc">armored key</a>)</p>
 <h3>Beta channel</h3>
 <p>Every new version goes to the <code>beta</code> suite as soon as it is built. It becomes a release (suite <code>stable</code>) when it is promoted after testing: the same package, not a rebuild. The <code>beta</code> suite also carries every release, so beta users are never behind. Betas may be less stable.</p>
 <p>To use it, put <code>beta</code> instead of <code>stable</code> in the line above:</p>
-<div class="cmd"><pre tabindex="0"><code id="cmd-beta">echo "deb [signed-by=/usr/share/keyrings/aslcp-archive-keyring.gpg] https://artw1.github.io/aslcp beta main" | sudo tee /etc/apt/sources.list.d/aslcp.list</code></pre><button type="button" class="copy" data-copy="cmd-beta" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
+<div class="cmd"><pre tabindex="0"><code id="cmd-beta">echo "deb [signed-by=/usr/share/keyrings/aslcp-archive-keyring.gpg] https://w1jar.github.io/aslcp beta main" | sudo tee /etc/apt/sources.list.d/aslcp.list</code></pre><button type="button" class="copy" data-copy="cmd-beta" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
 <p>Or install with <code>ASLCP_CHANNEL=beta</code> (see the options above), or switch in Settings &rarr; Updates in the web UI. It is the same setting: it changes the suite in <code>/etc/apt/sources.list.d/aslcp.list</code>. Going back to <code>stable</code> does not downgrade: the node stays on the installed version until a release newer than it is promoted.</p>
 </section>
 </main>
-<footer><div class="wrap">ASLCP &middot; <a href="https://github.com/artw1/aslcp">GitHub</a> &middot; <a href="https://github.com/artw1/aslcp/issues">Report a bug</a></div></footer>
+<footer><div class="wrap">ASLCP &middot; <a href="https://github.com/w1jar/aslcp">GitHub</a> &middot; <a href="https://github.com/w1jar/aslcp/issues">Report a bug</a></div></footer>
 <div class="sr" id="live" aria-live="polite" role="status"></div>
 <script>
 (function () {
-  var BASE = "https://artw1.github.io/aslcp";
+  var BASE = "https://w1jar.github.io/aslcp";
   var live = document.getElementById("live");
   function copyText(el) {
     var text = el.textContent;

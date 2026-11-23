@@ -1,5 +1,5 @@
 {
-  "version": "2.0.3",
-  "notes": "DV: TGIF has no master options, timeslot, address or port\n\nTGIF always uses timeslot 2 and sends no RPTO options; the fields are gone\nfrom the TGIF form and values saved earlier are dropped on load. The TGIF\nmaster follows the DMR host list (first TGIF entry), else tgif.network:62031;\nthe password stays the operator's own.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01WyFLnHQojhM4Jvfwzs5euQ",
+  "version": "2.0.4",
+  "notes": "Packaging: move Pages URLs to w1jar.github.io/aslcp and migrate old installs (#23)\n\nThe repository moved from artw1/aslcp to w1jar/aslcp. GitHub Pages does not\nredirect, so the apt repository, update check files and install.sh now live at\nhttps://w1jar.github.io/aslcp.\n\n- Default UpdatesURL, packaging, workflows, docs and web links use the new\n  addresses (the Go module path is unchanged).\n- postinst migrate_urls also rewrites artw1.github.io/aslcp and /aslcp-apt in\n  the apt list and an explicit [updates] url, idempotently, in one anchored\n  pattern; the signed-by option stays. Tests cover it.\n- README and CHANGELOG 2.0.4 document the one-time manual command for installs\n  still on the old address.\n\n\nClaude-Session: https://claude.ai/code/session_01WyFLnHQojhM4Jvfwzs5euQ\n\nCo-authored-by: Claude <noreply@anthropic.com>",
   "date": "2026-11-23"
 }
