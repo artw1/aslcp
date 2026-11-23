@@ -3,7 +3,7 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
-## [Unreleased]
+## [2.0.1] - 2026-11-23
 
 ### Fixed
 - DMR - Other: after retuning, calls on the previous talkgroup are no longer played, shown or counted as activity. Retuning to another talkgroup reconnects to the master, so DMR+ drops the previous one straight away instead of keeping it for about 15 minutes.
