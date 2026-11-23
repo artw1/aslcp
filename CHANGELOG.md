@@ -8,7 +8,6 @@ Release notes are taken from the section of the tag being released
 ### Added
 - `install.sh` installs ASL3 and asl3-menu from the AllStarLink repository when they are missing. The repository key is checked against a pinned fingerprint first, and gpg is installed if it is missing. `ASLCP_ASL3=0` skips this, `ASLCP_ASL3=1` makes an unsupported release an error instead of a panel-only install.
 - `ASLCP_ASL_TELEMETRY=off` (opt-in) turns ASL3 telemetry off at install, `ASLCP_ASL_TELEMETRY=on` turns it back on. Left unset, nothing changes. The install page has a checkbox for it.
-- A Raspberry Pi image: the latest Raspberry Pi OS Lite (64-bit) with ASL3 and ASLCP, an AMI password of its own on every card (randomised at first boot) and the one-time setup link on the console. A workflow builds it on release tags. The images are not published yet; they are only workflow artifacts.
 
 ### Removed
 - 32-bit (armhf) builds: ASL3 only ships arm64 and amd64. Existing armhf installs keep working but get no further updates; reinstall with Raspberry Pi OS Lite (64-bit). `install.sh` refuses on a 32-bit system before changing anything, and the Updates and Digital modes pages tell armhf users to reinstall.
