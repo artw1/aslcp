@@ -168,6 +168,7 @@ func (s *Server) dvSendTune(ctx context.Context, mode, tune string) (ctl.Status,
 		st, err := s.d.DVCtl.Unlink(ctx, ctl.UnlinkArgs{Mode: mode})
 		return st, true, err
 	}
+	args.Force = true // the operator asked: it ends the call in progress
 	st, err := s.d.DVCtl.Tune(ctx, args)
 	return st, false, err
 }
@@ -271,18 +272,12 @@ func (s *Server) handleDVMode(w http.ResponseWriter, r *http.Request, u store.Us
 	if last := s.dvRememberedTune(mode); switched && last != "" {
 		st, _, err = s.dvSendTune(ctx, mode, last)
 		if err != nil {
-			var ce *ctl.Error
-			if errors.As(err, &ce) && ce.Code == ctl.CodeBusy {
-				s.audit(u, "dv.mode.refused", map[string]any{"mode": mode})
-				s.dvCtlError(w, ce)
-				return
-			}
 			// the remembered value was refused (a host list changed, say):
 			// switch to the mode unlinked
-			st, err = s.d.DVCtl.Mode(ctx, ctl.ModeArgs{Mode: mode})
+			st, err = s.d.DVCtl.Mode(ctx, ctl.ModeArgs{Mode: mode, Force: true})
 		}
 	} else {
-		st, err = s.d.DVCtl.Mode(ctx, ctl.ModeArgs{Mode: mode})
+		st, err = s.d.DVCtl.Mode(ctx, ctl.ModeArgs{Mode: mode, Force: true})
 	}
 	if err != nil {
 		s.audit(u, "dv.mode.refused", map[string]any{"mode": mode})

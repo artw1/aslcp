@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -710,5 +711,130 @@ func TestRXAnySlotOptionOff(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if s.nHdr() != 0 {
 		t.Fatal("slot 1 delivered with rx_any_slot=false")
+	}
+}
+
+// sendCallTo is sendCall from our DMR ID's point of view: Dst may be a group
+// or a private destination.
+func sendCallTo(m *fakeMaster, slot int, stream uint32, dst uint32, private bool, nframes int) {
+	tx := dmr.NewTX(dmr.TXConfig{Src: 2345678, Dst: dst, Private: private, CC: 1})
+	fs := tx.Start()
+	for i := 0; i < nframes; i++ {
+		fs = append(fs, tx.Write(ambe(byte(i*7)))...)
+	}
+	fs = append(fs, tx.End()...)
+	for i, f := range fs {
+		d := dmrd{Seq: byte(i), Src: 2345678, Dst: dst, Private: private, Repeater: testRID, Slot: slot,
+			FrameTyp: int(f.FrameType), DType: int(f.DTypeVSeq), Stream: stream, Payload: f.Burst}
+		m.reply(d.marshal())
+	}
+}
+
+func TestDMRTunedTalkgroupFilter(t *testing.T) {
+	m := newMaster(t)
+	n, s, _, _ := start(t, ctl.ModeDMR, m, testPW, nil)
+	waitFor(t, "ok", func() bool { return s.hasLogin(ctl.LoginOK) })
+	// not tuned: everything plays
+	sendCallTo(m, 2, 90, 3100, false, 6)
+	waitFor(t, "untuned", func() bool { return s.nEnd() == 1 })
+	if err := n.Tune(context.Background(), ctl.Target{TG: 91}); err != nil {
+		t.Fatal(err)
+	}
+	// the previous talkgroup keeps coming: dropped on both slots
+	sendCallTo(m, 2, 91, 3100, false, 6)
+	sendCallTo(m, 1, 92, 3200, false, 6)
+	time.Sleep(100 * time.Millisecond)
+	if s.nHdr() != 1 || s.nEnd() != 1 {
+		t.Fatalf("other talkgroup played: hdr %d end %d", s.nHdr(), s.nEnd())
+	}
+	n.mu.Lock()
+	active := n.rxCall != nil
+	n.mu.Unlock()
+	if active {
+		t.Fatal("a dropped call holds the receive slot")
+	}
+	// an endless call of the old talkgroup does not shut the tuned one out
+	sendCall(m, 1, 93, 3100, 3, false)
+	sendCall(m, 2, 94, 91, 6, true)
+	waitFor(t, "tuned", func() bool { return s.nHdr() == 2 && s.nEnd() == 2 })
+	// a private call to us passes
+	sendCallTo(m, 2, 95, 1234567, true, 6)
+	waitFor(t, "private", func() bool { return s.nHdr() == 3 && s.nEnd() == 3 })
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.hdrs[1].TG != 91 || s.hdrs[2].TG != 1234567 || !s.hdrs[2].Private {
+		t.Fatalf("hdrs %+v", s.hdrs)
+	}
+}
+
+func TestTGIFNotFilteredByTune(t *testing.T) {
+	m := newMaster(t)
+	n, s, _, _ := start(t, ctl.ModeTGIF, m, testPW, nil)
+	waitFor(t, "ok", func() bool { return s.hasLogin(ctl.LoginOK) })
+	if err := n.Tune(context.Background(), ctl.Target{TG: 91}); err != nil {
+		t.Fatal(err)
+	}
+	sendCallTo(m, 2, 96, 3100, false, 6)
+	waitFor(t, "played", func() bool { return s.nEnd() == 1 })
+}
+
+// tags lists the packets the master got, as short tags (DMRD with its
+// destination).
+func (m *fakeMaster) tags() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []string
+	for _, p := range m.pkts {
+		switch {
+		case hasTag(p, "RPTCL"):
+			out = append(out, "RPTCL")
+		case hasTag(p, "RPTL"):
+			out = append(out, "RPTL")
+		case hasTag(p, "DMRD"):
+			if d, ok := parseDMRD(p); ok && d.DType == dtVoiceHeader {
+				out = append(out, "DMRD:"+strconv.FormatUint(uint64(d.Dst), 10))
+			}
+		}
+	}
+	return out
+}
+
+func TestDMRRetuneReconnects(t *testing.T) {
+	m := newMaster(t)
+	n, s, _, _ := start(t, ctl.ModeDMR, m, testPW, nil)
+	waitFor(t, "ok", func() bool { return s.hasLogin(ctl.LoginOK) })
+	ctx := context.Background()
+	if err := n.Tune(ctx, ctl.Target{TG: 91}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "tune A", func() bool { return len(m.tags()) >= 2 })
+	// the same talkgroup again: no reconnect
+	if err := n.Tune(ctx, ctl.Target{TG: 91}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "tune A again", func() bool { return len(m.tags()) >= 3 })
+	time.Sleep(100 * time.Millisecond)
+	if got := m.tags(); strings.Contains(strings.Join(got, " "), "RPTCL") {
+		t.Fatalf("same-TG tune reconnected: %v", got)
+	}
+	failed := s.nLogin(ctl.LoginFailed)
+	if err := n.Tune(ctx, ctl.Target{TG: 3100}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "tune B", func() bool {
+		got := strings.Join(m.tags(), " ")
+		return strings.Contains(got, "RPTCL RPTL DMRD:3100")
+	})
+	waitFor(t, "ok again", func() bool { return s.nLogin(ctl.LoginOK) >= 2 })
+	if s.nLogin(ctl.LoginFailed) != failed {
+		t.Fatal("the planned reconnect was reported as a failure")
+	}
+	// unlink does not reconnect
+	if err := n.Unlink(ctx); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if got := strings.Join(m.tags(), " "); strings.Count(got, "RPTCL") != 1 {
+		t.Fatalf("%v", got)
 	}
 }
