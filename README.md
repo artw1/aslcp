@@ -85,21 +85,47 @@ sudo aslcp admin reset-password <user>
 
 ### Web port
 
-ASLCP listens on TCP port 8080 by default. To pick another port when installing, set `ASLCP_PORT` (1024-65535; ASLCP runs without privileges, so lower ports are refused):
+ASLCP listens on TCP port 8080 by default. To pick another port when installing, set `ASLCP_PORT` (1024-65535, or exactly 80; ASLCP runs without privileges, so other lower ports, 443 included, are refused):
 
 ```sh
 curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_PORT=8181 sh
 ```
 
-The installer writes it to `listen` in `/etc/aslcp/aslcp.conf` (`listen = :8181`, or `listen = 192.0.2.10:8181` to bind one address), restarts ASLCP and warns if another program already uses the port. To change it later, rerun the installer the same way, or edit `listen` and run `sudo systemctl restart aslcp`. Ports below 1024 need a systemd drop-in granting `CAP_NET_BIND_SERVICE`; for port 80 let ASLCP write it for you (below).
+The installer writes it to `listen` in `/etc/aslcp/aslcp.conf` (`listen = :8181`, or `listen = 192.0.2.10:8181` to bind one address), restarts ASLCP and warns if another program already uses the port. To change it later, rerun the installer the same way, or edit `listen` and run `sudo systemctl restart aslcp`. Port 80 needs a systemd drop-in granting `CAP_NET_BIND_SERVICE`; the installer writes it for `ASLCP_PORT=80` (only then; default installs stay unchanged), or let ASLCP write it for you in the System tab (below). ASLCP serves plain HTTP, so 443 is not offered.
 
 #### Port 80
 
 Administrators can move ASLCP to port 80 in **System, Web port**, so the panel answers on `http://<your-node>/`. Port 80 must be free: if Apache runs, turn it off first in **System, ASL services**. The move writes a systemd drop-in (`/etc/systemd/system/aslcp.service.d/port80.conf`) and changes `listen`, then restarts ASLCP. The page shows the new address; open it within 60 seconds to confirm. If you do not, ASLCP goes back to its old port by itself, so you cannot lock yourself out. The old port is closed after the move (old bookmarks stop working), and **Move back** undoes it. While ASLCP is on port 80, Apache cannot be turned back on.
 
+#### Port 80 and the other ASL web services at install (`ASLCP_TAKEOVER`)
+
+To make ASLCP the only web UI of the node, on port 80, run the installer with `ASLCP_TAKEOVER=1` (`yes` and `true` work too; any other value is refused):
+
+```sh
+curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_TAKEOVER=1 sh
+```
+
+It implies `ASLCP_PORT=80` unless you give `ASLCP_PORT` yourself. After the package is installed, the installer stops and disables the ASL web services that would compete with ASLCP, but only those that exist on the node and are enabled or running, and prints each one:
+
+- Allmon3 (`allmon3.service`);
+- the web server of the ASL web UIs: `apache2.service`, `lighttpd.service` or `nginx.service`, whichever is there (the ASL3 appliance image uses Apache for its landing page and for asl-web-ui);
+- the asl-web-ui backend (`asl-web-ui.service`) and Supermon (`supermon.service`, `supermon2.service`, `supermon-ng.service`), if they run as services.
+
+Asterisk and app_rpt keep running, and so does everything else the node needs to stay on the air; the node is not taken off the air. Cockpit (port 9090) does not compete with ASLCP and is left as it is; turn it off in **System, ASL services** if you want to. Nothing is uninstalled.
+
+Then ASLCP moves to port 80 (drop-in `/etc/systemd/system/aslcp.service.d/port80.conf` with `AmbientCapabilities` and `CapabilityBoundingSet` = `CAP_NET_BIND_SERVICE`, `listen = :80`, port 80 opened in firewalld) and the panel is at `http://<your-node>/`. If another program still holds port 80 after the takeover (for example a web server the installer does not know), the installer names it, does not move ASLCP, finishes on the old port and exits with status 1; the services it turned off stay off until you undo.
+
+What was turned off is recorded in `/var/lib/aslcp/takeover.list`. To undo, run the installer once more:
+
+```sh
+curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_TAKEOVER=undo sh
+```
+
+ASLCP moves back to the port it had before (8080 unless you set another), then exactly the recorded units are enabled and started again. Apache and Allmon3 are also recorded in the list of the System tab (ASL services), so `apt purge aslcp` turns them back on; the other units are only restored by the undo command.
+
 ### ASL services (Cockpit, Apache, Allmon3)
 
-**System, ASL services** has one switch each for Cockpit, Apache and Allmon3. A switch only stops and disables the service (`systemctl disable --now`); nothing is uninstalled, so the ASL3 Pi appliance package keeps working, and turning it on again is one click. ASLCP asks first and says what you lose (Cockpit is a fallback terminal and WiFi settings if ASLCP ever breaks: keep it until you are sure SSH works). Turning Apache off offers to turn Allmon3 off too, because Allmon3 answers on ports 16080 and 16700+ on every address even without Apache. The page lists which of ports 80, 443, 9090, 16080 and 16700+ are really listening, and can close or reopen the matching firewalld services. ASLCP never touches these services during an install or update. `apt purge aslcp` turns back on the services ASLCP itself had turned off (and no others); `apt remove` leaves everything as it is.
+**System, ASL services** has one switch each for Cockpit, Apache and Allmon3. A switch only stops and disables the service (`systemctl disable --now`); nothing is uninstalled, so the ASL3 Pi appliance package keeps working, and turning it on again is one click. ASLCP asks first and says what you lose (Cockpit is a fallback terminal and WiFi settings if ASLCP ever breaks: keep it until you are sure SSH works). Turning Apache off offers to turn Allmon3 off too, because Allmon3 answers on ports 16080 and 16700+ on every address even without Apache. The page lists which of ports 80, 443, 9090, 16080 and 16700+ are really listening, and can close or reopen the matching firewalld services. ASLCP never touches these services during an install or update, unless you ask for it with `ASLCP_TAKEOVER=1` (above). `apt purge aslcp` turns back on the services ASLCP itself had turned off (and no others); `apt remove` leaves everything as it is.
 
 ### Firewall
 

@@ -38,12 +38,20 @@ Firewall
   If firewalld is running, installing the package opens it: through the
   firewalld service "aslcp" for 8080, as a plain TCP port for any other port.
   Otherwise open the port yourself if you use another firewall.
-  To pick another port (1024-65535): run the installer again with ASLCP_PORT (it also opens
+  To pick another port (1024-65535, or 80): run the installer again with ASLCP_PORT (it also opens
   the port in firewalld):
       curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_PORT=8181 sh
   or edit "listen" and run  sudo systemctl restart aslcp , then open the port in
   your firewall (firewalld: sudo firewall-cmd --permanent --add-port=8181/tcp
   && sudo firewall-cmd --reload).
+  Port 80 and no other ASL web UI: run the installer with ASLCP_TAKEOVER=1. It
+  stops and disables Allmon3, the web server of the ASL web UIs (apache2,
+  lighttpd or nginx), asl-web-ui and Supermon (those that exist and are on),
+  never Asterisk, records them in /var/lib/aslcp/takeover.list and moves ASLCP
+  to port 80:
+      curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_TAKEOVER=1 sh
+  Undo (ASLCP goes back to its old port, the recorded units are turned on):
+      curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_TAKEOVER=undo sh
 
 Updates
   Settings > Updates in the web UI (administrators), or the usual:
