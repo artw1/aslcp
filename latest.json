@@ -1,5 +1,5 @@
 {
-  "version": "2.0.2",
-  "notes": "### Changed\n- The radioid.net user list is now checked for updates daily instead of weekly.\n- Digital modes: the remaining mentions of \"NXDN unit ID\" now say \"NXDN ID\".\n\n### Fixed\n- Digital modes: clearing the NXDN ID, or the Options of DMR - Other or TGIF, and saving now clears them. Before, the old value was kept.\n- Digital modes: clearing the NXDN ID turns NXDN off; NXDN can't be turned on without an NXDN ID (the page says so and the API answers `422 incomplete`).",
+  "version": "2.0.4",
+  "notes": "### Changed\n- The project moved to https://github.com/w1jar/aslcp and the apt repository, update check files and `install.sh` to https://w1jar.github.io/aslcp. The old `artw1.github.io` address no longer serves anything.\n- Upgrading rewrites the apt source (`/etc/apt/sources.list.d/aslcp.list`) and an unmodified `[updates] url` in `/etc/aslcp/aslcp.conf` from the old addresses to the new one automatically and prints a note. The default update check URL is the new address.\n\n### Fixed\n- Installs still on the old address cannot see this release by themselves. Run once: `sudo sed -i 's#artw1\\.github\\.io/aslcp#w1jar.github.io/aslcp#g' /etc/apt/sources.list.d/aslcp.list`, then `sudo apt update && sudo apt upgrade`. If you set an explicit `[updates] url` in `/etc/aslcp/aslcp.conf`, change it to `https://w1jar.github.io/aslcp` too.",
   "date": "2026-11-23"
 }
