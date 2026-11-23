@@ -56,8 +56,8 @@ Firewall
 ASL3
   The installer installs asl3 and asl3-menu first if they are missing (it adds
   the AllStarLink apt repository from https://repo.allstarlink.org/public/ and
-  checks its key). Debian 12/13 on arm64 or amd64 only; elsewhere it installs
-  the panel only. To skip: ASLCP_ASL3=0
+  checks its key). Debian 12/13 only; on another release it installs the
+  panel only. To skip: ASLCP_ASL3=0
       curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL3=0 sh
   ASL3 sends AllStarLink an anonymous usage report every day
   (asl-telemetry.timer). ASLCP leaves it on. To turn it off and mask it:

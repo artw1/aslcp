@@ -586,7 +586,7 @@ func TestASL3SkipTouchesNothing(t *testing.T) {
 }
 
 func TestASL3UnavailableContinuesOrFails(t *testing.T) {
-	for _, c := range []struct{ codename, arch string }{{"trixie", "armhf"}, {"bullseye", "amd64"}, {"", "arm64"}} {
+	for _, c := range []struct{ codename, arch string }{{"bullseye", "amd64"}, {"", "arm64"}} {
 		e := newASL3Env(t)
 		out, err := e.ensure(t, "auto", c.codename, c.arch)
 		if err != nil || !strings.Contains(out, "ASL3 is not available for this system") {
@@ -605,7 +605,7 @@ func TestASL3UnavailableContinuesOrFails(t *testing.T) {
 
 func TestASL3UnavailableButInstalledIsFine(t *testing.T) {
 	e := newASL3Env(t, "asl3", "asl3-menu")
-	if out, err := e.ensure(t, "force", "trixie", "armhf"); err != nil {
+	if out, err := e.ensure(t, "force", "bullseye", "amd64"); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
 }

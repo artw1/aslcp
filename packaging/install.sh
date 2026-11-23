@@ -47,8 +47,9 @@
 # checks its signing key against a pinned fingerprint and installs it, then runs
 # apt-get update. It can take several minutes. allmon3 and the Pi appliance
 # package are not installed. 0 (or no, false) never touches ASL3 (panel only).
-# ASL3 exists for Debian 12/13 on arm64 and amd64. On armhf or another release
-# the installer says so and carries on with a panel-only install, unless
+# ASL3 exists for Debian 12/13 (the architecture was checked above: 64-bit
+# only). On another release the installer says so and carries on with a
+# panel-only install, unless
 # ASLCP_ASL3=1 (yes, true) was given: then it stops with an error. Any other
 # value is refused.
 #   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL3=0 sh
@@ -270,7 +271,7 @@ if [ "$TAKEOVER_UNDO" -eq 0 ]; then
 			die "ASL3 is not available for this system ($1) and ASLCP_ASL3=1 was given"
 		fi
 		say "ASL3 is not available for this system ($1); installing the panel only."
-		say "  (ASL3 needs Debian 12 or 13 on arm64 or amd64, for example Raspberry Pi OS 64-bit.)"
+		say "  (ASL3 needs Debian 12 (bookworm) or 13 (trixie), for example Raspberry Pi OS 64-bit.)"
 		return 0
 	}
 
@@ -290,13 +291,6 @@ if [ "$TAKEOVER_UNDO" -eq 0 ]; then
 		trixie) asl_nn=13 ;;
 		*)
 			asl3_unavailable "release '${VERSION_CODENAME:-unknown}'"
-			return 0
-			;;
-		esac
-		case "$ARCH" in
-		arm64 | amd64) ;;
-		*)
-			asl3_unavailable "architecture $ARCH"
 			return 0
 			;;
 		esac

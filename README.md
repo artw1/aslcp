@@ -40,8 +40,8 @@ ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly w
 ## Requirements
 
 - Debian 12 (bookworm) or Debian 13 (trixie), or Raspberry Pi OS 64-bit based on either. A fresh Raspberry Pi OS Lite 64-bit works.
-- AllStarLink 3 (ASL3) is installed for you if it is missing (see below). It exists for arm64 and amd64 only; on a 32-bit ARM board (armhf) ASLCP installs, but ASL3 has to come from somewhere else.
-- A 64-bit ARM board (arm64) or a PC (amd64); a Raspberry Pi Zero 2 W or newer is plenty. ASLCP itself also has armhf packages.
+- AllStarLink 3 (ASL3) is installed for you if it is missing (see below).
+- A 64-bit system: an ARM board (arm64) or a PC (amd64). A Raspberry Pi Zero 2 W or newer running Raspberry Pi OS Lite (64-bit) is plenty. 32-bit (armhf) is not supported, because ASL3 has no armhf packages; on a 32-bit system the installer refuses before changing anything, so reinstall with the 64-bit OS.
 - Root access (sudo) for the installation.
 
 ## Install
@@ -60,7 +60,7 @@ On a freshly flashed ASL3 card, wait for the first-boot setup and its reboot (20
 
 If the `asl3` package is not installed, the installer adds the AllStarLink apt repository (the `asl-apt-repos` package from `https://repo.allstarlink.org/public/`, whose signing key is checked against a pinned fingerprint) and installs `asl3` and `asl3-menu` before it installs ASLCP. If only `asl3-menu` is missing, it installs that. This can take several minutes and downloads many packages. It does not install Allmon3 or the Pi appliance package.
 
-ASL3 is only available for Debian 12 or 13 on arm64 and amd64. On any other system the installer says so and installs the panel only. To skip ASL3 on purpose, set `ASLCP_ASL3=0` (`no` and `false` work too):
+ASL3 is only available for Debian 12 or 13. On any other release the installer says so and installs the panel only. To skip ASL3 on purpose, set `ASLCP_ASL3=0` (`no` and `false` work too):
 
 ```sh
 curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL3=0 sh
