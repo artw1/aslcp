@@ -4,7 +4,7 @@
 
 Please report security problems **privately**, using GitHub private vulnerability reporting:
 
-1. Open the **Security** tab of this repository (<https://github.com/artw1/aslcp/security>).
+1. Open the **Security** tab of this repository (<https://github.com/w1jar/aslcp/security>).
 2. Choose **Report a vulnerability** and describe the problem.
 
 Please include the ASLCP version, what you did, what happened and, if you can, how to reproduce it. Do not include real passwords or other private data.

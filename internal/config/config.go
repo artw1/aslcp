@@ -66,7 +66,7 @@ func Defaults() Config {
 		NodelistRefresh: 24 * time.Hour,
 		ManagerConf:     DefaultManagerConf,
 		HelperSocket:    "/run/aslcp/helper.sock",
-		UpdatesURL:      "https://artw1.github.io/aslcp",
+		UpdatesURL:      "https://w1jar.github.io/aslcp",
 		FavStatsURL:     "https://stats.allstarlink.org",
 		FavStatsRate:    20,
 	}

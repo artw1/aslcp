@@ -48,27 +48,27 @@ ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly w
 On the node:
 
 ```sh
-curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo sh
+curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo sh
 ```
 
 The script adds the signed ASLCP apt repository, installs the `aslcp` package and prints a one-time setup link. Then open `http://<your-node>:8080` (8080 is the default port; see [Web port](#web-port)).
 
 On a freshly flashed ASL3 card, wait for the first-boot setup and its reboot (20-30 minutes) before installing: ASL3 installs updates and may reboot the node. The installer checks this (first-boot services, another running apt/dpkg or a held dpkg lock) and refuses to change anything until it is done; just run it again later. `ASLCP_SKIP_PREFLIGHT=1` skips the check. A pending reboot only produces a warning. Package operations started from the web UI wait up to 10 minutes for the apt lock instead of failing.
 
-Prefer to do it by hand? See the manual steps on <https://artw1.github.io/aslcp/>.
+Prefer to do it by hand? See the manual steps on <https://w1jar.github.io/aslcp/>.
 
 ### Digital modes at install
 
 To enable digital modes as well, set `ASLCP_DV=1` (`yes` and `true` work too; any other value is refused):
 
 ```sh
-curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DV=1 sh
+curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_DV=1 sh
 ```
 
 It combines with `ASLCP_PORT`:
 
 ```sh
-curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DV=1 ASLCP_PORT=8181 sh
+curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_DV=1 ASLCP_PORT=8181 sh
 ```
 
 Once ASLCP is running, the installer runs `aslcp dv enable`, the same as enabling digital modes on the Digital modes page, and shows its log. It takes a few minutes. If it fails, the installer warns and finishes anyway; retry with `sudo aslcp dv enable`. Digital modes settings from a restored backup are applied at the end of that install.
@@ -88,7 +88,7 @@ sudo aslcp admin reset-password <user>
 ASLCP listens on TCP port 8080 by default. To pick another port when installing, set `ASLCP_PORT` (1024-65535; ASLCP runs without privileges, so lower ports are refused):
 
 ```sh
-curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_PORT=8181 sh
+curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_PORT=8181 sh
 ```
 
 The installer writes it to `listen` in `/etc/aslcp/aslcp.conf` (`listen = :8181`, or `listen = 192.0.2.10:8181` to bind one address), restarts ASLCP and warns if another program already uses the port. To change it later, rerun the installer the same way, or edit `listen` and run `sudo systemctl restart aslcp`. Ports below 1024 need a systemd drop-in granting `CAP_NET_BIND_SERVICE`; for port 80 let ASLCP write it for you (below).
@@ -142,6 +142,17 @@ Either of:
 - **System, Updates** in the web page (administrators): *Check now*, then *Update*. Links are not affected; the page reconnects by itself.
 - `sudo apt update && sudo apt upgrade`
 
+### Repository moved
+
+The project now lives at <https://github.com/w1jar/aslcp> and the apt repository at <https://w1jar.github.io/aslcp>. The old address (`artw1.github.io`) no longer serves anything, so an existing install cannot fetch the fixed package from it. Run this once on each node:
+
+```sh
+sudo sed -i 's#artw1\.github\.io/aslcp#w1jar.github.io/aslcp#g' /etc/apt/sources.list.d/aslcp.list
+sudo apt update && sudo apt upgrade
+```
+
+The upgrade (2.0.4 or later) then keeps the apt source and the built-in update check on the new address by itself. If you set an explicit `url` under `[updates]` in `/etc/aslcp/aslcp.conf`, change it to `https://w1jar.github.io/aslcp` too (the upgrade rewrites an unmodified old value); without one, the new package's default fixes the update check.
+
 ### Upgrading to 2.0
 
 **You have to redo the digital-modes configuration in 2.0.** The BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN settings and your identity (callsign and DMR ID) are not carried over, and nothing is imported from the previous stack. Enter them again on the Digital modes page. The previous digital voice stack is removed on upgrade, except md380-emu, which stays installed and working. Only what ASLCP installed is removed. See docs/DV.md.
@@ -165,14 +176,14 @@ sudo apt purge aslcp      # also deletes them
 
 ## Reporting bugs
 
-Please [open a bug report](https://github.com/artw1/aslcp/issues/new?template=bug_report.yml). The quickest way is **Settings, About, Report a bug** in ASLCP: it opens the form with your versions and hardware already filled in.
+Please [open a bug report](https://github.com/w1jar/aslcp/issues/new?template=bug_report.yml). The quickest way is **Settings, About, Report a bug** in ASLCP: it opens the form with your versions and hardware already filled in.
 
 Add logs if you can, either of:
 
 - the diagnostics file: **Settings, About, Download diagnostics** (administrators). It lists versions, system and node state, configuration and the recent server log. IP addresses, passwords and secrets, email addresses and other stations' callsigns are removed automatically, but please read it before you attach it;
 - `journalctl -u aslcp -n 100 --no-pager`
 
-Never paste passwords or other private data into an issue. Feature ideas are welcome too: [request a feature](https://github.com/artw1/aslcp/issues/new?template=feature_request.yml).
+Never paste passwords or other private data into an issue. Feature ideas are welcome too: [request a feature](https://github.com/w1jar/aslcp/issues/new?template=feature_request.yml).
 
 ![Settings, About section](docs/images/settings-about.png)
 
@@ -190,7 +201,7 @@ ASLCP is free software, licensed under the GNU General Public License v3.0 or la
 
 ## Development
 
-ASLCP is a Go server (`cmd/aslcp`, plus the root helper `cmd/aslcp-helper`) with a Svelte 5 + Vite + Tailwind web UI (`web/`) embedded in the binary. This repository holds the source, the releases and, on the `gh-pages` branch, the signed apt repository served at <https://artw1.github.io/aslcp>.
+ASLCP is a Go server (`cmd/aslcp`, plus the root helper `cmd/aslcp-helper`) with a Svelte 5 + Vite + Tailwind web UI (`web/`) embedded in the binary. This repository holds the source, the releases and, on the `gh-pages` branch, the signed apt repository served at <https://w1jar.github.io/aslcp>.
 
 Requirements: Go (version in `go.mod`), Node 22 and npm for the web UI, `make`. Building the packages also needs network access the first time (nfpm is fetched with `go run`).
 

@@ -21,7 +21,7 @@ Admins install CI builds of any `try/*` branch on a node from System > Updates. 
 
 A new publish job in `ci.yml`:
 
-- runs after the tests pass, only on a push to `try/**` in `artw1/aslcp`;
+- runs after the tests pass, only on a push to `try/**` in `w1jar/aslcp`;
 - has a concurrency group, so builds publish one at a time;
 - is the only job with `contents: write`;
 - uploads the assets, prunes to the 10 newest builds, and updates `dev.json` on `gh-pages`. Reading `dev.json` needs a cache buster, as for `latest.json` (the CDN holds it about 10 minutes).

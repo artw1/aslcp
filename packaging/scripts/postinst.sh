@@ -188,18 +188,23 @@ configure_firewalld() {
 	fi
 }
 
-# ---8<--- migrate-urls (the public repo moved from artw1/aslcp-apt to artw1/aslcp)
-# Idempotent. Only the exact old URL is rewritten; the signed-by option stays.
+# ---8<--- migrate-urls (the public repo moved: artw1/aslcp-apt -> artw1/aslcp -> w1jar/aslcp)
+# Idempotent. Only the exact old URLs are rewritten (artw1.github.io/aslcp and
+# artw1.github.io/aslcp-apt, followed by "/", whitespace or end of line) to
+# w1jar.github.io/aslcp; the signed-by option and the rest of the line stay.
+# One anchored pattern covers both old names, so ".../aslcp" cannot match the
+# start of ".../aslcp-apt" and leave a wrong "-apt" behind.
 migrate_urls() {
 	list=${ASLCP_APT_LIST:-/etc/apt/sources.list.d/aslcp.list}
 	conf=${ASLCP_CONF:-/etc/aslcp/aslcp.conf}
-	if [ -f "$list" ] && grep -q 'artw1\.github\.io/aslcp-apt' "$list"; then
-		sed -i 's#artw1\.github\.io/aslcp-apt#artw1.github.io/aslcp#g' "$list"
-		echo "aslcp: note: the apt source $list now points to https://artw1.github.io/aslcp (the repository moved)."
+	old_host='artw1\.github\.io/aslcp(-apt)?'
+	if [ -f "$list" ] && grep -Eq "${old_host}([^A-Za-z0-9_-]|\$)" "$list"; then
+		sed -i -E "s#${old_host}([^A-Za-z0-9_-]|\$)#w1jar.github.io/aslcp\2#g" "$list"
+		echo "aslcp: note: the apt source $list now points to https://w1jar.github.io/aslcp (the repository moved)."
 	fi
-	if [ -f "$conf" ] && grep -Eq '^[[:space:]]*url[[:space:]]*=[[:space:]]*https://artw1\.github\.io/aslcp-apt/?[[:space:]]*$' "$conf"; then
-		sed -i -E 's#^([[:space:]]*url[[:space:]]*=[[:space:]]*)https://artw1\.github\.io/aslcp-apt/?[[:space:]]*$#\1https://artw1.github.io/aslcp#' "$conf"
-		echo "aslcp: note: updated the [updates] url in $conf to https://artw1.github.io/aslcp (the repository moved)."
+	if [ -f "$conf" ] && grep -Eq "^[[:space:]]*url[[:space:]]*=[[:space:]]*https://${old_host}/?[[:space:]]*\$" "$conf"; then
+		sed -i -E "s#^([[:space:]]*url[[:space:]]*=[[:space:]]*)https://${old_host}/?[[:space:]]*\$#\1https://w1jar.github.io/aslcp#" "$conf"
+		echo "aslcp: note: updated the [updates] url in $conf to https://w1jar.github.io/aslcp (the repository moved)."
 	fi
 }
 # --->8--- migrate-urls
