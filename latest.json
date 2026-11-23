@@ -1,5 +1,5 @@
 {
   "version": "2.0.1",
-  "notes": "",
+  "notes": "### Fixed\n- DMR - Other: after retuning, calls on the previous talkgroup are no longer played, shown or counted as activity. Retuning to another talkgroup reconnects to the master, so DMR+ drops the previous one straight away instead of keeping it for about 15 minutes.\n- Digital modes: switching or tuning by hand is no longer refused while a call is in progress; it ends the call. Schedules and the resume after a restart still wait for the call to end.",
   "date": "2026-11-23"
 }
