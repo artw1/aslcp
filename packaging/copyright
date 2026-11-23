@@ -1,6 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: aslcp
-Source: https://github.com/artw1/aslcp
+Source: https://github.com/w1jar/aslcp
 Comment: The licence texts of the bundled third-party components (listed
  below) are in /usr/share/doc/aslcp/THIRD-PARTY-NOTICES.
 

@@ -18,7 +18,7 @@
 # Environment:
 #   GPG_KEY_ID    key to sign with (default: first secret key in the keyring)
 #   GNUPGHOME     keyring directory (default: gpg's default)
-#   APT_URL       public base URL (default https://artw1.github.io/aslcp)
+#   APT_URL       public base URL (default https://w1jar.github.io/aslcp)
 #   KEEP          versions retained per architecture and pool directory (default 5)
 #   TAG           release tag (vX.Y.Z) for the release notes
 #   CODE_DIR      checkout of the code repo, for the tag annotation and CHANGELOG.md
@@ -69,7 +69,7 @@ if [ "$MODE" = remove ] && [ -z "$REMOVE_GLOB" ]; then echo "publish-apt: --remo
 REPO_DIR=$(cd "$REPO_ARG" && pwd)
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 CODE_DIR=${CODE_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}
-APT_URL=${APT_URL:-https://artw1.github.io/aslcp}
+APT_URL=${APT_URL:-https://w1jar.github.io/aslcp}
 APT_URL=${APT_URL%/}
 KEEP=${KEEP:-5}
 ARCHES="arm64 armhf amd64"
@@ -343,7 +343,7 @@ write_latest latest-beta.json "$newest_all"
 # --- 7. install script and landing page --------------------------------------
 # The script already defaults to the standard URL; rewrite it if APT_URL differs.
 if [ "$sync_root" -eq 1 ] || [ ! -f install.sh ]; then
-	sed "s|https://artw1.github.io/aslcp|$APT_URL|g" "$SCRIPT_DIR/install.sh" >install.sh
+	sed "s|https://w1jar.github.io/aslcp|$APT_URL|g" "$SCRIPT_DIR/install.sh" >install.sh
 	chmod 0755 install.sh
 fi
 beta_note=""
@@ -430,7 +430,7 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 </head><body>
 <header class="top"><div class="wrap">
 <a class="brand" href="#top" aria-label="ASLCP"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.9 16.1C1 12.2 1 5.8 4.9 1.9"/><path d="M7.8 4.7a6.14 6.14 0 0 0-.8 7.5"/><circle cx="12" cy="9" r="2"/><path d="M16.2 4.8c2 2 2.26 5.11.8 7.47"/><path d="M19.1 1.9a9.96 9.96 0 0 1 0 14.1"/><path d="M9.5 18h5"/><path d="m8 22 4-11 4 11"/></svg>ASLCP</a>
-<a class="btn gh" href="https://github.com/artw1/aslcp">GitHub</a>
+<a class="btn gh" href="https://github.com/w1jar/aslcp">GitHub</a>
 </div></header>
 <main class="wrap" id="top">
 <section class="hero">
@@ -440,7 +440,7 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <li class="badge">Latest release <b>@STABLE@</b></li>
 <li class="badge">Latest beta <b>@BETA@</b>@BETA_NOTE@</li>
 </ul>
-<p class="muted">Docs, screenshots and bug reports are on <a href="https://github.com/artw1/aslcp">GitHub</a>.</p>
+<p class="muted">Docs, screenshots and bug reports are on <a href="https://github.com/w1jar/aslcp">GitHub</a>.</p>
 </section>
 
 <section class="card" aria-labelledby="h-quick">
@@ -523,7 +523,7 @@ sudo apt update &amp;&amp; sudo apt install aslcp</code></pre><button type="butt
 <p>Or install with <code>ASLCP_CHANNEL=beta</code> (see the options above), or switch in Settings &rarr; Updates in the web UI. It is the same setting: it changes the suite in <code>/etc/apt/sources.list.d/aslcp.list</code>. Going back to <code>stable</code> does not downgrade: the node stays on the installed version until a release newer than it is promoted.</p>
 </section>
 </main>
-<footer><div class="wrap">ASLCP &middot; <a href="https://github.com/artw1/aslcp">GitHub</a> &middot; <a href="https://github.com/artw1/aslcp/issues">Report a bug</a></div></footer>
+<footer><div class="wrap">ASLCP &middot; <a href="https://github.com/w1jar/aslcp">GitHub</a> &middot; <a href="https://github.com/w1jar/aslcp/issues">Report a bug</a></div></footer>
 <div class="sr" id="live" aria-live="polite" role="status"></div>
 <script>
 (function () {

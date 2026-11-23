@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Thanks for reporting. Tip: **Settings, About, Report a bug** in ASLCP opens this form with the versions and hardware filled in.
-        Security problems: do not use this form, see [SECURITY.md](https://github.com/artw1/aslcp/blob/main/SECURITY.md).
+        Security problems: do not use this form, see [SECURITY.md](https://github.com/w1jar/aslcp/blob/main/SECURITY.md).
   - type: input
     id: version
     attributes:

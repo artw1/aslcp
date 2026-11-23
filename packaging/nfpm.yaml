@@ -12,7 +12,7 @@ version_schema: none
 section: net
 priority: optional
 maintainer: ASLCP <noreply@users.noreply.github.com>
-homepage: https://artw1.github.io/aslcp/
+homepage: https://w1jar.github.io/aslcp/
 description: |
   Web control panel for AllStarLink 3 nodes.
   Connect and disconnect links, watch live node status and manage favorites

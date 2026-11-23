@@ -66,8 +66,8 @@ type NetSpec struct {
 	Password bool `json:"password"`
 	// DefaultPort is the master's port when none is set (0: none).
 	DefaultPort int `json:"defaultPort,omitempty"`
-	// DefaultAddress is the master used when no address is set (TGIF's public
-	// master); a network with one can be enabled without an address.
+	// DefaultAddress is the master used when no address is set; a network with
+	// one can be enabled without an address.
 	DefaultAddress string `json:"defaultAddress,omitempty"`
 	// DefaultPassword is the login password used when none is stored (DMR -
 	// Other); a network with one can be enabled without a password.
@@ -92,7 +92,8 @@ var NetOptions = map[string][]OptSpec{
 		{Key: "rx_timeout_ms", Label: "Call end timeout (ms)", Kind: KindInt, Default: "1500", Min: 200, Max: 10000, Advanced: true,
 			Help: "End a received call that has no terminator after this silence."},
 	},
-	ModeTGIF: hbOptions("Static talkgroups, one string for the master, for example TS2=1997; (see your TGIF profile). Without it the talkgroup you tune is linked on demand."),
+	// TGIF always uses timeslot 2 and sends no master options, so it has neither field.
+	ModeTGIF: hbOptions(""),
 	ModeDMR:  hbOptions("Sent to the master after login (RPTO), for example static talkgroups on masters that read them. Leave empty if unsure."),
 	ModeYSF: {
 		{Key: "poll_ms", Label: "Poll period (ms)", Kind: KindInt, Default: "5000", Min: 1000, Max: 60000, Advanced: true,
@@ -129,21 +130,28 @@ var NetOptions = map[string][]OptSpec{
 
 // RetiredAddress lists the modes that stored a reflector address (and port)
 // before they became enable-only; a stored one is dropped on load.
-var RetiredAddress = map[string]bool{ModeYSF: true, ModeP25: true}
+var RetiredAddress = map[string]bool{ModeYSF: true, ModeP25: true, ModeTGIF: true}
 
 // RetiredOptions are option keys a mode used to take; a stored one is dropped
 // on load instead of making the settings unreadable.
 var RetiredOptions = map[string]map[string]bool{
-	ModeP25: {"p25_id": true},
+	ModeP25:  {"p25_id": true},
+	ModeTGIF: {"options": true, "slot": true},
 }
 
 // hbOptions are the options of the Homebrew client, shared by TGIF and
-// DMR - Other (internal/dv/network/homebrew); only the help of "options" differs.
+// DMR - Other (internal/dv/network/homebrew). The master options and the
+// timeslot are only for DMR - Other: an empty optionsHelp (TGIF) leaves both out.
 func hbOptions(optionsHelp string) []OptSpec {
-	return []OptSpec{
-		{Key: "options", Label: "Master options", Kind: KindText, MaxLen: 200, Help: optionsHelp},
-		{Key: "slot", Label: "Timeslot", Kind: KindInt, Default: "2", Min: 1, Max: 2,
-			Help: "The timeslot of your calls. Hotspot style networks, TGIF included, use slot 2."},
+	var lead []OptSpec
+	if optionsHelp != "" {
+		lead = []OptSpec{
+			{Key: "options", Label: "Master options", Kind: KindText, MaxLen: 200, Help: optionsHelp},
+			{Key: "slot", Label: "Timeslot", Kind: KindInt, Default: "2", Min: 1, Max: 2,
+				Help: "The timeslot of your calls. Hotspot style masters use slot 2."},
+		}
+	}
+	return append(lead, []OptSpec{
 		{Key: "repeater_id", Label: "Repeater ID", Kind: KindInt, Min: 1, Max: MaxRepeaterID, Advanced: true,
 			Help: "Default: your DMR ID followed by the ESSID of the identity, else the DMR ID."},
 		{Key: "colour_code", Label: "Colour code", Kind: KindInt, Default: "1", Min: 0, Max: 15, Advanced: true},
@@ -165,15 +173,15 @@ func hbOptions(optionsHelp string) []OptSpec {
 		{Key: "backoff_max_ms", Label: "Longest retry delay (ms)", Kind: KindInt, Default: "60000", Min: 1000, Max: 600000, Advanced: true},
 		{Key: "rx_timeout_ms", Label: "Call end timeout (ms)", Kind: KindInt, Default: "1500", Min: 200, Max: 10000, Advanced: true,
 			Help: "End a received call that has no terminator after this silence."},
-	}
+	}...)
 }
 
 // NetSpecs lists the modes with settings, in display order.
 var NetSpecs = []NetSpec{
 	{Mode: ModeBM, Label: "BrandMeister", Address: true, Password: true, NeedsIdentity: true,
 		Help: "Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security). Pick the master closest to you."},
-	{Mode: ModeTGIF, Label: "TGIF", Address: true, Port: true, Password: true, DefaultAddress: "tgif.network", DefaultPort: 62031, NeedsIdentity: true,
-		Help: "The password is the hotspot security password of your TGIF profile. The public master tgif.network:62031 is used unless you set another."},
+	{Mode: ModeTGIF, Label: "TGIF", Password: true, NeedsIdentity: true,
+		Help: "The password is the hotspot security password of your TGIF profile. The master follows the DMR host list (the first TGIF entry), else tgif.network:62031."},
 	{Mode: ModeDMR, Label: "DMR - Other", Address: true, Port: true, Password: true, DefaultPort: 62031, DefaultPassword: ctl.DefaultHomebrewPassword, NeedsIdentity: true,
 		Help: "A Homebrew (MMDVM) master such as FreeDMR, DMR+ or an hblink3 server. Pick one from the list (BrandMeister and TGIF have their own cards), or choose Other and enter its address and port. The password is only needed when the master asks for a different one than passw0rd."},
 	{Mode: ModeYSF, Label: "System Fusion (YSF)", NeedsIdentity: true,

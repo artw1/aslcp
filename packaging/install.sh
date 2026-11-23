@@ -1,11 +1,11 @@
 #!/bin/sh
 # ASLCP installer: adds the signed apt repository and installs the package.
-#   curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo sh
+#   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo sh
 # Run as root. Safe to run again (it also acts as an upgrade).
 # Update channel: stable (default). ASLCP_CHANNEL=beta selects the beta suite;
 # without it, the channel of an existing install is kept.
 # Web port: 8080 by default. ASLCP_PORT=<1024-65535> picks another one:
-#   curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_PORT=8181 sh
+#   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_PORT=8181 sh
 # After the package is installed, the "listen" line in /etc/aslcp/aslcp.conf is
 # rewritten (an address part is kept), aslcp is restarted and the port is opened
 # in firewalld (if it is running). Without ASLCP_PORT the configured port is kept.
@@ -16,7 +16,7 @@
 # non-empty value is refused. If
 # the job fails the installer warns and still finishes; run "sudo aslcp dv
 # enable" later to retry. It combines with ASLCP_PORT:
-#   curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_DV=1 ASLCP_PORT=8181 sh
+#   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_DV=1 ASLCP_PORT=8181 sh
 # Pre-flight: before anything is changed the installer refuses to run while
 # ASL3 is still finishing its first-boot setup (systemd still starting, or
 # asl3-boot-oneshot.service / resize2fs_once.service running) or while another
@@ -28,7 +28,7 @@
 set -eu
 
 # Base URL of the apt repository (GitHub Pages of the public repo).
-APT_URL="${ASLCP_APT_URL:-https://artw1.github.io/aslcp}"
+APT_URL="${ASLCP_APT_URL:-https://w1jar.github.io/aslcp}"
 KEYRING=/usr/share/keyrings/aslcp-archive-keyring.gpg
 LIST=/etc/apt/sources.list.d/aslcp.list
 

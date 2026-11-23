@@ -89,6 +89,9 @@ type Ops struct {
 	DVKeyring    string
 	DVSourceList string
 	DVStateDir   string
+	// DVHostListsDir is the panel's host list directory (TGIF's master comes
+	// from its DMR list); default DefaultDVHostListsDir.
+	DVHostListsDir string
 	// DVHistoryDir and DVOldHistoryDir are the ini history directories of the
 	// previous stack that PurgeLegacy deletes (default DefaultDVHistoryDir and
 	// legacy.OldHistoryDir); DVOldStateDir is the 1.x name of the state

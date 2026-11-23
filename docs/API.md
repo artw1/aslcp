@@ -397,7 +397,7 @@ About = {
 }
 ```
 
-The UI builds the bug report link from it: `https://github.com/artw1/aslcp/issues/new?template=bug_report.yml&version=..&asl=..&hardware=..&os=..` (the query keys are the field ids of `.github/ISSUE_TEMPLATE/bug_report.yml`).
+The UI builds the bug report link from it: `https://github.com/w1jar/aslcp/issues/new?template=bug_report.yml&version=..&asl=..&hardware=..&os=..` (the query keys are the field ids of `.github/ISSUE_TEMPLATE/bug_report.yml`).
 
 ## Diagnostics (admin)
 
@@ -632,9 +632,9 @@ NetView = {
 }
 ```
 
-Validation (`422 invalid_field`, the message names the field, never a value): callsign 3 to 8 letters and digits (stored upper case); DMR ID 7 digits (1000000 to 9999999); repeater ID 0 or 1000000 to 999999999; port 1 to 65535; address a host name or an IP address; password 1 to 64 printable characters without blanks; option keys only from the per-mode table (`dvpanel.NetOptions`) and values within the spec. `422 incomplete`: enabling a network needs its address (unless the mode has a `defaultAddress`, as TGIF has), its password (not NXDN, which has none) and, for a DMR or NXDN network, the identity; NXDN also needs `options.nxdn_id` (an enable request without it is `422 incomplete`; saving with `options.nxdn_id` cleared while NXDN is enabled succeeds and turns NXDN off). `options` replaces all options of the mode: `{}` clears them all, an empty value drops that key. Text options carry an optional `maxLen`; bool options take `true` or `false`. `applied: false` with `applyError`: the settings are saved but the engine did not take them (digital modes off, or the engine refused the file).
+Validation (`422 invalid_field`, the message names the field, never a value): callsign 3 to 8 letters and digits (stored upper case); DMR ID 7 digits (1000000 to 9999999); repeater ID 0 or 1000000 to 999999999; port 1 to 65535; address a host name or an IP address; password 1 to 64 printable characters without blanks; option keys only from the per-mode table (`dvpanel.NetOptions`) and values within the spec. `422 incomplete`: enabling a network needs its address (unless the mode has a `defaultAddress`), its password (not NXDN, which has none) and, for a DMR or NXDN network, the identity; NXDN also needs `options.nxdn_id` (an enable request without it is `422 incomplete`; saving with `options.nxdn_id` cleared while NXDN is enabled succeeds and turns NXDN off). `options` replaces all options of the mode: `{}` clears them all, an empty value drops that key. Text options carry an optional `maxLen`; bool options take `true` or `false`. `applied: false` with `applyError`: the settings are saved but the engine did not take them (digital modes off, or the engine refused the file).
 
-`BM` has `fields.port: false`: a `port` in `PUT /api/dv/networks/BM` is refused (`422 invalid_field`) and a port stored by an earlier version is dropped on load. `YSF` and `P25` are enable-only (`fields.address` and `fields.port` false, no `p25_id` option): an `address`, `port` or `options.p25_id` in a `PUT` is refused (`422 invalid_field`), and the same fields stored by an earlier version are dropped on load. The snapshot's `modes[]` gains `login` and `detail` (an enabled, available network's login state). `available` comes from the engine (`Status.networks[].available`); while the engine is down it falls back to the static list of native modes in the build (`LOOP`, `BM`, `TGIF`, `DMR`, `YSF`, `P25`, `NXDN`). Audit: `dv.network` (mode and the names of the changed fields) and `dv.identity`.
+`BM` has `fields.port: false`: a `port` in `PUT /api/dv/networks/BM` is refused (`422 invalid_field`) and a port stored by an earlier version is dropped on load. `TGIF` has `fields.address` and `fields.port` false as well (its master comes from the DMR host list, else `tgif.network:62031`), no `options` or `slot` option (always timeslot 2, no RPTO): an `address`, `port`, `options.options` or `options.slot` in a `PUT` is refused (`422 invalid_field`) and the same values stored by an earlier version are dropped on load. `YSF` and `P25` are enable-only (`fields.address` and `fields.port` false, no `p25_id` option): an `address`, `port` or `options.p25_id` in a `PUT` is refused (`422 invalid_field`), and the same fields stored by an earlier version are dropped on load. The snapshot's `modes[]` gains `login` and `detail` (an enabled, available network's login state). `available` comes from the engine (`Status.networks[].available`); while the engine is down it falls back to the static list of native modes in the build (`LOOP`, `BM`, `TGIF`, `DMR`, `YSF`, `P25`, `NXDN`). Audit: `dv.network` (mode and the names of the changed fields) and `dv.identity`.
 
 ### Digital modes host lists (operator)
 
@@ -753,8 +753,8 @@ socket = /run/aslcp/helper.sock
 [updates]
 ; base URL of the apt repository; <url>/latest.json = {"version","notes","date"}
 ; (empty disables release notes)
-; optional override; the built-in default is https://artw1.github.io/aslcp
-;url = https://artw1.github.io/aslcp
+; optional override; the built-in default is https://w1jar.github.io/aslcp
+;url = https://w1jar.github.io/aslcp
 ```
 
 ### Helper protocol (internal)

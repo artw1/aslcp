@@ -141,7 +141,7 @@ func TestDVNetworksTGIFDMRNXDN(t *testing.T) {
 		got[m.Mode]++
 		switch m.Mode {
 		case "TGIF":
-			if !m.Available || m.DefaultAddress != "tgif.network" || m.DefaultPort != 62031 || !m.Fields.Password || len(m.Options) == 0 {
+			if !m.Available || m.DefaultAddress != "" || m.DefaultPort != 0 || m.Fields.Address || m.Fields.Port || !m.Fields.Password || len(m.Options) == 0 {
 				t.Fatalf("%+v", m)
 			}
 		case "DMR":
@@ -158,6 +158,7 @@ func TestDVNetworksTGIFDMRNXDN(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 	// validation
+	expectErr(t, e, "admin", "PUT", "/api/dv/networks/TGIF", map[string]any{"address": "192.0.2.10"}, 422, "invalid_field")
 	expectErr(t, e, "admin", "PUT", "/api/dv/networks/TGIF", map[string]any{"options": map[string]string{"slot": "5"}}, 422, "invalid_field")
 	expectErr(t, e, "admin", "PUT", "/api/dv/networks/DMR", map[string]any{"options": map[string]string{"nxdn_id": "1"}}, 422, "invalid_field")
 	expectErr(t, e, "admin", "PUT", "/api/dv/networks/NXDN", map[string]any{"password": "example-pass"}, 422, "invalid_field")

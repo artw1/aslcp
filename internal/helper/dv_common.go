@@ -35,6 +35,8 @@ const (
 	DefaultDVStateDir   = "/var/lib/aslcp-dvstate"
 	DefaultDVEngineDir  = "/var/lib/aslcp-dv"
 	DefaultDVEngineUser = "aslcp-dv"
+	// DefaultDVHostListsDir is where the panel keeps the downloaded host lists.
+	DefaultDVHostListsDir = "/var/lib/aslcp/hostlists"
 
 	dvMarkerFile = "install.json"    // the ASLCP-installed marker
 	dvSimFile    = "install-sim.txt" // simulated install, input of install-plan
@@ -82,13 +84,14 @@ func (o *Ops) MigrateDVState() ([]string, error) {
 
 // ---- paths and clock
 
-func (o *Ops) dvKeyring() string    { return orDefault(o.DVKeyring, DefaultDVKeyring) }
-func (o *Ops) dvSourceList() string { return orDefault(o.DVSourceList, DefaultDVSourceList) }
-func (o *Ops) dvStateDir() string   { return orDefault(o.DVStateDir, DefaultDVStateDir) }
-func (o *Ops) dvEngineDir() string  { return orDefault(o.DVEngineDir, DefaultDVEngineDir) }
-func (o *Ops) dvEngineUser() string { return orDefault(o.DVEngineUser, DefaultDVEngineUser) }
-func (o *Ops) dvMarkerPath() string { return filepath.Join(o.dvStateDir(), dvMarkerFile) }
-func (o *Ops) dvSimPath() string    { return filepath.Join(o.dvStateDir(), dvSimFile) }
+func (o *Ops) dvKeyring() string      { return orDefault(o.DVKeyring, DefaultDVKeyring) }
+func (o *Ops) dvSourceList() string   { return orDefault(o.DVSourceList, DefaultDVSourceList) }
+func (o *Ops) dvStateDir() string     { return orDefault(o.DVStateDir, DefaultDVStateDir) }
+func (o *Ops) dvEngineDir() string    { return orDefault(o.DVEngineDir, DefaultDVEngineDir) }
+func (o *Ops) dvHostListsDir() string { return orDefault(o.DVHostListsDir, DefaultDVHostListsDir) }
+func (o *Ops) dvEngineUser() string   { return orDefault(o.DVEngineUser, DefaultDVEngineUser) }
+func (o *Ops) dvMarkerPath() string   { return filepath.Join(o.dvStateDir(), dvMarkerFile) }
+func (o *Ops) dvSimPath() string      { return filepath.Join(o.dvStateDir(), dvSimFile) }
 func (o *Ops) dvPrivatePath() string {
 	return filepath.Join(o.dvStateDir(), dvPrivateFile)
 }

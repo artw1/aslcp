@@ -63,6 +63,13 @@ const (
 	ModeNXDN = "NXDN"
 )
 
+// TGIFAddress and TGIFPort are the built-in TGIF master, used when the DMR
+// host list is missing or has no TGIF entry.
+const (
+	TGIFAddress = "tgif.network"
+	TGIFPort    = 62031
+)
+
 // DefaultHomebrewPassword is the login password of a DMR - Other master when
 // none is set: the value most Homebrew masters ship with. BrandMeister and
 // TGIF have no such default.
