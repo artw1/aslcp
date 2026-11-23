@@ -166,7 +166,7 @@ A knowledge base of known settings per file and stanza.
 | allowed values / range | Drives validation |
 | default | Shown as placeholder; "effective default" display |
 | description | Inline help |
-| reload requirement | `none`, module reload, dialplan reload, restart (**To verify** per key on hardware) |
+| reload requirement | `verified`, `assumed` or `restart` (**To verify** per key on hardware; nothing is `verified` yet, so `assumed` keys reload through the reload map and `restart` keys offer an Asterisk restart) |
 | sensitive | Masked in UI, excluded from logs and diagnostics |
 
 Rules:
@@ -180,16 +180,40 @@ Rules:
 
 ### 4.3 Layer 3: guided actions
 
-Wizards for common multi-file operations: add node, change node number, change radio interface, set up EchoLink, registration.
+Forms and wizards for common single- and multi-file operations: node identity, duty (duplex) and timers, SimpleUSB interface settings, registration, EchoLink, AMI. Both are thin clients of one server-side planner (`internal/nodecfg`, API in [API.md](API.md), field list in [CONFIG.md](CONFIG.md), "Forms").
 
 Each action:
 
 1. Checks preconditions against the parsed tree.
-2. If the config does not match expectations, refuses with a clear explanation and a link to the raw editor, rather than guessing.
-3. Produces a full multi-file diff for review before anything is applied.
+2. If the config does not match expectations, refuses with a clear explanation and a link to the raw editor (Advanced), rather than guessing.
+3. Produces a full multi-file diff for review before anything is applied (a dry run changes nothing).
 4. Applies through the standard safety pipeline (section 6).
 
-**Node renumbering** is the canonical example. A node number appears in roughly eight places:
+**Edits are lossless.** The planner edits fresh `astconf` parses of the files, so comments, order, unknown keys and layout are preserved. Only the lines of the changed keys differ in the diff.
+
+**Templates.** A node usually inherits most settings from `[node-main](!)`. Each setting shows where its value comes from (node, template, section, default or unset). A form save has three modes:
+
+| Mode | Effect |
+|---|---|
+| override (default) | Sets the key in the node's own stanza. A value already in effect from the template is not written, so Save never pins template values. |
+| reset | Removes the key from the node's stanza so the template value applies again. |
+| template ("change for all nodes") | Edits the template stanza the value is inherited from; nodes that set the key themselves keep their own value and are listed as warnings. |
+
+**Cross-field checks.** Run on the state after the change. A new error blocks the plan; an error that was already there is shown as a warning, so one broken thing does not lock out unrelated edits.
+
+- `rxchannel` driver, `modules.conf` and the device stanza agree (the driver module is loaded and not `noload`, and the device section exists).
+- A node is not registered over both HTTP and IAX.
+- Private node numbers (1 to 1999) versus public ones: a public node should be registered, a private one should not.
+- Callsign format (the callsign is the `|i<CALL>` of `idrecording`).
+- EchoLink set up for a node requires `chan_echolink.so` to be loaded.
+
+**Refusals.** The planner refuses (422 `refused`, with the file and line) when a node's stanza or its device section cannot be edited with confidence: missing, defined more than once, a template, split across `[x](+)` blocks, or inheriting from a missing or cyclic parent.
+
+**USBRadio is not supported by forms or wizards.** A node with `rxchannel = Radio/...` shows an explanation and a link to Advanced (`usbradio.conf`). Its calibration is a tuning job, not a form. The same holds for other interfaces (Voter, USRP, `dahdi`): shown read-only, edited in Advanced.
+
+**Reload stance.** Each schema key is marked `verified`, `assumed` or `restart`. Nothing is `verified` until it is tested on hardware; all reload commands are therefore documented as "to verify on hardware" (section 13). The plan lists the reload commands from the reload map (section 6 and CONFIG.md). Anything that map does not cover, and any `restart` key (`rxchannel`, `duplex`, the AMI bind settings, `astnode`, ports), offers an Asterisk restart instead; the server never restarts on its own, the client asks.
+
+**Node renumbering** is the canonical example of a later multi-file action. A node number appears in roughly eight places:
 
 | Location | Reference |
 |---|---|
@@ -202,9 +226,9 @@ Each action:
 | `savenode.conf` | Shell `KEY=VALUE` file |
 | `rxchannel` values | Channel references |
 
-A rename is one guided transaction covering all of them, or none.
+A rename is one guided transaction covering all of them, or none. It is not part of the first forms release (see 9.1).
 
-**Radio interface changes.** Changing `rxchannel` implies matching `modules.conf` load lines and a matching device stanza; the wizard handles all three together.
+**Radio interface changes.** Changing `rxchannel` implies matching `modules.conf` load lines and a matching device stanza; the planner handles all three together for SimpleUSB and for "no radio" (hub, `Local/pseudo`).
 
 **Layout migration** (old flat layout to the current templated layout with `custom/` includes) is an optional, previewed, reversible tool planned for a later version. It is never required.
 
@@ -258,18 +282,27 @@ The view parses both files and compares per stanza and per key: added, removed, 
 
 ## 8. Setup wizard
 
-The first-run wizard can replace the `asl3-menu` node setup.
+The wizard configures an existing node; it does not install ASL3 and does not create node numbers. It runs on the planner of 4.3 and applies through the safety pipeline, one apply per step or one at the end (the client decides; each step is a complete, valid plan).
 
-| Step | Details |
-|---|---|
-| Detect | Is ASL3 present, which version, existing nodes, existing layout. |
-| Node | Node number and password; registration entries. |
-| Identity | Callsign, ID, basic `[general]` settings. |
-| Radio interface | SimpleUSB, USBRadio, none (local/pseudo hub), USRP (digital modes bridge: see [DV.md](DV.md)), Voter. |
-| AMI | Create or update credentials; update or warn about detected AMI clients (section 4.5). |
-| Review | Full multi-file diff, then apply through the safety pipeline. |
+| Step | Details | Writes |
+|---|---|---|
+| Detect | Node overview (`GET /api/config/nodes`): ASL3 present, local nodes, layout. A placeholder node (callsign `NOTSET`, the stock `1999`) is offered first. | nothing |
+| Identity | Callsign (becomes `idrecording = \|i<CALL>`), ID timing. | `rpt.conf` |
+| Duty | A preset: simplex node or hotspot, half-duplex link radio, repeater, or hub without a radio. | `rpt.conf` (`duplex`, `linktolink`, `hangtime`; hub also `rxchannel = Local/pseudo`) |
+| Radio interface | SimpleUSB (device section, `modules.conf` load line, carrier and CTCSS source) or none (hub). USBRadio, Voter and USRP are not offered; the step says to use Advanced. | `rpt.conf`, `simpleusb.conf`, `modules.conf` |
+| Registration | Public nodes: HTTP (`rpt_http_registrations.conf`) or IAX (`iax.conf`) with the node password; private nodes: none. Never both. | one of those files |
+| EchoLink | Optional: callsign, password, name, location, and linking `astnode` to the node, loading `chan_echolink.so`. | `echolink.conf`, `modules.conf` |
+| Review | Full multi-file diff, warnings, reload plan or restart offer, then apply. | |
 
-On an already configured node, the wizard is not forced: it detects the existing setup, offers read-only import into the panel, and sends the user to the guided actions for changes.
+AMI credentials are a single field form (`manager.conf`); the wizard does not change them. Updating detected AMI clients (4.5) stays **To verify**.
+
+On an already configured node the wizard is not forced: the overview shows what is set, and forms and wizards edit it in place.
+
+### 8.1 Phases
+
+1. **Phase 1 (2.0.3): planner and API.** Schema, node overview, generic form plan/apply with dry run, cross-field checks, mock API.
+2. **Phase 2: forms and wizards in the web UI** on that API: node page forms, the setup wizard, and registration and EchoLink wizards.
+3. **Phase 3: node renumbering, add node, voter,** and the other multi-file actions of 4.3.
 
 ## 9. Feature split
 
@@ -289,16 +322,17 @@ v1 ships in two milestones. The first covers what AllScan does today (dashboard,
 
 **Milestone 2: configuration**
 
-- Config engine, with schema forms for: `rpt.conf` node settings, `simpleusb`, `iax` general, `echolink`, registrations, `manager`.
+- Config engine, with schema forms for: `rpt.conf` node settings, `simpleusb`, `iax` general, `echolink`, registrations, `manager` (planner and API: 4.3; UI follows in phases, 8.1).
 - Raw editor for all files.
 - Snapshots, history, rollback.
-- First-run setup wizard.
+- Setup wizard (section 8: planner first, UI after).
 - System page: Asterisk restart, log tail, disk.
 
 **Then:** public status page, phase 1: live, read-only status of the node's own local nodes (keying, connected links, registration). See 9.3.
 
 ### 9.2 Later
 
+- Node renumbering, add node and the other multi-file wizards (4.3).
 - USB radio audio tuning UI (RX/TX levels; live meters if feasible).
 - DTMF functions, macros, telemetry, and scheduler editors.
 - Allow/deny list manager (AstDB).

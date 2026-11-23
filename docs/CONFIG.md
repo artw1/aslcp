@@ -106,6 +106,42 @@ The table lives in one Go map so it can be corrected after testing on the node (
 
 **Masking:** keys `secret`, `password`, `passwd`, `pass`, `md5secret`, `dbsecret`, and `register =>` / `register =` values (the `user:secret@` part) are replaced with `********` in history diffs unless revealed. The raw editor shows real content (admin only); reading a file is audited as `config.read`.
 
+## Forms
+
+Forms and wizards are clients of one planner (`internal/nodecfg`) that sits on top of the file editing above. It reads the files back on every request, so edits made in the raw editor show up at once. All routes are admin only; request and response shapes are in [API.md](API.md), "Node forms". Design: DESIGN 4.3 and 8.
+
+**Schema.** `internal/schema` is a hand-curated list of known keys. A key id is `file:scope:name`; the scope is `node` (the node's stanza in `rpt.conf`, with template inheritance), `device` (the node's device section in the radio file) or a literal section name. Each key has a type (`string`, `int`, `yesno`, `flag`, `enum`, `node`), range or values, default, description and a reload class (`verified`, `assumed` or `restart`; no key is `verified` until tested on hardware). The same list is served by `GET /api/config/schema` and committed as `web/mock/schema.json` for the mock (a Go test fails if they differ; `go test ./internal/nodecfg -update` rewrites it). Keys marked secret are never returned or logged: the overview shows `********`, plans and diffs mask them.
+
+**Fields per form** (all in the node's stanza of `rpt.conf` unless a file is named):
+
+| Form | Fields |
+|---|---|
+| identity | `idrecording` (callsign, written as `\|i<CALL>`), `idtalkover`, `idtime`, `politeid`, `callerid` |
+| radio | `rxchannel` (restart); `simpleusb.conf` device: `carrierfrom`, `ctcssfrom`, `invertptt`, `rxboost`, `preemphasis`, `deemphasis`, `plfilter` |
+| duplex | `duplex` (restart), `linktolink`, `telemdefault`, `telemdynamic`, `holdofftelem`, `nounkeyct`, `unlinkedct`, `remotect`, `linkunkeyct` |
+| timers | `hangtime`, `althangtime`, `totime`, `time_out_reset_unkey_interval`, `tailmessagetime`, `parrot` |
+| linking | `linkmongain`, `erxgain`, `etxgain`, `context`, `startup_macro`; `iax.conf` `[general]` `bindport` (restart) |
+| status | `statpost_url`, `statpost_time` |
+| general | `rpt.conf` `[general]` `node_lookup_method` |
+| ami | `manager.conf` `[general]` `enabled`, `bindaddr`, `port` (restart); `[admin]` `secret` (secret) |
+| echolink | `echolink.conf` `[el0]`: `call`, `pwd` (secret), `name`, `qth`, `email`, `astnode` (restart), `maxstns`, `freq`, `tone`, `power`, `height`, `gain`, `dir` |
+
+Registration is not a schema key: it is the line `register => <node>:<password>@<host>` in `[general]` of `rpt_http_registrations.conf` (method `http`) or `iax.conf` (method `iax`). Keys not in the schema are returned as "other" settings and are preserved.
+
+**Wizard steps** (Identity, Duty, Radio interface, Registration, EchoLink, Review) and the presets (simplex, halfduplexlink, repeater, hub) are listed in DESIGN 8. A wizard step is one `POST /api/config/form` call with the matching fields (`callsign`, `preset`, `radio`, `registration`, `link`, `modules`, `changes`); every call is a complete, valid plan.
+
+**Phases.** 2.0.3 ships the planner and API and the mock. The web forms and wizards come next, then renumbering and add-node.
+
+**Save semantics.** `mode` is `override` (default: write the node's own stanza; a value already in effect is a no-op), `reset` (remove the node's own key) or `template` (change it in the template it is inherited from, the "change for all nodes" option). `dryRun: true` returns the plan with per-file diffs, applied changes, warnings, errors and base shas and writes nothing. A real call re-plans, refuses on conflict (`base` differs from disk), and applies through `configsvc` (snapshot, write, reload, health), the same pipeline as the raw editor. The server never writes `/etc/asterisk` itself.
+
+**Cross-field checks** (run on the after-state; new errors block, old ones are warnings): `driver_not_loaded` and `driver_noload` (rxchannel driver versus `modules.conf`), `no_device_stanza` (device section missing in the radio file), `registered_both`, `private_registered` (node 1 to 1999 with a register line), `public_not_registered` (node above 1999 with none), `register_node_mismatch`, `callsign_format`, `echolink_module` (EchoLink set up but `chan_echolink.so` not loaded), `node_not_in_nodes`.
+
+**Refusals.** `no_file`, `no_stanza`, `multiple_stanzas`, `is_template`, `split_stanza`, `broken_inheritance`: the stanza cannot be edited with confidence, so the answer is `422 refused` with the file and line and the UI links to the raw editor.
+
+**USBRadio.** Not supported by forms or wizards: `rxchannel = Radio/...` nodes show a note and a link to Advanced (`usbradio.conf`). The same for Voter, USRP and other channels.
+
+**Reload.** The plan's `reload` is the union of the reload map (table above) for the changed files. `restart` is true, with `restartReasons`, when a changed file is not in the map or a key marked `restart` changed. Then the client offers "Restart Asterisk" (`restart: true` in the apply call); the server never restarts on its own. All reload commands and classes are **to verify on hardware**.
+
 ## UI
 
 New top-level "Config" page (admin only, hidden for others):
@@ -121,4 +157,5 @@ New top-level "Config" page (admin only, hidden for others):
 
 - Helper: path validation table tests (traversal, absolute, symlink escape, non-.conf, depth, NUL, size), apply/conflict/rollback-on-write-error, ownership and mode preserved, restore, log/show, hooks disabled. Use a temp dir as root and a temp history repo.
 - Server: preview diff and reload plan, masking, authorization (viewer/operator get 403), audit entries without secrets.
+- Forms: `internal/nodecfg` tests on the asl3-dist corpus (overview and provenance, each mode, refusals, cross-field checks, no-op saves, secrets never echoed) and API tests in `internal/api`.
 - On real hardware before beta.1: check `/etc/asterisk` ownership and modes, the reload commands in the table, and the health check after each.

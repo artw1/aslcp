@@ -66,3 +66,7 @@ func PlanReload(changed []string) (steps []ReloadStep, restart bool) {
 	}
 	return steps, restart
 }
+
+// ReloadCommandFor returns the reload command that applies a change to the
+// file, and false when only an Asterisk restart does.
+func ReloadCommandFor(path string) (string, bool) { return reloadCommand(path) }

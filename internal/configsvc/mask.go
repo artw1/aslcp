@@ -9,7 +9,7 @@ import (
 const Masked = "********"
 
 var (
-	reSecretKey = regexp.MustCompile(`(?i)^(\s*)(secret|password|passwd|pass|md5secret|dbsecret)(\s*=>?\s*)(.*)$`)
+	reSecretKey = regexp.MustCompile(`(?i)^(\s*)(secret|password|passwd|pass|pwd|md5secret|dbsecret)(\s*=>?\s*)(.*)$`)
 	// Any key with "password" in its name (old stack inis: Password,
 	// RemotePassword, ...).
 	rePasswordKey = regexp.MustCompile(`(?i)^(\s*)(\w*password\w*)(\s*=>?\s*)(.*)$`)

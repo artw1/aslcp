@@ -3,6 +3,16 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [2.0.3] - 2026-11-23
+
+### Added
+- Node forms API: `GET /api/config/nodes` shows each node's settings and where every value comes from (node, template or default), its radio, registration and EchoLink state, and warnings.
+- `POST /api/config/form` plans and applies form changes with a dry run that shows the per-file diff. A save sets the node's own value by default; it can also reset the node to the template or change the template for all nodes.
+- Checks before saving: the radio driver must be loaded in `modules.conf` and have its device section, a node is not registered over both HTTP and IAX, private (1 to 1999) and public node numbers, callsign format, and EchoLink needs `chan_echolink.so`.
+- `GET /api/config/schema` lists the known settings, their limits and the setup presets.
+- USBRadio is not changed by forms or wizards; the node page points to Advanced.
+- A change that needs an Asterisk restart offers it and never restarts on its own.
+
 ## [2.0.2] - 2026-11-23
 
 ### Changed

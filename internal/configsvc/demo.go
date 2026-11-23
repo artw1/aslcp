@@ -34,14 +34,34 @@ type demoCommit struct {
 
 const demoRpt = `; Demo node configuration (anonymized)
 [general]
+node_lookup_method = both
 
-[2006]
+[node-main](!)
+rxchannel = Local/pseudo
+duplex = 1
+linktolink = no
+hangtime = 2000
+althangtime = 4000
+totime = 180000
+telemdefault = 1
+idrecording = |iNOTSET
+context = radio
+controlstates = controlstates
+
+[2006](node-main)
 rxchannel = SimpleUSB/usb
 callsign = N0CALL
 idrecording = |iN0CALL
-duplex = 1
-context = radio
-controlstates = controlstates
+`
+
+const demoEchoLink = `[el0]
+call = INVALID
+pwd = INVALID
+name = YOUR NAME
+qth = INVALID
+email = INVALID
+astnode = 2006
+maxstns = 20
 `
 
 const demoManager = `[general]
@@ -56,7 +76,7 @@ write = all
 `
 
 const demoRegs = `[general]
-register => 1999:demo-not-a-real-password@register.example.invalid
+register => 2006:demo-not-a-real-password@register.example.invalid
 `
 
 // NewDemoHelper returns a demo helper with two commits of history.
@@ -64,7 +84,8 @@ func NewDemoHelper() *DemoHelper {
 	d := &DemoHelper{files: map[string]string{
 		"rpt.conf":                    demoRpt,
 		"simpleusb.conf":              "[usb]\nrxmixerset = 650\ntxmixaset = 500\ntxmixbset = 0\nrxboost = no\npreemphasis = yes\ndeemphasis = yes\nplfilter = yes\ninvertptt = no\ncarrierfrom = usbinvert\nctcssfrom = no\nrxondelay = 0\ntxoffdelay = 0\n",
-		"modules.conf":                "[modules]\nautoload = yes\nnoload = chan_usrp.so\n",
+		"modules.conf":                "[modules]\nautoload = no\nload = chan_simpleusb.so\nnoload = chan_usrp.so\nnoload = chan_echolink.so\n",
+		"echolink.conf":               demoEchoLink,
 		"iax.conf":                    "[general]\nbindport = 4569\ndisallow = all\nallow = ulaw\n",
 		"manager.conf":                demoManager,
 		"extensions.conf":             "[radio]\nexten => _X.,1,Rpt(${EXTEN})\n",

@@ -49,3 +49,7 @@ func (f helperFS) Glob(pattern string) ([]string, error) {
 func (s *Service) Tree(ctx context.Context, file string) (*astconf.Tree, error) {
 	return astconf.LoadTree(helperFS{ctx: ctx, h: s.H}, "", file)
 }
+
+// FS returns a read-only view of /etc/asterisk for astconf (includes
+// resolve through the helper). Paths are relative to /etc/asterisk.
+func (s *Service) FS(ctx context.Context) astconf.FS { return helperFS{ctx: ctx, h: s.H} }

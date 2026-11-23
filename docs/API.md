@@ -206,6 +206,103 @@ All routes are admin only (`403` otherwise), non-GET requests need the CSRF head
 
 `reload` and `health` are `null` when `reload` was false (or nothing changed). Errors: `409 {"code":"conflict","files":[...]}` (a file changed on disk since it was loaded), `422 {"code":"syntax_error","issues":[{path,line,message}]}`, `400 bad_request`, `404 not_found`, `502 helper_error`. Audit entries (`config.apply`, `config.restore`, `config.read`, `config.reveal`, `asterisk.restart`) contain paths and commit ids only, never file contents, secret values or commit messages.
 
+## Node forms (admin)
+
+The planner behind the node forms and wizards (CONFIG "Forms", DESIGN 4.3). Admin only, CSRF header on `POST`, `503 config_unavailable` when the helper is not reachable. Secrets are never returned: a secret value is `********` with `masked:true`, and diffs mask them.
+
+| Route | Body | Response |
+|---|---|---|
+| `GET /api/config/nodes[?status=1]` | | Overview (below). `status=1` adds `registration.status` by asking AMI; off by default |
+| `GET /api/config/schema` | | `{keys:[Key],forms:[string],presets:[Preset]}` |
+| `POST /api/config/form` | Request (below) | `{plan, restarted, restartPending}` for a dry run; `{plan, result, restarted, restartPending}` for an apply |
+
+**Overview** (`GET /api/config/nodes`):
+
+```json
+{
+  "nodes": [{
+    "node": "1999", "private": true, "placeholder": false,
+    "stanza": {"file": "rpt.conf", "line": 120, "parents": ["node-main"], "template": "node-main"},
+    "callsign": "N0CALL",
+    "radio": {"type": "simpleusb", "channel": "SimpleUSB/1999", "module": "chan_simpleusb.so",
+              "moduleState": "explicit", "device": "1999", "deviceFile": "simpleusb.conf",
+              "deviceStanza": true, "supported": true, "deviceFields": [Field]},
+    "fields": [Field],
+    "other": [{"key": "x", "value": "y", "source": Source, "masked": true}],
+    "registration": {"method": "none", "http": RegLine, "iax": RegLine,
+                     "httpFile": "rpt_http_registrations.conf", "host": "register.example.net",
+                     "status": {"state": "registered", "detail": "..."}},
+    "echolink": {"present": true, "moduleState": "noload", "linked": false,
+                 "configured": false, "enabled": false, "fields": [Field]},
+    "warnings": [Finding], "refusals": [Refusal], "inNodes": true
+  }],
+  "base": {"rpt.conf": "<sha256>", "modules.conf": "<sha256>"},
+  "placeholder": "1999",
+  "warnings": [Finding]
+}
+```
+
+- `Field`: `{id, key, value, set, source, overrides?:{value,section}, masked?, canSet, canReset, canTemplate, locked?}`. `id` is the schema key id; `value` is the effective value (the schema default when unset); `set` is true when a value is written in a file.
+- `Source`: `{kind, section?, file?, line?}` with `kind` one of `node`, `template`, `section`, `default`, `unset`. `overrides` is the template value that the node's own value hides.
+- `canReset`: the node sets the key itself, so reset is possible. `canTemplate`: the node inherits from a template, so "change for all nodes" is possible. `locked`: why the field cannot be edited (the stanza cannot be resolved).
+- `radio.type`: `simpleusb`, `usbradio`, `voter`, `usrp`, `hub`, `other` or `none`. `supported` is true for `simpleusb` and `hub` only. For the others `advancedFile` and `note` point to Advanced. `moduleState`: `explicit`, `auto`, `noload`, `off` or `unknown`.
+- `registration.method`: `none`, `http`, `iax` or `both` (an error). `RegLine`: `{file, line, node, host, hasPassword, placeholder?}`; the password is never returned.
+- `Finding`: `{level: "error"|"warning"|"info", code, message, node?, file?}`. `Refusal`: `{code, message, file?, line?}`.
+- `base` is the sha256 of each model file that exists; pass it back as `base` in the form call.
+
+**Request** (`POST /api/config/form`); every field except `node` is optional:
+
+```json
+{
+  "node": "1999",
+  "mode": "override",
+  "dryRun": true,
+  "preset": "simplex",
+  "changes": [{"id": "rpt.conf:node:hangtime", "value": "2000"}],
+  "callsign": "N0CALL",
+  "radio": {"type": "simpleusb"},
+  "registration": {"method": "http", "host": "register.example.net", "password": "example-pass"},
+  "link": true,
+  "modules": ["chan_echolink.so"],
+  "base": {"rpt.conf": "<sha256>"},
+  "restart": false,
+  "message": "Setup wizard"
+}
+```
+
+- `mode`: `override` (default), `reset` (value in `changes` is ignored) or `template`. `preset` (`simplex`, `halfduplexlink`, `repeater`, `hub`) and `callsign`, `radio`, `registration`, `link`, `modules` apply to the node itself and need `override`.
+- `changes[].id` must be a schema key id; values are validated by the schema (type, range, values, one line, no `;`). An empty value of an optional key removes it.
+- `radio.type`: `simpleusb` (device section and `modules.conf` load line are added when missing) or `hub` (`rxchannel = Local/pseudo`). Anything else is `400`: edit in Advanced.
+- `registration.method`: `http`, `iax` or `none`. Switching removes the line of the other method. A new registration needs a password; an existing one keeps its password when none is given.
+- `link: true` sets `astnode` of `echolink.conf` to the node and loads `chan_echolink.so`. `modules` may list `chan_simpleusb.so`, `chan_echolink.so`.
+- `base`: sha256 per file from the overview or a plan. On a real call a file whose current sha differs gives `409`.
+- `restart: true` asks for an Asterisk restart after the apply (only honoured when the plan says `restart`); `message` is the history message (default "Form: node N").
+
+**Plan**:
+
+```json
+{
+  "node": "1999", "mode": "override",
+  "files": [{"path": "rpt.conf", "base": "<sha256>", "diff": "--- a/rpt.conf\n+++ b/rpt.conf\n@@ ...", "changed": true}],
+  "base": {"rpt.conf": "<sha256>"},
+  "changes": [{"id": "rpt.conf:node:hangtime", "key": "hangtime", "file": "rpt.conf", "section": "1999",
+               "action": "add", "from": "5000", "to": "2000", "note": ""}],
+  "errors": [Finding], "warnings": [Finding],
+  "reload": [{"command": "module reload app_rpt.so", "reason": "rpt.conf changed"}],
+  "restart": false, "restartReasons": [],
+  "noop": false
+}
+```
+
+- `changes[].action`: `set`, `add`, `remove` or `unchanged`. `from` and `to` of secret keys are `********`.
+- `base` holds only the changed files; send it back as `base` to apply exactly this plan.
+- `noop` is true when nothing differs (for example the value is already in effect): no file, no commit.
+- `errors` are new problems from the cross-field checks and block an apply. Problems that existed before are `warnings`.
+
+**Apply response**: `{plan, result, restarted, restartPending}` where `result` is the apply result of `POST /api/config/apply` (`{commit, before, files, reload, health, restart}`; `restart` there is the same flag). `restarted` is true when the server restarted Asterisk on request; `restartPending` is true when a restart is advised and has not happened. A dry run has `restarted:false` and `restartPending` equal to `plan.restart`. A `noop` apply returns the plan without `result`.
+
+Errors: `400 bad_request` (invalid request, for example an unknown key id, an invalid value, a callsign that is not valid, `mode` mix-ups); `422 {"code":"refused","error":"...","refusal":{code,message,file?,line?}}` (the stanza cannot be edited with confidence; use Advanced); `422 {"code":"blocked","error":"...","plan":Plan}` (new cross-field errors); `409 {"code":"conflict","files":[path]}`; `502 {"code":"apply_failed","step":"asterisk_restart","applied":true,"result":...}` (the requested restart failed; the files were written). Audit action `config.form` records the node, mode and the key ids, never values.
+
 ## Radio tuning (admin)
 
 SimpleUSB audio tuning (see [SIMPLEUSB_TUNE.md](SIMPLEUSB_TUNE.md)). Every route is admin only (`403` otherwise); writes need the CSRF header. The commands run through the Asterisk CLI over the AMI connection. `503 {"code":"radio_unavailable"}` is returned when the service is not wired (it never is in a normal install). `{dev}` is the SimpleUSB device name from `simpleusb.conf` (letters, digits, `_` and `-`, at most 32); an unknown one is `404 unknown_device`. Node numbers below are placeholders.

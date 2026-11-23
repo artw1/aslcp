@@ -1,7 +1,7 @@
 // In-memory /etc/asterisk + snapshot history for `npm run dev:mock` (docs/CONFIG.md, /api/config/*). Dev only.
 import { createHash } from 'node:crypto';
 
-const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+export const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 type Tree = Record<string, string>;
 
 const RPT = `; rpt.conf (anonymized sample)
@@ -50,7 +50,7 @@ secret = s3cr3t-iax-pass
 `,
   'simpleusb.conf': `[general]
 
-[usb](node-main)
+[usb]
 devstr = 1-1.4:1.0
 rxboost = 0
 rxmixerset = 500
@@ -71,6 +71,19 @@ write = system,call,agent,user,config,command,reporting,originate
   'modules.conf': `[modules]
 autoload = yes
 noload = pbx_gtkconsole.so
+load = chan_simpleusb.so
+noload = chan_echolink.so
+`,
+  'echolink.conf': `[el0]
+call = INVALID
+pwd = INVALID
+name = YOUR NAME
+qth = INVALID
+email = INVALID
+astnode = 1999
+maxstns = 20
+`,
+  'rpt_http_registrations.conf': `[general]
 `,
   'extensions.conf': `[general]
 static = yes
@@ -89,11 +102,11 @@ exten => 1999,1,Rpt(1999)
 
 const AUTHORS = ['admin', 'admin', 'n0call', 'admin', 'n0call'];
 const t0 = Date.now();
-let tree: Tree = {};
+export let tree: Tree = {};
 interface Commit { commit: string; date: string; author: string; message: string; tree: Tree }
-const commits: Commit[] = []; // newest first
+export const commits: Commit[] = []; // newest first
 let seq = 0;
-const mtimes: Record<string, string> = {};
+export const mtimes: Record<string, string> = {};
 function commit(author: string, message: string, ago: number) {
   seq++;
   commits.unshift({ commit: createHash('sha1').update(`${seq}:${message}`).digest('hex'), date: new Date(t0 - ago * 60e3).toISOString(), author, message, tree: { ...tree } });
@@ -129,7 +142,7 @@ const GROUPS: [RegExp, string][] = [
 const groupOf = (p: string) => GROUPS.find(([re]) => re.test(p))?.[1];
 
 // Reload plan, as in docs/CONFIG.md; null = needs a restart.
-function reloadFor(p: string): string | null {
+export function reloadFor(p: string): string | null {
   if (p === 'rpt.conf' || p.startsWith('custom/rpt/')) return 'module reload app_rpt.so';
   if (p === 'iax.conf' || p.startsWith('custom/iax/')) return 'iax2 reload';
   if (p === 'extensions.conf' || p.startsWith('custom/extensions/')) return 'dialplan reload';
@@ -139,7 +152,7 @@ function reloadFor(p: string): string | null {
 
 // ---- unified diff (LCS) ----
 function lines(s: string): string[] { if (!s) return []; const l = s.split('\n'); if (l[l.length - 1] === '') l.pop(); return l; }
-function unified(path: string, a: string | null, b: string | null, ctx = 3): string {
+export function unified(path: string, a: string | null, b: string | null, ctx = 3): string {
   const al = lines(a ?? ''), bl = lines(b ?? '');
   const n = al.length, m = bl.length;
   const dp: Uint32Array[] = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
@@ -172,7 +185,7 @@ function unified(path: string, a: string | null, b: string | null, ctx = 3): str
   return out;
 }
 
-function mask(diff: string): string {
+export function mask(diff: string): string {
   return diff.split('\n').map((l) => {
     if (l.startsWith('+++') || l.startsWith('---') || !/^[ +-]/.test(l)) return l;
     const body = l.slice(1);
@@ -184,7 +197,7 @@ function mask(diff: string): string {
 }
 
 // Rough syntax check standing in for astconf.Parse.
-function syntax(content: string): { line: number; message: string } | null {
+export function syntax(content: string): { line: number; message: string } | null {
   const ls = content.split('\n');
   let block = false;
   for (let i = 0; i < ls.length; i++) {
@@ -200,7 +213,7 @@ function syntax(content: string): { line: number; message: string } | null {
 }
 
 const healthy = () => !Object.values(tree).some((c) => c.includes('BADCONFIG'));
-function runReload(paths: string[], doReload: boolean) {
+export function runReload(paths: string[], doReload: boolean) {
   const restart = paths.some((c) => !reloadFor(c));
   if (!doReload) return { files: paths, restart, reload: null, health: null };
   const cmds = [...new Set(paths.map(reloadFor).filter((c): c is string => !!c))];
@@ -212,8 +225,8 @@ function runReload(paths: string[], doReload: boolean) {
   };
 }
 
-function snapshot(author: string, message: string, ago = 0) { commit(author, message, ago); return commits[0].commit; }
-const treeDiffers = (a: Tree, b: Tree) => Object.keys({ ...a, ...b }).some((p) => a[p] !== b[p]);
+export function snapshot(author: string, message: string, ago = 0) { commit(author, message, ago); return commits[0].commit; }
+export const treeDiffers = (a: Tree, b: Tree) => Object.keys({ ...a, ...b }).some((p) => a[p] !== b[p]);
 const changedPaths = (a: Tree, b: Tree) => Object.keys({ ...a, ...b }).filter((p) => a[p] !== b[p]).sort();
 
 type Ctx = { m: string; p: string; body: any; url: URL; user: { username: string; role: string }; json: (code: number, body?: unknown) => void; err: (code: number, msg: string, c: string, extra?: object) => void };
