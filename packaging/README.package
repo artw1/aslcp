@@ -40,7 +40,7 @@ Firewall
   Otherwise open the port yourself if you use another firewall.
   To pick another port (1024-65535): run the installer again with ASLCP_PORT (it also opens
   the port in firewalld):
-      curl -fsSL https://artw1.github.io/aslcp/install.sh | sudo ASLCP_PORT=8181 sh
+      curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_PORT=8181 sh
   or edit "listen" and run  sudo systemctl restart aslcp , then open the port in
   your firewall (firewalld: sudo firewall-cmd --permanent --add-port=8181/tcp
   && sudo firewall-cmd --reload).
@@ -48,11 +48,11 @@ Firewall
 Updates
   Settings > Updates in the web UI (administrators), or the usual:
       sudo apt update && sudo apt install --only-upgrade aslcp
-  The repository is added by the install script; see https://artw1.github.io/aslcp/
+  The repository is added by the install script; see https://w1jar.github.io/aslcp/
 
 Reporting bugs
   Settings > About > Report a bug (prefilled form), and Download diagnostics (admin)
-  for a log file with IP addresses and secrets removed. https://github.com/artw1/aslcp
+  for a log file with IP addresses and secrets removed. https://github.com/w1jar/aslcp
 
 Removal
   apt remove aslcp   keeps /var/lib/aslcp (users, favorites) and the user

@@ -4,7 +4,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 # --- Debian packaging / apt repository (see packaging/) ---------------------
 # Owner, repo and URL of the public apt repository, in one place. The release
 # workflow (.github/workflows/release.yml) has matching env values.
-APT_OWNER ?= artw1
+APT_OWNER ?= w1jar
 APT_REPO  ?= aslcp
 APT_URL   ?= https://$(APT_OWNER).github.io/$(APT_REPO)
 

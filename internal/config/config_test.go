@@ -80,7 +80,7 @@ func TestHelperAndUpdatesSections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.HelperSocket != "/run/aslcp/helper.sock" || c.UpdatesURL != "https://artw1.github.io/aslcp" {
+	if c.HelperSocket != "/run/aslcp/helper.sock" || c.UpdatesURL != "https://w1jar.github.io/aslcp" {
 		t.Fatalf("defaults: %+v", c)
 	}
 	conf := write(t, dir, "aslcp.conf", "[helper]\nsocket = /tmp/h.sock\n[updates]\nurl = https://example.org/apt/\n")

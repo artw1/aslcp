@@ -3,6 +3,15 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [2.0.4] - 2026-11-23
+
+### Changed
+- The project moved to https://github.com/w1jar/aslcp and the apt repository, update check files and `install.sh` to https://w1jar.github.io/aslcp. The old `artw1.github.io` address no longer serves anything.
+- Upgrading rewrites the apt source (`/etc/apt/sources.list.d/aslcp.list`) and an unmodified `[updates] url` in `/etc/aslcp/aslcp.conf` from the old addresses to the new one automatically and prints a note. The default update check URL is the new address.
+
+### Fixed
+- Installs still on the old address cannot see this release by themselves. Run once: `sudo sed -i 's#artw1\.github\.io/aslcp#w1jar.github.io/aslcp#g' /etc/apt/sources.list.d/aslcp.list`, then `sudo apt update && sudo apt upgrade`. If you set an explicit `[updates] url` in `/etc/aslcp/aslcp.conf`, change it to `https://w1jar.github.io/aslcp` too.
+
 ## [2.0.3] - 2026-11-23
 
 ### Changed

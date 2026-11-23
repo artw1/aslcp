@@ -259,7 +259,7 @@ About = {
 }
 ```
 
-The UI builds the bug report link from it: `https://github.com/artw1/aslcp/issues/new?template=bug_report.yml&version=..&asl=..&hardware=..&os=..` (the query keys are the field ids of `.github/ISSUE_TEMPLATE/bug_report.yml`).
+The UI builds the bug report link from it: `https://github.com/w1jar/aslcp/issues/new?template=bug_report.yml&version=..&asl=..&hardware=..&os=..` (the query keys are the field ids of `.github/ISSUE_TEMPLATE/bug_report.yml`).
 
 ## Diagnostics (admin)
 
@@ -615,8 +615,8 @@ socket = /run/aslcp/helper.sock
 [updates]
 ; base URL of the apt repository; <url>/latest.json = {"version","notes","date"}
 ; (empty disables release notes)
-; optional override; the built-in default is https://artw1.github.io/aslcp
-;url = https://artw1.github.io/aslcp
+; optional override; the built-in default is https://w1jar.github.io/aslcp
+;url = https://w1jar.github.io/aslcp
 ```
 
 ### Helper protocol (internal)
