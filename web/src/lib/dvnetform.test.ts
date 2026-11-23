@@ -1,7 +1,7 @@
 // Run with `npm test`. The generic network form and the availability helpers.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nxdnOffNote, BM_HELP, MASTER_OTHER, applyMaster, masterChoice, masterListMode, buildPut, enableBlock, essidToRepeaterId, formError, formOf, hasChanges, identityError, loginText, liveLogin, savedMessage, modeAvailable, passwordUx, repeaterIdToEssid, validAddress } from './dvnetform.ts';
+import { m17NodeFits, nxdnOffNote, BM_HELP, MASTER_OTHER, applyMaster, masterChoice, masterListMode, buildPut, enableBlock, essidToRepeaterId, formError, formOf, hasChanges, identityError, loginText, liveLogin, savedMessage, modeAvailable, passwordUx, repeaterIdToEssid, validAddress } from './dvnetform.ts';
 import { cardState } from './dvmodes.ts';
 import type { DVListItem, DVNetView } from './types';
 
@@ -165,6 +165,34 @@ test('YSF form: enable only, no address or port', () => {
   assert.match(formError(ysf, { ...f, options: { poll_ms: '10' } }), /1000 to 60000/);
   assert.deepEqual(buildPut(ysf, { ...f, enabled: true, address: '192.0.2.20', port: '42000', options: { poll_ms: '4000' } }),
     { enabled: true, options: { poll_ms: '4000' } });
+});
+
+test('M17 form: identity, suffix and timers', () => {
+  const m17: DVNetView = {
+    mode: 'M17', label: 'M17', available: true, enabled: false, address: '', port: 0, passwordSet: false,
+    fields: { address: false, port: false, password: false }, needsIdentity: true,
+    options: [
+      { key: 'can', label: 'Channel access number', kind: 'int', default: '0', min: 0, max: 15 },
+      { key: 'suffix', label: 'Callsign suffix', kind: 'text', default: '', maxLen: 3, advanced: true },
+      { key: 'timeout_ms', label: 'Link timeout (ms)', kind: 'int', default: '30000', min: 5000, max: 120000, advanced: true },
+    ],
+    values: {},
+  };
+  const f = formOf(m17);
+  assert.equal(enableBlock(m17, f, id), '');
+  assert.equal(enableBlock(m17, f, null), 'Set the callsign and DMR ID in the identity first');
+  assert.match(formError(m17, { ...f, options: { can: '16' } }), /0 to 15/);
+  assert.match(formError(m17, { ...f, options: { suffix: 'ABCD' } }), /at most 3/);
+  assert.match(formError(m17, { ...f, options: { timeout_ms: '10' } }), /5000 to 120000/);
+  assert.equal(m17NodeFits('N0CALL', 'R'), true);
+  assert.equal(m17NodeFits('N0CALL', '-RPT'), false); // 6 + 4 = 10 characters
+  assert.equal(m17NodeFits('N0CALL', '-RP'), true);
+  assert.equal(m17NodeFits('N0CALL', 'ABC'), false); // 6 + space + 3
+  assert.equal(m17NodeFits('N0CALL', 'AB'), true);
+  assert.equal(m17NodeFits('N0CALL', ''), true);
+  assert.equal(enableBlock(m17, { ...f, options: { suffix: 'ABC' } }, { ...id, callsign: 'N0CALLXY' }), 'The callsign (with the suffix) cannot be used on M17');
+  assert.deepEqual(buildPut(m17, { ...f, enabled: true, options: { can: '3', suffix: 'R' } }), { enabled: true, options: { can: '3', suffix: 'R' } });
+  assert.equal(modeAvailable(undefined, 'M17'), true);
 });
 
 test('P25 form: enable only, no address, port or unit ID', () => {

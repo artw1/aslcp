@@ -17,7 +17,7 @@ type ModeList = Pick<DVSnapshot, 'modes'>['modes'];
 const usable = (modes: ModeList | undefined, id: string): boolean => {
   if (id === 'LOOP' || !id) return false;
   const m = modes?.find((x) => x.id === id);
-  return modes ? !!m && m.enabled && m.available : /^(BM|TGIF|DMR|YSF|P25|NXDN)$/.test(id);
+  return modes ? !!m && m.enabled && m.available : /^(BM|TGIF|DMR|YSF|P25|NXDN|M17)$/.test(id);
 };
 
 /** The mode before the echo test, remembered client-side between Start and Stop (it survives leaving the setup page). */

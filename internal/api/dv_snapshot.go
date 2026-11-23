@@ -699,6 +699,9 @@ func dvNowTalks(talks []ctl.Talk) []nowcalling.Talk {
 		if t.Mode == ctl.ModeYSF {
 			k.Kind = nowcalling.KindYSF
 		}
+		if t.Mode == ctl.ModeM17 {
+			k.Kind = nowcalling.KindM17
+		}
 		if ctl.IsEchoTest(t) {
 			k.Call = ctl.EchoTestName
 		}

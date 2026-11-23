@@ -50,6 +50,10 @@ test('source labels', () => {
   assert.equal(sourceLabel({ ...base, kind: 'allstar' }), 'AllStar');
   assert.equal(sourceShort(base), 'DMR TG 91');
   assert.equal(sourceShort({ ...base, kind: 'ysf', room: 'Room' }), 'YSF Room');
+  assert.equal(sourceShort({ ...base, kind: 'm17', room: 'M17-XXX C' }), 'M17 M17-XXX C');
+  assert.equal(sourceShort({ ...base, kind: 'm17' }), 'M17');
+  assert.equal(sourceLabel({ ...base, kind: 'm17', room: 'M17-XXX C' }), 'M17 · M17-XXX C');
+  assert.equal(sourceDetail({ ...base, kind: 'm17', room: 'M17-XXX C' }), 'Digital modes · M17 · reflector M17-XXX C');
 });
 
 test('source detail for the sheet', () => {

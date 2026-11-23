@@ -15,6 +15,7 @@ const (
 	KindAllStar = "allstar"
 	KindDMR     = "dmr"
 	KindYSF     = "ysf"
+	KindM17     = "m17"
 )
 
 const (
@@ -71,7 +72,7 @@ type Call struct {
 	TGName  string `json:"tgName,omitempty"`
 	Slot    int    `json:"slot,omitempty"`
 	Private bool   `json:"private,omitempty"`
-	// YSF: the room (the bridge's tune).
+	// YSF: the room (the bridge's tune). M17: the reflector and module ("M17-XXX C").
 	Room string `json:"room,omitempty"`
 	// Start is RFC 3339 UTC. End is empty while talking, and also for a
 	// finished call whose length is unknown.
@@ -120,7 +121,7 @@ type Keyed struct {
 
 // Talk is one digital modes call as the helper read it from the logs.
 type Talk struct {
-	Kind string // KindDMR or KindYSF (anything else is shown as DMR)
+	Kind string // KindDMR, KindYSF or KindM17 (anything else is shown as DMR)
 	Via  string // ViaEngine (the previous stack's log sources are gone)
 	// Network names the network of the call ("" shows DMR).
 	Network string
@@ -447,7 +448,13 @@ func (t *Tracker) endDV(now time.Time, bridgeKeyed bool) {
 
 func (t *Tracker) newDV(k Talk) *Call {
 	c := &Call{ID: talkID(k), Kind: k.Kind, Call: k.Call, DMRID: k.DMRID, TG: k.Dst, Slot: k.Slot, Private: k.Private, start: k.Start}
-	if c.Kind != KindYSF {
+	switch {
+	case k.Kind == KindM17:
+		// M17 has no talkgroup or slot: Dst is the reflector and module ("M17-XXX C").
+		c.TG, c.Slot, c.Private = "", 0, false
+		c.Room = k.Dst
+		c.Network = "M17"
+	case c.Kind != KindYSF:
 		c.Kind = KindDMR
 		c.Network = "DMR"
 		if k.Via == "stfu" {
@@ -456,7 +463,7 @@ func (t *Tracker) newDV(k Talk) *Call {
 		if k.Network != "" {
 			c.Network = k.Network
 		}
-	} else {
+	default:
 		c.TG, c.Slot, c.DMRID = "", 0, k.DMRID
 	}
 	t.fill(c)

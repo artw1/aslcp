@@ -19,7 +19,28 @@ export const CONFIRM_MS = 5000;
 export const FAV_NAME_MAX = 40;
 export const FAV_PER_MODE = 50;
 
-/** True when a YSF, P25 or NXDN reflector is tuned and sends nothing back (the engine's `silent` flag of that mode). Nothing tuned never counts. */
+/** The modules of an M17 reflector: A to Z. */
+export const M17_MODULES: readonly string[] = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i));
+const M17_REFLECTOR = /^M17-[A-Z0-9]{3}$/;
+const M17_TARGET = /^M17-[A-Z0-9]{3} [A-Z]$/;
+/** The M17 tune value ("M17-XXX C", what the server takes) from the picked or typed reflector and the module. A text that already ends in a module is taken as it is; '' when the reflector is not an M17 designator. */
+export function m17Tune(text: string, module: string): string {
+  const t = text.trim().replace(/\s+/g, ' ').toUpperCase();
+  if (M17_TARGET.test(t)) return t;
+  return M17_REFLECTOR.test(t) ? `${t} ${module.toUpperCase()}` : '';
+}
+/** An M17 value split into reflector and module ("M17-XXX C" gives M17-XXX and C); null when it is not one. */
+export function m17Split(value: string): { reflector: string; module: string } | null {
+  const v = value.trim();
+  return M17_TARGET.test(v) ? { reflector: v.slice(0, 7), module: v.slice(8) } : null;
+}
+/** How an M17 value reads on screen: "M17-XXX module C"; any other text is returned as it is. */
+export function m17Display(value: string): string {
+  const s = m17Split(value);
+  return s ? `${s.reflector} module ${s.module}` : value;
+}
+
+/** True when a YSF, P25, NXDN or M17 reflector is tuned and sends nothing back (the engine's `silent` flag of that mode). Nothing tuned never counts. */
 export function reflectorSilent(s: Pick<DVSnapshot, 'bridge' | 'modes'> | null | undefined): boolean {
   const b = s?.bridge;
   if (!s || !b || b.source === 'none' || !b.mode || !b.tune) return false;
@@ -32,6 +53,10 @@ export function stateLine(b: Pick<DVBridge, 'mode' | 'tune' | 'targetName' | 'so
   if (b.mode === 'LOOP') return ECHO_RUNNING;
   const m = modeLabel(b.mode);
   if (!b.tune) return `Mode ${m}`;
+  if (b.mode === 'M17') {
+    const t = m17Display(b.tune);
+    return silent ? `Mode ${m}, tuned to ${t}, Reflector not answering` : `Mode ${m}, tuned to ${t}`;
+  }
   const line = b.targetName ? `Mode ${m}, tuned to ${b.targetName} (${b.tune})` : `Mode ${m}, tuned to ${b.tune}`;
   return silent ? `${line}, Reflector not answering` : line;
 }
@@ -89,12 +114,13 @@ export function validFavName(name: string): string | null {
   return n >= 1 && n <= FAV_NAME_MAX && printable(t) ? t : null;
 }
 
-/** Same rules as the server's tune validator: a DMR network's TG 1-8 digits (a trailing # makes it a private call), P25 and NXDN 1-5 digits, YSF a 5-digit id, a name or host:port. */
+/** Same rules as the server's tune validator: a DMR network's TG 1-8 digits (a trailing # makes it a private call), P25 and NXDN 1-5 digits, YSF a 5-digit id, a name or host:port, M17 a reflector and module (M17-XXX C). */
 export function validTune(mode: string, value: string): boolean {
   const v = value.trim();
   if (!v || v.startsWith('-') || v.includes('=')) return false;
   if (isDMRFamily(mode)) return /^[0-9]{1,8}#?$/.test(v);
   switch (mode) {
+    case 'M17': return M17_TARGET.test(v);
     case 'P25': case 'NXDN': return /^[0-9]{1,5}$/.test(v);
     case 'YSF': {
       const hp = /^[A-Za-z0-9.-]{1,253}:([0-9]{1,5})$/.exec(v);
@@ -185,6 +211,7 @@ export function bridgeRxTarget(s: Pick<DVSnapshot, 'bridgeNode' | 'bridge'> | nu
   const m = modeLabel(mode);
   if (isDMRFamily(mode) && s.bridge.private) return `${m} private call`;
   if (!tune) return m;
+  if (mode === 'M17') return `M17 ${m17Display(tune)}`;
   return mode === 'YSF' ? `YSF ${targetName || tune}` : `${m} TG ${tune}`;
 }
 
@@ -208,7 +235,7 @@ export function callerLabel(c: DVCaller): string {
 
 /** "N0CALL" or "N0CALL (1234567)" for the Last heard list, with the target ("TG 91") and the log time. */
 export function heardLine(c: DVCaller): string {
-  return [callerLabel(c), c.dst ? `TG ${c.dst}` : '', slotLabel(c.slot), c.at ? c.at.slice(11, 19) : ''].filter(Boolean).join(' · ');
+  return [callerLabel(c), c.dst ? (/^M17-/.test(c.dst) ? m17Display(c.dst) : `TG ${c.dst}`) : '', slotLabel(c.slot), c.at ? c.at.slice(11, 19) : ''].filter(Boolean).join(' · ');
 }
 
 /** The Frequency field in MHz as Hz (an integer), or null when it is not a number in the 30 to 3000 MHz range the server accepts. Hz input (30000000 to 3000000000) is taken as it is. */

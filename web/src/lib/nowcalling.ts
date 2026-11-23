@@ -51,10 +51,11 @@ export function mainLine(c: NowCall): string {
 /** "TS1" or "TS2" for a DMR call; "" when the slot is not known (0 or missing). */
 export const slotLabel = (slot: number | undefined): string => (slot === 1 || slot === 2 ? `TS${slot}` : '');
 
-/** "AllStar", "DMR · TG 91 · TS2", "YSF · Room". The TG name is left to sourceDetail. */
+/** "AllStar", "DMR · TG 91 · TS2", "YSF · Room", "M17 · M17-XXX C". The TG name is left to sourceDetail. */
 export function sourceLabel(c: NowCall): string {
   if (c.kind === 'dmr') return ['DMR', c.private ? 'Private call' : c.tg ? `TG ${c.tg}` : '', slotLabel(c.slot)].filter(Boolean).join(' · ');
   if (c.kind === 'ysf') return ['YSF', c.room].filter(Boolean).join(' · ');
+  if (c.kind === 'm17') return ['M17', c.room].filter(Boolean).join(' · ');
   return 'AllStar';
 }
 
@@ -74,6 +75,7 @@ export function sourceDetail(c: NowCall): string {
       c.slot ? `slot ${c.slot}` : '',
     ].filter(Boolean).join(' · ');
   }
+  if (c.kind === 'm17') return ['Digital modes', 'M17', c.room ? `reflector ${c.room}` : ''].filter(Boolean).join(' · ');
   return ['Digital modes', 'YSF', c.room ? `room ${c.room}` : ''].filter(Boolean).join(' · ');
 }
 
@@ -81,6 +83,7 @@ export function sourceDetail(c: NowCall): string {
 export function sourceShort(c: NowCall): string {
   if (c.kind === 'dmr') return c.private ? 'DMR' : c.tg ? `DMR TG ${c.tg}` : 'DMR';
   if (c.kind === 'ysf') return c.room ? `YSF ${c.room}` : 'YSF';
+  if (c.kind === 'm17') return c.room ? `M17 ${c.room}` : 'M17';
   return 'AllStar';
 }
 

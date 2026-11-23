@@ -214,14 +214,14 @@ export interface DVRollbackResult { rolledBack: boolean; problems: string[]; ste
 export interface DVSetup { bridgeNode: DVBridgeSetup; files?: DVFileView[] }
 
 /** GET /api/dv/lists?mode=... (operator and admin; docs/API.md "Digital modes host lists"). 404 `no_list` when the node has no file for the mode. */
-export type DVListMode = 'dmr' | 'ysf' | 'p25' | 'nxdn' | 'bm' | 'dmr-other';
-/** `value` is what gets written: the master address (dmr), the 5-digit reflector ID (ysf) or the TG (p25, nxdn). `port` is the master port for dmr. The DMR list never carries a password. */
+export type DVListMode = 'dmr' | 'ysf' | 'p25' | 'nxdn' | 'm17' | 'bm' | 'dmr-other';
+/** `value` is what gets written: the master address (dmr), the 5-digit reflector ID (ysf) or the TG (p25, nxdn) or the reflector designator `M17-XXX` (m17; the module is picked apart from the list). `port` is the master port for dmr. The DMR list never carries a password. */
 export interface DVListItem { value: string; name: string; detail?: string; address: string; port: number; password?: string }
 export interface DVList { mode: DVListMode; items: DVListItem[]; truncated?: boolean; etag: string }
 
 /** GET and PUT /api/dv/resume (docs/API.md "Digital modes tune and resume"): the last tune of each mode and the toggle. */
-/** LOOP is the echo test (the local test network) of the native engine; BM, TGIF, DMR, YSF, P25 and NXDN are carried but marked unavailable in M1. */
-export type DVTuneMode = 'LOOP' | 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN';
+/** LOOP is the echo test (the local test network) of the native engine; BM, TGIF, DMR, YSF, P25, NXDN and M17 are carried but marked unavailable in M1. */
+export type DVTuneMode = 'LOOP' | 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN' | 'M17';
 export interface DVRemembered { tune: string; ts?: string; at: string }
 export interface DVResume { resume: boolean; lastMode?: string; perMode: Partial<Record<DVTuneMode, DVRemembered>> }
 
@@ -233,7 +233,7 @@ export interface DVSnapshot {
   installed: boolean; running: boolean; configured: boolean;
   bridge: DVBridge;
   /** `label`: the button's name when it is not the id (a DMR network's registry label: "BrandMeister", "TGIF", "DMR - Other"). `available`: the engine implements the mode (LOOP and BM in this build). */
-  modes: { id: DVTuneMode; enabled: boolean; available: boolean; unlink: string; label?: string; /** The engine's login state of an enabled network (`off`, `pending`, `ok`, `failed`) and its detail. */ login?: DVLogin; detail?: string; /** A tuned YSF, P25 or NXDN reflector sends nothing back (the engine's lost state). */ silent?: boolean; /** DMR - Other: when the tuned talkgroup last had traffic (RFC 3339); absent during a call or when none is tuned. */ quietSince?: string; /** BrandMeister and DMR - Other: the master the mode is set to (its name in the host list, else the address as saved). */ master?: string }[];
+  modes: { id: DVTuneMode; enabled: boolean; available: boolean; unlink: string; label?: string; /** The engine's login state of an enabled network (`off`, `pending`, `ok`, `failed`) and its detail. */ login?: DVLogin; detail?: string; /** A tuned YSF, P25, NXDN or M17 reflector sends nothing back (the engine's lost state). */ silent?: boolean; /** DMR - Other: when the tuned talkgroup last had traffic (RFC 3339); absent during a call or when none is tuned. */ quietSince?: string; /** BrandMeister and DMR - Other: the master the mode is set to (its name in the host list, else the address as saved). */ master?: string }[];
   /** M1: aslcp-dv and md380-emu. */
   services: { unit: string; active: boolean }[];
   /** md380 vocoder health (`ok`; `timeouts` counts the calls that timed out) and the engine's version and uptime in seconds; absent while the engine is not reachable. */
@@ -305,7 +305,7 @@ export interface TerminalSessionInfo { id: string; owner: string; mine: boolean;
 
 /** One call shown by the Now Calling strip (GET /api/nowcalling, SSE "nowcalling"). */
 export interface NowCall {
-  id: string; kind: 'allstar' | 'dmr' | 'ysf'; call?: string; first?: string; name?: string;
+  id: string; kind: 'allstar' | 'dmr' | 'ysf' | 'm17'; call?: string; first?: string; name?: string;
   city?: string; state?: string; country?: string; location?: string; dmrId?: string;
   node?: string; desc?: string; local?: string; network?: string; tg?: string; tgName?: string;
   slot?: number; private?: boolean; room?: string; start: string; end?: string; active: boolean;
