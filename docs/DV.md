@@ -24,13 +24,13 @@ aslcp-dv <-- UDP 127.0.0.1:2470 --> md380-emu (the vocoder)
 
 `aslcp dv enable` (as root) or the Enable button of the digital modes page runs one job, `aslcp-dv-enable`:
 
-1. apt installs the md380-emu vocoder, plus qemu-user-static on 64-bit and x86 systems (the vocoder is an ARM binary). Nothing else is installed.
+1. apt installs the md380-emu vocoder, plus qemu-user-static (the vocoder is an ARM binary). Nothing else is installed.
 2. The previous stack that ASLCP installed is removed (see "Upgrading from 1.x"); this step is also the retry if the removal after the upgrade failed.
 3. The engine config is rendered and `aslcp-dv` is enabled and started.
 
 `aslcp dv status [--json]` shows the state; `aslcp dv disable` stops the engine and keeps its settings. The command and the installer variable of 1.x keep working as aliases. In the installer, `ASLCP_DV=1` runs it.
 
-Supported: Debian bookworm and trixie on amd64, arm64 and armhf (ARMv7). **ARMv6 boards (Pi Zero, Pi 1) are not supported**; the page says so and enable is refused with `409 not_supported`.
+Supported: Debian bookworm and trixie on amd64 and arm64. **32-bit (armhf) systems are not supported** (ASL3 has no armhf packages): the status reason is `armhf_unsupported`, the page says to reinstall with a 64-bit OS, and enable is refused with `409 not_supported`.
 
 ## Modes
 

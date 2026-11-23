@@ -390,7 +390,7 @@ The 1.x digital modes install, setup and network write endpoints, and their help
 |---|---|---|
 | GET | `/api/dv/status` | admin | `200` DVStatus |
 | GET | `/api/dv/job` | `200` `{job, log, at}`: state of the enable job (`running`, `failed`, `done` or empty) and the last 200 journal lines. Cheap, polled every 2 s while a job runs |
-| POST | `/api/dv/enable` | `202` DVStatus with `job: "running"`. Installs the md380-emu vocoder (plus qemu-user-static on 64-bit and x86 systems), renders the engine config, stops the units of the previous third-party digital voice stack, removes the ones ASLCP installed and starts `aslcp-dv`. `409` as above; `409 not_supported` on ARMv6 and unsupported releases |
+| POST | `/api/dv/enable` | `202` DVStatus with `job: "running"`. Installs the md380-emu vocoder (plus qemu-user-static), renders the engine config, stops the units of the previous third-party digital voice stack, removes the ones ASLCP installed and starts `aslcp-dv`. `409` as above; `409 not_supported` on a 32-bit (armhf) system and on unsupported releases (the status `reason` is `armhf_unsupported` for armhf) |
 | POST | `/api/dv/disable` | `200` DVStatus: stops and disables `aslcp-dv`; settings stay |
 
 ```json

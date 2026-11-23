@@ -126,17 +126,32 @@ func (o *Ops) osCodename() string {
 	return ""
 }
 
+// DVReasonArmhf is the DVStatus reason on a 32-bit (armhf) system; the web UI
+// shows a message for it (reinstall with a 64-bit OS).
+const DVReasonArmhf = "armhf_unsupported"
+
+// DVReasonText is the reason as a sentence for the command line and logs.
+func DVReasonText(reason string) string {
+	if reason == DVReasonArmhf {
+		return "32-bit (armhf) systems are not supported: ASL3 has no armhf packages; reinstall with Raspberry Pi OS Lite (64-bit)"
+	}
+	return reason
+}
+
 // DVPlatform decides whether digital modes can be enabled: host codename
-// bookworm or trixie, architecture amd64, arm64 or armhf.
+// bookworm or trixie, architecture amd64 or arm64. armhf (32-bit) is refused
+// with the reason DVReasonArmhf: ASL3 ships no armhf packages.
 func DVPlatform(codename, arch string) (bool, string) {
 	if codename != "bookworm" && codename != "trixie" {
 		return false, fmt.Sprintf("Debian %q is not supported (bookworm and trixie are)", codename)
 	}
 	switch arch {
-	case "amd64", "arm64", "armhf":
+	case "amd64", "arm64":
 		return true, ""
+	case "armhf":
+		return false, DVReasonArmhf
 	}
-	return false, fmt.Sprintf("architecture %q is not supported (amd64, arm64 and armhf are)", arch)
+	return false, fmt.Sprintf("architecture %q is not supported (amd64 and arm64 are)", arch)
 }
 
 // ---- install marker

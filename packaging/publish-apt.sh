@@ -72,7 +72,13 @@ CODE_DIR=${CODE_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}
 APT_URL=${APT_URL:-https://w1jar.github.io/aslcp}
 APT_URL=${APT_URL%/}
 KEEP=${KEEP:-5}
-ARCHES="arm64 armhf amd64"
+ARCHES="arm64 amd64"
+# armhf is no longer built (ASL3 has no armhf packages). The armhf debs that
+# are already in the pool stay and stay indexed (frozen: nothing is added,
+# promoted or pruned for armhf), so existing 32-bit installs keep a valid
+# repository (no apt errors) and simply see no newer version.
+LEGACY_ARCHES="armhf"
+INDEX_ARCHES="$ARCHES $LEGACY_ARCHES"
 COMPONENT=main
 POOL_STABLE=pool/main/a/aslcp
 POOL_BETA=pool/beta/a/aslcp
@@ -120,6 +126,12 @@ add)
 		[ -e "$f" ] || continue
 		v=$(dpkg-deb -f "$f" Version)
 		arch=$(dpkg-deb -f "$f" Architecture)
+		case " $LEGACY_ARCHES " in
+		*" $arch "*)
+			echo "publish-apt: $f is $arch, which is no longer published; skipping it" >&2
+			continue
+			;;
+		esac
 		if [ -n "$(deb_of "$POOL_STABLE" "$v" "$arch")" ]; then
 			echo "publish-apt: $v ($arch) is already promoted to stable; refusing to publish another build of it" >&2
 			exit 1
@@ -263,7 +275,7 @@ conf=$(mktemp)
 trap 'rm -f "$conf"' EXIT
 publish_suite() { # publish_suite SUITE POOLROOT
 	local suite=$1 root=$2 arch d
-	for arch in $ARCHES; do
+	for arch in $INDEX_ARCHES; do
 		d="dists/$suite/$COMPONENT/binary-$arch"
 		mkdir -p "$d"
 		apt-ftparchive --arch "$arch" packages "$root" >"$d/Packages"
@@ -274,7 +286,7 @@ APT::FTPArchive::Release::Origin "ASLCP";
 APT::FTPArchive::Release::Label "ASLCP";
 APT::FTPArchive::Release::Suite "$suite";
 APT::FTPArchive::Release::Codename "$suite";
-APT::FTPArchive::Release::Architectures "$ARCHES";
+APT::FTPArchive::Release::Architectures "$INDEX_ARCHES";
 APT::FTPArchive::Release::Components "$COMPONENT";
 APT::FTPArchive::Release::Description "ASLCP packages for Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS ($suite)";
 EOC
@@ -435,7 +447,7 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <main class="wrap" id="top">
 <section class="hero">
 <h1>A web control panel for your AllStarLink 3 node</h1>
-<p class="lead">ASLCP lets you connect, monitor and manage favorites with live status from any browser, and it can set up digital modes for you. It runs on Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS (arm64, armhf, amd64).</p>
+<p class="lead">ASLCP lets you connect, monitor and manage favorites with live status from any browser, and it can set up digital modes for you. It runs on Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS (arm64 and amd64; 64-bit only).</p>
 <ul class="badges">
 <li class="badge">Latest release <b>@STABLE@</b></li>
 <li class="badge">Latest beta <b>@BETA@</b>@BETA_NOTE@</li>
