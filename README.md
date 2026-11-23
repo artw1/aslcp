@@ -39,8 +39,9 @@ ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly w
 
 ## Requirements
 
-- AllStarLink 3 (ASL3) on Debian 12 (bookworm) or Debian 13 (trixie), or Raspberry Pi OS based on either.
-- A 64-bit system: an ARM board (arm64) or a PC (amd64). A Raspberry Pi Zero 2 W or newer running Raspberry Pi OS Lite (64-bit) is plenty. 32-bit (armhf) is not supported, because ASL3 has no armhf packages; on a 32-bit system the installer refuses, so reinstall with the 64-bit OS.
+- Debian 12 (bookworm) or Debian 13 (trixie), or Raspberry Pi OS 64-bit based on either. A fresh Raspberry Pi OS Lite 64-bit works.
+- AllStarLink 3 (ASL3) is installed for you if it is missing (see below). It exists for arm64 and amd64 only; on a 32-bit ARM board (armhf) ASLCP installs, but ASL3 has to come from somewhere else.
+- A 64-bit ARM board (arm64) or a PC (amd64); a Raspberry Pi Zero 2 W or newer is plenty. ASLCP itself also has armhf packages.
 - Root access (sudo) for the installation.
 
 ## Install
@@ -54,6 +55,18 @@ curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo sh
 The script adds the signed ASLCP apt repository, installs the `aslcp` package and prints a one-time setup link. Then open `http://<your-node>:8080` (8080 is the default port; see [Web port](#web-port)).
 
 On a freshly flashed ASL3 card, wait for the first-boot setup and its reboot (20-30 minutes) before installing: ASL3 installs updates and may reboot the node. The installer checks this (first-boot services, another running apt/dpkg or a held dpkg lock) and refuses to change anything until it is done; just run it again later. `ASLCP_SKIP_PREFLIGHT=1` skips the check. A pending reboot only produces a warning. Package operations started from the web UI wait up to 10 minutes for the apt lock instead of failing.
+
+### ASL3 at install
+
+If the `asl3` package is not installed, the installer adds the AllStarLink apt repository (the `asl-apt-repos` package from `https://repo.allstarlink.org/public/`, whose signing key is checked against a pinned fingerprint) and installs `asl3` and `asl3-menu` before it installs ASLCP. If only `asl3-menu` is missing, it installs that. This can take several minutes and downloads many packages. It does not install Allmon3 or the Pi appliance package.
+
+ASL3 is only available for Debian 12 or 13 on arm64 and amd64. On any other system the installer says so and installs the panel only. To skip ASL3 on purpose, set `ASLCP_ASL3=0` (`no` and `false` work too):
+
+```sh
+curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL3=0 sh
+```
+
+`ASLCP_ASL3=1` (`yes`, `true`) does the same as the default but fails instead of continuing when ASL3 is not available. Any other value is refused. Afterwards, configure the node with `sudo asl-menu`.
 
 Prefer to do it by hand? See the manual steps on <https://w1jar.github.io/aslcp/>.
 
@@ -122,6 +135,21 @@ curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_TAKEOVER=undo s
 ```
 
 ASLCP moves back to the port it had before (8080 unless you set another), then exactly the recorded units are enabled and started again. Apache and Allmon3 are also recorded in the list of the System tab (ASL services), so `apt purge aslcp` turns them back on; the other units are only restored by the undo command.
+
+#### ASL3 telemetry at install (`ASLCP_ASL_TELEMETRY`)
+
+ASL3 sends AllStarLink an anonymous usage report once a day (`asl-telemetry.timer`, which starts `asl-telemetry.service`). ASLCP leaves it on by default, as ASL3 ships it. To turn it off when installing, set `ASLCP_ASL_TELEMETRY=off` (`0`, `no` and `false` work too); the installer then runs `systemctl disable --now asl-telemetry.timer` and masks the timer and the service, so an ASL3 update does not turn it back on:
+
+```sh
+curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL_TELEMETRY=off sh
+```
+
+`ASLCP_ASL_TELEMETRY=on` (`1`, `yes`, `true`) unmasks and enables it again. Unset, the installer changes nothing. Any other value is refused, and so is a combination with `ASLCP_TAKEOVER=undo`. If the units are not there, the installer says there is nothing to turn off. By hand, on any node:
+
+```sh
+sudo systemctl disable --now asl-telemetry.timer
+sudo systemctl mask asl-telemetry.timer asl-telemetry.service
+```
 
 ### ASL services (Cockpit, Apache, Allmon3)
 

@@ -53,6 +53,19 @@ Firewall
   Undo (ASLCP goes back to its old port, the recorded units are turned on):
       curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_TAKEOVER=undo sh
 
+ASL3
+  The installer installs asl3 and asl3-menu first if they are missing (it adds
+  the AllStarLink apt repository from https://repo.allstarlink.org/public/ and
+  checks its key). Debian 12/13 on arm64 or amd64 only; elsewhere it installs
+  the panel only. To skip: ASLCP_ASL3=0
+      curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL3=0 sh
+  ASL3 sends AllStarLink an anonymous usage report every day
+  (asl-telemetry.timer). ASLCP leaves it on. To turn it off and mask it:
+      curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL_TELEMETRY=off sh
+  (ASLCP_ASL_TELEMETRY=on restores it.) By hand:
+      sudo systemctl disable --now asl-telemetry.timer
+      sudo systemctl mask asl-telemetry.timer asl-telemetry.service
+
 Updates
   Settings > Updates in the web UI (administrators), or the usual:
       sudo apt update && sudo apt install --only-upgrade aslcp
