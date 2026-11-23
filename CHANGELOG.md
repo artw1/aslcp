@@ -3,14 +3,14 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
-## [Unreleased]
+## [2.0.2] - 2026-11-23
 
 ### Changed
 - The radioid.net user list is now checked for updates daily instead of weekly.
 - Digital modes: the remaining mentions of "NXDN unit ID" now say "NXDN ID".
 
 ### Fixed
-- Digital modes: clearing the NXDN ID, or the Options of DMR - Other or TGIF, and saving now clears them. Before, the old value came back.
+- Digital modes: clearing the NXDN ID, or the Options of DMR - Other or TGIF, and saving now clears them. Before, the old value was kept.
 - Digital modes: clearing the NXDN ID turns NXDN off; NXDN can't be turned on without an NXDN ID (the page says so and the API answers `422 incomplete`).
 
 ## [2.0.1] - 2026-11-23
