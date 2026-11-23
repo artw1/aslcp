@@ -58,6 +58,22 @@ License: ISC
 Comment: npm package @lucide/svelte in the web UI bundle. Full text:
  THIRD-PARTY-NOTICES.
 
+Files: usr/libexec/aslcp/aslcp-dv
+Copyright: David Rowe and the other Codec2 contributors
+License: GPL-3.0+
+Comment: Go port of Codec2 3200 (internal/dv/codec2), derived from Codec2-mod
+ (https://github.com/M17-Project/Codec2-mod, commit
+ 7c334283794fa6304dc014f12df70afc8393143a), which is licensed under the
+ LGPL-2.1. It is used under section 3 of the LGPL-2.1 as GPL-3.0+, the
+ licence of ASLCP; the LGPL-2.1 text is in
+ /usr/share/common-licenses/LGPL-2.1. See THIRD-PARTY-NOTICES.
+
+Files: usr/libexec/aslcp/aslcp-dv
+Copyright: 2003-2010 Mark Borgerding
+License: BSD-3-Clause
+Comment: KISS FFT, as bundled in Codec2-mod and ported to Go. Full text:
+ THIRD-PARTY-NOTICES.
+
 License: BSD-3-Clause
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the conditions in
