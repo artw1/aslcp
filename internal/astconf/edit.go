@@ -271,3 +271,22 @@ func (f *File) RemoveSection(s *Section, dropBlank bool) bool {
 	}
 	return false
 }
+
+// Rename changes the section's name in its header line, keeping the
+// options, the trailing comment and the line ending untouched. It is a no-op
+// for the preamble, for an empty or unchanged name and for a name that holds
+// a line break or ']'.
+func (s *Section) Rename(name string) {
+	name = strings.TrimSpace(name)
+	if s.Header == nil || name == "" || name == s.Name || strings.ContainsAny(name, "\r\n]") {
+		return
+	}
+	old := "[" + s.Name + "]"
+	i := strings.Index(s.Header.Raw, old)
+	if i < 0 {
+		return
+	}
+	s.Header.Raw = s.Header.Raw[:i] + "[" + name + "]" + s.Header.Raw[i+len(old):]
+	s.Header.Name = name
+	s.Name = name
+}

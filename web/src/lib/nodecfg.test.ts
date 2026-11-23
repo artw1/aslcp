@@ -138,7 +138,7 @@ test('customIdRecording', () => {
 test('identityRequest sends the callsign only when it changed', () => {
   const n = nodeOf();
   assert.deepEqual(identityRequest(n, [], {}, 'n0call'), { node: '2001', mode: 'override', changes: [] });
-  assert.equal(identityRequest(n, [], {}, 'n0abc').callsign, 'N0ABC');
+  assert.equal(identityRequest(n, [], {}, 'n0test').callsign, 'N0TEST');
   assert.equal(identityRequest(n, [], {}, ' ').callsign, undefined);
 });
 

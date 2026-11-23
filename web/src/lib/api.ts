@@ -1,4 +1,5 @@
 import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVStatus, DVJob, DVSetup, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVNetworks, DVNetView, DVNetPut, DVIdentity, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage, WifiState, WifiScan, TerminalStatus, TerminalTicket, TerminalSessionInfo, DiagPlan, NowCalling, UserListStatus } from './types';
+import type { SetupPlan, SetupPlanBody, SetupApplyResult, SetupRollback, SetupStepResult } from './nodesetup';
 import type { Overview as NodeOverview, SchemaDoc as NodeSchemaDoc, FormRequest as NodeFormRequest, Plan as NodePlan } from './nodecfg';
 import type { SvcStatus, SvcSetResult, WebPortStatus } from './svcweb';
 
@@ -227,6 +228,11 @@ export const api = {
   nodeCfgSchema: () => req<NodeSchemaDoc>('GET', '/config/schema'),
   nodeCfgForm: (r: NodeFormRequest, o: { dryRun: boolean; base?: Record<string, string>; restart?: boolean; message?: string }) =>
     req<{ plan: NodePlan; result?: ConfigApplyResult; restarted: boolean; restartPending: boolean }>('POST', '/config/form', { ...r, ...o }),
+  nodeSetupSkipped: () => req<{ skipped: boolean }>('GET', '/config/setup/skip'),
+  nodeSetupSetSkipped: (skipped: boolean) => req<{ skipped: boolean }>('PUT', '/config/setup/skip', { skipped }),
+  nodeSetupPlan: (b: SetupPlanBody, amiToken?: string) => req<{ plan: SetupPlan; amiToken?: string }>('POST', '/config/setup/plan', { ...b, amiToken }),
+  nodeSetupApply: (b: SetupPlanBody, o: { amiToken?: string; base: Record<string, string>; message?: string }) => req<SetupApplyResult>('POST', '/config/setup/apply', { ...b, ...o }),
+  nodeSetupRollback: (r: SetupRollback) => req<{ steps: SetupStepResult[]; result?: ConfigApplyResult; restarted?: boolean }>('POST', '/config/setup/rollback', r),
   configRestore: (commit: string, reload: boolean) => req<ConfigApplyResult>('POST', `/config/history/${q(commit)}/restore`, { reload }),
   restartAsteriskNow: () => req<{ ok: boolean }>('POST', '/system/asterisk/restart'),
   restartAsterisk: () => req<void>('POST', '/system/restart-asterisk'),

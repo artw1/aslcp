@@ -148,6 +148,8 @@ type Server struct {
 	platOnce  sync.Once
 	plat      diag.Platform
 
+	setup setupState // node setup wizard (handlers_nodesetup.go)
+
 	monMu sync.RWMutex
 	mon   *rpt.Monitor
 
@@ -386,6 +388,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/diagnostics", s.authed(store.RoleAdmin, s.handleDiagnostics))
 	s.configRoutes()
 	s.nodeCfgRoutes()
+	s.setupRoutes()
 	s.backupRoutes()
 	s.radioRoutes()
 	s.dvRoutes()

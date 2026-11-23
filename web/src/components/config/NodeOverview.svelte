@@ -6,10 +6,12 @@
   import DuplexForm from './DuplexForm.svelte';
   import RegistrationForm from './RegistrationForm.svelte';
   import EchoLinkForm from './EchoLinkForm.svelte';
+  import SetupWizard from './SetupWizard.svelte';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 
   let ov = $state<Overview | null>(null), doc = $state<SchemaDoc | null>(null), err = $state('');
   let sel = $state(read());
+  let wizard = $state(false), skipped = $state(false), skipErr = $state('');
   let form = $state<'identity' | 'duplex' | 'registration' | 'echolink' | null>(null);
   function read() { try { return localStorage.getItem('aslcp.cfg.node') ?? ''; } catch { return ''; } }
   function pick(n: string) { sel = n; try { localStorage.setItem('aslcp.cfg.node', n); } catch { /* private window */ } }
@@ -18,6 +20,7 @@
     try {
       const [o, d] = await Promise.all([api.nodeCfgOverview(), doc ? Promise.resolve(doc) : api.nodeCfgSchema()]);
       ov = o; doc = d; err = '';
+      api.nodeSetupSkipped().then((r) => (skipped = r.skipped), () => {});
       // Registration status asks Asterisk, so it comes in after the page is up.
       api.nodeCfgOverview(true).then((s) => { if (ov) for (const n of ov.nodes) { const m = s.nodes.find((x) => x.node === n.node); if (m?.registration.status) n.registration.status = m.registration.status; } }, () => {});
     } catch (e) { err = e instanceof Error ? e.message : String(e); }
@@ -28,6 +31,11 @@
   const blocked = $derived(node?.refusals?.[0] ?? null);
   const why = $derived(blocked ? 'Forms are off for this node (see above)' : '');
   const stanzaLine = $derived(node?.stanza?.line);
+
+  async function setSkipped(v: boolean) {
+    skipErr = '';
+    try { skipped = (await api.nodeSetupSetSkipped(v)).skipped; } catch (e) { skipErr = e instanceof Error ? e.message : String(e); }
+  }
 
   function fmt(n: NodeModel, ids: string[]) { return summaryLine(doc, n.fields, ids); }
   function identity(n: NodeModel) {
@@ -65,9 +73,24 @@
     </div>
   {/if}
 
-  <!-- Stage 3 adds the "Set up this node" wizard here -->
-  {#if node.placeholder}
-    <p class="mb-2 rounded border border-line bg-surface-2 p-2 text-sm" role="status">This looks like a fresh install: the sample node {node.node} has no callsign yet. Fill in Identity and Registration below, or edit the files in Advanced.</p>
+  {#if node.placeholder && !skipped}
+    <section class="mb-2 rounded border border-accent/50 bg-surface-2 p-3 text-sm" aria-label="Set up this node">
+      <p class="font-medium">This looks like a fresh install: the sample node {node.node} has no callsign yet.</p>
+      <p class="mt-1 text-muted">The setup wizard asks for your node number, password and callsign, picks a radio interface and a duplex preset, registers the node and checks that everything works. You review every change before it is saved, and you can roll it back.</p>
+      <div class="mt-2 flex flex-wrap items-center gap-2">
+        <button class="btn btn-primary" onclick={() => (wizard = true)}>Set up this node</button>
+        <button class="btn" onclick={() => setSkipped(true)}>Skip for now</button>
+        <span class="text-xs text-muted">Or fill in the cards below, or edit the files in Advanced.</span>
+      </div>
+      {#if skipErr}<p class="mt-1 text-xs text-danger" role="alert">{skipErr}</p>{/if}
+    </section>
+  {:else}
+    {#if node.placeholder}
+      <p class="mb-2 rounded border border-line bg-surface-2 p-2 text-sm" role="status">This looks like a fresh install: the sample node {node.node} has no callsign yet. Fill in Identity and Registration below, or edit the files in Advanced.</p>
+    {/if}
+    {#if !blocked}
+      <p class="mb-2 text-xs text-muted">Starting over on a new node? <button class="underline" onclick={() => (wizard = true)}>Run the setup wizard</button>{#if skipped && node.placeholder}{' '}(you skipped it earlier){/if}.</p>
+    {/if}
   {/if}
   {#if blocked}
     <div class="mb-2 rounded border border-warn/50 bg-warn/10 p-2 text-sm" role="alert">
@@ -112,6 +135,7 @@
     </details>
   {/if}
 
+  {#if wizard && doc}<SetupWizard oldNode={node.node} presets={doc.presets} onclose={() => { wizard = false; }} ondone={load} />{/if}
   {#if form === 'identity'}<IdentityForm {node} {doc} onclose={() => (form = null)} ondone={load} />
   {:else if form === 'duplex'}<DuplexForm {node} {doc} onclose={() => (form = null)} ondone={load} />
   {:else if form === 'registration'}<RegistrationForm {node} onclose={() => (form = null)} ondone={load} />

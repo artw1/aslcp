@@ -4,6 +4,7 @@
 // line-based parser. It follows the real API's shapes (see internal/nodecfg)
 // but is simpler: it refuses nothing exotic and runs a subset of the checks.
 import schemaDoc from './schema.json';
+import { registrationStatus } from './nodesetup.ts';
 import { tree, mtimes, sha, unified, mask, reloadFor, snapshot, runReload, treeDiffers, commits } from './config.ts';
 
 interface Key {
@@ -251,7 +252,7 @@ function nodeModel(node: string) {
 
 function overview(withStatus: boolean) {
   const nodes = localNodes().map(nodeModel);
-  if (withStatus) for (const n of nodes) if (n.registration.method === 'http' || n.registration.method === 'iax') (n.registration as Record<string, unknown>).status = { state: 'registered', detail: `${n.node} Registered` };
+  if (withStatus) for (const n of nodes) if (n.registration.method === 'http' || n.registration.method === 'iax') (n.registration as Record<string, unknown>).status = registrationStatus(n.node);
   const base: Record<string, string> = {};
   for (const f of ['rpt.conf', 'modules.conf', 'simpleusb.conf', 'echolink.conf', 'rpt_http_registrations.conf', 'iax.conf', 'manager.conf', 'extensions.conf']) if (f in tree) base[f] = sha(tree[f]);
   return { nodes, base, placeholder: nodes.find((n) => n.placeholder)?.node ?? '', warnings: [] as Finding[] };

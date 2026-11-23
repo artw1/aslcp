@@ -15,8 +15,8 @@ const RPT = `; rpt.conf (anonymized sample)
 [1999](node-main)
 rxchannel = SimpleUSB/usb
 duplex = 1            ; half duplex
-idrecording = |iN0CALL
-idtalkover = |iN0CALL
+idrecording = |iNOTSET
+idtalkover = |iNOTSET
 controlstates = controlstates
 scheduler = schedule
 morse = morse
@@ -204,7 +204,7 @@ export function mask(diff: string): string {
   return diff.split('\n').map((l) => {
     if (l.startsWith('+++') || l.startsWith('---') || !/^[ +-]/.test(l)) return l;
     const body = l.slice(1);
-    let mm = /^(\s*(?:secret|password|passwd|pass|md5secret|dbsecret)\s*=>?\s*)(.*)$/i.exec(body);
+    let mm = /^(\s*(?:secret|password|passwd|pass|pwd|md5secret|dbsecret)\s*=>?\s*)(.*)$/i.exec(body);
     if (mm) return l[0] + mm[1] + '********';
     mm = /^(\s*register\s*=>?\s*[^:\s]*:)[^@]*(@.*)$/i.exec(body);
     return mm ? l[0] + mm[1] + '********' + mm[2] : l;

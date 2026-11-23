@@ -113,6 +113,14 @@ func (s *Server) IgnorePing(v bool) {
 	s.mu.Unlock()
 }
 
+// SetSecret changes the secret a later login must present (existing sessions
+// stay logged in).
+func (s *Server) SetSecret(v string) {
+	s.mu.Lock()
+	s.Secret = v
+	s.mu.Unlock()
+}
+
 // EchoSecretOnFail makes a failed login reply include the supplied secret in
 // its Message, to test that clients scrub it.
 func (s *Server) EchoSecretOnFail(v bool) {
@@ -275,11 +283,12 @@ func (s *Server) serve(ss *Session) {
 		s.requests = append(s.requests, *req)
 		h := s.handlers[strings.ToLower(req.Action)]
 		ignorePing, echo := s.ignorePing, s.echoSecret
+		wantUser, wantSecret := s.Username, s.Secret
 		s.mu.Unlock()
 
 		switch strings.ToLower(req.Action) {
 		case "login":
-			if req.Get("Username") == s.Username && req.Get("Secret") == s.Secret {
+			if req.Get("Username") == wantUser && req.Get("Secret") == wantSecret {
 				authed = true
 				s.mu.Lock()
 				s.loginEvents = append(s.loginEvents, req.Get("Events"))

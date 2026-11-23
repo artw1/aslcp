@@ -32,6 +32,8 @@ type SysRequest struct {
 	WebPortAction string `json:"webPortAction,omitempty"`
 	// wifi-* (sys_wifi.go).
 	Wifi *WifiRequest `json:"wifi,omitempty"`
+	// savenode-set, allmon3-node-set (nodesetup.go).
+	NodeSetup *NodeSetupRequest `json:"nodeSetup,omitempty"`
 }
 
 type sysHandler func(o *Ops, ctx context.Context, req *SysRequest) (any, error)

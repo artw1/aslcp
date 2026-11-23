@@ -81,7 +81,7 @@ func (c *Client) run(ctx context.Context) {
 	}
 	for ctx.Err() == nil {
 		attempts++
-		conn, err := dial(ctx, c.cfg, c.events.publish)
+		conn, err := dial(ctx, c.config(), c.events.publish)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
@@ -107,6 +107,31 @@ func (c *Client) run(ctx context.Context) {
 			conn.Close()
 			return
 		}
+	}
+}
+
+func (c *Client) config() Config {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cfg
+}
+
+// SetLogin replaces the credentials used by the next connection attempt. The
+// current connection is not touched; call Reconnect to use them now.
+func (c *Client) SetLogin(username, secret string) {
+	c.mu.Lock()
+	c.cfg.Username, c.cfg.Secret = username, secret
+	c.mu.Unlock()
+}
+
+// Reconnect drops the current connection (if any); the client logs in again
+// after the usual short wait, with the credentials of SetLogin.
+func (c *Client) Reconnect() {
+	c.mu.Lock()
+	conn := c.conn
+	c.mu.Unlock()
+	if conn != nil {
+		conn.Close()
 	}
 }
 

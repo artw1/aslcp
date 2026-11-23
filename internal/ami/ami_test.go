@@ -528,3 +528,37 @@ func TestConnectionLostAfterSendIsTyped(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestClientSetLoginAndReconnect(t *testing.T) {
+	s := amitest.New(t)
+	c := ami.NewClient(clientCfg(s))
+	defer c.Close()
+	states, cancel := c.SubscribeState(64)
+	defer cancel()
+	waitState(t, states, true)
+
+	// the server's secret changes: the open connection stays, a new login fails
+	s.SetSecret("new-secret")
+	c.SetLogin("admin", "new-secret")
+	if !c.State().Connected {
+		t.Fatal("SetLogin must not drop the connection")
+	}
+	c.Reconnect()
+	waitState(t, states, false)
+	waitState(t, states, true)
+	if st := c.State(); !st.Connected {
+		t.Fatalf("state = %+v", st)
+	}
+	// wrong login keeps retrying without connecting
+	c.SetLogin("admin", "wrong")
+	c.Reconnect()
+	waitState(t, states, false)
+	time.Sleep(200 * time.Millisecond)
+	if c.State().Connected {
+		t.Fatal("connected with a wrong secret")
+	}
+	c.SetLogin("admin", "new-secret")
+	if err := c.WaitConnected(ctx5(t)); err != nil {
+		t.Fatal(err)
+	}
+}

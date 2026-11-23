@@ -452,6 +452,7 @@ func cleanupSessions(ctx context.Context, st *store.Store) {
 // monitor once the local nodes are known. It retries forever; Asterisk may
 // start after ASLCP.
 func connectAMI(ctx context.Context, cfg config.Config, proxy *lateAMI, srv *api.Server, logger *log.Logger, rescan <-chan struct{}) {
+	orig := cfg
 	for {
 		err := cfg.ResolveAMI()
 		if err == nil {
@@ -469,6 +470,23 @@ func connectAMI(ctx context.Context, cfg config.Config, proxy *lateAMI, srv *api
 	})
 	defer client.Close()
 	proxy.set(client)
+	// The setup wizard changes the manager.conf secret: follow it, unless the
+	// secret is a literal in aslcp.conf (then it is ours and stays).
+	srv.SetAMILoginReloader(func(reconnect bool) (bool, error) {
+		if orig.AMISecret != "auto" {
+			return false, nil
+		}
+		c := orig
+		if err := c.ResolveAMI(); err != nil {
+			return false, err
+		}
+		srv.AddSecret(c.AMISecret)
+		client.SetLogin(c.AMIUsername, c.AMISecret)
+		if reconnect {
+			client.Reconnect()
+		}
+		return true, nil
+	})
 	monitorNodes(ctx, proxy, srv, logger, rescan)
 }
 

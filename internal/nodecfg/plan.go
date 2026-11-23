@@ -55,6 +55,9 @@ type Request struct {
 	// Modules to make sure modules.conf loads (chan_simpleusb.so,
 	// chan_echolink.so).
 	Modules []string `json:"modules,omitempty"`
+
+	// to is the new number when the plan renumbers the node (setup.go).
+	to string
 }
 
 // Applied is one edit of the plan, as shown to the operator. Secret values
@@ -508,9 +511,35 @@ func (w *World) Plan(req Request) (*Plan, error) {
 	if si.refusal != nil {
 		return nil, refuse(*si.refusal)
 	}
-	p := &Plan{Node: req.Node, Mode: mode, Files: []PlanFile{}, Base: map[string]string{}, Changes: []Applied{}, Errors: []Finding{}, Warnings: []Finding{},
+	p := w.newPlan(req.Node, mode)
+	ed := w.newEditor()
+	if err := w.planRequest(p, ed, si, req, mode); err != nil {
+		return nil, err
+	}
+	p.Changes = ed.out
+	w.finishPlan(p, ed, req.Node, req.Node)
+	return p, nil
+}
+
+func (w *World) newPlan(node, mode string) *Plan {
+	return &Plan{Node: node, Mode: mode, Files: []PlanFile{}, Base: map[string]string{}, Changes: []Applied{}, Errors: []Finding{}, Warnings: []Finding{},
 		Reload: []configsvc.ReloadStep{}, RestartReasons: []string{}, contents: map[string]string{}, bases: map[string]string{}}
-	ed := &editor{w: w, files: map[string]*astconf.File{}, touched: map[string]bool{}}
+}
+
+func (w *World) newEditor() *editor {
+	return &editor{w: w, files: map[string]*astconf.File{}, touched: map[string]bool{}}
+}
+
+// planRequest applies the settings of a Request to the editor. Nothing is
+// written: the edits are collected in ed. When req.to is set the node is
+// being renumbered in the same plan: everything that carries the node number
+// (registration, device name, EchoLink link) uses req.to, while si still is
+// the stanza as it is now (the stanza itself is renamed by ed.renumber, last).
+func (w *World) planRequest(p *Plan, ed *editor, si *stanzaInfo, req Request, mode string) error {
+	target := req.Node
+	if req.to != "" {
+		target = req.to
+	}
 	warn := func(f Finding) { p.Warnings = append(p.Warnings, f) }
 
 	// the changes: preset first, explicit changes win
@@ -526,10 +555,10 @@ func (w *World) Plan(req Request) (*Plan, error) {
 	if req.Preset != "" {
 		pr, ok := PresetByName(req.Preset)
 		if !ok {
-			return nil, invalid("unknown preset %q", req.Preset)
+			return invalid("unknown preset %q", req.Preset)
 		}
 		if mode != ModeOverride {
-			return nil, invalid("a preset is applied to the node itself")
+			return invalid("a preset is applied to the node itself")
 		}
 		keys := make([]string, 0, len(pr.Values))
 		for id := range pr.Values {
@@ -544,7 +573,7 @@ func (w *World) Plan(req Request) (*Plan, error) {
 	seen := map[string]bool{}
 	for _, c := range req.Changes {
 		if seen[c.ID] {
-			return nil, invalid("%s appears twice", c.ID)
+			return invalid("%s appears twice", c.ID)
 		}
 		seen[c.ID] = true
 		add(c.ID, c.Value)
@@ -553,25 +582,25 @@ func (w *World) Plan(req Request) (*Plan, error) {
 		req.Radio = &RadioChange{Type: RadioHub}
 	}
 	if req.Radio != nil && mode != ModeOverride {
-		return nil, invalid("the radio type is set on the node itself")
+		return invalid("the radio type is set on the node itself")
 	}
 	if req.Callsign != nil && mode != ModeOverride {
-		return nil, invalid("the callsign is set on the node itself")
+		return invalid("the callsign is set on the node itself")
 	}
 
 	// validate before touching anything
 	for _, id := range order {
 		k, ok := schema.Lookup(id)
 		if !ok {
-			return nil, invalid("%s is not a setting forms can change; use Advanced", id)
+			return invalid("%s is not a setting forms can change; use Advanced", id)
 		}
 		if mode != ModeReset {
 			if err := k.Validate(changes[id]); err != nil {
-				return nil, &InvalidError{err.Error()}
+				return &InvalidError{err.Error()}
 			}
 		}
 		if mode == ModeReset && (k.Scope != schema.ScopeNode && k.Scope != schema.ScopeDevice) {
-			return nil, invalid("%s has no template to reset to", k.Name)
+			return invalid("%s has no template to reset to", k.Name)
 		}
 	}
 
@@ -582,45 +611,48 @@ func (w *World) Plan(req Request) (*Plan, error) {
 		switch cur.Type {
 		case RadioSimpleUSB, RadioHub, RadioNone:
 		default:
-			return nil, refuse(radioUnsupported(cur))
+			return refuse(radioUnsupported(cur))
 		}
 		switch req.Radio.Type {
 		case RadioHub:
 			k, _ := schema.Find(FileRpt, schema.ScopeNode, "rxchannel")
 			if err := ed.applyKey(ModeOverride, si, k, "Local/pseudo", warn); err != nil {
-				return nil, err
+				return err
 			}
 		case RadioSimpleUSB:
-			dev := req.Node
-			if cur.Type == RadioSimpleUSB && cur.Device != "" {
+			dev := target
+			if cur.Type == RadioSimpleUSB && cur.Device != "" && cur.Device != req.Node {
 				dev = cur.Device
 			}
 			radioDevice = dev
 			k, _ := schema.Find(FileRpt, schema.ScopeNode, "rxchannel")
 			if err := ed.applyKey(ModeOverride, si, k, "SimpleUSB/"+dev, warn); err != nil {
-				return nil, err
+				return err
 			}
 			if err := ed.ensureModule("chan_simpleusb.so"); err != nil {
-				return nil, err
+				return err
 			}
-			if err := ed.ensureDevice(dev); err != nil {
-				return nil, err
+			// a renumbered node renames its device section instead
+			if !(req.to != "" && cur.DeviceStanza && cur.Device == req.Node) {
+				if err := ed.ensureDevice(dev); err != nil {
+					return err
+				}
 			}
 		default:
-			return nil, invalid("the radio type must be simpleusb or hub; USBRadio and other interfaces are edited in Advanced")
+			return invalid("the radio type must be simpleusb or hub; USBRadio and other interfaces are edited in Advanced")
 		}
 	}
 	if req.Callsign != nil {
 		cs := strings.ToUpper(strings.TrimSpace(*req.Callsign))
 		if !ValidCallsign(cs) {
-			return nil, invalid("%q does not look like a callsign (letters and digits, for example N0CALL)", *req.Callsign)
+			return invalid("%q does not look like a callsign (letters and digits, for example N0CALL)", *req.Callsign)
 		}
 		if e := lastEntry(si.eff, "idrecording"); e != nil && !strings.HasPrefix(strings.TrimSpace(e.Value), "|i") {
-			return nil, refuse(Refusal{Code: "idrecording_custom", Message: "idrecording is a recording name, not a Morse ID, so the callsign is not changed here.", File: e.File, Line: e.Line})
+			return refuse(Refusal{Code: "idrecording_custom", Message: "idrecording is a recording name, not a Morse ID, so the callsign is not changed here.", File: e.File, Line: e.Line})
 		}
 		k, _ := schema.Find(FileRpt, schema.ScopeNode, "idrecording")
 		if err := ed.applyKey(ModeOverride, si, k, "|i"+cs, warn); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	for _, id := range order {
@@ -635,11 +667,11 @@ func (w *World) Plan(req Request) (*Plan, error) {
 			err = ed.applyKey(mode, si, k, v, warn)
 		case k.Scope == schema.ScopeDevice:
 			if radioDevice != "" {
-				return nil, invalid("set the radio type first, then its device settings")
+				return invalid("set the radio type first, then its device settings")
 			}
 			r := w.radio(si)
 			if r.Type != RadioSimpleUSB || !r.DeviceStanza {
-				return nil, refuse(Refusal{Code: "no_device_stanza", Message: "The node has no SimpleUSB device section to edit.", File: FileSimple})
+				return refuse(Refusal{Code: "no_device_stanza", Message: "The node has no SimpleUSB device section to edit.", File: FileSimple})
 			}
 			dsi := resolveStanza(w.Trees[FileSimple], r.Device, FileSimple)
 			err = ed.applyKey(mode, dsi, k, v, warn)
@@ -647,33 +679,35 @@ func (w *World) Plan(req Request) (*Plan, error) {
 			err = ed.applyDirect(mode, k, v)
 		}
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if req.Link != nil && *req.Link {
 		k, _ := schema.Find(FileEcho, "el0", "astnode")
-		if err := ed.applyDirect(ModeOverride, k, req.Node); err != nil {
-			return nil, err
+		if err := ed.applyDirect(ModeOverride, k, target); err != nil {
+			return err
 		}
 		if err := ed.ensureModule("chan_echolink.so"); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	for _, m := range req.Modules {
 		if !allowedModules[m] {
-			return nil, invalid("module %q cannot be changed here", m)
+			return invalid("module %q cannot be changed here", m)
 		}
 		if err := ed.ensureModule(m); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if req.Registration != nil {
-		if err := ed.register(req.Node, *req.Registration); err != nil {
-			return nil, err
+		if err := ed.register(target, *req.Registration); err != nil {
+			return err
 		}
 	}
-	p.Changes = ed.out
+	return nil
+}
 
+func (w *World) finishPlan(p *Plan, ed *editor, nodeBefore, nodeAfter string) {
 	// new contents
 	var changed []string
 	for name := range ed.touched {
@@ -696,7 +730,7 @@ func (w *World) Plan(req Request) (*Plan, error) {
 	}
 	p.Noop = len(changed) == 0
 	if p.Noop {
-		return p, nil
+		return
 	}
 
 	// after-state checks
@@ -708,10 +742,10 @@ func (w *World) Plan(req Request) (*Plan, error) {
 		}
 	}
 	before := map[string]bool{}
-	for _, f := range w.allFindings(req.Node) {
-		before[findingKey(f)] = true
+	for _, f := range w.allFindings(nodeBefore) {
+		before[renameKey(findingKey(f), nodeBefore, nodeAfter)] = true
 	}
-	for _, f := range w2.allFindings(req.Node) {
+	for _, f := range w2.allFindings(nodeAfter) {
 		switch {
 		case f.Level == LevelError && !before[findingKey(f)]:
 			p.Errors = append(p.Errors, f)
@@ -747,7 +781,6 @@ func (w *World) Plan(req Request) (*Plan, error) {
 	}
 	sort.Strings(p.RestartReasons)
 	p.RestartReasons = dedupe(p.RestartReasons)
-	return p, nil
 }
 
 func dedupe(in []string) []string {
@@ -806,4 +839,14 @@ func radioUnsupported(cur Radio) Refusal {
 	}
 	return Refusal{Code: "radio_unsupported", File: file,
 		Message: "This node uses a radio interface (" + cur.Type + ") that forms do not change. Edit rxchannel and the device file in Advanced (" + file + ")."}
+}
+
+// renameKey maps the key of a finding made for the node before a renumbering
+// onto the node's new number, so a problem that was there before is not
+// reported as new.
+func renameKey(k, from, to string) string {
+	if from == to {
+		return k
+	}
+	return strings.ReplaceAll(k, from, to)
 }
