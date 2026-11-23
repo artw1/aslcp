@@ -1,5 +1,5 @@
 {
-  "version": "2.0.2",
-  "notes": "Digital modes: clearing fields, NXDN ID required, radioid.net daily (#22)\n\n- Clearing a network setting (NXDN ID, DMR - Other options, \u2026) and saving now clears it (empty options map was dropped on the way to the helper).\n- Clearing the NXDN ID turns NXDN off; NXDN can't be turned on without an NXDN ID (422 incomplete).\n- NXDN help text says \"NXDN ID\".\n- radioid.net user list checked daily instead of weekly (conditional requests, 304 when unchanged).\n- docs/EXPERIMENTS.md: \"After 2.0\" note on splitting aslcp-dv into its own repo.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01WyFLnHQojhM4Jvfwzs5euQ",
+  "version": "2.0.3",
+  "notes": "DV: TGIF has no master options, timeslot, address or port\n\nTGIF always uses timeslot 2 and sends no RPTO options; the fields are gone\nfrom the TGIF form and values saved earlier are dropped on load. The TGIF\nmaster follows the DMR host list (first TGIF entry), else tgif.network:62031;\nthe password stays the operator's own.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01WyFLnHQojhM4Jvfwzs5euQ",
   "date": "2026-11-23"
 }

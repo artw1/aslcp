@@ -1,5 +1,5 @@
 {
   "version": "2.0.2",
-  "notes": "",
+  "notes": "### Changed\n- The radioid.net user list is now checked for updates daily instead of weekly.\n- Digital modes: the remaining mentions of \"NXDN unit ID\" now say \"NXDN ID\".\n\n### Fixed\n- Digital modes: clearing the NXDN ID, or the Options of DMR - Other or TGIF, and saving now clears them. Before, the old value was kept.\n- Digital modes: clearing the NXDN ID turns NXDN off; NXDN can't be turned on without an NXDN ID (the page says so and the API answers `422 incomplete`).",
   "date": "2026-11-23"
 }
