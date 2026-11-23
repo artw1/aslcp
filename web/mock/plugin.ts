@@ -15,7 +15,7 @@ const calls = Array.from({ length: 20 }, (_, i) => 'TEST' + String(i + 1).padSta
 const places = ['Exampleton, ST', 'Sampleburg, ST', 'Testville, ST', 'Demoton, ST', 'Mockville, ST'];
 const descs = ['Hub', 'Repeater 146.520', 'Simplex node', 'Net control', 'Club repeater', 'Linked UHF'];
 const NODES: Info[] = calls.map((c, i) => ({ node: String(1000 + i * 37), callsign: c, description: `${descs[i % descs.length]} (fake)`, location: places[i % places.length] }));
-NODES.push({ node: '2001', callsign: 'LOCAL1', description: 'Local test node', location: 'Exampleton, ST' });
+NODES.push({ node: '2001', callsign: 'LOCAL1', description: 'Local test node', location: 'Exampleton, ST' }, { node: '1997', callsign: 'LOCAL2', description: 'Second local node', location: 'Exampleton, ST' });
 const byNode = new Map(NODES.map((n) => [n.node, n]));
 const info = (n: string) => byNode.get(n) ?? null;
 
@@ -27,17 +27,19 @@ function addLink(local: string, node: string, mode: string, dir: 'IN' | 'OUT', a
   locals[local].links.push({ node, kind, direction: dir, start: now() - ago * 1000, mode: mode === 'monitor' ? 'R' : mode === 'localmonitor' ? 'L' : 'T', keyedUntil: 0, lastKey: null, lastUnkey: null });
 }
 locals['2001'] = { links: [], rx: 0, tx: 0 };
+locals['1997'] = { links: [], rx: 0, tx: 0 };
 // Nodes with a SimpleUSB device in the mock (Audio Tuning); placeholder numbers.
-NODES.push({ node: '1999', callsign: 'TUNE1', description: 'Tuning test node', location: 'Exampleton, ST' }, { node: '1998', callsign: 'HUB1', description: 'Example hub', location: 'Exampleton, ST' });
+NODES.push({ node: '1999', callsign: 'TUNE1', description: 'Tuning test node', location: 'Exampleton, ST' }, { node: '1998', callsign: 'TUNE2', description: 'Second tuning node', location: 'Exampleton, ST' });
 byNode.set('1999', NODES[NODES.length - 2]); byNode.set('1998', NODES[NODES.length - 1]);
 locals['1999'] = { links: [], rx: 0, tx: 0 };
+locals['1998'] = { links: [], rx: 0, tx: 0 };
 addLink('2001', '1000', 'transceive', 'OUT', 5400);
 addLink('2001', '1037', 'monitor', 'OUT', 1200);
 addLink('2001', '1074', 'transceive', 'IN', 300);
 addLink('2001', '1111', 'transceive', 'IN', 61);
 addLink('2001', BRIDGE_NODE, 'transceive', 'OUT', 3600);
 addLink('2001', '1998', 'transceive', 'OUT', 3000);
-addLink('1999', '1148', 'transceive', 'OUT', 800);
+addLink('1997', '1148', 'transceive', 'OUT', 800);
 addLink('1999', '1000', 'transceive', 'OUT', 900);
 
 let favs: { id: number; node: string; label: string; group: string; position: number }[] = [
@@ -120,7 +122,7 @@ const pubCfg = { enabled: true, title: '', nodes: [] as string[], showCallsigns:
 const activity: { node: string; link: string; at: number; duration: number }[] = [
   { node: '2001', link: '1000', at: Date.now() - 95e3, duration: 14 },
   { node: '2001', link: 'local', at: Date.now() - 260e3, duration: 6 },
-  { node: '1999', link: '1148', at: Date.now() - 700e3, duration: 1 },
+  { node: '1997', link: '1148', at: Date.now() - 700e3, duration: 1 },
   { node: '2001', link: '1074', at: Date.now() - 3.2e6, duration: 41 },
 ];
 const pubDefaultTitle = () => `${info('2001')?.callsign} AllStarLink node 2001`;
@@ -152,7 +154,7 @@ const updInfo = () => ({
   os: osInfo(),
   available: true, reason: null, applyReason: null, channel: mockChannel, installed: mockVersion, candidate: updChecked ? candidate() : '', upgradable: upgradable(), job: updJob,
   jobLog: updJob === 'running' ? 'Reading package lists...\nUnpacking aslcp (0.2.0) over (0.1.0) ...' : updJob === 'succeeded' ? 'Setting up aslcp (0.2.0) ...' : '',
-  notes: upgradable() ? '- New **Updates** section in Settings\n- Faster dashboard\n- Bug fixes' : null, checked: updChecked,
+  notes: upgradable() ? '- New **Updates** section in Settings\n- Faster dashboard\n\nThanks for testing <script>alert(1)</script>' : null, checked: updChecked,
 });
 // Simulated OS (apt) updates: a security package, an asterisk package, a reboot-required toggle.
 const osAll = [
