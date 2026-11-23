@@ -124,7 +124,7 @@ test('changeLine', () => {
 const nodeOf = (o: Partial<NodeModel> = {}): NodeModel => ({ node: '2001', private: false, placeholder: false, callsign: 'N0CALL', radio: { type: 'simpleusb', channel: 'SimpleUSB/2001', deviceStanza: true, supported: true }, fields: [], other: [], registration: { method: 'none' }, echolink: { present: true, moduleState: 'noload', linked: false, configured: false, enabled: false, fields: [] }, warnings: [], refusals: [], inNodes: true, ...o });
 
 test('validCallsign', () => {
-  for (const c of ['N0CALL', 'n0call', 'N0ABC', 'N0ABC/P']) assert.equal(validCallsign(c), true, c);
+  for (const c of ['N0CALL', 'n0call', 'N1CALL', 'N0CALL/P']) assert.equal(validCallsign(c), true, c);
   for (const c of ['', 'NOTSET', 'ABC', '12', 'N0CALL!']) assert.equal(validCallsign(c), false, c);
 });
 

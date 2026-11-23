@@ -513,7 +513,7 @@ func TestParseRegStatus(t *testing.T) {
 }
 
 func TestValidCallsign(t *testing.T) {
-	for s, want := range map[string]bool{"N0CALL": true, "N0ABC": true, "N0ABC/P": true, "N0XYZ": true, "NOTSET": false, "123": false, "AB": false, "hello world": false, "": false} {
+	for s, want := range map[string]bool{"N0CALL": true, "N1CALL": true, "N0CALL/P": true, "N2CALL": true, "NOTSET": false, "123": false, "AB": false, "hello world": false, "": false} {
 		if ValidCallsign(s) != want {
 			t.Errorf("%q: want %v", s, want)
 		}
