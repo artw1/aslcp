@@ -1,6 +1,6 @@
 # Backup and full restore (2.0)
 
-Goal: download one file from a working node, re-image the SD card with a fresh ASL3 image, install ASLCP, upload the file, and end up with the same node: same Asterisk configuration, same ASLCP users, favorites and settings, same config history. Target: 1.1.3 (the settings forms move to beta.4, guided actions to beta.5).
+Goal: download one file from a working node, re-image the SD card with a fresh ASL3 image, install ASLCP, upload the file, and end up with the same node: same Asterisk configuration, same ASLCP users, favorites and settings, same config history.
 
 ## What a backup contains
 

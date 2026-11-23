@@ -2,7 +2,7 @@
 
 A modern web control panel for [AllStarLink 3](https://www.allstarlink.org/) nodes.
 
-ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly web page to connect and disconnect links, watch live status and keep your favorites, in the spirit of [AllScan](https://allscan.info/). Editing the node configuration from the browser is coming next.
+ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly web page to connect and disconnect links, watch live status and keep your favorites, in the spirit of [AllScan](https://allscan.info/). It also edits your Asterisk configuration, runs scheduled links, backs up and restores the whole node, and has built-in digital voice modes (DMR, YSF, P25 and NXDN).
 
 ![ASLCP dashboard, desktop](docs/images/dashboard-desktop.png)
 
@@ -10,22 +10,32 @@ ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly w
 
 - **Live dashboard** for every local node: links, keyed state (who is transmitting right now), connection time, mode, node information and the wider network, updated about once a second.
 - **Connect, disconnect, monitor and local monitor**, with permanent links and an optional "disconnect before connect" so you do not bridge two networks by accident.
-- **Favorites** with groups and ordering; import from AllScan.
+- **Favorites** with groups and ordering; import from AllScan. An optional scan shows which favorites are active.
 - **Node lookup** by number, callsign, description or location, using the AllStarLink node list.
-- **System, Diagnostics** (administrators): download one `.tar.gz` with versions, recent logs, network summary, disk and memory, service states and your config files, to ask for help. Secrets are replaced by `<redacted>`; a checkbox (on by default) also hides your callsign and public IP. Password files, private keys and the ASLCP database are never included. Read it before posting it publicly.
-- **System strip**: CPU temperature, load, uptime, Asterisk status and version, node statistics, restart Asterisk.
+- **Digital modes** (DMR, YSF, P25, NXDN) on the built-in engine, with a Digital modes card on the dashboard, an Echo test and a **Now calling** strip. See [Digital modes](#digital-modes).
+- **Schedules**: connect and disconnect nodes at set times (weekly or one-off), with a global on/off switch, an upcoming list, and a choice of what happens when you connect by hand.
+- **Config editor**: edit `rpt.conf`, `iax.conf`, `simpleusb.conf`, `extensions.conf` and other Asterisk files in the browser. Saving shows a diff and checks syntax, reloads Asterisk, and keeps a history you can restore from. Administrators only.
+- **Audio Tuning** (administrators, nodes with a SimpleUSB radio): live receive meter, RX and TX levels, carrier and CTCSS settings, PTT mode and delays.
+- **Backup and restore**: download one file with your Asterisk config, ASLCP users, favorites and settings and digital modes settings. Restore it on a freshly installed node during setup or later.
+- **System** (administrators): CPU temperature, load, uptime, Asterisk status and restart, ASL services, web port, WiFi, a browser terminal, updates and diagnostics.
+- **Diagnostics**: download one `.tar.gz` with versions, recent logs, network summary, disk and memory, service states and your config files, to ask for help. Secrets are replaced by `<redacted>`; a checkbox (on by default) also hides your callsign and public IP. Password files, private keys and the ASLCP database are never included. Read it before posting it publicly.
 - **Users and roles**: admin, operator and viewer, with rate-limited login and CSRF protection.
-- **Updates from the web page**: Settings shows the installed and available version with release notes and installs updates on request.
+- **Updates from the web page**: Settings shows the installed and available version with release notes, lets you pick the release or beta channel, and installs updates on request.
 - **Built-in bug reporting**: Settings, About has a prefilled issue form and a diagnostics download that removes private data.
 - **Public status page** (optional, off by default): a read-only live view of your node for visitors who are not logged in, with recent activity. See below.
 - Light and dark themes, works on phones and tablets.
-- Small and safe: one static binary, runs as an unprivileged, hardened systemd service; a tiny root helper performs only package updates and firewall changes.
-- Configuration editing (nodes, `rpt.conf`, `iax.conf` and more): coming.
+- Small and safe: one static binary, runs as an unprivileged, hardened systemd service; a tiny root helper performs only package updates, firewall changes and similar system tasks.
 
 <p>
   <img src="docs/images/dashboard-mobile.png" alt="ASLCP dashboard on a phone" width="260">
   <img src="docs/images/settings-updates.png" alt="Settings, Updates section" width="520">
 </p>
+
+### Schedules and config editor
+
+![Schedules](docs/images/schedules.png)
+
+![Config editor](docs/images/config.png)
 
 ## Requirements
 
@@ -95,9 +105,29 @@ Administrators can move ASLCP to port 80 in **System, Web port**, so the panel a
 
 If firewalld is running, the package and the installer open the configured port for you: the firewalld service `aslcp` for 8080, a plain TCP port for any other port. If you edit `listen` by hand, open the new port yourself (`sudo firewall-cmd --permanent --add-port=<port>/tcp && sudo firewall-cmd --reload`); a package upgrade also opens the configured port. With another firewall (ufw, nftables, a router), allow the TCP port from your LAN yourself. Do not expose the port to the internet without a reverse proxy that provides TLS.
 
+## Digital modes
+
+ASLCP 2.0 has its own digital voice engine, `aslcp-dv`, so a node can talk on digital networks through one bridge node linked to your local node. Supported modes:
+
+- **BrandMeister** and **TGIF** (DMR), and **DMR - Other** for any other Homebrew master, including DMR+ (pick a master from the list or type its address).
+- **YSF** (System Fusion) reflectors, **P25** and **NXDN** talkgroups. P25 and NXDN are tested against recorded traffic but not yet on air.
+- **Echo test**: a local test with no network and no account. You hear yourself back a second after you unkey, which proves the audio path.
+
+Enable digital modes on the **Digital modes** page (or `sudo aslcp dv enable`, or `ASLCP_DV=1` at install). Enter your callsign and DMR ID, then turn on and set up the networks you want. `sudo aslcp dv status` shows the state and `sudo aslcp dv disable` stops the engine and keeps your settings. Enabling installs only the md380 vocoder. ARMv6 boards (Pi Zero, Pi 1) are not supported.
+
+On the dashboard, the **Digital modes** card shows the bridge node, switches mode, tunes a talkgroup or reflector, unlinks, has a Parrot button for BrandMeister and keeps favorites. **Now calling** (a red strip on every page) shows who is talking, with callsign, name, place, network, talkgroup and timeslot, and **Last heard** lists recent calls. The engine resumes in the last mode after a restart. More in [docs/DV.md](docs/DV.md).
+
+![Digital modes card on the dashboard](docs/images/dashboard-digital.png)
+
+![Digital modes networks](docs/images/digital-networks.png)
+
+![Digital modes setup](docs/images/digital-setup.png)
+
 ## Public status page
 
 A modern replacement for public Allmon3/Supermon pages. It is off by default. Enable it in **Settings, Public page** (administrators only).
+
+![Public status page](docs/images/public-page.png)
 
 - **What visitors see:** when it is on and a visitor is not logged in, the address of the panel (`http://<your-node>:8080/`) shows a live, read-only status page (keying, connected links, optionally the linked network and the last 25 transmissions) with a **Log in** button. Logged-in users get the normal dashboard, with a "Public view" preview in the user menu. When it is off, visitors get the login page as before.
 - **What you control:** the title, which local nodes are shown, and whether callsigns and node info of linked nodes, the network list and recent activity are shown. IP addresses, system information, favorites and users are never part of it.
@@ -109,13 +139,16 @@ A modern replacement for public Allmon3/Supermon pages. It is off by default. En
 
 Either of:
 
-- **System, Terminal** (administrators, off by default): a Linux login prompt in the browser, using xterm.js. Turn it on in that section, then *Connect* and log in with a Linux account name and password; no root shell is handed out. It closes after 15 minutes without typing, two sessions at most; the audit log records when it was used, never what was typed.
 - **System, Updates** in the web page (administrators): *Check now*, then *Update*. Links are not affected; the page reconnects by itself.
 - `sudo apt update && sudo apt upgrade`
 
 ### Upgrading to 2.0
 
 **You have to redo the digital-modes configuration in 2.0.** The BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN settings and your identity (callsign and DMR ID) are not carried over, and nothing is imported from the previous stack. Enter them again on the Digital modes page. The previous digital voice stack is removed on upgrade, except md380-emu, which stays installed and working. Only what ASLCP installed is removed. See docs/DV.md.
+
+## Terminal
+
+**System, Terminal** (administrators, off by default): a Linux login prompt in the browser, using xterm.js. Turn it on in that section, then *Connect* and log in with a Linux account name and password; no root shell is handed out. It closes after 15 minutes without typing, two sessions at most; the audit log records when it was used, never what was typed.
 
 ## WiFi
 

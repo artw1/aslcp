@@ -9,7 +9,7 @@ const RPT = `; rpt.conf (anonymized sample)
 
 [nodes]
 1999 = radio@127.0.0.1/1999,NONE
-2000 = radio@192.0.2.20:4569/2000,192.0.2.20
+1000 = radio@192.0.2.20:4569/1000,192.0.2.20
 
 [1999](node-main)
 rxchannel = SimpleUSB/usb
@@ -83,7 +83,7 @@ exten => 1999,1,Rpt(1999)
   'custom/rpt/macros.conf': `; custom macros
 [macro]
 1 = *81
-2 = *3 2000
+2 = *3 1000
 `,
 };
 
@@ -111,7 +111,7 @@ function seed() {
   commit(AUTHORS[2], 'Edit simpleusb.conf', 60 * 24 * 3);
   tree['rpt.conf'] = BASE['rpt.conf'];
   commit(AUTHORS[3], 'Before: Edit rpt.conf', 60 * 30);
-  tree['custom/rpt/macros.conf'] = BASE['custom/rpt/macros.conf'].replace('2 = *3 2000\n', '');
+  tree['custom/rpt/macros.conf'] = BASE['custom/rpt/macros.conf'].replace('2 = *3 1000\n', '');
   commit(AUTHORS[4], 'Edit custom/rpt/macros.conf', 60 * 2);
   tree = { ...BASE };
   commit('n0call', 'Edit manager.conf, custom/rpt/macros.conf', 25);

@@ -28,8 +28,8 @@ export function createSchedules(d: Deps) {
   const cancelled = new Set<string>(); // `${id}@${start ms}`
   let lastTick = Date.now();
   const add = (s: Partial<Sched>) => { list.push({ id: nextId++, name: '', enabled: true, node: '1999', target: '', action: 'connect', mode: 'transceive', permanent: false, exclusive: false, days: [], date: '', start: '19:00', end: '', lastRun: null, lastResult: '', ...s }); };
-  add({ name: 'Tuesday net', target: '2185', days: [2], start: '19:00', end: '20:30', exclusive: true });
-  add({ name: 'Morning check-in', target: '2222', mode: 'monitor', days: [1, 2, 3, 4, 5], start: '07:00', end: '07:30' });
+  add({ name: 'Tuesday net', target: '1185', days: [2], start: '19:00', end: '20:30', exclusive: true });
+  add({ name: 'Morning check-in', target: '1222', mode: 'monitor', days: [1, 2, 3, 4, 5], start: '07:00', end: '07:30' });
 
   type Occ = { s: Sched; start: Date; end: Date | null };
   function occurrences(s: Sched, from: Date, to: Date): Occ[] {

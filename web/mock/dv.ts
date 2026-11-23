@@ -149,12 +149,12 @@ const LISTS: Record<string, { value: string; name: string; detail?: string; addr
   'dmr-other': [
     { value: 'freedmr.example.net', name: 'FreeDMR_Example', detail: 'ID 1234', address: 'freedmr.example.net', port: 62031, password: 'passw0rd' },
     { value: '192.0.2.30', name: 'XLX_Example', address: '192.0.2.30', port: 62030, password: 'example-pass' },
-    { value: '203.0.113.40', name: 'DMRPlus_Example', address: '203.0.113.40', port: 55555 },
+    { value: '192.0.2.10', name: 'DMR+_IPSC2-Example', address: '192.0.2.10', port: 55555 },
   ],
   bm: [
-    { value: '2001.master.example.net', name: '2001 – Netherlands', address: '2001.master.example.net', port: 0 },
-    { value: '3104.master.example.net', name: '3104 – United States', address: '3104.master.example.net', port: 0 },
-    { value: '5051.master.example.net', name: '5051 – Australia', address: '5051.master.example.net', port: 0 },
+    { value: '192.0.2.10', name: 'BM_Example', address: '192.0.2.10', port: 0 },
+    { value: '3104.master.example.net', name: 'BM_Example_B', address: '3104.master.example.net', port: 0 },
+    { value: '5051.master.example.net', name: 'BM_Example_C', address: '5051.master.example.net', port: 0 },
   ],
   ysf: [
     { value: '00001', name: 'US-Example', detail: 'Example reflector', address: '192.0.2.21', port: 42000 },
@@ -306,7 +306,7 @@ const bridge: { mode: PMode; tune: string; slot: number; muted: boolean } = { mo
 const started = Date.now();
 function bootLastMode() { bridge.mode = 'LOOP'; bridge.tune = ''; }
 // Placeholder talkers (the echo test plays you back to yourself, as "Echo test" with no talkgroup).
-const TALKERS = [{ call: 'N0CALL', dmrId: '1234567' }, { call: 'N0DEMO', dmrId: '1234568' }, { call: 'N0TEST', dmrId: '1234569' }];
+const TALKERS = [{ call: 'N0CALL', dmrId: '1234567' }, { call: 'N0CALL', dmrId: '2345678' }, { call: 'N0CALL', dmrId: '2345678' }];
 function callers() {
   const n = Math.floor(Date.now() / 30_000);
   const at = (k: number) => new Date(Date.now() - k * 30_000).toISOString().slice(0, 19).replace('T', ' ');
@@ -323,7 +323,7 @@ function snapshot() {
     bridge: running
       ? { mode: bridge.mode, tune: bridge.tune, slot: bridge.slot, muted: bridge.muted, source: 'aslcp-dv', updated: new Date().toISOString() }
       : { mode: '', tune: '', slot: 0, muted: false, source: 'none', updated: '' },
-    modes: ALL.map((id) => ({ id, enabled: running && (id === 'LOOP' || (id === 'BM' && bmNet.enabled)), available: NATIVE.includes(id), unlink: UNLINK[id], ...(LABEL[id] ? { label: LABEL[id] } : {}), ...(running && id === 'BM' && bmNet.enabled ? { login: bmLogin(), detail: bmDetail() } : {}), ...(running && id === 'BM' && bmNet.enabled && bmNet.address ? { master: bmNet.address === '192.0.2.10' ? 'BM_Example' : bmNet.address } : {}), ...(running && id === 'DMR' && otherNets.DMR.enabled && otherNets.DMR.address ? { master: otherNets.DMR.address === '192.0.2.10' ? 'DMR+_IPSC2-Example' : otherNets.DMR.address } : {}) })),
+    modes: ALL.map((id) => ({ id, enabled: running && (id === 'LOOP' || netOf(id as NetId).enabled), available: NATIVE.includes(id), unlink: UNLINK[id], ...(LABEL[id] ? { label: LABEL[id] } : {}), ...(running && id === 'BM' && bmNet.enabled ? { login: bmLogin(), detail: bmDetail() } : {}), ...(running && id === 'BM' && bmNet.enabled && bmNet.address ? { master: bmNet.address === '192.0.2.10' ? 'BM_Example' : bmNet.address } : {}), ...(running && id === 'DMR' && otherNets.DMR.enabled && otherNets.DMR.address ? { master: otherNets.DMR.address === '192.0.2.10' ? 'DMR+_IPSC2-Example' : otherNets.DMR.address } : {}) })),
     services: enabled ? [{ unit: 'aslcp-dv', active: true }, { unit: 'md380-emu', active: true }] : [],
     ...(running ? { vocoder: { ok: true, timeouts: 0 }, engine: { version: '2.0.0', uptime: Math.floor((Date.now() - started) / 1000) } } : {}),
     bridgeNode: pb.node ? { present: true, node: pb.node, name: pb.name || NODE_NAME } : { present: false },

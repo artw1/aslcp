@@ -11,11 +11,11 @@ import { handleSystem } from './system.ts';
 import { handleWifi } from './wifi.ts';
 
 type Info = { node: string; callsign: string; description: string; location: string };
-const calls = ['N0AAA', 'N0AAB', 'N0AAC', 'N0AAD', 'N0AAE', 'N0AAF', 'N0AAG', 'N0AAH', 'N0AAJ', 'N0AAK', 'N0AAL', 'N0AAM', 'N0AAN', 'N0AAP', 'N0AAQ', 'N0AAR', 'N0AAS', 'N0AAT', 'N0AAU', 'N0AAV'];
-const places = ['Springfield, ST', 'Riverton, ST', 'Lakeside, ST', 'Hill Valley, ST', 'Fakeville, ST'];
+const calls = Array.from({ length: 20 }, (_, i) => 'TEST' + String(i + 1).padStart(2, '0'));
+const places = ['Exampleton, ST', 'Sampleburg, ST', 'Testville, ST', 'Demoton, ST', 'Mockville, ST'];
 const descs = ['Hub', 'Repeater 146.520', 'Simplex node', 'Net control', 'Club repeater', 'Linked UHF'];
-const NODES: Info[] = calls.map((c, i) => ({ node: String(2000 + i * 37), callsign: c, description: `${descs[i % descs.length]} (fake)`, location: places[i % places.length] }));
-NODES.push({ node: '2001', callsign: 'N0LOC', description: 'Local test node', location: 'Springfield, ST' }, { node: '1997', callsign: 'N0LOD', description: 'Second local node', location: 'Springfield, ST' });
+const NODES: Info[] = calls.map((c, i) => ({ node: String(1000 + i * 37), callsign: c, description: `${descs[i % descs.length]} (fake)`, location: places[i % places.length] }));
+NODES.push({ node: '2001', callsign: 'LOCAL1', description: 'Local test node', location: 'Exampleton, ST' });
 const byNode = new Map(NODES.map((n) => [n.node, n]));
 const info = (n: string) => byNode.get(n) ?? null;
 
@@ -27,27 +27,25 @@ function addLink(local: string, node: string, mode: string, dir: 'IN' | 'OUT', a
   locals[local].links.push({ node, kind, direction: dir, start: now() - ago * 1000, mode: mode === 'monitor' ? 'R' : mode === 'localmonitor' ? 'L' : 'T', keyedUntil: 0, lastKey: null, lastUnkey: null });
 }
 locals['2001'] = { links: [], rx: 0, tx: 0 };
-locals['1997'] = { links: [], rx: 0, tx: 0 };
 // Nodes with a SimpleUSB device in the mock (Audio Tuning); placeholder numbers.
-NODES.push({ node: '1999', callsign: 'N0TUN', description: 'Tuning test node', location: 'Springfield, ST' }, { node: '1998', callsign: 'N0TUO', description: 'Second tuning node', location: 'Springfield, ST' });
+NODES.push({ node: '1999', callsign: 'TUNE1', description: 'Tuning test node', location: 'Exampleton, ST' }, { node: '1998', callsign: 'HUB1', description: 'Example hub', location: 'Exampleton, ST' });
 byNode.set('1999', NODES[NODES.length - 2]); byNode.set('1998', NODES[NODES.length - 1]);
 locals['1999'] = { links: [], rx: 0, tx: 0 };
-locals['1998'] = { links: [], rx: 0, tx: 0 };
-addLink('2001', '2000', 'transceive', 'OUT', 5400);
-addLink('2001', '2037', 'monitor', 'OUT', 1200);
-addLink('2001', '2074', 'transceive', 'IN', 300);
-addLink('2001', '2111', 'transceive', 'IN', 61);
+addLink('2001', '1000', 'transceive', 'OUT', 5400);
+addLink('2001', '1037', 'monitor', 'OUT', 1200);
+addLink('2001', '1074', 'transceive', 'IN', 300);
+addLink('2001', '1111', 'transceive', 'IN', 61);
 addLink('2001', BRIDGE_NODE, 'transceive', 'OUT', 3600);
 addLink('2001', '1998', 'transceive', 'OUT', 3000);
-addLink('1997', '2148', 'transceive', 'OUT', 800);
-addLink('1999', '2000', 'transceive', 'OUT', 900);
+addLink('1999', '1148', 'transceive', 'OUT', 800);
+addLink('1999', '1000', 'transceive', 'OUT', 900);
 
 let favs: { id: number; node: string; label: string; group: string; position: number }[] = [
-  { id: 1, node: '2000', label: 'Main hub', group: 'Hubs', position: 0 },
-  { id: 2, node: '2037', label: 'Club repeater', group: 'Hubs', position: 1 },
-  { id: 3, node: '2185', label: 'Evening net', group: 'Nets', position: 0 },
-  { id: 4, node: '2222', label: 'Simplex friends', group: 'Nets', position: 1 },
-  { id: 5, node: '2259', label: 'Test node', group: '', position: 0 },
+  { id: 1, node: '1000', label: 'Main hub', group: 'Hubs', position: 0 },
+  { id: 2, node: '1037', label: 'Club repeater', group: 'Hubs', position: 1 },
+  { id: 3, node: '1185', label: 'Evening net', group: 'Nets', position: 0 },
+  { id: 4, node: '1222', label: 'Simplex friends', group: 'Nets', position: 1 },
+  { id: 5, node: '1259', label: 'Test node', group: '', position: 0 },
 ];
 let nextFav = 6;
 const sortedFavs = () => [...favs].sort((a, b) => a.group.localeCompare(b.group) || a.position - b.position).map((f) => ({ ...f, info: info(f.node) }));
@@ -60,7 +58,7 @@ let favChecking = '';
 let favNextAt = 0;
 let favPassStart = 0;
 const favCheckedAt: Record<string, number> = {};
-const favEligible = () => favs.map((f) => f.node).filter((n) => +n >= 2000 && +n <= 999999);
+const favEligible = () => favs.map((f) => f.node).filter((n) => +n >= 1000 && +n <= 999999);
 const favOffline = (n: number) => n % 9 === 4;
 const favNext = () => {
   const list = favEligible().filter((n) => n !== favChecking);
@@ -120,10 +118,10 @@ function status(id: string, role = 'admin') {
 // Public status view (docs/API.md "Public page"): on by default in the mock so the logged-out view can be developed.
 const pubCfg = { enabled: true, title: '', nodes: [] as string[], showCallsigns: true, showNetwork: true, showActivity: true, allowEmbedding: false, trustProxy: false };
 const activity: { node: string; link: string; at: number; duration: number }[] = [
-  { node: '2001', link: '2000', at: Date.now() - 95e3, duration: 14 },
+  { node: '2001', link: '1000', at: Date.now() - 95e3, duration: 14 },
   { node: '2001', link: 'local', at: Date.now() - 260e3, duration: 6 },
-  { node: '1997', link: '2148', at: Date.now() - 700e3, duration: 1 },
-  { node: '2001', link: '2074', at: Date.now() - 3.2e6, duration: 41 },
+  { node: '1999', link: '1148', at: Date.now() - 700e3, duration: 1 },
+  { node: '2001', link: '1074', at: Date.now() - 3.2e6, duration: 41 },
 ];
 const pubDefaultTitle = () => `${info('2001')?.callsign} AllStarLink node 2001`;
 function pubSnapshot() {
@@ -142,10 +140,10 @@ function pubSnapshot() {
   return { title: pubCfg.title || pubDefaultTitle(), now: Math.floor(now() / 1000), callsigns: pubCfg.showCallsigns, showNetwork: pubCfg.showNetwork, showActivity: pubCfg.showActivity, nodes, ...(pubCfg.showActivity ? { activity: acts } : {}) };
 }
 // Simulated update: apply runs ~6s, then the "server" restarts (SSE streams close) and reports the new version.
-let mockVersion = '0.1.0-mock';
+let mockVersion = '2.0.0';
 let mockInstance = Math.random().toString(16).slice(2, 10);
 let mockChannel: 'stable' | 'beta' = 'stable';
-const candidate = () => (mockChannel === 'beta' ? '0.3.0~beta.1-mock' : '0.2.0-mock');
+const candidate = () => (mockChannel === 'beta' ? '2.1.0~beta.1' : '2.0.1');
 let updJob: 'idle' | 'running' | 'succeeded' = 'idle';
 let updChecked: string | null = null;
 let restartClients: () => void = () => {};
@@ -154,7 +152,7 @@ const updInfo = () => ({
   os: osInfo(),
   available: true, reason: null, applyReason: null, channel: mockChannel, installed: mockVersion, candidate: updChecked ? candidate() : '', upgradable: upgradable(), job: updJob,
   jobLog: updJob === 'running' ? 'Reading package lists...\nUnpacking aslcp (0.2.0) over (0.1.0) ...' : updJob === 'succeeded' ? 'Setting up aslcp (0.2.0) ...' : '',
-  notes: upgradable() ? '- New **Updates** section in Settings\n- Faster dashboard\n\nThanks for testing <script>alert(1)</script>' : null, checked: updChecked,
+  notes: upgradable() ? '- New **Updates** section in Settings\n- Faster dashboard\n- Bug fixes' : null, checked: updChecked,
 });
 // Simulated OS (apt) updates: a security package, an asterisk package, a reboot-required toggle.
 const osAll = [
@@ -380,10 +378,10 @@ export function mockApi(): Plugin {
           favScan = body.enabled; if (!favScan) { favChecking = ''; for (const k of Object.keys(favCheckedAt)) delete favCheckedAt[k]; favNextAt = favPassStart = 0; } broadcast('favstats', favActivity); return json(res, 200, favActivity());
         }
         if (p === '/favorites/import/allscan') {
-          if (m === 'GET') return json(res, 200, { found: true, path: '/var/www/html/allscan/favorites.ini', items: [{ node: '2000', label: 'Main hub' }, { node: '2296', label: 'Imported net' }, { node: '2333', label: 'Imported repeater' }] });
+          if (m === 'GET') return json(res, 200, { found: true, path: '/var/www/html/allscan/favorites.ini', items: [{ node: '1000', label: 'Main hub' }, { node: '1296', label: 'Imported net' }, { node: '1333', label: 'Imported repeater' }] });
           if (!canOp) return forbid();
           let imported = 0, skipped = 0;
-          for (const it of [{ node: '2000', label: 'Main hub' }, { node: '2296', label: 'Imported net' }, { node: '2333', label: 'Imported repeater' }]) {
+          for (const it of [{ node: '1000', label: 'Main hub' }, { node: '1296', label: 'Imported net' }, { node: '1333', label: 'Imported repeater' }]) {
             if (favs.some((f) => f.node === it.node)) skipped++; else { favs.push({ id: nextFav++, node: it.node, label: it.label, group: '', position: 99 }); imported++; }
           }
           broadcast('favorites', sortedFavs); return json(res, 200, { imported, skipped });

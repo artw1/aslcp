@@ -3,14 +3,14 @@
 const T0 = Date.now();
 interface MockCall { id: string; kind: string; call: string; first?: string; name?: string; city?: string; state?: string; country?: string; location?: string; dmrId?: string; node?: string; desc?: string; local?: string; network?: string; tg?: string; tgName?: string; slot?: number; room?: string }
 const SCRIPT: { at: number; len: number; c: MockCall }[] = [
-  { at: 2, len: 14, c: { id: 'dmr', kind: 'dmr', call: 'N0CALL', first: 'Alex', name: 'Alex Example', city: 'Springfield', state: 'Illinois', country: 'United States', dmrId: '1234567', network: 'BrandMeister', tg: '91', tgName: 'Example Worldwide', slot: 2 } },
+  { at: 2, len: 14, c: { id: 'dmr', kind: 'dmr', call: 'N0CALL', first: 'Alex', name: 'Alex Example', city: 'Exampleton', state: 'Example State', country: 'Exampleland', dmrId: '1234567', network: 'BrandMeister', tg: '91', tgName: 'Example Worldwide', slot: 2 } },
   { at: 20, len: 6, c: { id: 'asl', kind: 'allstar', call: 'N1CALL', location: 'Example Hill, Anytown', node: '1998', desc: 'Example hub', local: '2001' } },
-  { at: 30, len: 8, c: { id: 'ysf', kind: 'ysf', call: 'N0TEST', first: '', name: '', city: '', state: '', country: '', room: 'Example Room' } },
+  { at: 30, len: 8, c: { id: 'ysf', kind: 'ysf', call: 'N0CALL', first: '', name: '', city: '', state: '', country: '', room: 'Example Room' } },
 ];
 const CYCLE = 40;
 // The single shared timeline: the one link that is keyed right now, or null. The DMR and YSF talkers come in through
-// the digital modes bridge link (node 1900) and the AllStar talker is the hub link 1998, all on local node 2001.
-export const BRIDGE_NODE = '1900';
+// the digital modes bridge link (node 1997) and the AllStar talker is the hub link 1998, all on local node 2001.
+export const BRIDGE_NODE = '1997';
 export function talkerLink(now = Date.now()): { local: string; node: string; len: number } | null {
   const c = (nowCalling(now).current as MockCall | null);
   if (!c) return null;
