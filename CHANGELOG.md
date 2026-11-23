@@ -3,9 +3,11 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
-## [2.0.0] - 2026-11-22
+## [2.0.0] - 2026-11-23
 
 > **You have to redo the digital-modes configuration in 2.0.** The BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN settings and your identity (callsign and DMR ID) are not carried over from the previous stack, and nothing is imported from its configuration files or from the digital part of a 1.x backup. After the upgrade, open the Digital modes page and enter them again. The previous digital voice stack is removed on upgrade, except md380-emu, which stays installed and working.
+>
+> P25 and NXDN are implemented and tested against recorded traffic, but have not yet been tested on air.
 
 ### Changed
 - Digital modes now run on the built-in ASLCP engine; the previous third-party digital voice stack is no longer used, and it is removed when you upgrade (see the note above), except md380-emu.
@@ -13,11 +15,9 @@ Release notes are taken from the section of the tag being released
 - `aslcp dv enable`, `disable` and `status` manage digital modes from the shell; the installer accepts `ASLCP_DV=1`. The old install command and installer variable are gone.
 - The digital modes API moved to /api/dv.
 - The setup page shows the bridge node and the state of `rpt.conf` and `modules.conf`, and holds the identity and the settings of the networks that are available.
-
 - The YSF and P25 cards are enable/disable only: the reflector address and port fields are gone, and nothing is linked when the engine starts; tune a reflector or talkgroup on the dashboard. Addresses and ports stored earlier are ignored.
 - P25 no longer has a "P25 unit ID" option: the DMR ID of the identity is always used. A stored value is ignored.
 - The NXDN option "NXDN unit ID" is now called "NXDN ID".
-- DMR - Other and TGIF callers no longer show their DMR ID as the callsign in Now calling and Last heard: the callsign comes from the radioid.net list (the DMR ID is shown when the list has no entry).
 - The local Parrot test mode is now the Echo test in Digital modes setup (Test audio), and no longer appears as a mode on the dashboard. It was easily mistaken for BrandMeister's Parrot, which is a service of the real network (TG 9990) and is unchanged. The echo test is always available while digital modes are enabled, so its Enable card is gone (stored settings for it are ignored), and its playback no longer pretends to be a call on TG 9990.
 
 ### Added
@@ -31,14 +31,13 @@ Release notes are taken from the section of the tag being released
 - New Echo test (Digital modes setup, Test audio) echoes your transmission back through the bridge node a second later, so you can check the audio path of the node, the engine and the vocoder both ways without a network or an account. It plays back as a call from "Echo test".
 - ASLCP downloads the YSF, P25, NXDN and DMR host lists itself, once a day, while digital modes are enabled.
 - **DMR - Other works with DMR+ masters.** Calls of the tuned talkgroup are heard on either timeslot (masters may move a talkgroup to its own slot), Now calling and Last heard show the slot (TS1 or TS2), and after 15 minutes without a call on the tuned talkgroup the dashboard offers a Retune button, because the master drops an idle talkgroup.
+- Now calling and Last heard show the radioid.net callsign of DMR - Other and TGIF callers (the DMR ID is shown when the list has no entry).
+- Now calling shows BrandMeister calls, including after a retune, calls joined mid-transmission, and private calls such as Parrot replies.
+- The dashboard shows "Reflector not answering" when a YSF, P25 or NXDN reflector does not reply.
+- Digital modes resume after a restart: the dashboard's Digital Modes card comes back on its own, in the last used mode (nothing is linked if you had unlinked it), and a tune or unlink is remembered at once.
 
 ### Fixed
 - Open dashboard tabs reload by themselves when the panel comes back on a new version, however it was installed.
-- The dashboard shows "Reflector not answering" when a YSF, P25 or NXDN reflector does not reply.
-- After a restart, digital modes come back in the last used mode even if you had unlinked it (nothing is linked).
-- The dashboard's Digital Modes card comes back on its own after the panel restarts.
-- Resume after restart remembers a tune or unlink at once, even if the engine restarts seconds later.
-- Now calling now shows BrandMeister calls after a retune, calls joined mid-transmission, and private calls such as Parrot replies.
 
 ### Removed
 - The previous digital voice stack: on upgrade from 1.x the packages ASLCP installed for it are stopped and removed; nothing else is removed, and md380-emu stays (with its apt source, so it keeps getting updates).
