@@ -86,7 +86,9 @@ ASLCP keeps a record of what it changed (`privatenode.json`, root only), so Remo
 
 ## Host lists
 
-ASLCP downloads the DMR, YSF, P25, NXDN and M17 host lists itself (the lists the pickers show), once a day with a random jitter, only while digital modes are enabled, with conditional requests. They are kept in `<datadir>/hostlists`. `GET /api/dv/lists?mode=ysf` returns them with an `ETag`; `POST /api/dv/lists/refresh` forces a check (at most once a minute). A YSF, P25, NXDN or M17 tune is resolved against these lists on the server; a value that is not in the list is `422 unknown_target`. The M17 list (`M17_Hosts.txt`, tab separated `M17-XXX`, host, port) has no modules: the tune is the reflector and a module, `M17-XXX C`. Its header credits the reflector data to DVRef (see its acceptable use policy at dvref.com/aup); ASLCP downloads the file once a day like the others and does not redistribute it.
+ASLCP downloads the DMR, YSF, P25, NXDN and M17 host lists itself (the lists the pickers show), once a day with a random jitter, only while digital modes are enabled, with conditional requests. They are kept in `<datadir>/hostlists`. `GET /api/dv/lists?mode=ysf` returns them with an `ETag`; `POST /api/dv/lists/refresh` forces a check (at most once a minute). A YSF, P25, NXDN or M17 tune is resolved against these lists on the server; a value that is not in the list is `422 unknown_target`. The M17 list (`M17_Hosts.txt`, tab separated `M17-XXX`, host, port) has no modules: the tune is the reflector and a module, `M17-XXX C`.
+
+The YSF, P25, NXDN and M17 lists are reflector data provided by DVRef (https://dvref.com/) under CC BY 4.0. ASLCP downloads and caches them as above, does not change them, and is not affiliated with or endorsed by DVRef. The DMR list is not DVRef data.
 
 The DMR user list (`DMRIds.dat`) is **not** downloaded: ASLCP shows names and callsigns from the radioid.net list it already keeps for Now Calling.
 

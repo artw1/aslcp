@@ -5,13 +5,14 @@
   import { app, canOperate, isAdmin } from '../lib/store.svelte';
   import { toast, toastError } from '../lib/toast.svelte';
   import { dvErrorMessage } from '../lib/dvmsg';
-  import { indexList, optionLabel, searchList } from '../lib/dvlist';
+  import { hasDVRefCredit, indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
     import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, masterLine, M17_MODULES, m17Tune, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes, quietHint, QUIET_TICK_MS } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import { exclusiveHint, linkButton, linkExclusiveOnClick, linkLine, pausedHint } from '../lib/dvbridge';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
   import NodePicker from './NodePicker.svelte';
+  import DvRefCredit from './DvRefCredit.svelte';
   import Dialog from './Dialog.svelte';
   import Menu from './Menu.svelte';
   import RadioTower from '@lucide/svelte/icons/radio-tower';
@@ -216,6 +217,7 @@
           <div class="min-w-40 flex-1">
             {#if pickable}
               <NodePicker id="dvtune" bind:value={tuneValue} options={pickable.items} search={(t) => searchList(pickable.index, t)} label={(o) => optionLabel(mode.toLowerCase() as DVListMode, o)} placeholder="Search {mode} or type a value" inputmode="text" onenter={go} />
+              {#if hasDVRefCredit(mode)}<DvRefCredit />{/if}
             {:else}
               <input id="dvtune" class="input font-mono" bind:value={tuneValue} placeholder={isDMRFamily(mode) ? 'Talkgroup number' : 'Target'} inputmode={isDMRFamily(mode) ? 'numeric' : 'text'} autocomplete="off" aria-label="Tune target" />
             {/if}

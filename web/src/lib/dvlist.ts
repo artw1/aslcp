@@ -30,6 +30,11 @@ export function searchList(index: DVIndexed[], query: string, limit = 50): DVLis
   return hits.slice(0, limit).map((h) => h.item);
 }
 
+/** The reflector lists of these modes are DVRef data and carry its credit; the DMR list is not. */
+export const DVREF_URL = 'https://dvref.com/';
+export const DVREF_TEXT = 'Reflector data provided by';
+export const hasDVRefCredit = (mode: string): boolean => ['ysf', 'p25', 'nxdn', 'm17'].includes(mode.toLowerCase());
+
 /** "name — id — address:port". The DMR and TG lists leave the id out: the address (or the TG in the name) is the value. */
 export function optionLabel(mode: DVListMode, o: DVListItem): string {
   const parts = [o.name];
