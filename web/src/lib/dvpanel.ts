@@ -36,6 +36,23 @@ export function stateLine(b: Pick<DVBridge, 'mode' | 'tune' | 'targetName' | 'so
   return silent ? `${line}, Reflector not answering` : line;
 }
 
+/** Longest master name the dashboard shows; the title holds the whole name. */
+export const MASTER_MAX = 40;
+
+/**
+ * The master line of the Digital modes card: "Logged in to <master>" when the engine's login is ok, else "Master <master>".
+ * Only BrandMeister and DMR - Other have one (the server sends `master` for those two); '' for any other mode or no name.
+ * A long name is cut to MASTER_MAX characters with an ellipsis.
+ */
+export function masterLine(s: Pick<DVSnapshot, 'modes'> | null | undefined, mode: string): string {
+  if (mode !== 'BM' && mode !== 'DMR') return '';
+  const m = s?.modes?.find((x) => x.id === mode);
+  const name = (m?.master ?? '').trim();
+  if (!name) return '';
+  const short = name.length > MASTER_MAX ? `${name.slice(0, MASTER_MAX - 1)}…` : name;
+  return m?.login === 'ok' ? `Logged in to ${short}` : `Master ${short}`;
+}
+
 /** The unit dots: a unit that is down, or no snapshot of the bridge at all, is amber. */
 export function serviceDots(s: DVSnapshot | null | undefined): { unit: string; ok: boolean }[] {
   if (!s) return [];

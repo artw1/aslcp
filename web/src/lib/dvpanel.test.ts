@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIRM_MS, dashboardModes, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, quietHint, QUIET_MS, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, pendingOutcome, rxCaller, reflectorSilent, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate } from './dvpanel.ts';
+import { CONFIRM_MS, dashboardModes, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, masterLine, MASTER_MAX, quietHint, QUIET_MS, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, pendingOutcome, rxCaller, reflectorSilent, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate } from './dvpanel.ts';
 import type { DVFavorite, DVSnapshot } from './types';
 
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
@@ -331,4 +331,19 @@ test('quiet hint: shown after 15 minutes of DMR - Other quiet, never otherwise',
   assert.equal(quietHint(snap('TGIF', '759', since), t0 + 2 * QUIET_MS), null);
   assert.equal(quietHint(snap('BM', '759', since), t0 + 2 * QUIET_MS), null);
   assert.equal(quietHint(null, t0), null);
+});
+
+test('masterLine: the master of BM and DMR - Other, shortened, empty for the rest', () => {
+  const net = (id: 'BM' | 'DMR' | 'TGIF' | 'YSF', master?: string, login?: 'ok' | 'pending') => ({ id, enabled: true, available: true, unlink: '4000', login, master });
+  const s = snap({ modes: [net('BM', 'BM_Example', 'ok'), net('DMR', 'DMR+_IPSC2-Example', 'pending'), net('TGIF', 'tgif.example.net', 'ok'), net('YSF', 'x')] });
+  assert.equal(masterLine(s, 'BM'), 'Logged in to BM_Example');
+  assert.equal(masterLine(s, 'DMR'), 'Master DMR+_IPSC2-Example');
+  assert.equal(masterLine(s, 'TGIF'), '');
+  assert.equal(masterLine(s, 'YSF'), '');
+  assert.equal(masterLine(s, ''), '');
+  assert.equal(masterLine(null, 'BM'), '');
+  assert.equal(masterLine(snap({ modes: [net('BM', undefined, 'ok')] }), 'BM'), '');
+  assert.equal(masterLine(snap({ modes: [net('BM', '  ', 'ok')] }), 'BM'), '');
+  const long = masterLine(snap({ modes: [net('DMR', 'x'.repeat(100), 'ok')] }), 'DMR');
+  assert.equal(long, `Logged in to ${'x'.repeat(MASTER_MAX - 1)}…`);
 });

@@ -323,7 +323,7 @@ function snapshot() {
     bridge: running
       ? { mode: bridge.mode, tune: bridge.tune, slot: bridge.slot, muted: bridge.muted, source: 'aslcp-dv', updated: new Date().toISOString() }
       : { mode: '', tune: '', slot: 0, muted: false, source: 'none', updated: '' },
-    modes: ALL.map((id) => ({ id, enabled: running && (id === 'LOOP' || (id === 'BM' && bmNet.enabled)), available: NATIVE.includes(id), unlink: UNLINK[id], ...(LABEL[id] ? { label: LABEL[id] } : {}), ...(running && id === 'BM' && bmNet.enabled ? { login: bmLogin(), detail: bmDetail() } : {}) })),
+    modes: ALL.map((id) => ({ id, enabled: running && (id === 'LOOP' || (id === 'BM' && bmNet.enabled)), available: NATIVE.includes(id), unlink: UNLINK[id], ...(LABEL[id] ? { label: LABEL[id] } : {}), ...(running && id === 'BM' && bmNet.enabled ? { login: bmLogin(), detail: bmDetail() } : {}), ...(running && id === 'BM' && bmNet.enabled && bmNet.address ? { master: bmNet.address === '192.0.2.10' ? 'BM_Example' : bmNet.address } : {}), ...(running && id === 'DMR' && otherNets.DMR.enabled && otherNets.DMR.address ? { master: otherNets.DMR.address === '192.0.2.10' ? 'DMR+_IPSC2-Example' : otherNets.DMR.address } : {}) })),
     services: enabled ? [{ unit: 'aslcp-dv', active: true }, { unit: 'md380-emu', active: true }] : [],
     ...(running ? { vocoder: { ok: true, timeouts: 0 }, engine: { version: '2.0.0', uptime: Math.floor((Date.now() - started) / 1000) } } : {}),
     bridgeNode: pb.node ? { present: true, node: pb.node, name: pb.name || NODE_NAME } : { present: false },

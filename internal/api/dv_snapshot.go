@@ -6,12 +6,14 @@ import (
 	"errors"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/artw1/aslcp/internal/dv/ctl"
 	"github.com/artw1/aslcp/internal/dvpanel"
 	"github.com/artw1/aslcp/internal/helper"
+	"github.com/artw1/aslcp/internal/hostlists"
 	"github.com/artw1/aslcp/internal/nowcalling"
 )
 
@@ -84,6 +86,9 @@ type DVModeView struct {
 	// progress or when no talkgroup is tuned. The web shows its "no traffic"
 	// hint when it is 15 minutes old (DMR+ masters drop an idle key-up TG).
 	QuietSince string `json:"quietSince,omitempty"`
+	// Master (BM and DMR - Other only) is the master the mode is set to: its
+	// name in the host list when the saved address is on it, else the address.
+	Master string `json:"master,omitempty"`
 }
 
 // DVServiceView is one systemd unit of the digital modes stack.
@@ -149,6 +154,10 @@ type dvSnapper struct {
 
 	hstatus dvCache[helper.DVStatus]
 	node    dvCache[DVBridgeNode]
+	masters dvCache[map[string]string] // mode -> master label
+	// masterMemo keeps the label of each mode for its address and list tag, so
+	// the list is searched again only when one of them changes.
+	masterMemo map[string]masterMemo
 	// configPath is the engine's config file (tests point it elsewhere).
 	configPath string
 }
@@ -384,7 +393,7 @@ func (d *dvSnapper) endTalkLocked(t ctl.Talk, at time.Time) {
 	d.noteTalkLocked(t)
 	d.talk = nil
 	d.quietCallLocked(t) // after noteTalkLocked: the end time counts
-	c := dvCaller(t)
+	c := d.caller(t)
 	out := []dvpanel.Caller{c}
 	for _, h := range d.heard {
 		if h.Call == c.Call && h.DMRID == c.DMRID && h.Private == c.Private && h.Dst == c.Dst {
@@ -398,9 +407,41 @@ func (d *dvSnapper) endTalkLocked(t ctl.Talk, at time.Time) {
 	d.heard = out
 }
 
+// dvCallsign is the callsign of a talk. A Homebrew master sends no callsign:
+// the engine puts the DMR ID in its place, and an all-digit call on a DMR
+// network is that ID, not a callsign. It counts as none ("" here; the radioid.net
+// list may fill it in, and the web shows the DMR ID when it does not).
+func dvCallsign(t ctl.Talk) string {
+	if dvpanel.DMRFamily(t.Mode) && allDigits(t.Call) {
+		return ""
+	}
+	return t.Call
+}
+
+func allDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
+}
+
+// caller is dvCaller plus the callsign of the radioid.net entry of the DMR ID
+// when the talk carries none.
+func (d *dvSnapper) caller(t ctl.Talk) dvpanel.Caller {
+	c := dvCaller(t)
+	if c.Call == "" && !c.Private && t.DMRID != 0 && dvpanel.DMRFamily(t.Mode) && d.s.d.RadioID != nil {
+		if u, ok := d.s.d.RadioID.ByID(t.DMRID); ok {
+			c.Call = u.Callsign
+		}
+	}
+	return c
+}
+
 // dvCaller is a call as the panel shows it.
 func dvCaller(t ctl.Talk) dvpanel.Caller {
-	c := dvpanel.Caller{Call: t.Call, Private: t.Private, Slot: t.Slot, At: t.Start.Local().Format("2006-01-02T15:04:05")}
+	c := dvpanel.Caller{Call: dvCallsign(t), Private: t.Private, Slot: t.Slot, At: t.Start.Local().Format("2006-01-02T15:04:05")}
 	if ctl.IsEchoTest(t) {
 		c.Call = ctl.EchoTestName
 	}
@@ -490,9 +531,10 @@ func (d *dvSnapper) snapshot(ctx context.Context) DVSnapshot {
 			}
 		}
 		sn.Engine = &DVEngineView{Version: st.Version, Uptime: up}
+		d.fillMasters(ctx, sn.Modes)
 		d.fillBridge(&sn, st)
 		if talk != nil {
-			c := dvCaller(*talk)
+			c := d.caller(*talk)
 			sn.Caller = &c
 		}
 		sn.Heard = heard
@@ -653,7 +695,7 @@ func dvNowTalks(talks []ctl.Talk) []nowcalling.Talk {
 	out := make([]nowcalling.Talk, 0, len(talks))
 	for i := len(talks) - 1; i >= 0; i-- {
 		t := talks[i]
-		k := nowcalling.Talk{Kind: nowcalling.KindDMR, Via: nowcalling.ViaEngine, Call: t.Call, Slot: t.Slot, Private: t.Private, Start: t.Start, End: t.End, Network: dvNetworkName(t.Mode)}
+		k := nowcalling.Talk{Kind: nowcalling.KindDMR, Via: nowcalling.ViaEngine, Call: dvCallsign(t), Slot: t.Slot, Private: t.Private, Start: t.Start, End: t.End, Network: dvNetworkName(t.Mode)}
 		if t.Mode == ctl.ModeYSF {
 			k.Kind = nowcalling.KindYSF
 		}
@@ -693,3 +735,96 @@ func dvNetworkName(mode string) string {
 
 // initDV creates the snapshot builder.
 func (s *Server) initDV() { s.dvs = newDVSnapper(s) }
+
+// dvMasterName is the label of a master address: the name of the host list
+// entry it matches (case-insensitive, as the setup card's masterChoice does),
+// else the address as typed. "" for no address.
+func dvMasterName(address string, items []hostlists.Item) string {
+	a := strings.TrimSpace(address)
+	if a == "" {
+		return ""
+	}
+	for _, it := range items {
+		if strings.EqualFold(it.Value, a) && it.Name != "" {
+			return it.Name
+		}
+	}
+	return a
+}
+
+type masterMemo struct{ key, name string }
+
+// dvMasterList is the host list a mode's master is picked from (the setup
+// card's lists: bm and dmr-other), from the cache; the tag changes with the
+// list. Nothing is fetched.
+func (d *dvSnapper) dvMasterList(mode string) ([]hostlists.Item, string) {
+	if d.s.d.HostLists == nil {
+		return nil, ""
+	}
+	l, err := d.s.d.HostLists.Get("dmr")
+	if err != nil {
+		return nil, ""
+	}
+	if mode == dvpanel.ModeBM {
+		return hostlists.BMMasters(l.Items), l.ETag
+	}
+	return hostlists.OtherDMRMasters(l.Items), l.ETag
+}
+
+// fillMasters sets Master on the BM and DMR - Other views. The addresses come
+// from the engine settings (read through the helper, cached for a few
+// seconds, the last good answer is kept on an error).
+func (d *dvSnapper) fillMasters(ctx context.Context, modes []DVModeView) {
+	need := false
+	for _, m := range modes {
+		if (m.ID == dvpanel.ModeBM || m.ID == dvpanel.ModeDMR) && m.Enabled && m.Available {
+			need = true
+		}
+	}
+	if !need || d.s.d.DVEngine == nil {
+		return
+	}
+	now := d.now()
+	d.mu.Lock()
+	fresh := d.masters.fresh(now, dvStatusTTL)
+	d.mu.Unlock()
+	if !fresh {
+		rep, err := d.s.d.DVEngine.DVNetworkGet(ctx)
+		d.mu.Lock()
+		if err == nil {
+			addr := map[string]string{}
+			for _, v := range rep.Networks {
+				if v.Mode == dvpanel.ModeBM || v.Mode == dvpanel.ModeDMR {
+					addr[v.Mode] = v.Address
+				}
+			}
+			if d.masterMemo == nil {
+				d.masterMemo = map[string]masterMemo{}
+			}
+			out := map[string]string{}
+			for mode, a := range addr {
+				items, tag := d.dvMasterList(mode)
+				key := a + "\x00" + tag
+				if m, ok := d.masterMemo[mode]; ok && m.key == key {
+					out[mode] = m.name
+					continue
+				}
+				n := dvMasterName(a, items)
+				d.masterMemo[mode] = masterMemo{key, n}
+				out[mode] = n
+			}
+			d.masters = dvCache[map[string]string]{v: out, ok: true, at: now}
+		} else if d.masters.ok {
+			d.masters.at = now
+		}
+		d.mu.Unlock()
+	}
+	d.mu.Lock()
+	cur := d.masters.v
+	d.mu.Unlock()
+	for i := range modes {
+		if m := &modes[i]; (m.ID == dvpanel.ModeBM || m.ID == dvpanel.ModeDMR) && m.Enabled && m.Available {
+			m.Master = cur[m.ID]
+		}
+	}
+}

@@ -6,7 +6,7 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-    import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes, quietHint, QUIET_TICK_MS } from '../lib/dvpanel';
+    import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, masterLine, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes, quietHint, QUIET_TICK_MS } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import { exclusiveHint, linkButton, linkExclusiveOnClick, linkLine, pausedHint } from '../lib/dvbridge';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
@@ -25,6 +25,8 @@
   const mode = $derived((b && b.source !== 'none' ? b.mode : '') as DVTuneMode | '');
   const live = $derived(!!snap?.configured);
   const tone = $derived(stateTone(snap));
+  const master = $derived(masterLine(snap, mode));
+  const masterTitle = $derived(snap?.modes?.find((x) => x.id === mode)?.master ?? '');
   const ok = $derived(allOk(snap));
   const linked = $derived(bridgeLinked(snap));
   const nodeName = $derived(bridgeNodeName(snap));
@@ -163,6 +165,7 @@
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
       <span class="inline-flex items-center gap-1.5 font-medium"><RadioTower size={15} class="text-accent" aria-hidden="true" />Digital modes</span>
       <span class={tone === 'warn' ? 'text-warn' : tone === 'ok' ? 'text-ok' : ''} title={stateTitle(snap)} data-tone={tone}>{stateLine(b, reflectorSilent(snap))}</span>
+      {#if master}<span class="min-w-0 max-w-full truncate text-xs text-muted" title={masterTitle} data-testid="dv-master">{master}</span>{/if}
       {#if mode === 'LOOP'}<a href="#/digital" class="text-xs text-accent underline hover:no-underline" data-testid="dv-echo-link">{admin ? 'Stop it in Digital modes setup' : 'Pick a mode to stop it'}</a>{/if}
       <span class="sr-only">{ok ? 'All services running' : 'A service is down or the state is unknown'}</span>
       {#if linked}<span class="sr-only">Bridge node linked</span>{/if}
