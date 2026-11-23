@@ -264,6 +264,15 @@ if [ "$TAKEOVER_UNDO" -eq 0 ]; then
 		esac
 		say "installing $missing; this can take several minutes and downloads many packages"
 		if ! pkg_installed asl-apt-repos; then
+			if ! command -v gpg >/dev/null 2>&1; then
+				# gpg is not part of a minimal Debian/Raspberry Pi OS Lite (apt only needs
+				# gpgv) but is required to check the repository key. Get it first so a
+				# failure leaves nothing half-installed.
+				say "gpg is not installed; installing it to verify the AllStarLink repository key"
+				apt-get update -o DPkg::Lock::Timeout=600 || die "apt-get update failed (needed to install gpg)"
+				DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=600 gpg || die "could not install gpg, which is needed to verify the AllStarLink repository key"
+				command -v gpg >/dev/null 2>&1 || die "gpg is still not available after installing it"
+			fi
 			asl_deb="$tmp/asl-apt-repos.deb${asl_nn}_all.deb"
 			say "adding the AllStarLink apt repository ($ASL_REPO_URL)"
 			fetch "$ASL_REPO_URL/asl-apt-repos.deb${asl_nn}_all.deb" "$asl_deb" || die "could not download $ASL_REPO_URL/asl-apt-repos.deb${asl_nn}_all.deb"

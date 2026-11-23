@@ -386,11 +386,14 @@ func TestInstallASL3OptionParsing(t *testing.T) {
 
 // asl3Env is a temporary root with fake dpkg-query, dpkg, dpkg-deb, apt-get
 // and gpg. Every call is appended to fake/calls, in order.
-type asl3Env struct{ *tkEnv }
+type asl3Env struct {
+	*tkEnv
+	path string // PATH for ensure; empty means fake bin plus the real PATH
+}
 
 func newASL3Env(t *testing.T, installed ...string) *asl3Env {
 	t.Helper()
-	e := &asl3Env{newTkEnv(t, nil, ":8080")}
+	e := &asl3Env{tkEnv: newTkEnv(t, nil, ":8080")}
 	for _, p := range installed {
 		e.write("fake/inst-"+p, "")
 	}
@@ -416,15 +419,43 @@ cat `+d+`/debpkg 2>/dev/null || echo asl-apt-repos
 	e.writeExec("bin/apt-get", `#!/bin/sh
 echo "apt-get $*" >>`+d+`/calls
 case " $* " in
-*" install "*) for a; do case "$a" in asl3 | asl3-menu) : >`+d+`/inst-$a ;; esac; done ;;
+*" install "*) for a; do case "$a" in
+	asl3 | asl3-menu) : >`+d+`/inst-$a ;;
+	gpg) [ ! -f `+d+`/fail-gpg ] || exit 100; cp `+d+`/gpg-src `+filepath.Join(e.dir, "bin")+`/gpg ;;
+esac; done ;;
 esac
 [ ! -f `+d+`/fail-apt ] || exit 100
 `)
-	e.writeExec("bin/gpg", `#!/bin/sh
+	e.writeExec("fake/gpg-src", `#!/bin/sh
 echo "gpg $*" >>`+d+`/calls
 printf 'pub:-:4096:1:409D50181BD84509:1714690500:::-:::scESC::::::23::0:\nfpr:::::::::%s:\nuid:-::::1714690500::D8C4::AllStarLink Repository:::::::::0:\nfpr:::::::::603F619811204DB98E1C7FD771EB4BABF529759F:\n' "$(cat `+d+`/fpr)"
 `)
+	e.writeExec("bin/gpg", e.read("fake/gpg-src"))
 	return e
+}
+
+// withoutGPG removes the fake gpg and restricts PATH to the fake bin dir plus
+// symlinks to the few system tools the script needs, so a real /usr/bin/gpg is
+// never found. The fake apt-get installs gpg into bin when asked to.
+func (e *asl3Env) withoutGPG(t *testing.T) {
+	t.Helper()
+	if err := os.Remove(filepath.Join(e.bin, "gpg")); err != nil {
+		t.Fatal(err)
+	}
+	sys := filepath.Join(e.dir, "sys")
+	if err := os.MkdirAll(sys, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range []string{"awk", "cat", "rm", "cp", "head", "mkdir", "dirname"} {
+		p, err := exec.LookPath(tool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(p, filepath.Join(sys, tool)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.path = e.bin + ":" + sys
 }
 
 // ensure runs asl3_ensure with the given mode, codename and architecture.
@@ -446,8 +477,12 @@ VERSION_CODENAME=` + codename + `
 ARCH=` + arch + `
 ` + s[i:j] + "\nasl3_ensure\n"
 	cmd := exec.Command("sh", "-c", script)
+	path := e.path
+	if path == "" {
+		path = e.bin + ":" + os.Getenv("PATH")
+	}
 	cmd.Env = []string{
-		"PATH=" + e.bin + ":" + os.Getenv("PATH"),
+		"PATH=" + path,
 		"ASLCP_T=" + filepath.Join(e.dir, "tmp"),
 		"ASLCP_ASL_KEYRING=" + filepath.Join(e.dir, "keyring.gpg"),
 	}
@@ -618,5 +653,41 @@ func TestASL3RunsBeforeAslcpInstall(t *testing.T) {
 	}
 	if !(pre < call && call < inst && inst < take) {
 		t.Errorf("order wrong: preflight %d, asl3 %d, aslcp install %d, takeover %d", pre, call, inst, take)
+	}
+}
+
+func TestASL3InstallsGPGBeforeRepoPackage(t *testing.T) {
+	e := newASL3Env(t)
+	e.withoutGPG(t)
+	out, err := e.ensure(t, "auto", "trixie", "amd64")
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	c := e.calls()
+	g := strings.Index(c, "install -y --no-install-recommends -o DPkg::Lock::Timeout=600 gpg")
+	d := strings.Index(c, "dpkg -i")
+	v := strings.Index(c, "gpg --show-keys")
+	if g < 0 || d < 0 || v < 0 || !(g < d && d < v) {
+		t.Errorf("want gpg install, then dpkg -i, then gpg verify:\n%s", c)
+	}
+	if !strings.Contains(c, "apt-get update") || strings.Index(c, "apt-get update") > g {
+		t.Errorf("apt-get update should precede installing gpg:\n%s", c)
+	}
+	if !strings.Contains(out, "repository key verified") {
+		t.Errorf("key not verified: %s", out)
+	}
+}
+
+func TestASL3GPGInstallFailureIsFatalAndLeavesNothing(t *testing.T) {
+	e := newASL3Env(t)
+	e.withoutGPG(t)
+	e.write("fake/fail-gpg", "")
+	out, err := e.ensure(t, "auto", "trixie", "amd64")
+	if err == nil || !strings.Contains(out, "could not install gpg") {
+		t.Fatalf("want failure: %v: %s", err, out)
+	}
+	c := e.calls()
+	if strings.Contains(c, "dpkg -i") || strings.Contains(c, "fetch") {
+		t.Errorf("asl-apt-repos touched after gpg failure:\n%s", c)
 	}
 }
