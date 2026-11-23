@@ -8,6 +8,7 @@ package schema
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -327,6 +328,10 @@ func Forms() []string {
 	return out
 }
 
+// DefaultStatpostURL is the stock status reporting address: the commented
+// example in the ASL3 rpt.conf (internal/astconf/testdata/corpus).
+const DefaultStatpostURL = "http://stats.allstarlink.org/uhandler"
+
 // ValidateError is a rejected value.
 type ValidateError struct {
 	Key string
@@ -358,6 +363,12 @@ func (x Key) Validate(v string) error {
 	}
 	switch x.Type {
 	case TypeString:
+		if x.Name == "statpost_url" {
+			u, err := url.Parse(v)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || strings.ContainsAny(v, " \t\"'`$\\") {
+				return bad("must be a web address starting with http:// or https://")
+			}
+		}
 		return nil
 	case TypeInt:
 		n, err := strconv.ParseInt(v, 10, 64)

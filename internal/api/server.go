@@ -388,6 +388,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/diagnostics", s.authed(store.RoleAdmin, s.handleDiagnostics))
 	s.configRoutes()
 	s.nodeCfgRoutes()
+	s.accessRoutes()
 	s.setupRoutes()
 	s.nodeWizardRoutes()
 	s.backupRoutes()

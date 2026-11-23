@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { api } from '../../lib/api';
-  import { advancedLink, amiSummary, echolinkSummary, fieldById, keyById, radioSummary, registrationSummary, summaryLine, valueLabel, type Finding, type Overview, type NodeModel, type SchemaDoc } from '../../lib/nodecfg';
+  import { advancedLink, amiSummary, echolinkSummary, statusSummary, fieldById, keyById, radioSummary, registrationSummary, summaryLine, valueLabel, type Finding, type Overview, type NodeModel, type SchemaDoc } from '../../lib/nodecfg';
   import NodeCard from './NodeCard.svelte';
   import IdentityForm from './IdentityForm.svelte';
   import DuplexForm from './DuplexForm.svelte';
@@ -13,12 +14,25 @@
   import RadioForm from './RadioForm.svelte';
   import LinkingForm from './LinkingForm.svelte';
   import AmiForm from './AmiForm.svelte';
+  import StatusForm from './StatusForm.svelte';
+  import AccessForm from './AccessForm.svelte';
+  import DtmfView from './DtmfView.svelte';
+  import { accessSummary, type AccessLists } from '../../lib/access';
+  import { dtmfSummary, type Dtmf } from '../../lib/dtmf';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 
   let ov = $state<Overview | null>(null), doc = $state<SchemaDoc | null>(null), err = $state('');
   let sel = $state(read());
   let wizard = $state(false), skipped = $state(false), skipErr = $state('');
-  let form = $state<'identity' | 'duplex' | 'registration' | 'echolink' | 'linking' | 'ami' | 'device' | null>(null);
+  let form = $state<'identity' | 'duplex' | 'registration' | 'echolink' | 'linking' | 'ami' | 'device' | 'status' | 'access' | 'dtmf' | null>(null);
+  let access = $state<AccessLists | null>(null), dtmf = $state<Dtmf | null>(null);
+  // The two cards below read from other endpoints, so they load per node after the page is up.
+  async function loadExtras(n: string) {
+    access = null; dtmf = null;
+    api.accessLists(n).then((r) => { if (n === node?.node) access = r; }, () => {});
+    api.dtmfView(n).then((r) => { if (n === node?.node) dtmf = r; }, () => {});
+  }
+  $effect(() => { const n = node?.node; if (n && !blocked) untrack(() => void loadExtras(n)); });
   let wiz = $state<'add' | 'renumber' | 'radio' | null>(null);
   function read() { try { return localStorage.getItem('aslcp.cfg.node') ?? ''; } catch { return ''; } }
   function pick(n: string) { sel = n; try { localStorage.setItem('aslcp.cfg.node', n); } catch { /* private window */ } }
@@ -56,7 +70,6 @@
     return parts.filter(Boolean).join(' · ');
   }
   const flagged = (list: Finding[]) => list.filter((f) => f.level !== 'info');
-  const macroKeys = (n: NodeModel) => n.other.filter((o) => ['functions', 'macro', 'phone_functions', 'link_functions'].includes(o.key.toLowerCase())).map((o) => `${o.key}: ${o.value}`).join(' · ');
 </script>
 
 {#if err}
@@ -137,9 +150,9 @@
     <NodeCard title="Manager interface (AMI)" summary={amiSummary(ov.ami)} onedit={ov.ami?.present ? () => (form = 'ami') : undefined} advanced="manager.conf">
       {#if ov.ami?.present && !ov.ami.loopback}<p class="flex items-start gap-1.5 text-xs text-warn"><TriangleAlert size={14} class="mt-0.5 shrink-0" /><span>Reachable from other computers.</span></p>{/if}
     </NodeCard>
-    <NodeCard title="Access lists" summary="Allow and deny lists for connecting nodes are kept in the Asterisk database, so there is no file to edit here yet." />
-    <NodeCard title="Status reporting" summary={fmt(node, ['rpt.conf:node:statpost_url', 'rpt.conf:node:statpost_time']) || 'Not set up'} advanced="rpt.conf" advancedLine={stanzaLine} />
-    <NodeCard title="DTMF commands and macros" summary={macroKeys(node) || 'Command and macro sections are defined in rpt.conf.'} advanced="rpt.conf" />
+    <NodeCard title="Access lists" summary={access ? accessSummary(access) : 'Loading…'} onedit={() => (form = 'access')} disabledReason={blocked ? why : ''} advanced="extensions.conf" />
+    <NodeCard title="Status reporting" summary={statusSummary(node.fields)} onedit={() => (form = 'status')} disabledReason={why} advanced="rpt.conf" advancedLine={stanzaLine} />
+    <NodeCard title="DTMF commands and macros" summary={dtmfSummary(dtmf)} onedit={() => (form = 'dtmf')} disabledReason={blocked ? why : ''} advanced="rpt.conf" />
   </div>
 
   {#if node.other.length}
@@ -162,5 +175,8 @@
   {:else if form === 'echolink'}<EchoLinkForm {node} {doc} onclose={() => (form = null)} ondone={load} />
   {:else if form === 'linking'}<LinkingForm {node} {doc} onclose={() => (form = null)} ondone={load} />
   {:else if form === 'device'}<RadioForm {node} {doc} onclose={() => (form = null)} ondone={load} />
+  {:else if form === 'status'}<StatusForm {node} onclose={() => (form = null)} ondone={load} />
+  {:else if form === 'access'}<AccessForm node={node.node} initial={access} onclose={() => (form = null)} ondone={() => loadExtras(node.node)} />
+  {:else if form === 'dtmf'}<DtmfView node={node.node} onclose={() => (form = null)} />
   {:else if form === 'ami' && ov.ami}<AmiForm node={node.node} ami={ov.ami} {doc} onclose={() => (form = null)} ondone={load} />{/if}
 {/if}

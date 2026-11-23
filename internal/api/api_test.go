@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -46,6 +47,8 @@ type fakeNode struct {
 	rx, tx   bool
 	links    []string
 	commands []string
+	// db is a tiny AstDB: "family/key" to value, for the access list tests.
+	db map[string]string
 }
 
 func newFakeNode(t *testing.T) *fakeNode {
@@ -54,11 +57,41 @@ func newFakeNode(t *testing.T) *fakeNode {
 		return amitest.Raw(`<?xml version="1.0"?>`, `<nodes>`, `  <node>`+localNode+`</node>`, `</nodes>`)
 	})
 	f.Handle("RptStatus", f.rptStatus)
+	f.Handle("DBPut", func(_ *amitest.Session, r *amitest.Request) string {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.db == nil {
+			f.db = map[string]string{}
+		}
+		f.db[r.Get("Family")+"/"+r.Get("Key")] = r.Get("Val")
+		return amitest.Success(r, "Message", "Updated database successfully")
+	})
+	f.Handle("DBDel", func(_ *amitest.Session, r *amitest.Request) string {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		delete(f.db, r.Get("Family")+"/"+r.Get("Key"))
+		return amitest.Success(r, "Message", "Key deleted successfully")
+	})
 	f.Handle("Command", func(_ *amitest.Session, r *amitest.Request) string {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		cmd := r.Get("Command")
 		f.commands = append(f.commands, cmd)
+		if strings.HasPrefix(cmd, "database show ") {
+			fam := strings.TrimPrefix(cmd, "database show ")
+			var keys []string
+			for k := range f.db {
+				if strings.HasPrefix(k, fam+"/") {
+					keys = append(keys, k)
+				}
+			}
+			sort.Strings(keys)
+			lines := []string{}
+			for _, k := range keys {
+				lines = append(lines, fmt.Sprintf("%-50s: %-25s", "/"+k, f.db[k]))
+			}
+			return amitest.CommandOutput(r, append(lines, fmt.Sprintf("%d results found.", len(keys)))...)
+		}
 		switch cmd {
 		case "core show uptime seconds":
 			return amitest.CommandOutput(r, "System uptime: 120660", "Last reload: 120660")

@@ -214,7 +214,7 @@ The planner behind the node forms and wizards (CONFIG "Forms", DESIGN 4.3). Admi
 |---|---|---|
 | `GET /api/config/nodes[?status=1]` | | Overview (below). `status=1` adds `registration.status` by asking AMI; off by default |
 | `GET /api/config/schema` | | `{keys:[Key],forms:[string],presets:[Preset]}` |
-| `POST /api/config/form` | Request (below) | `{plan, restarted, restartPending}` for a dry run; `{plan, result, restarted, restartPending}` for an apply |
+| `POST /api/config/form` | Request (below) | `{plan, restarted, restartPending}` for a dry run; `{plan, result, restarted, restartPending, notices?, steps?}` for an apply; `steps` (`ami`, `allmon3`, the wizards' step shape, same `allmonStep` code) is present only when the `[admin]` secret changed; the Allmon3 step is `skipped` without `allmon3.ini` |
 
 **Overview** (`GET /api/config/nodes`):
 
@@ -333,6 +333,16 @@ Add node and Change node number (CONFIG "More wizards and forms"). Same conventi
 | `POST /api/config/wizard/renumber/apply` | Plan body plus `base`, `message` | `{plan, result, steps, restarted, rollback}` |
 
 The plan is a Plan of "Node forms" plus `oldNode`, `public`, `renumber`, `steps`, `manual` (what the wizard cannot change: shown as "Not changed by this wizard" and "Still to do by hand") and `notes` (what stays as it is). An add refuses a number that exists anywhere. `rollback.added` makes the rollback's health check look at the nodes that remain instead of the removed one. A radio interface change is `POST /api/config/form` with `radio:{type}`; the plan then has `notes` (hub switch) and the apply result may carry `notices` (strings, for example after an AMI secret change). `GET /api/config/nodes` gains `ami: {present, enabled, bindaddr, port, hasSecret, loopback, fields}` (the secret itself is never sent).
+
+### Access lists, DTMF view (admin)
+
+| Endpoint | Request | Response |
+|---|---|---|
+| `GET /api/config/access?node=` | | `{lists}` shape below; 400 when the node is not a local rpt.conf node |
+| `POST /api/config/access` | `{node, op: "add"\|"remove", family: "allowlist"\|"denylist", remote, note?}` | the same shape after the change; audited as `config.access` |
+| `GET /api/config/dtmf?node=` | | `{node, groups:[{kind, title, stanza?, assumed?, sameAs?, file?, line?, note?, items:[{code, action, desc?, file, line, section, inherited?}]}]}`; 422 `refused` with a refusal when the node cannot be resolved |
+
+Access shape: `{node, mode: "allow"\|"deny"\|"open", allow:[entry], deny:[entry], enforced, limit, noteMax}` with `entry = {family, local, remote, web?, note?}`. `enforced` is false when extensions.conf does not check the lists. `web` entries (callsigns) are read-only: remove is refused. Writes use the AMI actions `DBPut` and `DBDel` (no helper op); validation errors are 400, AMI errors are mapped like other AMI failures.
 
 ## Radio tuning (admin)
 

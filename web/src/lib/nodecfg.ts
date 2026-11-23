@@ -132,7 +132,7 @@ export function validateValue(k: SchemaKey, v: string, wasSet = false): string {
     case 'yesno': return /^(yes|no)$/i.test(s) ? '' : 'yes or no';
     case 'flag': return s === '0' || s === '1' ? '' : '0 or 1';
     case 'node': return /^[1-9]\d{0,9}$/.test(s) ? '' : 'A node number';
-    default: return '';
+    default: return k.name === 'statpost_url' ? statpostError(s) : '';
   }
 }
 
@@ -307,4 +307,46 @@ export function echolinkRequest(node: NodeModel, keys: SchemaKey[], draft: Recor
 /** True when any draft value is invalid, for enabling "Review changes". */
 export function draftInvalid(fields: Field[], keys: SchemaKey[], draft: Record<string, string>): boolean {
   return keys.some((k) => validateValue(k, draft[k.id] ?? '', !!fieldById(fields, k.id)?.set));
+}
+
+/** The stock status reporting address (the commented example in the ASL3 rpt.conf). */
+export const STATPOST_DEFAULT_URL = 'http://stats.allstarlink.org/uhandler';
+
+/** '' when s is a web address the server accepts for statpost_url. */
+export function statpostError(s: string): string {
+  if (!/^https?:\/\/[^\s"'`$\\/]+(\/\S*)?$/.test(s) || /[$"'`\\]/.test(s)) return 'A web address starting with http:// or https://';
+  return '';
+}
+
+export const STATUS_IDS = ['rpt.conf:node:statpost_url', 'rpt.conf:node:statpost_time'];
+
+/** Status reporting as the form shows it: on when a statpost_url is in effect. */
+export function statusState(fields: Field[]): { on: boolean; url: string; time: string; fromTemplate: boolean } {
+  const u = fieldById(fields, STATUS_IDS[0]), t = fieldById(fields, STATUS_IDS[1]);
+  return { on: !!u?.set && u.value !== '', url: u?.set ? u.value : STATPOST_DEFAULT_URL, time: t?.set ? t.value : '60', fromTemplate: !!u?.set && u.source.kind === 'template' };
+}
+
+/** One line for the overview card. */
+export function statusSummary(fields: Field[]): string {
+  const s = statusState(fields);
+  if (!s.on) return 'Off: this node does not report its status.';
+  const stock = s.url === STATPOST_DEFAULT_URL ? 'the AllStarLink statistics page' : s.url;
+  return `On: reports to ${stock} every ${s.time} s${s.fromTemplate ? ' (set for all nodes)' : ''}.`;
+}
+
+/**
+ * Request of the Status reporting form. Off removes the node's own line (a value that comes from a template
+ * stays: the form says so and "Change for all nodes" is a separate, explicit action).
+ */
+export function statusRequest(node: string, fields: Field[], on: boolean, url: string, time: string): FormRequest | null {
+  const cur = statusState(fields);
+  const u = fieldById(fields, STATUS_IDS[0]), t = fieldById(fields, STATUS_IDS[1]);
+  if (!on) {
+    if (!u?.set || u.source.kind !== 'node') return null;
+    return { node, mode: 'reset', changes: [{ id: STATUS_IDS[0], value: '' }, ...(t?.set && t.source.kind === 'node' ? [{ id: STATUS_IDS[1], value: '' }] : [])] };
+  }
+  const changes: FormChange[] = [];
+  if (!cur.on || url.trim() !== cur.url) changes.push({ id: STATUS_IDS[0], value: url.trim() });
+  if (time.trim() !== cur.time) changes.push({ id: STATUS_IDS[1], value: time.trim() });
+  return changes.length ? { node, mode: 'override', changes } : null;
 }

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/artw1/aslcp/internal/astconf"
+	"github.com/artw1/aslcp/internal/schema"
 )
 
 const corpus = "../astconf/testdata/corpus/asl3-dist"
@@ -556,4 +557,46 @@ func TestRadioChangeRefusedOnUnsupportedNode(t *testing.T) {
 	w := corpusWorld(t)
 	mustPlan(t, w, Request{Node: "1999", Radio: &RadioChange{Type: RadioHub}})
 	mustPlan(t, w, Request{Node: "1999", Preset: "hub"})
+}
+
+// The stock rpt.conf only has statpost_url and statpost_time as comments
+// (there is no statpost_program key in it), so the form turns reporting on by
+// writing the stock address and off by removing the line.
+func TestPlanStatusReporting(t *testing.T) {
+	w := corpusWorld(t)
+	st := field(node(t, w, "1999"), "statpost_url")
+	if st.Set || st.Value != "" {
+		t.Fatalf("stock corpus reports status: %+v", st)
+	}
+	on := mustPlan(t, w, Request{Node: "1999", Changes: []Change{{ID: "rpt.conf:node:statpost_url", Value: schema.DefaultStatpostURL}, {ID: "rpt.conf:node:statpost_time", Value: "120"}}})
+	if on.Noop || on.Restart || len(on.Reload) != 1 {
+		t.Fatalf("plan: %+v", on)
+	}
+	for _, want := range []string{"statpost_url = " + schema.DefaultStatpostURL, "statpost_time = 120"} {
+		if !strings.Contains(on.contents["rpt.conf"], want) {
+			t.Fatalf("missing %q in\n%s", want, on.Files[0].Diff)
+		}
+	}
+	w2 := w.With(on.contents)
+	if f := field(node(t, w2, "1999"), "statpost_url"); f.Value != schema.DefaultStatpostURL || f.Source.Kind != SrcNode {
+		t.Fatalf("after on: %+v", f)
+	}
+	// off: the node's own line goes away, everything else is as before
+	off := mustPlan(t, w2, Request{Node: "1999", Mode: ModeReset, Changes: []Change{{ID: "rpt.conf:node:statpost_url"}, {ID: "rpt.conf:node:statpost_time"}}})
+	if off.contents["rpt.conf"] != readCorpus(t, "rpt.conf") {
+		t.Fatal("off did not restore the file")
+	}
+	// all nodes: the template gets the line
+	all := mustPlan(t, w, Request{Node: "1999", Mode: ModeTemplate, Changes: []Change{{ID: "rpt.conf:node:statpost_url", Value: schema.DefaultStatpostURL}}})
+	if len(all.Changes) != 1 || all.Changes[0].Section != "node-main" {
+		t.Fatalf("template plan: %+v", all.Changes)
+	}
+	for _, bad := range []string{"stats.example.net", "ftp://stats.example.net/x", "http://stats.example.net/a b"} {
+		if _, err := w.Plan(Request{Node: "1999", Changes: []Change{{ID: "rpt.conf:node:statpost_url", Value: bad}}}); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	if _, err := w.Plan(Request{Node: "1999", Changes: []Change{{ID: "rpt.conf:node:statpost_time", Value: "10"}}}); err == nil {
+		t.Error("an interval below 30 s was accepted")
+	}
 }

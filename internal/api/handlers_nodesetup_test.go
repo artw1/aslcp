@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -302,5 +303,65 @@ func TestFormAMISecretFollow(t *testing.T) {
 	json.Unmarshal(raw, &out)
 	if len(out.Notices) != 1 || !strings.Contains(out.Notices[0], "aslcp.conf") {
 		t.Fatalf("notices: %v", out.Notices)
+	}
+}
+
+// allmonRec wraps the demo helper and records the allmon3-node-set calls.
+type allmonRec struct {
+	*helper.DemoSystem
+	reqs    []helper.NodeSetupRequest
+	skipped string
+}
+
+func (a *allmonRec) AllmonNodeSet(_ context.Context, req helper.NodeSetupRequest) (helper.NodeSetupResult, error) {
+	a.reqs = append(a.reqs, req)
+	return helper.NodeSetupResult{Skipped: a.skipped, Changed: a.skipped == ""}, nil
+}
+
+// TestFormAMISecretAllmon: changing the [admin] secret from the AMI form runs
+// the wizards' allmon3 step (pass only), and is skipped without allmon3.ini.
+func TestFormAMISecretAllmon(t *testing.T) {
+	rec := &allmonRec{DemoSystem: helper.NewDemoSystem()}
+	e := newEnv(t, opts{sysHost: rec, configFn: func(c rpt.API) *configsvc.Service {
+		s := configsvc.New(configsvc.NewDemoHelper(), c.(configsvc.AMI), rpt.New(c))
+		s.HealthTimeout, s.HealthPoll = 2*time.Second, 20*time.Millisecond
+		return s
+	}})
+	e.srv.SetAMILoginReloader(func(bool) (bool, error) { return true, nil })
+	body := map[string]any{"node": "2006", "changes": []map[string]string{{"id": "manager.conf:admin:secret", "value": "example-pass"}}}
+	var raw json.RawMessage
+	if c := e.do("admin", "POST", "/api/config/form", body, &raw); c != 200 {
+		t.Fatalf("form: %d %s", c, raw)
+	}
+	var out struct {
+		Steps []struct{ ID, Status, Detail string }
+	}
+	json.Unmarshal(raw, &out)
+	if len(out.Steps) != 2 || out.Steps[0].ID != "ami" || out.Steps[1].ID != "allmon3" || out.Steps[1].Status != "done" {
+		t.Fatalf("steps: %+v", out.Steps)
+	}
+	if len(rec.reqs) == 0 || rec.reqs[0].AMIPass != "example-pass" || rec.reqs[0].Node != rec.reqs[0].OldNode {
+		t.Fatalf("allmon requests: %+v", rec.reqs)
+	}
+	if strings.Contains(string(raw), "example-pass") {
+		t.Fatalf("response leaks the secret: %s", raw)
+	}
+	// no allmon3.ini: skipped
+	rec.skipped, rec.reqs = helper.SetupSkipNoFile, nil
+	body["changes"] = []map[string]string{{"id": "manager.conf:admin:secret", "value": "example-pass2"}}
+	raw = nil
+	e.do("admin", "POST", "/api/config/form", body, &raw)
+	out.Steps = nil
+	json.Unmarshal(raw, &out)
+	if len(out.Steps) != 2 || out.Steps[1].Status != "skipped" {
+		t.Fatalf("steps without allmon3.ini: %+v", out.Steps)
+	}
+	// an unrelated change has no steps
+	body["changes"] = []map[string]string{{"id": "rpt.conf:node:statpost_time", "value": "90"}}
+	raw = nil
+	rec.reqs = nil
+	e.do("admin", "POST", "/api/config/form", body, &raw)
+	if len(rec.reqs) != 0 || strings.Contains(string(raw), `"steps"`) {
+		t.Fatalf("unrelated change touched allmon: %d %s", len(rec.reqs), raw)
 	}
 }

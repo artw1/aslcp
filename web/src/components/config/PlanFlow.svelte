@@ -28,6 +28,7 @@
   let error = $state(''), blocked = $state<Plan | null>(null), stale = $state(false);
   let message = $state(`Form: node ${request.node}`);
   let notices = $state<string[]>([]);
+  let steps = $state<{ id: string; status: string; detail?: string }[]>([]);
   let restart = $state(false), restarted = $state(false), restartPending = $state(false), rolledBack = $state(false);
   let changedOnce = false;
   $effect(() => { if (!open) { if (changedOnce) ondone(); onclose(); } });
@@ -54,7 +55,7 @@
     phase = 'applying'; error = '';
     try {
       const r = await api.nodeCfgForm(request, { dryRun: false, base: plan.base, restart: plan.restart && restart, message: message.trim() || undefined });
-      plan = r.plan; result = r.result ?? null; restarted = r.restarted; restartPending = r.restartPending; notices = r.notices ?? [];
+      plan = r.plan; result = r.result ?? null; restarted = r.restarted; restartPending = r.restartPending; notices = r.notices ?? []; steps = r.steps ?? [];
       changedOnce = !!r.result; phase = 'result';
     } catch (e) {
       // Files written but the restart failed: show what happened.
@@ -105,6 +106,7 @@
     {:else}<p class="text-sm">Everything was already as asked. No file was written.</p>{/if}
     {#if error}<p class="mt-3 text-sm text-danger" role="alert">{error}</p>{/if}
     {#each notices as n}<p class="mt-3 text-sm" role="status">{n}</p>{/each}
+    {#each steps.filter((x) => x.id === 'allmon3') as st}<p class="mt-1 text-sm text-muted" role="status">Allmon3: {st.status === 'done' ? 'updated' : st.status === 'skipped' ? 'not changed (' + (st.detail || 'not installed') + ')' : 'could not be updated: ' + (st.detail ?? '')}</p>{/each}
     {#if result?.health && !result.health.ok && !rolledBack}
       <div class="mt-3 flex flex-wrap items-center gap-2 rounded border border-danger/50 bg-danger/10 p-2 text-sm">
         <TriangleAlert size={16} class="shrink-0 text-danger" />

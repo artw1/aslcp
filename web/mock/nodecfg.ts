@@ -287,6 +287,7 @@ function validate(k: Key, v: string) {
   if (k.type === 'yesno' && !/^(yes|no)$/.test(v)) throw bad(`${k.name}: must be yes or no`);
   if (k.type === 'flag' && !/^[01]$/.test(v)) throw bad(`${k.name}: must be 1 or 0`);
   if (k.type === 'node' && !/^[1-9][0-9]{0,9}$/.test(v)) throw bad(`${k.name}: must be a node number`);
+  if (k.type === 'string' && k.name === 'statpost_url' && !/^https?:\/\/[^\s"'`$\\/]+(\/\S*)?$/.test(v)) throw bad(`${k.name}: must be a web address starting with http:// or https://`);
 }
 
 interface Applied { id?: string; key: string; file: string; section: string; action: string; from?: string; to?: string; note?: string }
@@ -464,8 +465,14 @@ type Ctx = { m: string; p: string; body: any; url: URL; user: { username: string
 
 /** Returns true when the request was handled. Must run before handleConfig. */
 export function handleNodeCfg({ m, p, body, url, user, json, err }: Ctx): boolean {
-  if (p !== '/config/nodes' && p !== '/config/schema' && p !== '/config/form') return false;
+  if (p !== '/config/nodes' && p !== '/config/schema' && p !== '/config/form' && p !== '/config/access' && p !== '/config/dtmf') return false;
   if (user.role !== 'admin') { err(403, 'forbidden', 'forbidden'); return true; }
+  if (p === '/config/access') return handleAccess(m, body, url, json, err);
+  if (p === '/config/dtmf' && m === 'GET') {
+    const n = url.searchParams.get('node') ?? '';
+    if (!localNodes().includes(n)) { err(400, `node "${n}" has no stanza in rpt.conf`, 'bad_request'); return true; }
+    json(200, dtmfDoc(n)); return true;
+  }
   if (p === '/config/nodes' && m === 'GET') { json(200, overview(url.searchParams.get('status') === '1')); return true; }
   if (p === '/config/schema' && m === 'GET') { json(200, schemaDoc); return true; }
   if (p === '/config/form' && m === 'POST') {
@@ -486,10 +493,58 @@ export function handleNodeCfg({ m, p, body, url, user, json, err }: Ctx): boolea
     const restart = body.restart === true && (pl as { restart: boolean }).restart;
     for (const f of pl.files) { tree[f.path] = r.work[f.path]; mtimes[f.path] = new Date().toISOString(); }
     const id = snapshot(user.username, msg);
-    const notices = pl.files.some((f) => f.path === 'manager.conf') && /secret/.test(JSON.stringify((pl as any).changes ?? [])) ? ['ASLCP now uses the new AMI secret. Allmon3 is not updated: change its AMI password there.'] : [];
-    json(200, { plan: pl, result: { commit: id, before, ...runReload(pl.files.map((f) => f.path), !restart) }, restarted: restart, restartPending: pl.restart && !restart, ...(notices.length ? { notices } : {}) });
+    const notices = pl.files.some((f) => f.path === 'manager.conf') && /secret/.test(JSON.stringify((pl as any).changes ?? [])) ? ['The manager password was changed and ASLCP now uses the new one.'] : [];
+    const steps = notices.length ? [{ id: 'ami', status: 'done' }, { id: 'allmon3', status: 'done' }] : [];
+    json(200, { plan: pl, result: { commit: id, before, ...runReload(pl.files.map((f) => f.path), !restart) }, restarted: restart, restartPending: pl.restart && !restart, ...(notices.length ? { notices, steps } : {}) });
     return true;
   }
   err(405, 'method not allowed', 'method_not_allowed');
   return true;
+}
+
+// ---- access lists (in the Asterisk database on a real system; here an in-memory map) and DTMF view
+type Fam = 'allowlist' | 'denylist';
+const accessDb: { family: Fam; local: string; remote: string; note: string }[] = [
+  { family: 'denylist', local: '1999', remote: '1997', note: 'Test entry' },
+  { family: 'denylist', local: '1999', remote: 'N0CALL', note: '' },
+];
+function accessDoc(node: string) {
+  const ent = (f: Fam) => accessDb.filter((e) => e.family === f && e.local === node).map((e) => ({ family: e.family, local: node, remote: e.remote, ...(/^[A-Za-z]/.test(e.remote) ? { web: true } : {}), ...(e.note ? { note: e.note } : {}) }));
+  const allow = ent('allowlist'), deny = ent('denylist');
+  return { node, mode: allow.length ? 'allow' : deny.length ? 'deny' : 'open', allow, deny, enforced: true, limit: 500, noteMax: 40 };
+}
+function handleAccess(m: string, body: any, url: URL, json: Ctx['json'], err: Ctx['err']): boolean {
+  const node = m === 'GET' ? (url.searchParams.get('node') ?? '') : String(body?.node ?? '');
+  if (!localNodes().includes(node)) { err(400, `node "${node}" has no stanza in rpt.conf`, 'bad_request'); return true; }
+  if (m === 'GET') { json(200, accessDoc(node)); return true; }
+  if (m !== 'POST') { err(405, 'method not allowed', 'method_not_allowed'); return true; }
+  const family = body?.family as Fam, remote = String(body?.remote ?? ''), note = String(body?.note ?? '');
+  if (family !== 'allowlist' && family !== 'denylist') { err(400, 'family must be allowlist or denylist', 'bad_request'); return true; }
+  if (body?.op === 'add') {
+    if (!/^[1-9][0-9]{0,6}$/.test(remote)) { err(400, 'remote must be a node number of 1 to 7 digits', 'bad_request'); return true; }
+    if (remote === node) { err(400, 'a node cannot be on its own list', 'bad_request'); return true; }
+    if (!/^[A-Za-z0-9 ._-]{0,40}$/.test(note)) { err(400, 'note: letters, digits, space, . _ - (at most 40)', 'bad_request'); return true; }
+    const i = accessDb.findIndex((e) => e.family === family && e.local === node && e.remote === remote);
+    if (i >= 0) accessDb[i].note = note; else accessDb.push({ family, local: node, remote, note });
+  } else if (body?.op === 'remove') {
+    const i = accessDb.findIndex((e) => e.family === family && e.local === node && e.remote === remote);
+    if (i < 0 || /^[A-Za-z]/.test(remote)) { err(400, `${remote} is not on the ${family}`, 'bad_request'); return true; }
+    accessDb.splice(i, 1);
+  } else { err(400, 'op must be add or remove', 'bad_request'); return true; }
+  json(200, accessDoc(node)); return true;
+}
+function dtmfDoc(node: string) {
+  const lines = (tree['rpt.conf'] ?? '').split('\n');
+  const at = (re: RegExp) => Math.max(1, lines.findIndex((l) => re.test(l)) + 1);
+  const fl = at(/^\[functions\]/), tl = at(/^\[telemetry\]/), ml = at(/^\[macro/);
+  const it = (code: string, action: string, desc: string | undefined, line: number, section: string) => ({ code, action, ...(desc ? { desc } : {}), file: 'rpt.conf', line, section });
+  return { node, groups: [
+    { kind: 'functions', title: 'Commands', stanza: 'functions', file: 'rpt.conf', line: fl, items: [
+      it('1', 'ilink,1', 'Disconnect a link', fl + 1, 'functions'), it('2', 'ilink,2', 'Connect a link, monitor only', fl + 2, 'functions'),
+      it('3', 'ilink,3', 'Connect a link, transceive', fl + 3, 'functions'), it('70', 'ilink,70', 'Disconnect all links', fl + 4, 'functions'),
+      it('987', 'frob,1', undefined, fl + 5, 'functions') ] },
+    { kind: 'link_functions', title: 'Commands from linked nodes', sameAs: 'functions', items: [] },
+    { kind: 'telemetry', title: 'Telemetry sounds', stanza: 'telemetry', file: 'rpt.conf', line: tl, items: [it('ct1', '|t(350,0,100,3072)', 'Courtesy tone 1', tl + 1, 'telemetry')] },
+    { kind: 'macro', title: 'Macros', stanza: 'macro', assumed: true, file: 'rpt.conf', line: ml, items: [it('1', '*81', undefined, ml + 1, 'macro')] },
+  ] };
 }

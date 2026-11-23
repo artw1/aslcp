@@ -178,3 +178,30 @@ test('draftInvalid', () => {
   assert.equal(draftInvalid(fields, [a], { a: '' }), true);
   assert.equal(draftInvalid([field({ id: 'a' })], [a], { a: '' }), false);
 });
+
+test('status reporting: state, summary and request', async () => {
+  const m = await import('./nodecfg.ts');
+  const f = (id: string, value: string, set: boolean, kind: 'node' | 'template' | 'unset' = 'node'): import('./nodecfg.ts').Field =>
+    ({ id, key: id.split(':')[2], value, set, source: { kind }, canSet: true, canReset: set && kind === 'node', canTemplate: true });
+  const off = [f(m.STATUS_IDS[0], '', false, 'unset'), f(m.STATUS_IDS[1], '60', false, 'unset')];
+  assert.deepEqual(m.statusState(off), { on: false, url: m.STATPOST_DEFAULT_URL, time: '60', fromTemplate: false });
+  assert.match(m.statusSummary(off), /^Off/);
+  // turning on writes the stock address; the default interval is not written
+  assert.deepEqual(m.statusRequest('2001', off, true, m.STATPOST_DEFAULT_URL, '60'), { node: '2001', mode: 'override', changes: [{ id: m.STATUS_IDS[0], value: m.STATPOST_DEFAULT_URL }] });
+  assert.equal(m.statusRequest('2001', off, false, '', '60'), null);
+  const on = [f(m.STATUS_IDS[0], m.STATPOST_DEFAULT_URL, true), f(m.STATUS_IDS[1], '120', true)];
+  assert.match(m.statusSummary(on), /^On: reports to the AllStarLink statistics page every 120 s\.$/);
+  assert.equal(m.statusRequest('2001', on, true, m.STATPOST_DEFAULT_URL, '120'), null);
+  assert.deepEqual(m.statusRequest('2001', on, false, '', '120'), { node: '2001', mode: 'reset', changes: [{ id: m.STATUS_IDS[0], value: '' }, { id: m.STATUS_IDS[1], value: '' }] });
+  // a value from a template cannot be switched off from the node
+  const tpl = [f(m.STATUS_IDS[0], 'https://stats.example.net/p', true, 'template'), f(m.STATUS_IDS[1], '60', false, 'unset')];
+  assert.equal(m.statusState(tpl).fromTemplate, true);
+  assert.match(m.statusSummary(tpl), /set for all nodes/);
+  assert.equal(m.statusRequest('2001', tpl, false, '', '60'), null);
+});
+
+test('statpost url check mirrors the server', async () => {
+  const { statpostError } = await import('./nodecfg.ts');
+  for (const ok of ['http://stats.allstarlink.org/uhandler', 'https://stats.example.net', 'https://stats.example.net:8080/p?x=1']) assert.equal(statpostError(ok), '', ok);
+  for (const bad of ['stats.example.net', 'ftp://stats.example.net/x', 'http://', 'http://a b', 'http://stats.example.net/$(x)']) assert.notEqual(statpostError(bad), '', bad);
+});

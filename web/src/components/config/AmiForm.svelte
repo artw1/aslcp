@@ -41,7 +41,7 @@
         {#if draft[secretKey.id]}<button type="button" class="btn btn-sm" onclick={clear}>Keep the current one</button>{/if}
         {#if generated}<span class="text-xs text-muted">A new random password is ready. It is not shown anywhere.</span>{/if}
       </div>
-      <p class="mt-1 text-xs text-muted">ASLCP follows the new password by itself when it reads its login from manager.conf. Allmon3 (allmon3.ini) and other programs keep the old one until you update them.</p>
+      <p class="mt-1 text-xs text-muted">ASLCP follows the new password by itself when it reads its login from manager.conf. Allmon3 is updated too (its allmon3.ini, when present). Other programs keep the old one until you update them.</p>
     </div>
   {/snippet}
 </FormShell>

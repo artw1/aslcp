@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"regexp"
 	"sort"
@@ -230,16 +231,8 @@ func (s *Server) runWizard(w http.ResponseWriter, r *http.Request, u store.User,
 		if sp.ami {
 			req.AMIPass = sp.amiSecret
 		}
-		ar, err := host.AllmonNodeSet(ctx, req)
-		switch {
-		case err != nil:
-			// the node itself is set up; Allmon3 can be fixed by hand
-			step("allmon3", "failed", err.Error())
-		case ar.Skipped != "":
-			step("allmon3", "skipped", "Allmon3 is not installed")
-		default:
-			step("allmon3", "done", "")
-		}
+		st, detail := allmonStep(ctx, host, req)
+		step("allmon3", st, detail)
 	}
 
 	// 6. health
@@ -345,15 +338,8 @@ func (s *Server) handleSetupRollback(w http.ResponseWriter, r *http.Request, u s
 				req.AMIPass = sec
 			}
 		}
-		ar, err := host.AllmonNodeSet(ctx, req)
-		switch {
-		case err != nil:
-			step("allmon3", "failed", err.Error())
-		case ar.Skipped != "":
-			step("allmon3", "skipped", "Allmon3 is not installed")
-		default:
-			step("allmon3", "done", "")
-		}
+		st, detail := allmonStep(ctx, host, req)
+		step("allmon3", st, detail)
 	}
 	healthNodes := []string{in.OldNode}
 	if in.Added {
@@ -364,4 +350,35 @@ func (s *Server) handleSetupRollback(w http.ResponseWriter, r *http.Request, u s
 	s.rescanNodes()
 	s.audit(u, "config.setup.rollback", map[string]any{"from": in.Commit, "files": res.Files, "commit": res.Commit, "steps": stepSummary(steps)})
 	writeJSON(w, 200, map[string]any{"result": res, "steps": steps})
+}
+
+// allmonStep is the one place that updates allmon3.ini, shared by the wizards
+// and the AMI form. A failure is reported, never fatal: the node itself is
+// set up and Allmon3 can be fixed by hand. The returned status is done,
+// skipped (no allmon3.ini, or nothing to do) or failed.
+func allmonStep(ctx context.Context, host SetupHost, reqs ...helper.NodeSetupRequest) (status, detail string) {
+	done, skipped := 0, 0
+	var firstErr error
+	for _, req := range reqs {
+		ar, err := host.AllmonNodeSet(ctx, req)
+		switch {
+		case err != nil:
+			if firstErr == nil {
+				firstErr = err
+			}
+		case ar.Skipped != "":
+			skipped++
+		default:
+			done++
+		}
+	}
+	switch {
+	case done > 0:
+		return "done", ""
+	case firstErr != nil:
+		return "failed", firstErr.Error()
+	case skipped > 0:
+		return "skipped", "Allmon3 is not installed"
+	}
+	return "skipped", "nothing to change"
 }

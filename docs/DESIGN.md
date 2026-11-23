@@ -233,6 +233,8 @@ A rename is one guided transaction covering all of them, or none. It is not part
 
 **Layout migration** (old flat layout to the current templated layout with `custom/` includes) is an optional, previewed, reversible tool planned for a later version. It is never required.
 
+**Access lists** are written through AMI (`DBPut`, `DBDel`; read with `database show`), not through a new root helper op: Asterisk's own database API needs no extra privilege and the server still never writes `/etc/asterisk`. The mode is implicit in the entries (see docs/CONFIG.md), so the planner has no key for it. **Allmon3** follows an AMI secret change through the same `allmonStep` the wizards use (skipped without `allmon3.ini`), so there is one code path for it.
+
 ### 4.4 Files in scope
 
 | Group | Files |

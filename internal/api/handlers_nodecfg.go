@@ -5,9 +5,11 @@ import (
 	"errors"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/artw1/aslcp/internal/configsvc"
+	"github.com/artw1/aslcp/internal/helper"
 	"github.com/artw1/aslcp/internal/nodecfg"
 	"github.com/artw1/aslcp/internal/store"
 )
@@ -99,6 +101,9 @@ type cfgFormResult struct {
 	// Notices are things the server did or could not do besides writing the
 	// files (for example following a new AMI secret).
 	Notices []string `json:"notices,omitempty"`
+	// Steps: what happened besides the files, in order (ami, allmon3), in
+	// the shape the wizards use. Only present for an [admin] secret change.
+	Steps []setupStepResult `json:"steps,omitempty"`
 }
 
 func (s *Server) cfgFormError(w http.ResponseWriter, err error) {
@@ -168,6 +173,9 @@ func (s *Server) handleCfgForm(w http.ResponseWriter, r *http.Request, u store.U
 	}
 	out := cfgFormResult{Plan: plan, Result: &res}
 	out.Notices = s.followAMISecret(plan)
+	if secretChanged(plan) {
+		out.Steps = s.amiFormSteps(ctx, svc, out.Notices)
+	}
 	if plan.Restart && in.Restart {
 		if err := s.restartAsteriskNow(ctx); err != nil {
 			s.audit(u, "config.form.failed", map[string]any{"node": plan.Node, "step": "restart"})
@@ -202,14 +210,39 @@ func (s *Server) handleCfgForm(w http.ResponseWriter, r *http.Request, u store.U
 // of manager.conf, so rotating it from the form does not lock ASLCP out. With
 // a literal secret in aslcp.conf the login is the operator's and stays; the
 // notice says so.
-func (s *Server) followAMISecret(plan *nodecfg.Plan) []string {
-	changed := false
+func secretChanged(plan *nodecfg.Plan) bool {
 	for _, c := range plan.Changes {
 		if c.ID == "manager.conf:admin:secret" && (c.Action == "set" || c.Action == "add") {
-			changed = true
+			return true
 		}
 	}
-	if !changed {
+	return false
+}
+
+// amiFormSteps reports the follow-up of an [admin] secret change in the
+// wizards' step format. The Allmon3 step is the wizards' own allmonStep, so
+// there is one code path; it is skipped when allmon3.ini is absent.
+func (s *Server) amiFormSteps(ctx context.Context, svc *configsvc.Service, notices []string) []setupStepResult {
+	steps := []setupStepResult{{ID: "ami", Status: "done"}}
+	if len(notices) > 0 && !strings.Contains(notices[0], "now uses the new one") {
+		steps[0] = setupStepResult{ID: "ami", Status: "skipped", Detail: notices[0]}
+	}
+	w := s.cfgWorld(ctx, svc)
+	sec := adminSecret(w)
+	host := s.setupHost()
+	if host == nil || !helper.ValidSetupSecret(sec) {
+		return append(steps, setupStepResult{ID: "allmon3", Status: "skipped", Detail: "nothing to change"})
+	}
+	var reqs []helper.NodeSetupRequest
+	for _, n := range w.LocalNodes() {
+		reqs = append(reqs, helper.NodeSetupRequest{OldNode: n, Node: n, AMIPass: sec})
+	}
+	st, detail := allmonStep(ctx, host, reqs...)
+	return append(steps, setupStepResult{ID: "allmon3", Status: st, Detail: detail})
+}
+
+func (s *Server) followAMISecret(plan *nodecfg.Plan) []string {
+	if !secretChanged(plan) {
 		return nil
 	}
 	reload := s.amiLoginReloader()

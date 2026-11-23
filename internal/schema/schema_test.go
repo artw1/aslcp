@@ -75,6 +75,12 @@ func TestValidate(t *testing.T) {
 		{"rpt.conf:node:holdofftelem", "yes", false},
 		{"rpt.conf:node:statpost_url", "", true}, // optional
 		{"rpt.conf:node:statpost_url", "https://stats.example.net/post", true},
+		{"rpt.conf:node:statpost_url", DefaultStatpostURL, true},
+		{"rpt.conf:node:statpost_url", "ftp://stats.example.net/x", false},
+		{"rpt.conf:node:statpost_url", "stats.example.net", false},
+		{"rpt.conf:node:statpost_url", "http://", false},
+		{"rpt.conf:node:statpost_url", "http://stats.example.net/a b", false},
+		{"rpt.conf:node:statpost_url", "http://stats.example.net/$(x)", false},
 		{"rpt.conf:node:statpost_url", "a ; b", false},
 		{"rpt.conf:node:statpost_url", " lead", false},
 		{"rpt.conf:node:statpost_url", "two\nlines", false},

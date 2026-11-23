@@ -47,11 +47,32 @@ telemdefault = 1
 idrecording = |iNOTSET
 context = radio
 controlstates = controlstates
+functions = functions
+link_functions = functions
+phone_functions = functions
+telemetry = telemetry
+macro = macro-demo
 
 [2006](node-main)
 rxchannel = SimpleUSB/usb
 callsign = N0CALL
 idrecording = |iN0CALL
+
+[functions]
+1 = ilink,1             ; Disconnect specified link
+2 = ilink,2             ; Connect specified link -- monitor only
+3 = ilink,3             ; Connect specified link -- transceive
+5 = macro
+70 = ilink,5            ; System status
+99 = cop,6              ; PTT (phone mode only)
+902 = cop,2             ; System enable
+987 = frob,1            ; not a known action
+
+[telemetry]
+ct1 = |t(350,0,100,2048)(500,0,100,2048)
+patchup = rpt/callproceeding ; when a patch starts
+
+#tryinclude "custom/rpt/*.conf"
 `
 
 const demoEchoLink = `[el0]
@@ -88,7 +109,7 @@ func NewDemoHelper() *DemoHelper {
 		"echolink.conf":               demoEchoLink,
 		"iax.conf":                    "[general]\nbindport = 4569\ndisallow = all\nallow = ulaw\n",
 		"manager.conf":                demoManager,
-		"extensions.conf":             "[radio]\nexten => _X.,1,Rpt(${EXTEN})\n",
+		"extensions.conf":             demoExtensions,
 		"rpt_http_registrations.conf": demoRegs,
 		"custom/rpt/macros.conf":      "[macro-demo]\n1 = *81\n",
 	}, mtime: map[string]time.Time{}}
@@ -333,3 +354,18 @@ func sameFiles(a, b map[string]string) bool {
 	}
 	return true
 }
+
+// demoExtensions has the stock access list checks of [radio-secure].
+const demoExtensions = `[radio]
+exten => _X.,1,Rpt(${EXTEN})
+
+[radio-secure]
+exten => _XXXX!,1,Set(NODENUM=${CALLERID(num)})
+	same => n(allowlist),GotoIf($[${DB_KEYCOUNT(allowlist/${EXTEN})} = 0]?denylist)
+	same => n,GotoIf(${DB_EXISTS(allowlist/${EXTEN}/${NODENUM})}?connect)
+	same => n,Hangup
+	same => n(denylist),GotoIf(${DB_EXISTS(denylist/${EXTEN}/${NODENUM})}?:connect)
+	same => n,Hangup
+	same => n(connect),Rpt(${EXTEN})
+	same => n,Hangup
+`

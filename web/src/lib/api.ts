@@ -3,6 +3,8 @@ import type { SetupPlan, SetupPlanBody, SetupApplyResult, SetupRollback, SetupSt
 import type { Overview as NodeOverview, SchemaDoc as NodeSchemaDoc, FormRequest as NodeFormRequest, Plan as NodePlan } from './nodecfg';
 import type { AddNodeBody, RenumberBody } from './nodewizards';
 import type { SvcStatus, SvcSetResult, WebPortStatus } from './svcweb';
+import type { AccessLists } from './access';
+import type { Dtmf } from './dtmf';
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public body?: Record<string, unknown>) { super(message); }
@@ -228,7 +230,10 @@ export const api = {
   nodeCfgOverview: (status = false) => req<NodeOverview>('GET', `/config/nodes${status ? '?status=1' : ''}`),
   nodeCfgSchema: () => req<NodeSchemaDoc>('GET', '/config/schema'),
   nodeCfgForm: (r: NodeFormRequest, o: { dryRun: boolean; base?: Record<string, string>; restart?: boolean; message?: string }) =>
-    req<{ plan: NodePlan; result?: ConfigApplyResult; restarted: boolean; restartPending: boolean; notices?: string[] }>('POST', '/config/form', { ...r, ...o }),
+    req<{ plan: NodePlan; result?: ConfigApplyResult; restarted: boolean; restartPending: boolean; notices?: string[]; steps?: { id: string; status: string; detail?: string }[] }>('POST', '/config/form', { ...r, ...o }),
+  accessLists: (node: string) => req<AccessLists>('GET', `/config/access?node=${q(node)}`),
+  accessChange: (b: { node: string; op: 'add' | 'remove'; family: 'allowlist' | 'denylist'; remote: string; note?: string }) => req<AccessLists>('POST', '/config/access', b),
+  dtmfView: (node: string) => req<Dtmf>('GET', `/config/dtmf?node=${q(node)}`),
   nodeSetupSkipped: () => req<{ skipped: boolean }>('GET', '/config/setup/skip'),
   nodeSetupSetSkipped: (skipped: boolean) => req<{ skipped: boolean }>('PUT', '/config/setup/skip', { skipped }),
   nodeSetupPlan: (b: SetupPlanBody, amiToken?: string) => req<{ plan: SetupPlan; amiToken?: string }>('POST', '/config/setup/plan', { ...b, amiToken }),
