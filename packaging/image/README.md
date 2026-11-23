@@ -109,7 +109,17 @@ updates (ASLCP also updates itself from its Settings page).
 
 Left as shipped on purpose: `secret = allstar` of `[allstar-public]` in `iax.conf`,
 the well-known password of AllStarLink's public IAX user (the same on every node).
-The `asl-telemetry` timer of the asl3 package is enabled as on any ASL3 node.
+The `asl-telemetry` timer of the asl3 package is enabled as on any ASL3 node. The image keeps ASL3's
+default (telemetry on); ASLCP does not change it. It is ASL3's anonymous usage report
+to AllStarLink. To turn it off on the node:
+
+```sh
+sudo systemctl disable --now asl-telemetry.timer
+sudo systemctl mask asl-telemetry.timer asl-telemetry.service
+```
+
+Once the installer option is available, running the installer with
+`ASLCP_ASL_TELEMETRY=off` does the same.
 
 ## Open items to verify on hardware
 
