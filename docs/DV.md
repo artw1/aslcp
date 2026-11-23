@@ -139,6 +139,16 @@ DMR - Other connects to any Homebrew (MMDVM) master, for example a FreeDMR, DMR+
 
 NXDN is a native reflector client. It has no password and no login: the engine registers with the reflector by sending polls, using the callsign of the identity. Set your *NXDN ID* (1-65535) in Options; it is required to enable NXDN, and erasing it turns NXDN off. Under "advanced" are the RAN, the local listen address and the poll and back-off timers. *Enable* needs the identity and the NXDN ID. Clearing a field and saving clears it (an empty option is dropped and its default applies). On the dashboard, tune a reflector talkgroup; unlink is `9999`.
 
+## M17 (reflector client)
+
+M17 is a native client for M17 reflectors (mrefd, urfd style) over UDP, default port 17000, carrying Codec2 3200 voice. The engine encodes and decodes Codec2 itself in pure Go (no extra service). Config (`NetConfig`): the node callsign comes from the identity; `address`/`port` (optional, a tune can give them), and the options `module` (A-Z), `reflector` (`M17-XXX`, used as the destination of your transmissions), `can` (0..15, default 0) and `suffix` (appended to the callsign, for example `N0CALL B`). A tune target is `M17-XXX C` (reflector, space, module).
+
+- Link: CONN, wait for ACKN, resent with growing delays; a NACK (module missing or callsign refused) or a kick by the reflector (DISC) shows as a failed login and is not retried until the next tune. A new module or reflector sends DISC to the old link first. Every PING is answered with a PONG; 30 s without a PING or PONG relinks.
+- RX: stream packets, two Codec2 frames each, grouped by stream id; the call ends at the last-frame flag or after 1.5 s of silence. Packets with a bad CRC are counted and still played. Encrypted streams are ignored.
+- TX: a new random stream id per call, destination `M17-XXX C`, source your callsign, no META, no encryption or signature.
+
+Tested against an in-process fake reflector and an echo reflector through the bridge; the protocol layer is checked against the mrefd sources. Not verified without a live reflector: acceptance of your callsign, suffix and destination form by real mrefd/urfd builds, the TYPE/CAN bits against live traffic, voice level and quality of the Go Codec2, behaviour behind NAT and on busy modules. The dashboard panel, the host list and the settings card for M17 are not part of this stage.
+
 ## YSF (System Fusion)
 
 YSF is a native reflector client for System Fusion reflectors (YSFReflector style). It has no password and no login: the engine polls the reflector to keep the link up and uses the callsign of the identity as the node callsign, so *Enable* needs the identity.

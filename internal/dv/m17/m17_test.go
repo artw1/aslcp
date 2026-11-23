@@ -386,3 +386,18 @@ func FuzzTargetAndCallsign(f *testing.F) {
 		}
 	})
 }
+
+func TestNodeCallsign(t *testing.T) {
+	for _, c := range []struct{ b, s, want string }{
+		{"n0call", "", "N0CALL"}, {"N0CALL", "b", "N0CALL B"}, {"N0CALL", "-1", "N0CALL-1"}, {" N0CALL ", " /P", "N0CALL/P"},
+	} {
+		if got, err := NodeCallsign(c.b, c.s); err != nil || got != c.want {
+			t.Errorf("NodeCallsign(%q,%q) = %q, %v; want %q", c.b, c.s, got, err, c.want)
+		}
+	}
+	for _, c := range [][2]string{{"", ""}, {"N0CALL", "TOOLONG"}, {"N0@CALL", ""}} {
+		if _, err := NodeCallsign(c[0], c[1]); err == nil {
+			t.Errorf("NodeCallsign(%q,%q) succeeded", c[0], c[1])
+		}
+	}
+}

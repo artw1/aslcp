@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 // Kind is a reflector control packet type.
@@ -184,6 +185,30 @@ func ParseTarget(s string) (reflector string, module byte, err error) {
 func FormatTarget(reflector string, module byte) (string, error) {
 	s := reflector + " " + string(module)
 	if _, _, err := ParseTarget(s); err != nil {
+		return "", err
+	}
+	return s, nil
+}
+
+// NodeCallsign builds the callsign a node uses on a reflector link (CONN,
+// PONG, DISC and the SRC of its streams): the base callsign upper-cased,
+// then the optional suffix, separated by a space unless the suffix starts
+// with '-', '/' or '.'. The result must be encodable (at most 9 characters).
+func NodeCallsign(base, suffix string) (string, error) {
+	base = strings.ToUpper(strings.TrimSpace(base))
+	suffix = strings.ToUpper(strings.TrimSpace(suffix))
+	if base == "" {
+		return "", ErrEmptyCallsign
+	}
+	s := base
+	if suffix != "" {
+		if strings.ContainsRune("-/.", rune(suffix[0])) {
+			s += suffix
+		} else {
+			s += " " + suffix
+		}
+	}
+	if _, err := EncodeCallsign(s); err != nil {
 		return "", err
 	}
 	return s, nil

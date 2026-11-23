@@ -22,10 +22,15 @@
 //     reflector control packets. The commit hash could not be looked up
 //     from the build environment (GitHub API access was not available).
 //   - Cross-check of the client-side control packet sizes and offsets
-//     against mrefd protocol.cpp (https://github.com/n7tae/mrefd, master,
-//     read 2026-11-23, commit hash not looked up): CONN/LSTN 11 bytes,
-//     PING/PONG/DISC 10 bytes, ACKN/NACK and the DISC acknowledgement
-//     4 bytes.
+//     against mrefd (https://github.com/n7tae/mrefd, commit
+//     bdbfda4da747613940ee60e7614388a7048ca729): Packet-Description.md and
+//     src/protocol.cpp. CONN/LSTN 11 bytes, PING/PONG/DISC 10 bytes,
+//     ACKN/NACK and the DISC acknowledgement 4 bytes, a server-initiated
+//     DISC (blacklist) 10 bytes, PING about every 3 s and 30 s of silence
+//     meaning a dead reflector. mrefd rewrites any stream DST starting
+//     with "M17-" to @ALL and routes by the module of the link, so the
+//     "M17-XXX C" DST used by this client is accepted; legacy reflectors
+//     need that form. All layouts in control.go agree with that source.
 //
 // # Layouts (all multi-byte fields big endian)
 //
