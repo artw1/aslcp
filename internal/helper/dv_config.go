@@ -86,7 +86,7 @@ func renderDVConfig(listen, peer int, nets dvNetworksState) dvctl.Config {
 			if nets.Identity != nil {
 				id = dvpanel.IdentityState{Callsign: nets.Identity.Callsign, DMRID: nets.Identity.DMRID}
 			}
-			on = dvpanel.EnableBlock(sp, dvpanel.NetState{Enabled: true, Address: s.Address, Port: s.Port, PasswordSet: s.Password != ""}, id) == ""
+			on = dvpanel.EnableBlock(sp, dvpanel.NetState{Enabled: true, Address: s.Address, Port: s.Port, PasswordSet: s.Password != "", Options: s.Options}, id) == ""
 		}
 		nc := dvctl.NetConfig{Mode: sp.Mode, Enabled: on, Address: s.Address, Port: s.Port, Password: s.Password}
 		if len(s.Options) > 0 {

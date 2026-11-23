@@ -36,7 +36,7 @@
   {#if !st}
     <p class="text-sm text-muted">{err || 'Loading…'}</p>
   {:else}
-    <p class="text-xs text-muted">Looks up the name and place of a talker for the Now Calling strip. The list is downloaded from radioid.net and refreshed weekly.</p>
+    <p class="text-xs text-muted">Looks up the name and place of a talker for the Now Calling strip. The list is downloaded from radioid.net and checked daily for updates.</p>
     <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
       <dt class="text-muted">Status</dt><dd>{st.enabled ? (st.busy ? 'Downloading…' : 'On') : 'Off'}</dd>
       <dt class="text-muted">Entries</dt><dd class="tabular-nums">{st.entries.toLocaleString()}</dd>

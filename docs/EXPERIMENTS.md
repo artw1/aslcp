@@ -56,3 +56,9 @@ names), and the pre-filled "Edit …" commit message in the config apply dialog.
 `main`, push; install the new CI build on the node:
 `sudo apt install ./aslcp_<version>_<arch>.deb`; go back with
 `sudo apt install --allow-downgrades aslcp=<release>`.
+
+## After 2.0
+
+Ideas for after the 2.0 line, not started.
+
+- Split aslcp-dv into its own repository: a thought experiment for now. First step: make aslcp-dv run on its own inside this repo (own config, documented and versioned control protocol, own .deb), then move it once the boundary is stable.

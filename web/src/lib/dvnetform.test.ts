@@ -1,7 +1,7 @@
 // Run with `npm test`. The generic network form and the availability helpers.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BM_HELP, MASTER_OTHER, applyMaster, masterChoice, masterListMode, buildPut, enableBlock, essidToRepeaterId, formError, formOf, hasChanges, identityError, loginText, liveLogin, savedMessage, modeAvailable, passwordUx, repeaterIdToEssid, validAddress } from './dvnetform.ts';
+import { nxdnOffNote, BM_HELP, MASTER_OTHER, applyMaster, masterChoice, masterListMode, buildPut, enableBlock, essidToRepeaterId, formError, formOf, hasChanges, identityError, loginText, liveLogin, savedMessage, modeAvailable, passwordUx, repeaterIdToEssid, validAddress } from './dvnetform.ts';
 import { cardState } from './dvmodes.ts';
 import type { DVListItem, DVNetView } from './types';
 
@@ -123,8 +123,27 @@ test('TGIF, DMR and NXDN forms', () => {
   const dmr: DVNetView = { ...tgif, mode: 'DMR', label: 'DMR - Other', defaultAddress: undefined };
   assert.equal(enableBlock(dmr, formOf(dmr), id), 'Set the master address first');
   const nxdn: DVNetView = { ...tgif, mode: 'NXDN', label: 'NXDN', fields: { address: false, port: false, password: false }, defaultPort: undefined, defaultAddress: undefined };
-  assert.equal(enableBlock(nxdn, formOf(nxdn), id), '');
-  assert.equal(enableBlock(nxdn, formOf(nxdn), null), 'Set the callsign and DMR ID in the identity first');
+  const nxdnId: DVNetView = { ...nxdn, options: [{ key: 'nxdn_id', label: 'NXDN ID', kind: 'int', default: '', min: 1, max: 65535 }] };
+  // NXDN needs its NXDN ID to be enabled
+  assert.equal(enableBlock(nxdnId, formOf(nxdnId), id), 'Set the NXDN ID first');
+  assert.equal(enableBlock(nxdnId, { ...formOf(nxdnId), options: { nxdn_id: '   ' } }, id), 'Set the NXDN ID first');
+  assert.equal(enableBlock(nxdnId, { ...formOf(nxdnId), options: { nxdn_id: '12345' } }, id), '');
+  assert.equal(enableBlock(nxdnId, { ...formOf(nxdnId), options: { nxdn_id: '12345' } }, null), 'Set the callsign and DMR ID in the identity first');
+  // an enabled NXDN network with the ID erased is not blocked: saving turns it off, and the form says so
+  const on: DVNetView = { ...nxdnId, enabled: true, values: { nxdn_id: '12345' } };
+  const erased = { ...formOf(on), options: { nxdn_id: '' } };
+  assert.equal(enableBlock(on, erased, id), '');
+  assert.equal(nxdnOffNote(on, erased), 'Saving without an NXDN ID turns NXDN off.');
+  assert.equal(nxdnOffNote(on, formOf(on)), '');
+  assert.equal(nxdnOffNote(nxdnId, { ...formOf(nxdnId), enabled: true }), ''); // turning on: the enable block applies instead
+  assert.equal(savedMessage('NXDN', {}, undefined, true), 'NXDN settings saved, NXDN is off');
+  assert.equal(enableBlock(tgif, f, id) === '', false); // other modes are not asked for it
+  // erasing the NXDN ID, or the DMR master options, is sent as a cleared field
+  const stored: DVNetView = { ...nxdnId, enabled: true, values: { nxdn_id: '12345' } };
+  assert.deepEqual(buildPut(stored, { ...formOf(stored), options: { nxdn_id: '' } }), { options: {} });
+  assert.deepEqual(buildPut(stored, { ...formOf(stored), options: { nxdn_id: '  ' } }), { options: {} });
+  const dmrSet: DVNetView = { ...dmr, values: { options: 'TS2=9;', tune_kerchunk: 'false' } };
+  assert.deepEqual(buildPut(dmrSet, { ...formOf(dmrSet), options: { options: '', tune_kerchunk: 'false' } }), { options: { tune_kerchunk: 'false' } });
   assert.equal(modeAvailable(undefined, 'TGIF') && modeAvailable(undefined, 'DMR') && modeAvailable(undefined, 'NXDN'), true);
   assert.equal(modeAvailable(undefined, 'YSF'), true);
   assert.equal(modeAvailable(undefined, 'P25'), true);

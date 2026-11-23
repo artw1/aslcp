@@ -167,6 +167,15 @@ func TestDVNetworksTGIFDMRNXDN(t *testing.T) {
 		"options": map[string]string{"options": "TS2=1997;"}}, &v); c != 200 || !v.PasswordSet || v.Values["options"] != "TS2=1997;" {
 		t.Fatalf("%d %+v", c, v)
 	}
+	// clearing: an empty options object, or an empty value, empties the field
+	var v2, v3 netView // fresh values: decoding into a used struct merges maps
+	if c := e.do("admin", "PUT", "/api/dv/networks/DMR", map[string]any{"options": map[string]string{"options": ""}}, &v2); c != 200 || v2.Values["options"] != "" {
+		t.Fatalf("clear by empty value: %d %+v", c, v)
+	}
+	e.do("admin", "PUT", "/api/dv/networks/DMR", map[string]any{"options": map[string]string{"options": "TS2=1997;"}}, new(netView))
+	if c := e.do("admin", "PUT", "/api/dv/networks/DMR", map[string]any{"options": map[string]string{}}, &v3); c != 200 || len(v3.Values) != 0 || !v3.PasswordSet {
+		t.Fatalf("clear by empty object: %d %+v", c, v3)
+	}
 	for _, p := range []string{"/api/dv/networks", "/api/dv/networks/DMR", "/api/dv/networks/TGIF"} {
 		_, raw, _ := e.raw("GET", p, nil, e.ck["admin"], nil)
 		if strings.Contains(string(raw), "example-pass") {

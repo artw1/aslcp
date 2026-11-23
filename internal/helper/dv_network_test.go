@@ -395,3 +395,112 @@ func TestParseDVNetworksDropsLoop(t *testing.T) {
 		}
 	}
 }
+
+// A request crosses the helper socket as JSON: an empty Options map ("clear
+// every option") must not be dropped on the way, or it reads as "keep".
+func TestDVNetworkRequestJSONKeepsEmptyOptions(t *testing.T) {
+	b, err := json.Marshal(DVNetworkRequest{Mode: "DMR", Options: map[string]string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back DVNetworkRequest
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.Options == nil || len(back.Options) != 0 {
+		t.Fatalf("empty options lost in %s", b)
+	}
+	b, _ = json.Marshal(DVNetworkRequest{Mode: "DMR"})
+	back = DVNetworkRequest{}
+	json.Unmarshal(b, &back)
+	if back.Options != nil {
+		t.Fatalf("nil options became %v", back.Options)
+	}
+}
+
+func TestDVNetworkClearOptions(t *testing.T) {
+	o := dvCfgOps(t)
+	dvNetDo(o, DVNetworkRequest{Identity: &DVIdentityView{Callsign: "N0CALL", DMRID: 1234567}})
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "DMR", Address: sp("192.0.2.10"), Enabled: bp(true), Options: map[string]string{"options": "TS2=9;"}}); err != nil {
+		t.Fatal(err)
+	}
+	if n := renderedNet(t, o, "DMR"); n.Options["options"] != "TS2=9;" {
+		t.Fatalf("%+v", n)
+	}
+	// through JSON, as the helper socket does
+	var r DVNetworkRequest
+	if err := json.Unmarshal([]byte(`{"mode":"DMR","options":{}}`), &r); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := dvNetDo(o, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range rep.Networks {
+		if v.Mode == "DMR" && (len(v.Options) != 0 || !v.Enabled) {
+			t.Fatalf("%+v", v)
+		}
+	}
+	if n := renderedNet(t, o, "DMR"); n.Options["options"] != "" {
+		t.Fatalf("options kept: %+v", n)
+	}
+	// an empty value for one key drops it as well
+	dvNetDo(o, DVNetworkRequest{Mode: "DMR", Options: map[string]string{"options": "TS2=9;", "slot": "1"}})
+	rep, _ = dvNetDo(o, DVNetworkRequest{Mode: "DMR", Options: map[string]string{"options": "", "slot": "1"}})
+	for _, v := range rep.Networks {
+		if v.Mode == "DMR" && (v.Options["options"] != "" || v.Options["slot"] != "1") {
+			t.Fatalf("%+v", v)
+		}
+	}
+	// nil options keep everything
+	rep, _ = dvNetDo(o, DVNetworkRequest{Mode: "DMR", Enabled: bp(true)})
+	for _, v := range rep.Networks {
+		if v.Mode == "DMR" && v.Options["slot"] != "1" {
+			t.Fatalf("%+v", v)
+		}
+	}
+}
+
+func TestDVNetworkNXDNIDRequired(t *testing.T) {
+	o := dvCfgOps(t)
+	dvNetDo(o, DVNetworkRequest{Identity: &DVIdentityView{Callsign: "N0CALL", DMRID: 1234567}})
+	_, err := dvNetDo(o, DVNetworkRequest{Mode: "NXDN", Enabled: bp(true)})
+	if !errors.Is(err, ErrDVNetIncomplete) || !strings.Contains(err.Error(), "NXDN ID") {
+		t.Fatalf("enable without NXDN ID: %v", err)
+	}
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "NXDN", Enabled: bp(true), Options: map[string]string{"nxdn_id": "  "}}); !errors.Is(err, ErrDVNetIncomplete) {
+		t.Fatalf("blank NXDN ID: %v", err)
+	}
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "NXDN", Enabled: bp(true), Options: map[string]string{"nxdn_id": "12345"}}); err != nil {
+		t.Fatal(err)
+	}
+	// clearing it while NXDN is enabled saves and turns NXDN off
+	rep, err := dvNetDo(o, DVNetworkRequest{Mode: "NXDN", Options: map[string]string{}})
+	if err != nil {
+		t.Fatalf("clear while enabled: %v", err)
+	}
+	for _, v := range rep.Networks {
+		if v.Mode == "NXDN" && (v.Enabled || v.Options["nxdn_id"] != "") {
+			t.Fatalf("%+v", v)
+		}
+	}
+	if n := renderedNet(t, o, "NXDN"); n.Enabled || n.Options["nxdn_id"] != "" {
+		t.Fatalf("%+v", n)
+	}
+	// enabling again without an ID is refused
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "NXDN", Enabled: bp(true)}); !errors.Is(err, ErrDVNetIncomplete) {
+		t.Fatalf("enable without ID: %v", err)
+	}
+	// enabling and clearing in one request is refused too
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "NXDN", Enabled: bp(true), Options: map[string]string{}}); !errors.Is(err, ErrDVNetIncomplete) {
+		t.Fatalf("enable and clear: %v", err)
+	}
+	dvNetDo(o, DVNetworkRequest{Mode: "NXDN", Enabled: bp(true), Options: map[string]string{"nxdn_id": "12345"}})
+	// switched off, it can be cleared
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "NXDN", Enabled: bp(false), Options: map[string]string{}}); err != nil {
+		t.Fatal(err)
+	}
+	if n := renderedNet(t, o, "NXDN"); n.Enabled || n.Options["nxdn_id"] != "" {
+		t.Fatalf("%+v", n)
+	}
+}

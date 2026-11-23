@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/user"
+	"strings"
 
 	"github.com/artw1/aslcp/internal/dvpanel"
 )
@@ -31,7 +32,9 @@ type DVIdentityView struct {
 // DVNetworkRequest is the dv.network field of dv-network. With neither Mode
 // nor Identity it reads. With Identity it sets the identity. With Mode it
 // updates that network: a nil field is kept, Options (when not nil) replaces
-// all options, ClearPassword removes the password.
+// all options, ClearPassword removes the password. Options has no omitempty on
+// purpose: an empty map ({}) means "clear every option" and must survive the
+// round trip through JSON, only a nil map (null) means "keep".
 type DVNetworkRequest struct {
 	Mode          string            `json:"mode,omitempty"`
 	Enabled       *bool             `json:"enabled,omitempty"`
@@ -39,7 +42,7 @@ type DVNetworkRequest struct {
 	Port          *int              `json:"port,omitempty"`
 	Password      *string           `json:"password,omitempty"`
 	ClearPassword bool              `json:"clearPassword,omitempty"`
-	Options       map[string]string `json:"options,omitempty"`
+	Options       map[string]string `json:"options"`
 	Identity      *DVIdentityView   `json:"identity,omitempty"`
 }
 
@@ -152,12 +155,17 @@ func (o *Ops) DVNetwork(ctx context.Context, req *DVRequest) (DVNetworkReply, er
 		if u.Enabled != nil {
 			s.Enabled = *u.Enabled
 		}
+		// erasing the NXDN ID of an enabled NXDN network turns it off; turning it
+		// on without an ID is refused below
+		if sp.Mode == dvpanel.ModeNXDN && s.Enabled && strings.TrimSpace(s.Options["nxdn_id"]) == "" && (u.Enabled == nil || !*u.Enabled) {
+			s.Enabled = false
+		}
 		if s.Enabled {
 			id := dvpanel.IdentityState{}
 			if st.Identity != nil {
 				id = dvpanel.IdentityState{Callsign: st.Identity.Callsign, DMRID: st.Identity.DMRID}
 			}
-			if why := dvpanel.EnableBlock(sp, dvpanel.NetState{Enabled: true, Address: s.Address, Port: s.Port, PasswordSet: s.Password != ""}, id); why != "" {
+			if why := dvpanel.EnableBlock(sp, dvpanel.NetState{Enabled: true, Address: s.Address, Port: s.Port, PasswordSet: s.Password != "", Options: s.Options}, id); why != "" {
 				return DVNetworkReply{}, fmt.Errorf("%w: %s", ErrDVNetIncomplete, why)
 			}
 		}

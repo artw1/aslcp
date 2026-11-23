@@ -86,7 +86,13 @@ export function enableBlock(v: DVNetView, f: NetForm, identity: DVIdentity | nul
   if (v.fields.address && !v.defaultAddress && f.address.trim() === '') return 'Set the master address first';
   if (v.fields.password && !v.defaultPassword && !v.passwordSet && f.password === '') return 'Set the password first';
   if (v.needsIdentity && (!identity || !identity.callsign || !identity.dmrId)) return 'Set the callsign and DMR ID in the identity first';
+  if (v.mode === 'NXDN' && !v.enabled && (f.options.nxdn_id ?? '').trim() === '') return 'Set the NXDN ID first';
   return '';
+}
+
+/** Saving an enabled NXDN network with its NXDN ID erased turns NXDN off (the server does it); the note says so, or ''. */
+export function nxdnOffNote(v: DVNetView, f: NetForm): string {
+  return v.mode === 'NXDN' && v.enabled && f.enabled && (f.options.nxdn_id ?? '').trim() === '' ? 'Saving without an NXDN ID turns NXDN off.' : '';
 }
 
 /** The login line of a network card: "Logged in", "Logging in...", "Login refused: detail"; '' when it is off. */
@@ -165,8 +171,8 @@ export function liveLogin(v: Pick<DVNetView, 'mode' | 'login' | 'detail'>, modes
 }
 
 /** The toast after a save: names the password when one was stored or removed, so the operator sees it was taken. */
-export function savedMessage(label: string, put: DVNetPut, applyError?: string): string {
+export function savedMessage(label: string, put: DVNetPut, applyError?: string, turnedOff?: boolean): string {
   const pw = put.clearPassword ? 'password removed' : put.password ? 'password saved' : '';
-  const base = pw ? `${label} settings saved, ${pw}` : `${label} settings saved`;
+  const base = turnedOff ? `${label} settings saved, ${label} is off` : pw ? `${label} settings saved, ${pw}` : `${label} settings saved`;
   return applyError ? `${base}. ${applyError}` : base;
 }

@@ -5,7 +5,7 @@
   import { api } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
   import type { DVIdentity, DVListItem, DVNetView } from '../lib/types';
-  import { buildPut, enableBlock, formError, formOf, hasChanges, loginText, loginTone, MASTER_OTHER, applyMaster, masterChoice, masterListMode, passwordUx, liveLogin, savedMessage } from '../lib/dvnetform';
+  import { buildPut, enableBlock, formError, formOf, hasChanges, loginText, loginTone, MASTER_OTHER, applyMaster, masterChoice, masterListMode, passwordUx, liveLogin, savedMessage, nxdnOffNote } from '../lib/dvnetform';
   import { app } from '../lib/store.svelte';
   import Toggle from './Toggle.svelte';
 
@@ -37,6 +37,7 @@
   const pw = $derived(passwordUx(v.passwordSet, editPw));
   const err = $derived(formError(v, f));
   const block = $derived(f.enabled ? enableBlock(v, f, identity) : '');
+  const offNote = $derived(nxdnOffNote(v, f));
   const put = $derived(buildPut(v, f));
   const live = $derived(liveLogin(v, app.dv?.modes));
   const login = $derived(v.enabled ? loginText(live.login, live.detail) : '');
@@ -46,10 +47,10 @@
   async function save() {
     busy = true;
     try {
-      const sent = put;
+      const sent = put, wasOn = v.enabled;
       const r = await api.dvNetworkPut(v.mode, sent);
       onsaved(r);
-      toast(savedMessage(v.label, sent, r.applied === false ? r.applyError : undefined), 'info');
+      toast(savedMessage(v.label, sent, r.applied === false ? r.applyError : undefined, wasOn && !r.enabled), 'info');
     } catch (e) { toastError(e); } finally { busy = false; }
   }
 </script>
@@ -120,6 +121,6 @@
     <button type="button" class="btn btn-sm" aria-expanded={showAdv} onclick={() => (showAdv = !showAdv)}>{showAdv ? 'Hide' : 'Show'} advanced options</button>
     {#if showAdv}<div class="grid grid-cols-2 gap-3">{#each adv as o (o.key)}<div class="col-span-2 sm:col-span-1">{@render opt(o)}</div>{/each}</div>{/if}
   {/if}
-  {#if err}<p class="text-sm text-danger" role="alert">{err}</p>{:else if block}<p class="text-sm text-warn" data-testid="{id}-block">{block}</p>{/if}
+  {#if err}<p class="text-sm text-danger" role="alert">{err}</p>{:else if block}<p class="text-sm text-warn" data-testid="{id}-block">{block}</p>{:else if offNote}<p class="text-sm text-warn" data-testid="{id}-offnote">{offNote}</p>{/if}
   <button type="button" class="btn btn-primary" disabled={busy || !!err || !!block || !hasChanges(put)} onclick={save} data-testid="{id}-save">Save</button>
 </div>
