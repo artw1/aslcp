@@ -2,6 +2,7 @@ package nodecfg
 
 import (
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -512,7 +513,7 @@ func TestParseRegStatus(t *testing.T) {
 }
 
 func TestValidCallsign(t *testing.T) {
-	for s, want := range map[string]bool{"N0CALL": true, "W1AW": true, "K1ABC/P": true, "VE3XYZ": true, "NOTSET": false, "123": false, "AB": false, "hello world": false, "": false} {
+	for s, want := range map[string]bool{"N0CALL": true, "N0ABC": true, "N0ABC/P": true, "N0XYZ": true, "NOTSET": false, "123": false, "AB": false, "hello world": false, "": false} {
 		if ValidCallsign(s) != want {
 			t.Errorf("%q: want %v", s, want)
 		}
@@ -598,5 +599,31 @@ func TestPlanStatusReporting(t *testing.T) {
 	}
 	if _, err := w.Plan(Request{Node: "1999", Changes: []Change{{ID: "rpt.conf:node:statpost_time", Value: "10"}}}); err == nil {
 		t.Error("an interval below 30 s was accepted")
+	}
+}
+
+// A USBRadio node is never edited by forms, also not through rxchannel as a
+// plain setting, and a registration password the register line cannot carry
+// is refused.
+func TestReviewFixes(t *testing.T) {
+	rpt := replaceLast(readCorpus(t, "rpt.conf"), "rxchannel = SimpleUSB/1999", "rxchannel = Radio/1999")
+	w := fixture(t, map[string]string{FileRpt: rpt})
+	for _, mode := range []string{ModeOverride, ModeTemplate} {
+		_, err := w.Plan(Request{Node: "1999", Mode: mode, Changes: []Change{{ID: "rpt.conf:node:rxchannel", Value: "Local/pseudo"}}})
+		var re *RefuseError
+		if !errors.As(err, &re) || re.Code != "radio_unsupported" {
+			t.Errorf("%s: err = %v", mode, err)
+		}
+	}
+	w = corpusWorld(t)
+	for _, pw := range []string{"a:b", "a@b", "a b", "a;b"} {
+		_, err := w.Plan(Request{Node: "1999", Registration: &RegChange{Method: RegHTTP, Password: pw}})
+		if _, ok := err.(*InvalidError); !ok {
+			t.Errorf("registration password %q: err = %v", pw, err)
+		}
+	}
+	_, err := w.PlanRenumber(RenumberRequest{OldNode: "1999", Node: "2001", Password: "a:b"})
+	if _, ok := err.(*InvalidError); !ok {
+		t.Errorf("renumber password with colon: err = %v", err)
 	}
 }

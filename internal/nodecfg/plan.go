@@ -335,7 +335,7 @@ var allowedModules = map[string]bool{"chan_simpleusb.so": true, "chan_echolink.s
 
 var (
 	reRegHost = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
-	reRegPass = regexp.MustCompile(`^[^\s@;\\\x00-\x1f]{1,64}$`)
+	reRegPass = regexp.MustCompile(`^[^\s@;:\\\x00-\x1f]{1,64}$`)
 )
 
 // registerEntries returns the node's register lines of a file's [general]
@@ -382,7 +382,7 @@ func (ed *editor) register(node string, rc RegChange) error {
 		return invalid("registration host %q is not a host name", host)
 	}
 	if rc.Password != "" && !reRegPass.MatchString(rc.Password) {
-		return invalid("the registration password must be 1 to 64 characters without spaces, @, ; or \\")
+		return invalid("the registration password must be 1 to 64 characters without spaces, @, :, ; or \\")
 	}
 	type target struct{ file, method string }
 	ts := []target{{FileHTTPReg, RegHTTP}, {FileIAX, RegIAX}}
@@ -604,6 +604,19 @@ func (w *World) planRequest(p *Plan, ed *editor, si *stanzaInfo, req Request, mo
 		}
 		if mode == ModeReset && (k.Scope != schema.ScopeNode && k.Scope != schema.ScopeDevice) {
 			return invalid("%s has no template to reset to", k.Name)
+		}
+	}
+
+	// rxchannel as a plain setting is held to the same rule as the radio
+	// type: a USBRadio, Voter or other interface is never edited by forms.
+	for _, id := range order {
+		if id != "rpt.conf:node:rxchannel" || req.Radio != nil {
+			continue
+		}
+		switch cur := w.radio(si); cur.Type {
+		case RadioSimpleUSB, RadioHub, RadioNone:
+		default:
+			return refuse(radioUnsupported(cur))
 		}
 	}
 

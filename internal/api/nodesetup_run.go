@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"time"
 
 	"github.com/artw1/aslcp/internal/astconf"
 	"github.com/artw1/aslcp/internal/configsvc"
@@ -124,7 +125,8 @@ type wizardSpec struct {
 // runWizard checks a wizard plan against the files on disk and runs it:
 // files, savenode, ami, restart, allmon3, health.
 func (s *Server) runWizard(w http.ResponseWriter, r *http.Request, u store.User, svc *configsvc.Service, sp wizardSpec) {
-	ctx := r.Context()
+	ctx, cancel := applyContext(r)
+	defer cancel()
 	plan := sp.plan
 	if plan.Blocked() {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "the change would break the configuration", "code": "blocked", "plan": plan})
@@ -291,7 +293,8 @@ func (s *Server) handleSetupRollback(w http.ResponseWriter, r *http.Request, u s
 		writeErr(w, http.StatusBadRequest, "bad_request", "invalid rollback request")
 		return
 	}
-	ctx := r.Context()
+	ctx, cancel := applyContext(r)
+	defer cancel()
 	steps := []setupStepResult{}
 	step := func(id, status, detail string) {
 		steps = append(steps, setupStepResult{ID: id, Status: status, Detail: detail})
@@ -381,4 +384,12 @@ func allmonStep(ctx context.Context, host SetupHost, reqs ...helper.NodeSetupReq
 		return "skipped", "Allmon3 is not installed"
 	}
 	return "skipped", "nothing to change"
+}
+
+// applyContext is the context of a multi-step apply or rollback. It outlives
+// the browser's request: a tab closed halfway through must not leave the
+// files written and the restart or the follow-up steps undone with nobody
+// told. It is bounded so a stuck step cannot hold the request forever.
+func applyContext(r *http.Request) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Minute)
 }

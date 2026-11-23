@@ -200,7 +200,7 @@ All routes are admin only (`403` otherwise), non-GET requests need the CSRF head
 | `POST /api/config/preview` | `{files:[{path,content,base}]}` | `{files:[{path,ok,error?:{line,message},diff,changed,conflict?}],reload:[{command,reason}],restart}` |
 | `POST /api/config/apply` | `{files,message,reload}` | `{commit,before,files,reload:[{command,ok,output}]\|null,health:{ok,checks:[{name,ok,detail}]}\|null,restart}` |
 | `GET /api/config/history?limit=&offset=` | | `[{commit,date,author,message,files}]`, newest first (`limit` 1-200, default 50) |
-| `GET /api/config/history/{commit}?reveal=1` | | `{commit,date,author,message,files:[{path,status,diff}]}`; values of `secret`, `password`, `passwd`, `pass`, `md5secret`, `dbsecret` and the credentials of `register =>` are masked unless `reveal=1` (audited as `config.reveal`) |
+| `GET /api/config/history/{commit}?reveal=1` | | `{commit,date,author,message,files:[{path,status,diff}]}`; values of `secret`, `password`, `passwd`, `pass`, `pwd`, `md5secret`, `dbsecret` and the credentials of `register =>` are masked unless `reveal=1` (audited as `config.reveal`) |
 | `POST /api/config/history/{commit}/restore` | `{reload}` | like apply, plus `skipped:[path]` |
 | `POST /api/system/asterisk/restart` | | `{ok:true}` |
 
@@ -313,7 +313,7 @@ The "Set up this node" wizard (CONFIG "Set up this node"). Admin only, CSRF head
 | `PUT /api/config/setup/skip` | Body `{skipped}`; sets or clears the flag (audited as `config.setup.skip`). Clearing it restarts the offer. |
 | `POST /api/config/setup/plan` | Body: `oldNode`, `node`, `password`, `callsign`, `radio` (`simpleusb`\|`hub`), `preset`, `registration {method:"http"\|"iax"\|"none", host?}`, `echolink {call,password,email,name,qth}?`, `ami` (bool), `amiToken?`. Returns `{plan, amiToken}`. The plan has the form plan's fields (`files` with diffs, `base`, `changes`, `errors`, `warnings`, `restart`, `restartReasons`, `noop`) plus `oldNode`, `public`, `renumber` and `steps`. Secrets are masked in diffs and changes. Nothing is written. |
 | `POST /api/config/setup/apply` | Plan body plus `amiToken`, `base` (from the plan) and `message`. Re-plans, then runs the fixed order below. Returns `{plan, result, steps, restarted, rollback}`. |
-| `POST /api/config/setup/rollback` | Body: the `rollback` object of the apply (`commit`, `node`, `oldNode`, `ami`, `restart`). Restores the snapshot taken before the apply, undoes the helper steps and returns `{result, steps}`. |
+| `POST /api/config/setup/rollback` | Body: the `rollback` object of the apply (`commit`, `node`, `oldNode`, `ami`, `restart`, `added`). Restores the snapshot taken before the apply, undoes the helper steps and returns `{result, steps}`. |
 
 Registration status for the wizard's wait is `GET /api/config/nodes?status=1` (`registration.status.state` of the node).
 

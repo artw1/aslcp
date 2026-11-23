@@ -303,7 +303,7 @@ On an already configured node the wizard is not forced: the overview shows what 
 
 ### 8.1 Phases
 
-1. **Phase 1 (2.0.3): planner and API.** Schema, node overview, generic form plan/apply with dry run, cross-field checks, mock API.
+1. **Phase 1: planner and API.** Schema, node overview, generic form plan/apply with dry run, cross-field checks, mock API.
 2. **Phase 2: forms and wizards in the web UI** on that API: node page forms, the setup wizard, and registration and EchoLink wizards.
 3. **Phase 3: node renumbering, add node, change radio interface** (done, with the SimpleUSB, AMI and Linking forms), then **voter** and the other multi-file actions of 4.3.
 
@@ -414,6 +414,9 @@ docs/
 | Topic | Question |
 |---|---|
 | Reload semantics | Which settings take effect with `module reload app_rpt.so`, `iax2 reload`, `dialplan reload`, usb channel driver reload, versus full restart? Verify on hardware; record per key in the schema. |
+| Registration status | Exact reply formats of `rpt show registrations` and `iax2 show registry` (parsed by `nodecfg.ParseRegStatus`; unknown otherwise). |
+| AstDB access lists | Value format and AMI permissions for `DBPut`, `DBDel` and `database show` on the `allowlist/` and `denylist/` families; that the dialplan reads them. |
+| Status reporting | That `statpost_url` and `statpost_time` take effect at the assumed reload class. |
 | `asl3-menu` and `custom/` | How does `asl3-menu` consume `custom/` and the `;MENU:` comments? Should ASLCP coexist with it, and what happens if both edit the same file? |
 | AMI clients | Exact config locations and formats of Allmon3 (believed `/etc/allmon3/`), AllScan and Supermon; whether `allmon.ini.php` is Allmon2/Supermon format as believed. Update their credentials automatically or only warn? |
 | Public page exposure | Recommended deployment (Cloudflare Tunnel, Caddy, port forward) and defaults for what is public. |

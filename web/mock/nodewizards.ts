@@ -30,7 +30,7 @@ function addPlan(b: any) {
   if (!reNode.test(b.node ?? '')) throw bad('the node number must be 1 to 7 digits');
   const existing = [...localNodes(), ...[...(tree['rpt.conf'] ?? '').matchAll(/^(\d+)\s*=/gm)].map((m) => m[1])];
   if (existing.includes(b.node)) throw bad(`node ${b.node} already exists on this system`);
-  if (!reSecret.test(b.password ?? '')) throw bad('the node password may use letters, digits and . _ + = , : @ % - (1 to 64)');
+  if (!reSecret.test(b.password ?? '')) throw bad('the node password may use letters, digits and . _ + = , % - (1 to 64)');
   if (!/^[A-Za-z0-9]{3,12}$/.test(b.callsign ?? '')) throw bad('the callsign must be letters and digits');
   if (!['simpleusb', 'hub'].includes(b.radio)) throw bad('radio must be simpleusb or hub');
   const pr = PRESETS.find((p) => p.name === b.preset);

@@ -355,7 +355,7 @@ func (x Key) Validate(v string) error {
 	if strings.ContainsAny(v, "\r\n\x00") {
 		return bad("must be on one line")
 	}
-	if strings.ContainsRune(v, ';') && !strings.Contains(v, `\;`) {
+	if strings.ContainsRune(strings.ReplaceAll(v, `\;`, ""), ';') {
 		return bad("must not contain ';' (it starts a comment); put a backslash before it for a literal one")
 	}
 	if strings.TrimSpace(v) != v {
@@ -365,8 +365,8 @@ func (x Key) Validate(v string) error {
 	case TypeString:
 		if x.Name == "statpost_url" {
 			u, err := url.Parse(v)
-			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || strings.ContainsAny(v, " \t\"'`$\\") {
-				return bad("must be a web address starting with http:// or https://")
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || strings.ContainsAny(v, " \t\"'`$\\") {
+				return bad("must be a web address starting with http:// or https://, without a user name or password in it")
 			}
 		}
 		return nil

@@ -26,6 +26,8 @@ test('password and page validation', () => {
   assert.ok(!validPassword('has space'));
   assert.ok(!validPassword('semi;colon'));
   assert.ok(!validPassword('$(rm)'));
+  assert.ok(!validPassword('a:b'));
+  assert.ok(!validPassword('a@b'));
   assert.ok(!validPassword(''));
   assert.match(stepError('node', { ...good(), node: 'x' }), /node number/);
   assert.match(stepError('node', { ...good(), password: '' }), /password is required/);

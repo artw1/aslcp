@@ -37,6 +37,16 @@ ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly w
 
 ![Config editor](docs/images/config.png)
 
+### Config page
+
+The Config page (administrators) shows each local node in plain language and edits it without touching files by hand. The overview has cards for identity, radio, duplex and timers, registration, EchoLink, linking, the manager interface, access lists, status reporting and DTMF commands. Every form shows where each value comes from (this node, a template or a default), reviews the exact file changes before saving, reloads Asterisk, checks health and can roll back. Wizards set up this node, add a node, change the node number or the radio interface. The Advanced tab keeps the raw editor and history. USBRadio nodes are read-only. See [docs/CONFIG.md](docs/CONFIG.md).
+
+![Config overview](docs/images/config-overview.png)
+
+![Duplex and timers form with a preset](docs/images/config-form.png)
+
+![Set up this node, review step](docs/images/config-wizard.png)
+
 ## Requirements
 
 - AllStarLink 3 (ASL3) on Debian 12 (bookworm) or Debian 13 (trixie), or Raspberry Pi OS based on either.

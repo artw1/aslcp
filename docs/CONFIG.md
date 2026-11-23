@@ -4,11 +4,11 @@ Configuration editing of `docs/DESIGN.md` (sections 4-6), released in 2.0.
 
 | Slice | Content |
 |---|---|
-| **beta.1: foundation** | File browser, raw editor, validate + diff review, snapshot history (git), apply through the helper, targeted reload, health check, rollback, history view with restore, Asterisk restart. |
-| beta.4: forms | Schema (`internal/schema`) and typed forms for `rpt.conf` node settings, `simpleusb`, `iax` `[general]`, `echolink`, registrations, `manager`. Secrets masked. Provenance from `astconf.Effective`. |
-| beta.5: guided | Node renumber, radio interface change, setup wizard (DESIGN 4.3, 8). |
+| foundation | File browser, raw editor, validate + diff review, snapshot history (git), apply through the helper, targeted reload, health check, rollback, history view with restore, Asterisk restart. |
+| forms | Schema (`internal/schema`) and typed forms for `rpt.conf` node settings, `simpleusb`, `iax` `[general]`, `echolink`, registrations, `manager`. Secrets masked. Provenance from `astconf.Effective`. |
+| guided | Node renumber, radio interface change, setup wizard (DESIGN 4.3, 8). |
 
-Everything below is beta.1.
+The sections below start with the foundation (raw editor, pipeline, helper); forms, wizards and the other pages follow.
 
 ## Principles
 
@@ -104,7 +104,7 @@ The table lives in one Go map so it can be corrected after testing on the node (
 
 **Health check** (after reload or restart, wait up to 15 s): AMI connected and answering; every local node that existed before the apply answers `rpt` status. Result per check. If not ok, the UI offers one-click rollback = restore of `before` + the same reload + health check.
 
-**Masking:** keys `secret`, `password`, `passwd`, `pass`, `md5secret`, `dbsecret`, and `register =>` / `register =` values (the `user:secret@` part) are replaced with `********` in history diffs unless revealed. The raw editor shows real content (admin only); reading a file is audited as `config.read`.
+**Masking:** keys `secret`, `password`, `passwd`, `pass`, `pwd`, `md5secret`, `dbsecret`, and `register =>` / `register =` values (the `user:secret@` part) are replaced with `********` in history diffs unless revealed. The raw editor shows real content (admin only); reading a file is audited as `config.read`.
 
 ## Forms
 
@@ -130,7 +130,9 @@ Registration is not a schema key: it is the line `register => <node>:<password>@
 
 **Wizard steps** (Identity, Duty, Radio interface, Registration, EchoLink, Review) and the presets (simplex, halfduplexlink, repeater, hub) are listed in DESIGN 8. A wizard step is one `POST /api/config/form` call with the matching fields (`callsign`, `preset`, `radio`, `registration`, `link`, `modules`, `changes`); every call is a complete, valid plan.
 
-**Phases.** 2.0.3 ships the planner and API, the mock, the node overview and the Identity, Duplex and timers, Registration and EchoLink forms. The setup wizard (renumber included) is described below. The Add node, Change node number and Change radio interface wizards and the SimpleUSB device, Manager interface (AMI) and Linking and telemetry forms follow in "More wizards and forms".
+**Scope.** The planner and API, the mock, the node overview, the Identity, Duplex and timers, Registration, EchoLink, SimpleUSB device, Manager interface (AMI), Linking and telemetry and Status reporting forms, and the Set up this node, Add node, Change node number and Change radio interface wizards are all implemented (below and "More wizards and forms").
+
+**Passwords.** The node, registration, AMI and Allmon3 passwords are written into files that other programs parse, so the server accepts only characters that are safe there: letters, digits and `. _ + = , % -` (1 to 64) for wizard and AMI passwords, and any printable character except space, `@`, `:`, `;` and `\` for a registration password. The web form checks the same rules before sending.
 
 **Save semantics.** `mode` is `override` (default: write the node's own stanza; a value already in effect is a no-op), `reset` (remove the node's own key) or `template` (change it in the template it is inherited from, the "change for all nodes" option). `dryRun: true` returns the plan with per-file diffs, applied changes, warnings, errors and base shas and writes nothing. A real call re-plans, refuses on conflict (`base` differs from disk), and applies through `configsvc` (snapshot, write, reload, health), the same pipeline as the raw editor. The server never writes `/etc/asterisk` itself.
 
@@ -221,4 +223,15 @@ Demo mode and the mock API (`npm run dev:mock`) provide an in-memory `/etc/aster
 - Helper: path validation table tests (traversal, absolute, symlink escape, non-.conf, depth, NUL, size), apply/conflict/rollback-on-write-error, ownership and mode preserved, restore, log/show, hooks disabled. Use a temp dir as root and a temp history repo.
 - Server: preview diff and reload plan, masking, authorization (viewer/operator get 403), audit entries without secrets.
 - Forms: `internal/nodecfg` tests on the asl3-dist corpus (overview and provenance, each mode, refusals, cross-field checks, no-op saves, secrets never echoed) and API tests in `internal/api`.
-- On real hardware before beta.1: check `/etc/asterisk` ownership and modes, the reload commands in the table, and the health check after each.
+- On real hardware: see "To verify on hardware" below.
+
+## To verify on hardware
+
+Everything here is implemented from documentation and the asl3-dist sample files, and has not been run on a node. Until it has, the app is conservative (it offers a restart when unsure).
+
+- **Reload classes.** The reload map (one Go map in `internal/configsvc/reload.go`) and the per-key classes in `internal/schema` are all `assumed` or `restart`; none is `verified`. Check which settings really take effect with `module reload app_rpt.so`, `iax2 reload`, `dialplan reload` and the radio channel driver reload, and correct the map.
+- **Registration status format.** `rpt show registrations` (method http) and `iax2 show registry` (method iax) replies are parsed by `nodecfg.ParseRegStatus`; anything not clearly registered or failed shows as "unknown". Check the real column layout and states.
+- **AstDB access lists.** The `allowlist/<local>/<remote>` and `denylist/...` families, the value the dialplan expects (ASLCP treats `1` as "no note" and shows any other plain-text value as the note), that the dialplan really reads them, and that the AMI user has the permissions for `DBPut`, `DBDel` and `database show` (`system`/`command` class).
+- **Status reporting.** That `statpost_url` and `statpost_time` are read by app_rpt at the reload class assumed and that the stock address is still correct.
+- **Wizards.** The restart after a renumber, the AMI reconnect with the new `manager.conf` secret, Allmon3 picking up its changed `allmon3.ini` and `savenode.conf`, and the rollback of each helper step.
+- **Files.** `/etc/asterisk` ownership and modes, and the health check after each apply.

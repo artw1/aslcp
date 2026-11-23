@@ -26,7 +26,7 @@ type Req = {
   oldNode: string; node: string; password: string; callsign: string; radio: string; preset: string; ami?: boolean;
   registration?: { method: string; host?: string }; echolink?: { call: string; password: string; email: string; name: string; qth: string };
 };
-export const reNode = /^[1-9]\d{0,6}$/, reSecret = /^[A-Za-z0-9._+=,:@%-]{1,64}$/;
+export const reNode = /^[1-9]\d{0,6}$/, reSecret = /^[A-Za-z0-9._+=,%-]{1,64}$/;
 
 export function localNodes(): string[] {
   return [...(tree['rpt.conf'] ?? '').matchAll(/^\[(\d+)\]/gm)].map((m) => m[1]);
@@ -49,7 +49,7 @@ function plan(b: Req, amiSecret: string) {
   if (!reNode.test(b.node ?? '')) throw bad('the node number must be 1 to 7 digits');
   if (!localNodes().includes(b.oldNode)) throw bad(`node "${b.oldNode}" is not a local node`);
   if (b.node !== b.oldNode && localNodes().includes(b.node)) throw bad(`node ${b.node} already exists in rpt.conf`);
-  if (!reSecret.test(b.password ?? '')) throw bad('the node password may use letters, digits and . _ + = , : @ % - (1 to 64)');
+  if (!reSecret.test(b.password ?? '')) throw bad('the node password may use letters, digits and . _ + = , % - (1 to 64)');
   if (!/^[A-Za-z0-9]{3,12}$/.test(b.callsign ?? '')) throw bad('the callsign must be letters and digits');
   if (!['simpleusb', 'hub'].includes(b.radio)) throw bad('radio must be simpleusb or hub');
   const pr = PRESETS.find((p) => p.name === b.preset);

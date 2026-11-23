@@ -124,7 +124,7 @@ test('changeLine', () => {
 const nodeOf = (o: Partial<NodeModel> = {}): NodeModel => ({ node: '2001', private: false, placeholder: false, callsign: 'N0CALL', radio: { type: 'simpleusb', channel: 'SimpleUSB/2001', deviceStanza: true, supported: true }, fields: [], other: [], registration: { method: 'none' }, echolink: { present: true, moduleState: 'noload', linked: false, configured: false, enabled: false, fields: [] }, warnings: [], refusals: [], inNodes: true, ...o });
 
 test('validCallsign', () => {
-  for (const c of ['N0CALL', 'n0call', 'W1AW', 'K1ABC/P']) assert.equal(validCallsign(c), true, c);
+  for (const c of ['N0CALL', 'n0call', 'N0ABC', 'N0ABC/P']) assert.equal(validCallsign(c), true, c);
   for (const c of ['', 'NOTSET', 'ABC', '12', 'N0CALL!']) assert.equal(validCallsign(c), false, c);
 });
 
@@ -203,5 +203,5 @@ test('status reporting: state, summary and request', async () => {
 test('statpost url check mirrors the server', async () => {
   const { statpostError } = await import('./nodecfg.ts');
   for (const ok of ['http://stats.allstarlink.org/uhandler', 'https://stats.example.net', 'https://stats.example.net:8080/p?x=1']) assert.equal(statpostError(ok), '', ok);
-  for (const bad of ['stats.example.net', 'ftp://stats.example.net/x', 'http://', 'http://a b', 'http://stats.example.net/$(x)']) assert.notEqual(statpostError(bad), '', bad);
+  for (const bad of ['stats.example.net', 'ftp://stats.example.net/x', 'http://', 'http://a b', 'http://user:x@stats.example.net/p', 'http://stats.example.net/$(x)']) assert.notEqual(statpostError(bad), '', bad);
 });

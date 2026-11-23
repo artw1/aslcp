@@ -45,7 +45,7 @@ export function renumberError(old: string, d: RenumberDraft, registered: boolean
   if (n === old) return 'That is the current number.';
   if (existing.includes(n)) return `Node ${n} already exists on this system.`;
   if (renumberNeedsPassword(registered, d) && !d.password) return 'Enter the new node\'s password.';
-  if (d.password && !validPassword(d.password)) return 'The password may use letters, digits and . _ + = , : @ % - (up to 64).';
+  if (d.password && !validPassword(d.password)) return 'The password may use letters, digits and . _ + = , % - (up to 64).';
   return '';
 }
 

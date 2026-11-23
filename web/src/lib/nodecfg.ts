@@ -314,7 +314,7 @@ export const STATPOST_DEFAULT_URL = 'http://stats.allstarlink.org/uhandler';
 
 /** '' when s is a web address the server accepts for statpost_url. */
 export function statpostError(s: string): string {
-  if (!/^https?:\/\/[^\s"'`$\\/]+(\/\S*)?$/.test(s) || /[$"'`\\]/.test(s)) return 'A web address starting with http:// or https://';
+  if (!/^https?:\/\/[^\s"'`$\\/@]+(\/\S*)?$/.test(s) || /[$"'`\\]/.test(s)) return 'A web address starting with http:// or https://';
   return '';
 }
 

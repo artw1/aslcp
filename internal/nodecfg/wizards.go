@@ -15,7 +15,7 @@ import (
 // list of the steps the API runs after the files (see
 // internal/api/nodewizard_run.go).
 
-var reSecretText = regexp.MustCompile(`^[A-Za-z0-9._+=,:@%-]{1,64}$`)
+var reSecretText = regexp.MustCompile(`^[A-Za-z0-9._+=,%-]{1,64}$`)
 
 // normalizeAnswers validates the answers the setup and add-node wizards share
 // and returns the upper-cased callsign, the registration change (password set
@@ -26,7 +26,7 @@ func normalizeAnswers(node, password, callsign, radio, preset string, reg *RegCh
 	}
 	public = !IsPrivate(node)
 	if !plainText(password) || !reSecretText.MatchString(password) {
-		return "", rc, false, invalid("the password must be 1 to 64 letters, digits or . _ + = , : @ %% -")
+		return "", rc, false, invalid("the password must be 1 to 64 letters, digits or . _ + = , %% -")
 	}
 	cs = strings.ToUpper(strings.TrimSpace(callsign))
 	if !ValidCallsign(cs) {
@@ -355,7 +355,7 @@ func (w *World) PlanRenumber(in RenumberRequest) (*SetupPlan, error) {
 	}
 	public := !IsPrivate(node)
 	if in.Password != "" && (!plainText(in.Password) || !reSecretText.MatchString(in.Password)) {
-		return nil, invalid("the password must be 1 to 64 letters, digits or . _ + = , : @ %% -")
+		return nil, invalid("the password must be 1 to 64 letters, digits or . _ + = , %% -")
 	}
 	regd := w.registration(old).Method != RegNone
 	if regd && public && in.Password == "" {

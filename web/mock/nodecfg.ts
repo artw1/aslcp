@@ -276,7 +276,7 @@ const refused = (file: string, message: string, code = 'refused_stanza') => new 
 function validate(k: Key, v: string) {
   if (v === '') { if (k.optional) return; throw bad(`${k.name}: a value is required`); }
   if (/[\r\n\0]/.test(v)) throw bad(`${k.name}: must be on one line`);
-  if (v.includes(';') && !v.includes('\\;')) throw bad(`${k.name}: must not contain ';' (it starts a comment)`);
+  if (v.replaceAll('\\;', '').includes(';')) throw bad(`${k.name}: must not contain ';' (it starts a comment)`);
   if (v.trim() !== v) throw bad(`${k.name}: must not start or end with a space`);
   if (k.type === 'int') {
     if (!/^-?\d+$/.test(v)) throw bad(`${k.name}: must be a whole number`);
@@ -416,7 +416,7 @@ function plan(body: any) {
   if (body.registration) {
     const rc = body.registration as { method: string; host?: string; password?: string };
     if (!['http', 'iax', 'none'].includes(rc.method)) throw bad('registration method must be http, iax or none');
-    if (rc.password && !/^[^\s@;\\]{1,64}$/.test(rc.password)) throw bad('the registration password must be 1 to 64 characters without spaces, @, ; or \\');
+    if (rc.password && !/^[^\s@;:\\]{1,64}$/.test(rc.password)) throw bad('the registration password must be 1 to 64 characters without spaces, @, :, ; or \\');
     const { http, iax } = regOf(node);
     const pass = rc.password || http?.pass || iax?.pass || '';
     const host = rc.host || (rc.method === 'http' ? http?.host : iax?.host) || http?.host || iax?.host || 'register.allstarlink.org';

@@ -84,6 +84,10 @@ func TestValidate(t *testing.T) {
 		{"rpt.conf:node:statpost_url", "a ; b", false},
 		{"rpt.conf:node:statpost_url", " lead", false},
 		{"rpt.conf:node:statpost_url", "two\nlines", false},
+		{"rpt.conf:node:statpost_url", "http://user:x@stats.example.net/post", false},
+		{"rpt.conf:node:callerid", `a\;b`, true},
+		{"rpt.conf:node:callerid", "a;b", false},
+		{"rpt.conf:node:callerid", `a\;b;c`, false},
 		{"echolink.conf:el0:astnode", "1999", true},
 		{"echolink.conf:el0:astnode", "abc", false},
 	}

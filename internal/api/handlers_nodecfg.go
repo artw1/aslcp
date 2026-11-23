@@ -130,7 +130,8 @@ func (s *Server) handleCfgForm(w http.ResponseWriter, r *http.Request, u store.U
 	if !decodeMax(w, r, &in, false, maxConfigBody) {
 		return
 	}
-	ctx := r.Context()
+	ctx, cancel := applyContext(r)
+	defer cancel()
 	world := s.cfgWorld(ctx, svc)
 	plan, err := world.Plan(in.Request)
 	if err != nil {
@@ -230,8 +231,12 @@ func (s *Server) amiFormSteps(ctx context.Context, svc *configsvc.Service, notic
 	w := s.cfgWorld(ctx, svc)
 	sec := adminSecret(w)
 	host := s.setupHost()
-	if host == nil || !helper.ValidSetupSecret(sec) {
+	if host == nil {
 		return append(steps, setupStepResult{ID: "allmon3", Status: "skipped", Detail: "nothing to change"})
+	}
+	if !helper.ValidSetupSecret(sec) {
+		return append(steps, setupStepResult{ID: "allmon3", Status: "skipped",
+			Detail: "the new password uses characters that are not written to allmon3.ini automatically (letters, digits and . _ + = , : @ % - are): set pass in allmon3.ini yourself if you use Allmon3"})
 	}
 	var reqs []helper.NodeSetupRequest
 	for _, n := range w.LocalNodes() {

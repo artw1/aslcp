@@ -37,7 +37,7 @@ export const RUN_LABELS: Record<string, string> = {
 };
 
 const reNode = /^[1-9]\d{0,6}$/;
-const reSecret = /^[A-Za-z0-9._+=,:@%-]{1,64}$/;
+const reSecret = /^[A-Za-z0-9._+=,%-]{1,64}$/;
 const reElCall = /^[A-Z0-9]{3,10}-[LR]$/;
 const reHost = /^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?(:\d{1,5})?$/;
 const reEmail = /^[^\s@;,]+@[^\s@;,]+\.[^\s@;,]+$/;
@@ -62,7 +62,7 @@ export function stepError(step: WizardStep, d: SetupDraft, presets: Preset[] = [
     case 'node':
       if (!validNode(d.node)) return 'A node number is 1 to 7 digits, for example 1999 (private) or 2001 (public).';
       if (!d.password) return 'A node password is required.';
-      if (!validPassword(d.password)) return 'The password may use letters, digits and . _ + = , : @ % - (up to 64).';
+      if (!validPassword(d.password)) return 'The password may use letters, digits and . _ + = , % - (up to 64).';
       return '';
     case 'identity':
       return validCall(d.callsign) ? '' : 'Letters and digits, for example N0CALL.';
