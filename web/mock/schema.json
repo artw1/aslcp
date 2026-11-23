@@ -372,6 +372,66 @@
       "optional": true
     },
     {
+      "id": "rpt.conf:node:telemwait",
+      "file": "rpt.conf",
+      "scope": "node",
+      "name": "telemwait",
+      "label": "Telemetry delay",
+      "form": "linking",
+      "type": "int",
+      "min": 0,
+      "max": 100000,
+      "unit": "ms",
+      "desc": "How long the node waits before sending most telemetry, so it does not step on the end of a transmission.",
+      "reload": "assumed",
+      "optional": true
+    },
+    {
+      "id": "rpt.conf:node:telemnomdb",
+      "file": "rpt.conf",
+      "scope": "node",
+      "name": "telemnomdb",
+      "label": "Telemetry level",
+      "form": "linking",
+      "type": "int",
+      "min": -60,
+      "max": 0,
+      "unit": "dB",
+      "desc": "Nominal level of telemetry sounds in dB. Negative is quieter.",
+      "reload": "assumed",
+      "optional": true
+    },
+    {
+      "id": "rpt.conf:node:telemduckdb",
+      "file": "rpt.conf",
+      "scope": "node",
+      "name": "telemduckdb",
+      "label": "Telemetry ducking",
+      "form": "linking",
+      "type": "int",
+      "min": -60,
+      "max": 0,
+      "unit": "dB",
+      "desc": "How much telemetry is turned down in dB while voice is being transmitted.",
+      "reload": "assumed",
+      "optional": true
+    },
+    {
+      "id": "rpt.conf:node:parrottime",
+      "file": "rpt.conf",
+      "scope": "node",
+      "name": "parrottime",
+      "label": "Parrot wait",
+      "form": "linking",
+      "type": "int",
+      "min": 0,
+      "max": 100000,
+      "unit": "ms",
+      "desc": "How long the parrot waits after you stop talking before it plays your audio back.",
+      "reload": "assumed",
+      "optional": true
+    },
+    {
       "id": "rpt.conf:node:statpost_url",
       "file": "rpt.conf",
       "scope": "node",
@@ -458,6 +518,30 @@
       "default": "5038",
       "desc": "TCP port of the management interface.",
       "reload": "restart"
+    },
+    {
+      "id": "manager.conf:admin:permit",
+      "file": "manager.conf",
+      "scope": "admin",
+      "name": "permit",
+      "label": "Allowed networks",
+      "form": "ami",
+      "type": "string",
+      "desc": "Networks the admin login may connect from, as address/mask (for example 127.0.0.1/255.255.255.255). This sets one entry; if the file has several, edit them in Advanced.",
+      "reload": "assumed",
+      "optional": true
+    },
+    {
+      "id": "manager.conf:admin:deny",
+      "file": "manager.conf",
+      "scope": "admin",
+      "name": "deny",
+      "label": "Denied networks",
+      "form": "ami",
+      "type": "string",
+      "desc": "Networks the admin login may not connect from. Usually 0.0.0.0/0.0.0.0, which together with a permit line allows only the permitted networks.",
+      "reload": "assumed",
+      "optional": true
     },
     {
       "id": "manager.conf:admin:secret",
@@ -681,6 +765,30 @@
       ],
       "desc": "Where the node learns that the right CTCSS tone is present: nowhere (no), the USB adapter pin (usb) or the inverted pin (usbinvert).",
       "reload": "assumed"
+    },
+    {
+      "id": "simpleusb.conf:device:devstr",
+      "file": "simpleusb.conf",
+      "scope": "device",
+      "name": "devstr",
+      "label": "USB device path",
+      "form": "radio",
+      "type": "string",
+      "desc": "Which USB sound adapter this device uses, as the bus path (for example 1-1.4:1.0). Leave empty when there is only one adapter: it is found automatically.",
+      "reload": "assumed",
+      "optional": true
+    },
+    {
+      "id": "simpleusb.conf:device:serial",
+      "file": "simpleusb.conf",
+      "scope": "device",
+      "name": "serial",
+      "label": "USB serial number",
+      "form": "radio",
+      "type": "string",
+      "desc": "Picks the adapter by its USB serial number instead of its port, so it keeps working when moved to another port. Leave empty when not needed.",
+      "reload": "assumed",
+      "optional": true
     },
     {
       "id": "simpleusb.conf:device:invertptt",

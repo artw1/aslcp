@@ -88,12 +88,44 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request, u stor
 		s.setupError(w, err)
 		return
 	}
+	s.runWizard(w, r, u, svc, wizardSpec{
+		action: "config.setup", defaultMsg: "Setup wizard: node " + plan.Node, plan: plan, base: in.Base, message: in.Message,
+		savenode: true, password: in.Password, ami: in.AMI, amiSecret: in.AMISecret, amiToken: in.AMIToken,
+		allmon: plan.Renumber || in.AMI, logName: "setup wizard",
+	})
+}
+
+// wizardSpec describes one wizard apply for runWizard: the plan and which
+// of the helper steps it needs. The order of the steps is fixed here.
+type wizardSpec struct {
+	action     string // audit action; ".failed" is added on failure
+	logName    string
+	defaultMsg string
+	plan       *nodecfg.SetupPlan
+	base       map[string]string
+	message    string
+	// savenode: write NODE and PASSWORD to savenode.conf.
+	savenode bool
+	password string
+	// ami: the plan sets a new AMI secret, ASLCP's login follows it.
+	ami       bool
+	amiSecret string
+	amiToken  string
+	// allmon: allmon3.ini follows the new number (and secret).
+	allmon bool
+}
+
+// runWizard checks a wizard plan against the files on disk and runs it:
+// files, savenode, ami, restart, allmon3, health.
+func (s *Server) runWizard(w http.ResponseWriter, r *http.Request, u store.User, svc *configsvc.Service, sp wizardSpec) {
+	ctx := r.Context()
+	plan := sp.plan
 	if plan.Blocked() {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "the change would break the configuration", "code": "blocked", "plan": plan})
 		return
 	}
 	var stale []string
-	for f, b := range in.Base {
+	for f, b := range sp.base {
 		if cur, ok := plan.Base[f]; ok && b != "" && b != cur {
 			stale = append(stale, f)
 		}
@@ -115,14 +147,14 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request, u stor
 	// far and the rollback to offer.
 	fail := func(id string, err error) {
 		step(id, "failed", err.Error())
-		s.audit(u, "config.setup.failed", map[string]any{"node": plan.Node, "step": id})
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "setup stopped at step " + id + ": " + err.Error(), "code": "apply_failed",
+		s.audit(u, sp.action+".failed", map[string]any{"node": plan.Node, "step": id})
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "the change stopped at step " + id + ": " + err.Error(), "code": "apply_failed",
 			"step": id, "applied": true, "result": out.Result, "steps": out.Steps, "rollback": out.Rollback})
 	}
 
-	msg := in.Message
+	msg := sp.message
 	if msg == "" {
-		msg = "Setup wizard: node " + plan.Node
+		msg = sp.defaultMsg
 	}
 	// 1. files
 	res, err := svc.Apply(ctx, u.Username, plan.ConfigFiles(), msg, !plan.Restart)
@@ -131,16 +163,19 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request, u stor
 		return
 	}
 	out.Result = &res
-	out.Rollback = &setupRollback{Commit: res.Before, Node: plan.Node, OldNode: plan.OldNode, AMI: in.AMI, Restart: plan.Restart}
+	out.Rollback = &setupRollback{Commit: res.Before, Node: plan.Node, OldNode: plan.OldNode, AMI: sp.ami, Restart: plan.Restart}
 	step("files", "done", "")
 
 	// 2. savenode.conf
 	host := s.setupHost()
-	if host == nil {
+	switch {
+	case !sp.savenode:
+		step("savenode", "skipped", "not requested")
+	case host == nil:
 		step("savenode", "skipped", "the helper is not available")
-	} else {
+	default:
 		enable := true
-		sr, err := host.SavenodeSet(ctx, helper.NodeSetupRequest{Node: plan.Node, Password: in.Password, Enable: &enable, Author: helperAuthor(u)})
+		sr, err := host.SavenodeSet(ctx, helper.NodeSetupRequest{Node: plan.Node, Password: sp.password, Enable: &enable, Author: helperAuthor(u)})
 		switch {
 		case err != nil:
 			fail("savenode", err)
@@ -153,7 +188,7 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request, u stor
 	}
 
 	// 3. ASLCP's AMI login
-	if !in.AMI {
+	if !sp.ami {
 		step("ami", "skipped", "the AMI secret was not changed")
 	} else if reload := s.amiLoginReloader(); reload == nil {
 		step("ami", "skipped", "ASLCP's AMI connection is not managed here")
@@ -183,12 +218,12 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request, u stor
 	}
 
 	// 5. allmon3.ini
-	if host == nil || !(plan.Renumber || in.AMI) {
+	if host == nil || !sp.allmon {
 		step("allmon3", "skipped", "nothing to change")
 	} else {
 		req := helper.NodeSetupRequest{OldNode: plan.OldNode, Node: plan.Node}
-		if in.AMI {
-			req.AMIPass = in.AMISecret
+		if sp.ami {
+			req.AMIPass = sp.amiSecret
 		}
 		ar, err := host.AllmonNodeSet(ctx, req)
 		switch {
@@ -211,13 +246,13 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request, u stor
 		step("health", "failed", "the health check found problems")
 	}
 
-	if in.AMI {
-		s.dropSetupSecret(in.AMIToken)
+	if sp.ami {
+		s.dropSetupSecret(sp.amiToken)
 	}
 	s.rescanNodes()
-	s.audit(u, "config.setup", map[string]any{"node": plan.Node, "oldNode": plan.OldNode, "files": res.Files, "commit": res.Commit,
-		"restart": out.Restarted, "ami": in.AMI, "steps": stepSummary(out.Steps)})
-	s.d.Logger.Printf("setup wizard applied by %s: node %s, %d file(s), commit %s", u.Username, plan.Node, len(res.Files), res.Commit)
+	s.audit(u, sp.action, map[string]any{"node": plan.Node, "oldNode": plan.OldNode, "files": res.Files, "commit": res.Commit,
+		"restart": out.Restarted, "ami": sp.ami, "steps": stepSummary(out.Steps)})
+	s.d.Logger.Printf("%s applied by %s: node %s, %d file(s), commit %s", sp.logName, u.Username, plan.Node, len(res.Files), res.Commit)
 	writeJSON(w, 200, out)
 }
 

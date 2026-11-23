@@ -132,3 +132,172 @@ func TestSetupRefusals(t *testing.T) {
 	body["base"] = map[string]string{"rpt.conf": "deadbeef"}
 	expectErr(t, e, "admin", "POST", "/api/config/setup/apply", body, 409, "conflict")
 }
+
+func TestWizardAuthz(t *testing.T) {
+	e := setupEnvAPI(t)
+	for _, role := range []string{"op", "viewer"} {
+		for _, p := range []string{"/api/config/wizard/add-node/plan", "/api/config/wizard/add-node/apply",
+			"/api/config/wizard/renumber/plan", "/api/config/wizard/renumber/apply"} {
+			expectErr(t, e, role, "POST", p, map[string]any{}, 403, "forbidden")
+		}
+	}
+}
+
+func TestAddNodeWizard(t *testing.T) {
+	e := setupEnvAPI(t)
+	body := map[string]any{"node": "1998", "password": "example-pass", "callsign": "N0CALL", "radio": "hub", "preset": "hub"}
+	var raw json.RawMessage
+	if c := e.do("admin", "POST", "/api/config/wizard/add-node/plan", body, &raw); c != 200 {
+		t.Fatalf("plan: %d %s", c, raw)
+	}
+	var pl struct {
+		Plan struct {
+			Node    string
+			Restart bool
+			Base    map[string]string
+			Steps   []struct{ ID, Skipped string }
+		}
+	}
+	if err := json.Unmarshal(raw, &pl); err != nil || pl.Plan.Node != "1998" || !pl.Plan.Restart || len(pl.Plan.Steps) == 0 {
+		t.Fatalf("plan body: %v %s", err, raw)
+	}
+	if strings.Contains(string(raw), "example-pass") {
+		t.Fatalf("plan leaks the password: %s", raw)
+	}
+	// an existing node is refused
+	dup := map[string]any{"node": "2006", "password": "example-pass", "callsign": "N0CALL", "radio": "hub", "preset": "hub"}
+	expectErr(t, e, "admin", "POST", "/api/config/wizard/add-node/plan", dup, 400, "bad_request")
+	// a stale base is a conflict
+	stale := map[string]any{"node": "1998", "password": "example-pass", "callsign": "N0CALL", "radio": "hub", "preset": "hub", "base": map[string]string{"rpt.conf": "deadbeef"}}
+	expectErr(t, e, "admin", "POST", "/api/config/wizard/add-node/apply", stale, 409, "conflict")
+	body["base"] = pl.Plan.Base
+	raw = nil
+	if c := e.do("admin", "POST", "/api/config/wizard/add-node/apply", body, &raw); c != 200 {
+		t.Fatalf("apply: %d %s", c, raw)
+	}
+	var ap struct {
+		Steps    []struct{ ID, Status string }
+		Rollback struct{ Commit, Node, OldNode string }
+	}
+	if err := json.Unmarshal(raw, &ap); err != nil || ap.Rollback.Commit == "" || ap.Rollback.Node != "1998" {
+		t.Fatalf("apply body: %v %s", err, raw)
+	}
+	for _, s := range ap.Steps {
+		if s.Status == "failed" {
+			t.Fatalf("step failed: %s", raw)
+		}
+	}
+	// the node is in the list now, and the second add is refused
+	var ov struct{ Nodes []struct{ Node string } }
+	e.do("admin", "GET", "/api/config/nodes", nil, &ov)
+	found := false
+	for _, n := range ov.Nodes {
+		found = found || n.Node == "1998"
+	}
+	if !found {
+		t.Fatalf("node 1998 not listed: %+v", ov)
+	}
+	expectErr(t, e, "admin", "POST", "/api/config/wizard/add-node/plan", body, 400, "bad_request")
+	au, _ := e.st.ListAudit(50)
+	ok := false
+	for _, a := range au {
+		if strings.Contains(a.Detail, "example-pass") {
+			t.Fatalf("audit leaks: %+v", a)
+		}
+		ok = ok || a.Action == "config.addnode"
+	}
+	if !ok {
+		t.Fatal("no config.addnode audit entry")
+	}
+	// rollback restores the files
+	rb := map[string]any{"commit": ap.Rollback.Commit, "node": ap.Rollback.Node, "oldNode": ap.Rollback.OldNode, "restart": true}
+	raw = nil
+	if c := e.do("admin", "POST", "/api/config/setup/rollback", rb, &raw); c != 200 {
+		t.Fatalf("rollback: %d %s", c, raw)
+	}
+	ov.Nodes = nil
+	e.do("admin", "GET", "/api/config/nodes", nil, &ov)
+	for _, n := range ov.Nodes {
+		if n.Node == "1998" {
+			t.Fatal("rollback left node 1998")
+		}
+	}
+}
+
+func TestRenumberWizard(t *testing.T) {
+	e := setupEnvAPI(t)
+	body := map[string]any{"oldNode": "2006", "node": "1998", "savenode": true, "password": "example-pass"}
+	var raw json.RawMessage
+	if c := e.do("admin", "POST", "/api/config/wizard/renumber/plan", body, &raw); c != 200 {
+		t.Fatalf("plan: %d %s", c, raw)
+	}
+	var pl struct {
+		Plan struct {
+			Renumber bool
+			Manual   []string
+			Base     map[string]string
+		}
+	}
+	if err := json.Unmarshal(raw, &pl); err != nil || !pl.Plan.Renumber || len(pl.Plan.Manual) < 4 {
+		t.Fatalf("plan body: %v %s", err, raw)
+	}
+	expectErr(t, e, "admin", "POST", "/api/config/wizard/renumber/plan", map[string]any{"oldNode": "2006", "node": "2006"}, 400, "bad_request")
+	expectErr(t, e, "admin", "POST", "/api/config/wizard/renumber/plan", map[string]any{"oldNode": "2006", "node": "1998", "savenode": true}, 400, "bad_request")
+	body["base"] = pl.Plan.Base
+	raw = nil
+	if c := e.do("admin", "POST", "/api/config/wizard/renumber/apply", body, &raw); c != 200 {
+		t.Fatalf("apply: %d %s", c, raw)
+	}
+	if strings.Contains(string(raw), "example-pass") {
+		t.Fatalf("apply leaks the password: %s", raw)
+	}
+	var ap struct {
+		Steps    []struct{ ID, Status string }
+		Rollback struct{ Commit, Node, OldNode string }
+	}
+	if err := json.Unmarshal(raw, &ap); err != nil || ap.Rollback.Commit == "" || ap.Rollback.OldNode != "2006" {
+		t.Fatalf("apply body: %v %s", err, raw)
+	}
+	for _, s := range ap.Steps {
+		if s.Status == "failed" {
+			t.Fatalf("step failed: %s", raw)
+		}
+	}
+	rb := map[string]any{"commit": ap.Rollback.Commit, "node": ap.Rollback.Node, "oldNode": ap.Rollback.OldNode, "restart": true}
+	raw = nil
+	if c := e.do("admin", "POST", "/api/config/setup/rollback", rb, &raw); c != 200 {
+		t.Fatalf("rollback: %d %s", c, raw)
+	}
+}
+
+func TestFormAMISecretFollow(t *testing.T) {
+	e := setupEnvAPI(t)
+	calls := 0
+	e.srv.SetAMILoginReloader(func(bool) (bool, error) { calls++; return true, nil })
+	body := map[string]any{"node": "2006", "changes": []map[string]string{{"id": "manager.conf:admin:secret", "value": "example-pass"}}}
+	var raw json.RawMessage
+	if c := e.do("admin", "POST", "/api/config/form", body, &raw); c != 200 {
+		t.Fatalf("form: %d %s", c, raw)
+	}
+	if calls != 1 {
+		t.Fatalf("the AMI login was reloaded %d times", calls)
+	}
+	if strings.Contains(string(raw), "example-pass") {
+		t.Fatalf("response leaks the secret: %s", raw)
+	}
+	var out struct{ Notices []string }
+	json.Unmarshal(raw, &out)
+	if len(out.Notices) != 1 || !strings.Contains(out.Notices[0], "now uses the new one") {
+		t.Fatalf("notices: %v", out.Notices)
+	}
+	// a literal secret in aslcp.conf: no follow, a notice says so
+	e.srv.SetAMILoginReloader(func(bool) (bool, error) { return false, nil })
+	body["changes"] = []map[string]string{{"id": "manager.conf:admin:secret", "value": "example-pass2"}}
+	raw = nil
+	e.do("admin", "POST", "/api/config/form", body, &raw)
+	out.Notices = nil
+	json.Unmarshal(raw, &out)
+	if len(out.Notices) != 1 || !strings.Contains(out.Notices[0], "aslcp.conf") {
+		t.Fatalf("notices: %v", out.Notices)
+	}
+}

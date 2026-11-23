@@ -1,6 +1,7 @@
 import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVStatus, DVJob, DVSetup, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVNetworks, DVNetView, DVNetPut, DVIdentity, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage, WifiState, WifiScan, TerminalStatus, TerminalTicket, TerminalSessionInfo, DiagPlan, NowCalling, UserListStatus } from './types';
 import type { SetupPlan, SetupPlanBody, SetupApplyResult, SetupRollback, SetupStepResult } from './nodesetup';
 import type { Overview as NodeOverview, SchemaDoc as NodeSchemaDoc, FormRequest as NodeFormRequest, Plan as NodePlan } from './nodecfg';
+import type { AddNodeBody, RenumberBody } from './nodewizards';
 import type { SvcStatus, SvcSetResult, WebPortStatus } from './svcweb';
 
 export class ApiError extends Error {
@@ -232,6 +233,10 @@ export const api = {
   nodeSetupSetSkipped: (skipped: boolean) => req<{ skipped: boolean }>('PUT', '/config/setup/skip', { skipped }),
   nodeSetupPlan: (b: SetupPlanBody, amiToken?: string) => req<{ plan: SetupPlan; amiToken?: string }>('POST', '/config/setup/plan', { ...b, amiToken }),
   nodeSetupApply: (b: SetupPlanBody, o: { amiToken?: string; base: Record<string, string>; message?: string }) => req<SetupApplyResult>('POST', '/config/setup/apply', { ...b, ...o }),
+  nodeAddPlan: (b: AddNodeBody) => req<{ plan: SetupPlan }>('POST', '/config/wizard/add-node/plan', b),
+  nodeAddApply: (b: AddNodeBody, o: { base: Record<string, string>; message?: string }) => req<SetupApplyResult>('POST', '/config/wizard/add-node/apply', { ...b, ...o }),
+  nodeRenumberPlan: (b: RenumberBody) => req<{ plan: SetupPlan }>('POST', '/config/wizard/renumber/plan', b),
+  nodeRenumberApply: (b: RenumberBody, o: { base: Record<string, string>; message?: string }) => req<SetupApplyResult>('POST', '/config/wizard/renumber/apply', { ...b, ...o }),
   nodeSetupRollback: (r: SetupRollback) => req<{ steps: SetupStepResult[]; result?: ConfigApplyResult; restarted?: boolean }>('POST', '/config/setup/rollback', r),
   configRestore: (commit: string, reload: boolean) => req<ConfigApplyResult>('POST', `/config/history/${q(commit)}/restore`, { reload }),
   restartAsteriskNow: () => req<{ ok: boolean }>('POST', '/system/asterisk/restart'),

@@ -183,6 +183,15 @@ var keys = []Key{
 	k(rpt, ScopeNode, "startup_macro", "Startup macro", FormLinking, TypeString,
 		"DTMF commands run once when the node starts, for example to connect to a favourite node. Needs a restart of Asterisk to take effect at the next start.").opt(),
 
+	k(rpt, ScopeNode, "telemwait", "Telemetry delay", FormLinking, TypeInt,
+		"How long the node waits before sending most telemetry, so it does not step on the end of a transmission.").rng(0, 100000).unit("ms").opt(),
+	k(rpt, ScopeNode, "telemnomdb", "Telemetry level", FormLinking, TypeInt,
+		"Nominal level of telemetry sounds in dB. Negative is quieter.").rng(-60, 0).unit("dB").opt(),
+	k(rpt, ScopeNode, "telemduckdb", "Telemetry ducking", FormLinking, TypeInt,
+		"How much telemetry is turned down in dB while voice is being transmitted.").rng(-60, 0).unit("dB").opt(),
+	k(rpt, ScopeNode, "parrottime", "Parrot wait", FormLinking, TypeInt,
+		"How long the parrot waits after you stop talking before it plays your audio back.").rng(0, 100000).unit("ms").opt(),
+
 	// ---- Status reporting (rpt.conf, per node)
 	k(rpt, ScopeNode, "statpost_url", "Status reporting address", FormStatus, TypeString,
 		"Where the node reports its status and links, for the public statistics pages. Empty: no reporting.").opt(),
@@ -201,6 +210,10 @@ var keys = []Key{
 		"Which address the management interface listens on. 127.0.0.1 allows this computer only.").def("0.0.0.0").restart(),
 	k("manager.conf", "general", "port", "Manager port", FormAMI, TypeInt,
 		"TCP port of the management interface.").rng(1, 65535).def("5038").restart(),
+	k("manager.conf", "admin", "permit", "Allowed networks", FormAMI, TypeString,
+		"Networks the admin login may connect from, as address/mask (for example 127.0.0.1/255.255.255.255). This sets one entry; if the file has several, edit them in Advanced.").opt(),
+	k("manager.conf", "admin", "deny", "Denied networks", FormAMI, TypeString,
+		"Networks the admin login may not connect from. Usually 0.0.0.0/0.0.0.0, which together with a permit line allows only the permitted networks.").opt(),
 	k("manager.conf", "admin", "secret", "Manager password", FormAMI, TypeString,
 		"Password of the admin management login. Changing it breaks every tool that still uses the old one, ASLCP included until it is told.").secret(),
 
@@ -243,6 +256,10 @@ var keys = []Key{
 	k(susb, ScopeDevice, "ctcssfrom", "CTCSS detect from", FormRadio, TypeEnum,
 		"Where the node learns that the right CTCSS tone is present: nowhere (no), the USB adapter pin (usb) or the inverted pin (usbinvert).").
 		enum([]string{"no", "usb", "usbinvert"}, []string{"Not used", "USB pin", "USB pin, inverted"}),
+	k(susb, ScopeDevice, "devstr", "USB device path", FormRadio, TypeString,
+		"Which USB sound adapter this device uses, as the bus path (for example 1-1.4:1.0). Leave empty when there is only one adapter: it is found automatically.").opt(),
+	k(susb, ScopeDevice, "serial", "USB serial number", FormRadio, TypeString,
+		"Picks the adapter by its USB serial number instead of its port, so it keeps working when moved to another port. Leave empty when not needed.").opt(),
 	k(susb, ScopeDevice, "invertptt", "Invert PTT", FormRadio, TypeYesNo,
 		"yes if the radio transmits when the PTT line is open instead of closed.").def("no"),
 	k(susb, ScopeDevice, "rxboost", "Receive boost", FormRadio, TypeYesNo,

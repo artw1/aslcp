@@ -99,6 +99,9 @@ type Plan struct {
 	Restart        bool                   `json:"restart"`
 	RestartReasons []string               `json:"restartReasons"`
 	Noop           bool                   `json:"noop"`
+	// Notes explain what the plan deliberately leaves as it is (shown on
+	// the review page).
+	Notes []string `json:"notes"`
 
 	contents map[string]string
 	bases    map[string]string
@@ -523,7 +526,7 @@ func (w *World) Plan(req Request) (*Plan, error) {
 
 func (w *World) newPlan(node, mode string) *Plan {
 	return &Plan{Node: node, Mode: mode, Files: []PlanFile{}, Base: map[string]string{}, Changes: []Applied{}, Errors: []Finding{}, Warnings: []Finding{},
-		Reload: []configsvc.ReloadStep{}, RestartReasons: []string{}, contents: map[string]string{}, bases: map[string]string{}}
+		Reload: []configsvc.ReloadStep{}, RestartReasons: []string{}, Notes: []string{}, contents: map[string]string{}, bases: map[string]string{}}
 }
 
 func (w *World) newEditor() *editor {
@@ -619,6 +622,9 @@ func (w *World) planRequest(p *Plan, ed *editor, si *stanzaInfo, req Request, mo
 			if err := ed.applyKey(ModeOverride, si, k, "Local/pseudo", warn); err != nil {
 				return err
 			}
+			if cur.Type == RadioSimpleUSB {
+				p.Notes = append(p.Notes, w.hubNotes(req.Node, cur)...)
+			}
 		case RadioSimpleUSB:
 			dev := target
 			if cur.Type == RadioSimpleUSB && cur.Device != "" && cur.Device != req.Node {
@@ -636,6 +642,13 @@ func (w *World) planRequest(p *Plan, ed *editor, si *stanzaInfo, req Request, mo
 			if !(req.to != "" && cur.DeviceStanza && cur.Device == req.Node) {
 				if err := ed.ensureDevice(dev); err != nil {
 					return err
+				}
+			}
+			if cur.Type != RadioSimpleUSB && req.to == "" {
+				for _, n := range w.otherSimpleUSBNodes(req.Node) {
+					warn(Finding{Level: LevelWarning, Code: "second_simpleusb", Node: target, File: FileSimple,
+						Message: fmt.Sprintf("Node %s also uses a SimpleUSB adapter. Two nodes need two adapters: set the USB device path or serial number of each in its device section, or both nodes may pick the same one.", n)})
+					break
 				}
 			}
 		default:
@@ -755,6 +768,26 @@ func (w *World) finishPlan(p *Plan, ed *editor, nodeBefore, nodeAfter string) {
 			p.Warnings = append(p.Warnings, f)
 		case !before[findingKey(f)]:
 			p.Warnings = append(p.Warnings, f)
+		}
+	}
+
+	// manager interface checks: only when manager.conf changes
+	if _, ok := p.contents[FileManager]; ok {
+		beforeAMI := map[string]bool{}
+		for _, f := range w.amiFindings() {
+			beforeAMI[f.Code] = true
+		}
+		for _, f := range w2.amiFindings() {
+			switch {
+			case f.Level == LevelError:
+				p.Errors = append(p.Errors, f)
+			case !beforeAMI[f.Code]:
+				p.Warnings = append(p.Warnings, f)
+			}
+		}
+		if a, b := w.ami(), w2.ami(); a.Port != b.Port {
+			p.Warnings = append(p.Warnings, Finding{Level: LevelWarning, Code: CodeAMIPort, File: FileManager,
+				Message: "The manager port changes. ASLCP and any other tool must use the new port; ASLCP follows the password but not the port, so edit aslcp.conf if it connects to this port."})
 		}
 	}
 

@@ -18,7 +18,7 @@ export interface SetupPlanBody {
   registration?: { method: 'http' | 'iax' | 'none'; host?: string };
   echolink?: { call: string; password: string; email: string; name: string; qth: string };
 }
-export interface SetupPlan extends Plan { oldNode: string; public: boolean; renumber: boolean; steps: { id: string; label: string; skipped?: string }[] }
+export interface SetupPlan extends Plan { oldNode: string; public: boolean; renumber: boolean; manual?: string[]; steps: { id: string; label: string; skipped?: string }[] }
 export interface SetupStepResult { id: string; status: 'done' | 'skipped' | 'failed'; detail?: string }
 export interface SetupRollback { commit: string; node: string; oldNode: string; ami: boolean; restart: boolean }
 export interface SetupApplyResult { plan: SetupPlan; result?: ConfigApplyResult; steps: SetupStepResult[]; restarted: boolean; rollback?: SetupRollback }

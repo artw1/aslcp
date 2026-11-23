@@ -26,7 +26,8 @@ export interface NodeModel {
   callsign: string; radio: Radio; fields: Field[]; other: OtherKey[]; registration: Registration; echolink: EchoLink;
   warnings: Finding[]; refusals: Refusal[]; inNodes: boolean;
 }
-export interface Overview { nodes: NodeModel[]; base: Record<string, string>; placeholder: string; warnings: Finding[]; refusal?: Refusal }
+export interface AMIInfo { present: boolean; enabled: boolean; bindAddr: string; port: string; hasSecret: boolean; loopback: boolean; fields?: Field[] }
+export interface Overview { ami?: AMIInfo; nodes: NodeModel[]; base: Record<string, string>; placeholder: string; warnings: Finding[]; refusal?: Refusal }
 
 export interface SchemaKey {
   id: string; file: string; scope: string; name: string; label: string; form: string;
@@ -50,7 +51,7 @@ export interface Plan {
   files: { path: string; base: string; diff: string; changed: boolean }[];
   base: Record<string, string>; changes: PlanChange[];
   errors: Finding[]; warnings: Finding[];
-  reload: { command: string; reason: string }[]; restart: boolean; restartReasons: string[]; noop: boolean;
+  notes?: string[]; reload: { command: string; reason: string }[]; restart: boolean; restartReasons: string[]; noop: boolean;
 }
 
 /** Link to the raw editor ("Advanced") for a file, optionally a line. */
