@@ -1,26 +1,5 @@
 Package: aslcp
 Architecture: arm64
-Version: 1.3.7
-Priority: optional
-Section: net
-Maintainer: ASLCP <noreply@users.noreply.github.com>
-Installed-Size: 25208
-Depends: systemd, adduser, git
-Recommends: asl3
-Filename: pool/main/a/aslcp/aslcp_1.3.7_arm64.deb
-Size: 9335386
-MD5sum: d2379c1abb562a2cb858d2e6a04caec3
-SHA1: 5a2c711c20bbb1764eefdc5f7ab4cc2a47e2ff69
-SHA256: 7faa02db51bbb46d30f499a8b1ad68c43d7596dbc74e7e69ddea6c4d1e8eda57
-SHA512: a50265b510c8efcab67ec4a1485791c52ab7bd0026ebdd489c07fb212f890efe5cc8043e681d32cbbae7079be5c07dd1e19683c9259c03aec1fb6936df59f927
-Homepage: https://artw1.github.io/aslcp/
-Description: Web control panel for AllStarLink 3 nodes.
- Connect and disconnect links, watch live node status and manage favorites
- from a browser. Runs as an unprivileged service next to Asterisk and talks
- to it over AMI. A small root helper performs package updates on request.
-
-Package: aslcp
-Architecture: arm64
 Version: 1.3.8
 Priority: optional
 Section: net
@@ -97,6 +76,27 @@ MD5sum: e685ecd5d7d3b2eb9d15c7247847b2dc
 SHA1: 85bd812bd7a61f7975a673fe5e3ed186c05d2f08
 SHA256: b6b712a8eba6131f72aa7ff953db7e73732dc1ae516220c73c3dcad4f67168a0
 SHA512: 650ea1526b2239ff9803c54b1bba5476ae39bfb77f77346bdd11040449d72384191671224fe05d07f3f3ece9ddfc4d3912186ca495fd040cd8ae62cbb6a52c25
+Homepage: https://artw1.github.io/aslcp/
+Description: Web control panel for AllStarLink 3 nodes.
+ Connect and disconnect links, watch live node status and manage favorites
+ from a browser. Runs as an unprivileged service next to Asterisk and talks
+ to it over AMI. A small root helper performs package updates on request.
+
+Package: aslcp
+Architecture: arm64
+Version: 2.0.1
+Priority: optional
+Section: net
+Maintainer: ASLCP <noreply@users.noreply.github.com>
+Installed-Size: 28217
+Depends: systemd, adduser, git
+Recommends: asl3
+Filename: pool/main/a/aslcp/aslcp_2.0.1_arm64.deb
+Size: 9868612
+MD5sum: 552b12d69d45ae8a11194b61623cdef1
+SHA1: e8dc087bfb10c57e40a41c27ce0f6555b7fd1bee
+SHA256: 8e834811b4df06c12a381680de8fc5c06ce8fb1c04ef8febbb6b8a327ccf3c8f
+SHA512: 2859eaaee84a58740dcc35d5d1e5e03aa318539ef6b90a10ad0ddb5e40b06d25c082fa4de8aae9dadc36bcf3fa0d57a8ae8cd01b22a3f87ee656a17bfd7346d8
 Homepage: https://artw1.github.io/aslcp/
 Description: Web control panel for AllStarLink 3 nodes.
  Connect and disconnect links, watch live node status and manage favorites
