@@ -137,7 +137,7 @@ DMR - Other connects to any Homebrew (MMDVM) master, for example a FreeDMR, DMR+
 
 ## NXDN
 
-NXDN is a native reflector client. It has no password and no login: the engine registers with the reflector by sending polls, using the callsign of the identity. Set your *NXDN ID* (1-65535) in Options to transmit. Under "advanced" are the RAN, the local listen address and the poll and back-off timers. *Enable* needs the identity. On the dashboard, tune a reflector talkgroup; unlink is `9999`.
+NXDN is a native reflector client. It has no password and no login: the engine registers with the reflector by sending polls, using the callsign of the identity. Set your *NXDN ID* (1-65535) in Options; it is required to enable NXDN. Under "advanced" are the RAN, the local listen address and the poll and back-off timers. *Enable* needs the identity and the NXDN ID. Clearing a field and saving clears it (an empty option is dropped and its default applies). On the dashboard, tune a reflector talkgroup; unlink is `9999`.
 
 ## YSF (System Fusion)
 

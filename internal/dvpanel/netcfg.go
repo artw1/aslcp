@@ -112,7 +112,7 @@ var NetOptions = map[string][]OptSpec{
 	},
 	ModeNXDN: {
 		{Key: "nxdn_id", Label: "NXDN ID", Kind: KindInt, Min: 1, Max: 65535,
-			Help: "Your NXDN unit ID. Needed to transmit; receiving works without it."},
+			Help: "Your NXDN ID. Required while NXDN is enabled."},
 		{Key: "nxdn_ran", Label: "RAN", Kind: KindInt, Default: "0", Min: 0, Max: 63, Advanced: true,
 			Help: "Radio access number sent with your transmissions."},
 		{Key: "listen", Label: "Local address", Kind: KindText, Default: "0.0.0.0:0", Advanced: true,
@@ -181,7 +181,7 @@ var NetSpecs = []NetSpec{
 	{Mode: ModeP25, Label: "P25", NeedsIdentity: true,
 		Help: "Enable it, then tune a talkgroup on the dashboard."},
 	{Mode: ModeNXDN, Label: "NXDN", NeedsIdentity: true,
-		Help: "NXDN has no login: tune a reflector talkgroup on the dashboard. The callsign of the identity is sent to the reflector; set your NXDN ID in Options to transmit."},
+		Help: "NXDN has no login: tune a reflector talkgroup on the dashboard. The callsign of the identity is sent to the reflector; set your NXDN ID in Options (required to enable NXDN)."},
 }
 
 // NetSpecFor finds the spec of mode.
@@ -340,6 +340,7 @@ type NetState struct {
 	Address     string
 	Port        int
 	PasswordSet bool
+	Options     map[string]string
 }
 
 // IdentityState is the stored identity.
@@ -378,6 +379,8 @@ func EnableBlock(sp NetSpec, st NetState, id IdentityState) string {
 		return "set the password first"
 	case sp.NeedsIdentity && (id.Callsign == "" || id.DMRID == 0):
 		return "set the callsign and DMR ID in the identity first"
+	case sp.Mode == ModeNXDN && strings.TrimSpace(st.Options["nxdn_id"]) == "":
+		return "set the NXDN ID first"
 	}
 	return ""
 }

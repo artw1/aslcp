@@ -123,8 +123,19 @@ test('TGIF, DMR and NXDN forms', () => {
   const dmr: DVNetView = { ...tgif, mode: 'DMR', label: 'DMR - Other', defaultAddress: undefined };
   assert.equal(enableBlock(dmr, formOf(dmr), id), 'Set the master address first');
   const nxdn: DVNetView = { ...tgif, mode: 'NXDN', label: 'NXDN', fields: { address: false, port: false, password: false }, defaultPort: undefined, defaultAddress: undefined };
-  assert.equal(enableBlock(nxdn, formOf(nxdn), id), '');
-  assert.equal(enableBlock(nxdn, formOf(nxdn), null), 'Set the callsign and DMR ID in the identity first');
+  const nxdnId: DVNetView = { ...nxdn, options: [{ key: 'nxdn_id', label: 'NXDN ID', kind: 'int', default: '', min: 1, max: 65535 }] };
+  // NXDN needs its NXDN ID to be enabled
+  assert.equal(enableBlock(nxdnId, formOf(nxdnId), id), 'Set the NXDN ID first');
+  assert.equal(enableBlock(nxdnId, { ...formOf(nxdnId), options: { nxdn_id: '   ' } }, id), 'Set the NXDN ID first');
+  assert.equal(enableBlock(nxdnId, { ...formOf(nxdnId), options: { nxdn_id: '12345' } }, id), '');
+  assert.equal(enableBlock(nxdnId, { ...formOf(nxdnId), options: { nxdn_id: '12345' } }, null), 'Set the callsign and DMR ID in the identity first');
+  assert.equal(enableBlock(tgif, f, id) === '', false); // other modes are not asked for it
+  // erasing the NXDN ID, or the DMR master options, is sent as a cleared field
+  const stored: DVNetView = { ...nxdnId, enabled: true, values: { nxdn_id: '12345' } };
+  assert.deepEqual(buildPut(stored, { ...formOf(stored), options: { nxdn_id: '' } }), { options: {} });
+  assert.deepEqual(buildPut(stored, { ...formOf(stored), options: { nxdn_id: '  ' } }), { options: {} });
+  const dmrSet: DVNetView = { ...dmr, values: { options: 'TS2=9;', tune_kerchunk: 'false' } };
+  assert.deepEqual(buildPut(dmrSet, { ...formOf(dmrSet), options: { options: '', tune_kerchunk: 'false' } }), { options: { tune_kerchunk: 'false' } });
   assert.equal(modeAvailable(undefined, 'TGIF') && modeAvailable(undefined, 'DMR') && modeAvailable(undefined, 'NXDN'), true);
   assert.equal(modeAvailable(undefined, 'YSF'), true);
   assert.equal(modeAvailable(undefined, 'P25'), true);

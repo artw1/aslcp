@@ -3,6 +3,15 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [Unreleased]
+
+### Changed
+- Digital modes: the remaining mentions of "NXDN unit ID" now say "NXDN ID".
+
+### Fixed
+- Digital modes: clearing the NXDN ID, or the Options of DMR - Other or TGIF, and saving now clears them. Before, the old value came back.
+- Digital modes: NXDN can't be enabled or saved without an NXDN ID; the page says so and the API answers `422 incomplete`.
+
 ## [2.0.1] - 2026-11-23
 
 ### Fixed
