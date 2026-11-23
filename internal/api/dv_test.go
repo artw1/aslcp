@@ -778,3 +778,36 @@ func TestDVUnlinkRemembersMode(t *testing.T) {
 		t.Fatalf("%+v", v)
 	}
 }
+
+// A mode switch or tune started from the web panel is the operator's own: the
+// engine is asked to cut a call in progress.
+func TestDVManualSwitchForces(t *testing.T) {
+	e, _, fc := dvEnv(t, ctl.ModeLoop)
+	waitDV(t, e, func(s dvSnap) bool { return s.Running })
+	if c := e.do("op", "POST", "/api/dv/mode", map[string]string{"mode": "LOOP"}, nil); c != 200 {
+		t.Fatalf("mode %d", c)
+	}
+	if c := e.do("op", "POST", "/api/dv/tune", map[string]string{"mode": "LOOP", "tune": "9990"}, nil); c != 200 {
+		t.Fatalf("tune %d", c)
+	}
+	var modes, tunes int
+	for _, q := range fc.Requests() {
+		switch q.Op {
+		case ctl.OpMode:
+			var a ctl.ModeArgs
+			if err := json.Unmarshal(q.Args, &a); err != nil || !a.Force {
+				t.Errorf("mode without force: %s", q.Args)
+			}
+			modes++
+		case ctl.OpTune:
+			var a ctl.TuneArgs
+			if err := json.Unmarshal(q.Args, &a); err != nil || !a.Force {
+				t.Errorf("tune without force: %s", q.Args)
+			}
+			tunes++
+		}
+	}
+	if modes == 0 || tunes == 0 {
+		t.Fatalf("requests seen: mode %d tune %d", modes, tunes)
+	}
+}

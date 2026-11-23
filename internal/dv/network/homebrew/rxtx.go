@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/artw1/aslcp/internal/dv/ctl"
 	"github.com/artw1/aslcp/internal/dv/dmr"
 	"github.com/artw1/aslcp/internal/dv/network"
 )
@@ -18,6 +19,13 @@ func (n *Net) handleDMRD(p []byte) {
 	n.mu.Lock()
 	sink := n.sink
 	if sink == nil || (d.Slot != n.slot && !n.rxAnySlot) {
+		n.mu.Unlock()
+		return
+	}
+	if n.dropUntunedLocked(d) {
+		// a group call of another talkgroup (the master keeps sending the
+		// previous one for a while): not heard, and it must not take the
+		// per-call slot lock either
 		n.mu.Unlock()
 		return
 	}
@@ -78,6 +86,17 @@ func (n *Net) handleDMRD(p []byte) {
 	if end {
 		sink.End(rc.id)
 	}
+}
+
+// dropUntunedLocked reports whether d is a group call to drop: DMR - Other
+// tuned to a talkgroup hears only that talkgroup. Private calls and any
+// other mode or an untuned network pass.
+func (n *Net) dropUntunedLocked(d dmrd) bool {
+	t := n.target
+	if n.mode != ctl.ModeDMR || t == nil || t.Private || t.TG == 0 {
+		return false
+	}
+	return !d.Private && d.Dst != t.TG
 }
 
 // armRXLocked (re)starts the lost-end timer for rc.

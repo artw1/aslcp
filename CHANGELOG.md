@@ -3,6 +3,12 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [Unreleased]
+
+### Fixed
+- DMR - Other: after retuning, calls on the previous talkgroup are no longer played, shown or counted as activity. Retuning to another talkgroup reconnects to the master, so DMR+ drops the previous one straight away instead of keeping it for about 15 minutes.
+- Digital modes: switching or tuning by hand is no longer refused while a call is in progress; it ends the call. Schedules and the resume after a restart still wait for the call to end.
+
 ## [2.0.0] - 2026-11-23
 
 > **You have to redo the digital-modes configuration in 2.0.** The BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN settings and your identity (callsign and DMR ID) are not carried over from the previous stack, and nothing is imported from its configuration files or from the digital part of a 1.x backup. After the upgrade, open the Digital modes page and enter them again. The previous digital voice stack is removed on upgrade, except md380-emu, which stays installed and working.
