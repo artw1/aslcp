@@ -28,6 +28,7 @@ func TestValidTune(t *testing.T) {
 		ModeYSF:  {"12345", "192.0.2.10:42000", "node2001.example.net:42000", "Test Room", "disconnect"},
 		ModeP25:  {"10100", "9999"},
 		ModeNXDN: {"1", "65000"},
+		ModeM17:  {"M17-XXX C", "M17-002 A", "M17-A1B Z", "disconnect"},
 		ModeLoop: {"9990", "disconnect"},
 	}
 	for m, vs := range ok {
@@ -42,6 +43,7 @@ func TestValidTune(t *testing.T) {
 		ModeP25:  {"123456", "9990#", "abc"},
 		ModeNXDN: {"1.5"},
 		ModeYSF:  {"9990#", "a;b", "a#b", "-x", "x=y", " lead", "trail ", "192.0.2.10:0", "192.0.2.10:70000", "192.0.2.10:042"},
+		ModeM17:  {"M17-XXX", "M17-XXX c", "M17-XX C", "M17-XXXX C", "m17-xxx C", "M17-XXX  C", "M17-XXX CC", "M17-XXX C ", "192.0.2.10:17000", "1997", "9999", "M17-X-X C"},
 		ModeLoop: {"1997", "4000"},
 		"XYZ":    {"1"},
 	}
@@ -55,7 +57,7 @@ func TestValidTune(t *testing.T) {
 }
 
 func TestUnlinkAndPrivate(t *testing.T) {
-	for m, want := range map[string]string{ModeBM: "4000", ModeTGIF: "4000", ModeDMR: "4000", ModeYSF: "disconnect", ModeP25: "9999", ModeNXDN: "9999", ModeLoop: "disconnect", "": ""} {
+	for m, want := range map[string]string{ModeBM: "4000", ModeTGIF: "4000", ModeDMR: "4000", ModeYSF: "disconnect", ModeP25: "9999", ModeNXDN: "9999", ModeM17: "disconnect", ModeLoop: "disconnect", "": ""} {
 		if UnlinkTune(m) != want {
 			t.Errorf("UnlinkTune(%q) = %q", m, UnlinkTune(m))
 		}

@@ -1,5 +1,5 @@
 // Package hostlists keeps the reflector and master lists the digital modes
-// panel offers (DMR masters, YSF reflectors, P25 and NXDN talkgroups): it
+// panel offers (DMR masters, YSF and M17 reflectors, P25 and NXDN talkgroups): it
 // downloads them once a day while digital modes are enabled, serves them to
 // the pickers and resolves a picked entry to a tune target.
 package hostlists
@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/artw1/aslcp/internal/dv/ctl"
+	proto "github.com/artw1/aslcp/internal/dv/m17"
 )
 
 const (
@@ -49,16 +50,17 @@ const (
 )
 
 // Modes are the accepted list modes, in display order.
-var Modes = []string{"dmr", "ysf", "p25", "nxdn"}
+var Modes = []string{"dmr", "ysf", "p25", "nxdn", "m17"}
 
 var files = map[string]string{
 	"dmr":  "DMR_Hosts.txt",
 	"ysf":  "YSF_Hosts.txt",
 	"p25":  "P25_Hosts.txt",
 	"nxdn": "NXDN_Hosts.txt",
+	"m17":  "M17_Hosts.txt",
 }
 
-// ValidMode reports whether m is one of dmr, ysf, p25, nxdn.
+// ValidMode reports whether m is one of dmr, ysf, p25, nxdn, m17.
 func ValidMode(m string) bool { _, ok := files[m]; return ok }
 
 var (
@@ -266,9 +268,10 @@ func (m *Manager) Get(mode string) (List, error) {
 	return List{Mode: mode, Items: append([]Item(nil), l.items...), ETag: l.etag, Truncated: false}, nil
 }
 
-// Resolve turns a picked value into a tune target. mode is YSF, P25 or NXDN
-// (any case). For YSF the value is a reflector id, a name or host:port; for
-// P25 and NXDN a talkgroup. ok is false for a value that is not in the list
+// Resolve turns a picked value into a tune target. mode is YSF, P25, NXDN or
+// M17 (any case). For YSF the value is a reflector id, a name or host:port; for
+// P25 and NXDN a talkgroup; for M17 "M17-XXX C" (reflector and module), whose
+// Room is that same text. ok is false for a value that is not in the list
 // (a literal YSF host:port needs no list).
 func (m *Manager) Resolve(mode, value string) (ctl.Target, bool) {
 	mode = strings.ToLower(mode)
@@ -277,8 +280,17 @@ func (m *Manager) Resolve(mode, value string) (ctl.Target, bool) {
 			return ctl.Target{Host: host, Port: port}, true
 		}
 	}
-	if mode != "ysf" && mode != "p25" && mode != "nxdn" {
+	if mode != "ysf" && mode != "p25" && mode != "nxdn" && mode != "m17" {
 		return ctl.Target{}, false
+	}
+	module := ""
+	if mode == "m17" {
+		// "M17-XXX C": look the reflector up, keep the module in the Room.
+		refl, mod, err := proto.ParseTarget(value)
+		if err != nil {
+			return ctl.Target{}, false
+		}
+		value, module = refl, " "+string(mod)
 	}
 	m.mu.Lock()
 	l := m.lists[mode]
@@ -288,7 +300,7 @@ func (m *Manager) Resolve(mode, value string) (ctl.Target, bool) {
 	}
 	for _, it := range l.items {
 		if it.Value == value || (mode == "ysf" && it.Name == value) {
-			return ctl.Target{Room: it.Value, Name: it.Name, Host: it.Address, Port: it.Port}, true
+			return ctl.Target{Room: it.Value + module, Name: it.Name, Host: it.Address, Port: it.Port}, true
 		}
 	}
 	return ctl.Target{}, false

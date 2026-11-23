@@ -69,6 +69,28 @@ func TestBuildTune(t *testing.T) {
 	if _, _, err = BuildTune("YSF", "00002", res); !errors.Is(err, ErrUnknownTarget) {
 		t.Fatal(err)
 	}
+	res17 := func(mode, v string) (ctl.Target, bool) {
+		if mode == "M17" && v == "M17-XXX C" {
+			return ctl.Target{Room: v, Name: "M17-XXX", Host: "192.0.2.30", Port: 17000}, true
+		}
+		return ctl.Target{}, false
+	}
+	a, _, err = BuildTune("M17", "M17-XXX C", res17)
+	if err != nil || a.Mode != "M17" || a.Target.Room != "M17-XXX C" || a.Target.Port != 17000 {
+		t.Fatalf("%+v %v", a, err)
+	}
+	if _, un, err = BuildTune("M17", "disconnect", res17); err != nil || !un {
+		t.Fatal(un, err)
+	}
+	if _, _, err = BuildTune("M17", "M17-ZZZ C", res17); !errors.Is(err, ErrUnknownTarget) {
+		t.Fatal(err)
+	}
+	if _, _, err = BuildTune("M17", "M17-XXX", res17); !errors.Is(err, ErrBadTune) {
+		t.Fatal(err)
+	}
+	if in := InfoFromStatus(ctl.Status{Mode: "M17", Target: &ctl.Target{Room: "M17-XXX C", Host: "192.0.2.30", Port: 17000}}); in.Mode != "M17" || in.Tune != "M17-XXX C" || in.TG != "M17-XXX C" {
+		t.Fatalf("%+v", in)
+	}
 	if _, _, err = BuildTune("P25", "10100", nil); !errors.Is(err, ErrUnknownTarget) {
 		t.Fatal(err)
 	}

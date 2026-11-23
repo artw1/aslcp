@@ -466,6 +466,16 @@ func TestDisconnectForgetsTune(t *testing.T) {
 	if _, ok := tr.Get().PerMode["YSF"]; ok {
 		t.Fatal("YSF disconnect not remembered")
 	}
+	src.info = tuned(boot, "M17", "M17-XXX C", "")
+	tr.Poll(ctx)
+	if e := tr.Get().PerMode["M17"]; e.Tune != "M17-XXX C" {
+		t.Fatalf("%+v", e)
+	}
+	src.info = tuned(boot, "M17", "disconnect", "")
+	tr.Poll(ctx)
+	if _, ok := tr.Get().PerMode["M17"]; ok {
+		t.Fatal("M17 disconnect remembered")
+	}
 }
 
 func TestResumeSkipsDisabledMode(t *testing.T) {

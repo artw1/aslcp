@@ -1,0 +1,13 @@
+# M17_Hosts.txt
+# Generated: 2026-01-01 00:00:00 UTC
+# By:        Example host file generator
+# Source:    https://example.net/api/reflectors/
+# Reflector data provided by an example provider
+#
+# Format: reflector<TAB>host<TAB>port
+#
+M17-XXX	m17-xxx.example.net	17000
+M17-A1B	192.0.2.30	17001
+M17-12	192.0.2.31	17000
+m17-abc	192.0.2.32	17000
+M17-BAD	192.0.2.33	0

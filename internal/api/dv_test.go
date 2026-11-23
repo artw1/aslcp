@@ -86,7 +86,7 @@ func (f *fakeEngine) DVPrivateClear(context.Context) (helper.DVPrivateReply, err
 
 func dvNets(avail ...string) []ctl.NetStatus {
 	var out []ctl.NetStatus
-	for _, m := range []string{ctl.ModeLoop, ctl.ModeBM, ctl.ModeTGIF, ctl.ModeDMR, ctl.ModeYSF, ctl.ModeP25, ctl.ModeNXDN} {
+	for _, m := range []string{ctl.ModeLoop, ctl.ModeBM, ctl.ModeTGIF, ctl.ModeDMR, ctl.ModeYSF, ctl.ModeP25, ctl.ModeNXDN, ctl.ModeM17} {
 		n := ctl.NetStatus{Mode: m, Enabled: true}
 		for _, a := range avail {
 			if a == m {
@@ -113,7 +113,7 @@ func dvEnvResume(t *testing.T, resume api.DVResume, avail ...string) (*env, *fak
 	fc.SetStatus(ctl.Status{Version: "2.0.0-test", Started: time.Now().Add(-90 * time.Second), Mode: ctl.ModeLoop, Networks: dvNets(avail...),
 		Vocoder: ctl.VocoderStatus{OK: true}})
 	dir := t.TempDir()
-	for _, f := range []string{"DMR_Hosts.txt", "YSF_Hosts.txt", "P25_Hosts.txt", "NXDN_Hosts.txt"} {
+	for _, f := range []string{"DMR_Hosts.txt", "YSF_Hosts.txt", "P25_Hosts.txt", "NXDN_Hosts.txt", "M17_Hosts.txt"} {
 		b, err := os.ReadFile(filepath.Join("..", "hostlists", "testdata", f))
 		if err != nil {
 			t.Fatal(err)
@@ -205,7 +205,7 @@ func TestDVSnapshotLive(t *testing.T) {
 			t.Fatalf("label %q", m.Label)
 		}
 	}
-	if !avail["LOOP"] || avail["BM"] || avail["YSF"] || len(sn.Modes) != 7 {
+	if !avail["LOOP"] || avail["BM"] || avail["YSF"] || len(sn.Modes) != 8 {
 		t.Fatalf("modes %+v", sn.Modes)
 	}
 	if len(sn.Services) != 2 || sn.Services[0].Unit != "aslcp-dv" || !sn.Services[0].Active || sn.Services[1].Unit != "md380-emu" || !sn.Services[1].Active {
@@ -314,6 +314,45 @@ func TestDVTuneYSFResolvesFromList(t *testing.T) {
 	if last.Op != ctl.OpTune || a.Target.Host != "192.0.2.20" || a.Target.Port != 42000 {
 		t.Fatalf("%+v %+v", last, a)
 	}
+}
+
+func TestDVTuneM17(t *testing.T) {
+	e, _, fc := dvEnv(t, ctl.ModeLoop, ctl.ModeM17)
+	waitDV(t, e, func(s dvSnap) bool { return s.Running })
+	expectErr(t, e, "op", "POST", "/api/dv/tune", map[string]string{"mode": "M17", "tune": "M17-QQQ C"}, 422, "unknown_target")
+	for _, bad := range []string{"M17-XXX", "M17-XXX c", "M17-XXX 1", "m17-xxx C", "192.0.2.30:17000", "1997"} {
+		expectErr(t, e, "op", "POST", "/api/dv/tune", map[string]string{"mode": "M17", "tune": bad}, 400, "invalid_field")
+	}
+	if c := e.do("op", "POST", "/api/dv/tune", map[string]string{"mode": "M17", "tune": "M17-XXX C"}, nil); c != 200 {
+		t.Fatalf("%d", c)
+	}
+	last := fc.Requests()[len(fc.Requests())-1]
+	var a ctl.TuneArgs
+	_ = json.Unmarshal(last.Args, &a)
+	if last.Op != ctl.OpTune || a.Mode != "M17" || a.Target.Room != "M17-XXX C" || a.Target.Host != "m17-xxx.example.net" || a.Target.Port != 17000 {
+		t.Fatalf("%+v %+v", last, a)
+	}
+	if c := e.do("op", "POST", "/api/dv/tune", map[string]string{"mode": "M17", "tune": "disconnect"}, nil); c != 200 {
+		t.Fatalf("%d", c)
+	}
+	if last := fc.Requests()[len(fc.Requests())-1]; last.Op != ctl.OpUnlink {
+		t.Fatalf("%+v", last)
+	}
+	// the picker list and a favourite
+	var l struct {
+		Mode  string
+		Items []struct {
+			Value, Address string
+			Port           int
+		}
+	}
+	if c := e.do("op", "GET", "/api/dv/lists?mode=m17", nil, &l); c != 200 || l.Mode != "m17" || len(l.Items) != 2 || l.Items[0].Value != "M17-XXX" || l.Items[0].Port != 17000 {
+		t.Fatalf("%d %+v", c, l)
+	}
+	if c := e.do("op", "POST", "/api/dv/favorites", map[string]string{"mode": "M17", "value": "M17-XXX C", "name": "Test"}, nil); c != 201 && c != 200 {
+		t.Fatalf("favourite: %d", c)
+	}
+	expectErr(t, e, "op", "POST", "/api/dv/favorites", map[string]string{"mode": "M17", "value": "M17-XXX", "name": "Test"}, 400, "bad_request")
 }
 
 func TestDVMode(t *testing.T) {
@@ -633,7 +672,7 @@ func (f *fakeEngine) DVNetworkGet(context.Context) (helper.DVNetworkReply, error
 
 func (f *fakeEngine) netReply(changed bool) helper.DVNetworkReply {
 	r := helper.DVNetworkReply{Identity: f.ident, Rendered: true, Changed: changed}
-	for _, m := range []string{"BM", "TGIF", "DMR", "YSF", "P25", "NXDN"} {
+	for _, m := range []string{"BM", "TGIF", "DMR", "YSF", "P25", "NXDN", "M17"} {
 		if v, ok := f.nets[m]; ok {
 			v.PasswordSet = f.pw[m] != ""
 			r.Networks = append(r.Networks, v)

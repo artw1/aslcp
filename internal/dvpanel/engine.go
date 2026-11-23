@@ -12,7 +12,7 @@ import (
 // ErrBadTune: the tune value is not valid for the mode.
 var ErrBadTune = errors.New("the tune value is not valid for this mode")
 
-// ErrUnknownTarget: a YSF, P25 or NXDN value that no host list knows.
+// ErrUnknownTarget: a YSF, P25, NXDN or M17 value that no host list knows.
 var ErrUnknownTarget = errors.New("the target is not in the host list")
 
 // InfoFromStatus turns the engine's status into what the panel and the
@@ -64,7 +64,7 @@ func InfoFromStatus(st ctl.Status) Info {
 
 // BuildTune turns a panel tune into the engine call. unlink is true when the
 // value is the mode's unlink value: the caller then sends the engine's unlink
-// op instead (args holds only the mode). resolve maps a YSF, P25 or NXDN
+// op instead (args holds only the mode). resolve maps a YSF, P25, NXDN or M17
 // value to the host list entry; ErrUnknownTarget when it has none.
 func BuildTune(mode, tune string, resolve func(mode, value string) (ctl.Target, bool)) (args ctl.TuneArgs, unlink bool, err error) {
 	mode = NormMode(mode)

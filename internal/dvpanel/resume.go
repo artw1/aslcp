@@ -513,7 +513,7 @@ func (t *Tracker) setLastModeLocked(mode string) {
 //   - A DMR private call ("9990#", and the Parrot ID 9990 itself, which only
 //     answers private calls) is never remembered: the remembered tune stays
 //     the last real talkgroup, so a resume does not call a user again.
-//   - Unlink values (DMR 4000, YSF disconnect, P25 and NXDN 9999) are not
+//   - Unlink values (DMR 4000, YSF and M17 disconnect, P25 and NXDN 9999) are not
 //     remembered as a place to return to; they erase the remembered tune of
 //     the mode (a disconnect is remembered, see Forget) and make it the last
 //     mode.

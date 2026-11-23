@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	dvconfig "github.com/artw1/aslcp/internal/dv/config"
 	"os"
 	"path/filepath"
 	"strings"
@@ -243,6 +244,47 @@ func TestDVNetworkNXDN(t *testing.T) {
 	}
 }
 
+func TestDVNetworkM17(t *testing.T) {
+	o := dvCfgOps(t)
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "M17", Enabled: bp(true)}); !errors.Is(err, ErrDVNetIncomplete) {
+		t.Fatalf("no identity: %v", err)
+	}
+	dvNetDo(o, DVNetworkRequest{Identity: &DVIdentityView{Callsign: "N0CALL", DMRID: 1234567}})
+	for name, r := range map[string]DVNetworkRequest{
+		"password": {Mode: "M17", Password: sp("example-pass")},
+		"address":  {Mode: "M17", Address: sp("192.0.2.10")},
+		"can":      {Mode: "M17", Options: map[string]string{"can": "16"}},
+		"suffix":   {Mode: "M17", Options: map[string]string{"suffix": "$"}},
+		"module":   {Mode: "M17", Options: map[string]string{"module": "C"}},
+		"nxdn":     {Mode: "M17", Options: map[string]string{"nxdn_id": "1"}},
+	} {
+		if _, err := dvNetDo(o, r); !errors.Is(err, ErrDVBadRequest) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// a suffix that cannot fit next to any callsign is refused
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "M17", Enabled: bp(true), Options: map[string]string{"suffix": "ABC"}}); !errors.Is(err, ErrDVBadRequest) {
+		t.Fatalf("long suffix: %v", err)
+	}
+	if _, err := dvNetDo(o, DVNetworkRequest{Mode: "M17", Enabled: bp(true), Options: map[string]string{"can": "3", "suffix": "R"}}); err != nil {
+		t.Fatal(err)
+	}
+	n := renderedNet(t, o, "M17")
+	if !n.Enabled || n.Password != "" || n.Address != "" || n.Options["can"] != "3" || n.Options["suffix"] != "R" {
+		t.Fatalf("%+v", n)
+	}
+	// the engine accepts what the helper renders
+	cfg := dvRendered(t, o)
+	if err := dvconfig.Validate(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	// a callsign that does not fit with the suffix keeps it off in the engine config
+	dvNetDo(o, DVNetworkRequest{Identity: &DVIdentityView{Callsign: "N0CALLXY", DMRID: 1234567}})
+	if n := renderedNet(t, o, "M17"); n.Enabled {
+		t.Fatalf("%+v", n)
+	}
+}
+
 func TestDVNetworkUpgradeFrom14EnabledState(t *testing.T) {
 	// 1.4.0: TGIF and DMR switched on with their settings, no identity yet.
 	o := dvCfgOps(t)
@@ -392,7 +434,7 @@ func TestParseDVNetworksDropsLoop(t *testing.T) {
 			t.Fatal(err)
 		}
 		cfg := renderDVConfig(34001, 32001, st, dvctl.TGIFAddress, dvctl.TGIFPort)
-		if len(cfg.Networks) != 7 || cfg.Networks[0].Mode != dvctl.ModeLoop || !cfg.Networks[0].Enabled {
+		if len(cfg.Networks) != 8 || cfg.Networks[0].Mode != dvctl.ModeLoop || !cfg.Networks[0].Enabled {
 			t.Fatalf("%+v", cfg.Networks)
 		}
 	}

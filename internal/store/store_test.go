@@ -419,3 +419,20 @@ func TestMigrateOldDVNames(t *testing.T) {
 		t.Errorf("favourites %+v %v", favs, err)
 	}
 }
+
+func TestDVFavoritesM17(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	// a favourite is a reflector and module; two modules are two favourites
+	for _, v := range []string{"M17-XXX C", "M17-XXX D"} {
+		if f, err := st.AddDVFavorite("M17", v, "Test"); err != nil || f.Mode != "M17" || f.Value != v {
+			t.Fatalf("%+v %v", f, err)
+		}
+	}
+	if _, err := st.AddDVFavorite("M17", "M17-XXX C", "again"); !errors.Is(err, ErrDuplicate) {
+		t.Fatalf("duplicate: %v", err)
+	}
+}
