@@ -172,8 +172,8 @@ test('M17 form: identity, suffix and timers', () => {
     mode: 'M17', label: 'M17', available: true, enabled: false, address: '', port: 0, passwordSet: false,
     fields: { address: false, port: false, password: false }, needsIdentity: true,
     options: [
-      { key: 'can', label: 'Channel access number', kind: 'int', default: '0', min: 0, max: 15 },
-      { key: 'suffix', label: 'Callsign suffix', kind: 'text', default: '', maxLen: 3, advanced: true },
+      { key: 'suffix', label: 'Callsign suffix', kind: 'text', default: '', maxLen: 3 },
+      { key: 'can', label: 'Channel access number', kind: 'int', default: '0', min: 0, max: 15, advanced: true },
       { key: 'timeout_ms', label: 'Link timeout (ms)', kind: 'int', default: '30000', min: 5000, max: 120000, advanced: true },
     ],
     values: {},
