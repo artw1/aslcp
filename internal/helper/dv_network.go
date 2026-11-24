@@ -36,14 +36,15 @@ type DVIdentityView struct {
 // purpose: an empty map ({}) means "clear every option" and must survive the
 // round trip through JSON, only a nil map (null) means "keep".
 type DVNetworkRequest struct {
-	Mode          string            `json:"mode,omitempty"`
-	Enabled       *bool             `json:"enabled,omitempty"`
-	Address       *string           `json:"address,omitempty"`
-	Port          *int              `json:"port,omitempty"`
-	Password      *string           `json:"password,omitempty"`
-	ClearPassword bool              `json:"clearPassword,omitempty"`
-	Options       map[string]string `json:"options"`
-	Identity      *DVIdentityView   `json:"identity,omitempty"`
+	Mode          string              `json:"mode,omitempty"`
+	Enabled       *bool               `json:"enabled,omitempty"`
+	Address       *string             `json:"address,omitempty"`
+	Port          *int                `json:"port,omitempty"`
+	Password      *string             `json:"password,omitempty"`
+	ClearPassword bool                `json:"clearPassword,omitempty"`
+	Options       map[string]string   `json:"options"`
+	Identity      *DVIdentityView     `json:"identity,omitempty"`
+	Audio         *dvpanel.AudioState `json:"audio,omitempty"` // sets the audio settings
 }
 
 // DVNetworkView is one network's settings without its password.
@@ -60,10 +61,11 @@ type DVNetworkView struct {
 // was written (false before digital modes are enabled, when the engine user
 // does not exist yet). Changed: the file content differs from before.
 type DVNetworkReply struct {
-	Identity DVIdentityView  `json:"identity"`
-	Networks []DVNetworkView `json:"networks"`
-	Rendered bool            `json:"rendered"`
-	Changed  bool            `json:"changed"`
+	Identity DVIdentityView     `json:"identity"`
+	Audio    dvpanel.AudioState `json:"audio"`
+	Networks []DVNetworkView    `json:"networks"`
+	Rendered bool               `json:"rendered"`
+	Changed  bool               `json:"changed"`
 }
 
 func dvNetViews(st dvNetworksState) []DVNetworkView {
@@ -77,6 +79,13 @@ func dvNetViews(st dvNetworksState) []DVNetworkView {
 		out = append(out, DVNetworkView{Mode: sp.Mode, Enabled: s.Enabled, Address: s.Address, Port: s.Port, PasswordSet: s.Password != "", Options: o})
 	}
 	return out
+}
+
+func dvAudioView(st dvNetworksState) dvpanel.AudioState {
+	if st.Audio == nil {
+		return dvpanel.DefaultAudio()
+	}
+	return *st.Audio
 }
 
 func dvIdentityView(st dvNetworksState) DVIdentityView {
@@ -99,13 +108,28 @@ func (o *Ops) DVNetwork(ctx context.Context, req *DVRequest) (DVNetworkReply, er
 	o.applyMu.Lock()
 	defer o.applyMu.Unlock()
 	st := o.dvNetLoad()
-	if r == nil || r.Mode == "" && r.Identity == nil {
-		return DVNetworkReply{Identity: dvIdentityView(st), Networks: dvNetViews(st)}, nil
+	if r == nil || r.Mode == "" && r.Identity == nil && r.Audio == nil {
+		return DVNetworkReply{Identity: dvIdentityView(st), Audio: dvAudioView(st), Networks: dvNetViews(st)}, nil
 	}
-	if r.Mode != "" && r.Identity != nil {
-		return DVNetworkReply{}, dvBad("set the identity or one network, not both")
+	n := 0
+	for _, set := range []bool{r.Mode != "", r.Identity != nil, r.Audio != nil} {
+		if set {
+			n++
+		}
 	}
-	if r.Identity != nil {
+	if n > 1 {
+		return DVNetworkReply{}, dvBad("set the identity, the audio or one network, not several at once")
+	}
+	if r.Audio != nil {
+		if err := dvpanel.ValidateAudio(*r.Audio); err != nil {
+			return DVNetworkReply{}, dvBad("%v", err)
+		}
+		st.Audio = nil
+		if *r.Audio != dvpanel.DefaultAudio() {
+			a := *r.Audio
+			st.Audio = &a
+		}
+	} else if r.Identity != nil {
 		id, err := dvpanel.ValidateIdentity(dvpanel.IdentityState{Callsign: r.Identity.Callsign, DMRID: r.Identity.DMRID, RepeaterID: r.Identity.RepeaterID})
 		if err != nil {
 			return DVNetworkReply{}, dvBad("%v", err)
@@ -181,7 +205,7 @@ func (o *Ops) DVNetwork(ctx context.Context, req *DVRequest) (DVNetworkReply, er
 	if err := o.dvWriteNetworks(append(data, '\n')); err != nil {
 		return DVNetworkReply{}, fmt.Errorf("cannot write the network settings: %w", err)
 	}
-	rep := DVNetworkReply{Identity: dvIdentityView(st), Networks: dvNetViews(st)}
+	rep := DVNetworkReply{Identity: dvIdentityView(st), Audio: dvAudioView(st), Networks: dvNetViews(st)}
 	res, err := o.dvConfigLocked()
 	var unknown user.UnknownUserError
 	switch {

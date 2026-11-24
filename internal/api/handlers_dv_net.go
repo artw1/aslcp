@@ -22,6 +22,9 @@ func (s *Server) dvNetRoutes() {
 	m.HandleFunc("PUT /api/dv/networks/{mode}", s.authed(store.RoleAdmin, s.handleDVNetworkPut))
 	m.HandleFunc("GET /api/dv/identity", s.authed(store.RoleAdmin, s.handleDVIdentityGet))
 	m.HandleFunc("PUT /api/dv/identity", s.authed(store.RoleAdmin, s.handleDVIdentityPut))
+	m.HandleFunc("GET /api/dv/audio", s.authed(store.RoleAdmin, s.handleDVAudioGet))
+	m.HandleFunc("PUT /api/dv/audio", s.authed(store.RoleAdmin, s.handleDVAudioPut))
+	m.HandleFunc("GET /api/dv/meter", s.authed(store.RoleViewer, s.handleDVMeter))
 }
 
 // DVNetFields says which of address, port and password a mode takes.
@@ -63,8 +66,9 @@ type DVIdentity struct {
 
 // DVNetworks is the reply of GET /api/dv/networks.
 type DVNetworks struct {
-	Identity DVIdentity  `json:"identity"`
-	Modes    []DVNetView `json:"modes"`
+	Identity DVIdentity         `json:"identity"`
+	Audio    dvpanel.AudioState `json:"audio"`
+	Modes    []DVNetView        `json:"modes"`
 }
 
 // dvNetStatus is the engine's view of a mode. A mode the engine does not
@@ -107,7 +111,7 @@ func dvNetViewOf(sp dvpanel.NetSpec, v helper.DVNetworkView, eng ctl.NetStatus) 
 }
 
 func (s *Server) dvNetReply(rep helper.DVNetworkReply) DVNetworks {
-	out := DVNetworks{Identity: DVIdentity(rep.Identity), Modes: []DVNetView{}}
+	out := DVNetworks{Identity: DVIdentity(rep.Identity), Audio: rep.Audio, Modes: []DVNetView{}}
 	byMode := map[string]helper.DVNetworkView{}
 	for _, v := range rep.Networks {
 		byMode[v.Mode] = v

@@ -35,6 +35,7 @@ var knownModes = map[string]bool{
 // md380-emu on loopback and the echo test network.
 func Default() ctl.Config {
 	c := ctl.Config{Version: ctl.ConfigVersion}
+	c.USRP.AGCMax = ctl.DefaultAGCMax
 	applyDefaults(&c)
 	return c
 }
@@ -45,6 +46,9 @@ func applyDefaults(c *ctl.Config) {
 	}
 	if c.USRP.Peer == "" {
 		c.USRP.Peer = DefaultPeer
+	}
+	if c.USRP.AGCTarget == 0 {
+		c.USRP.AGCTarget = ctl.DefaultAGCTarget // 0 dBFS is not a valid target
 	}
 	if c.Vocoder.MD380 == "" {
 		c.Vocoder.MD380 = DefaultMD380
@@ -82,7 +86,7 @@ func Load(path string) (ctl.Config, bool, error) {
 // Parse decodes and validates a config document strictly: unknown fields and
 // trailing data are errors.
 func Parse(b []byte) (ctl.Config, error) {
-	var c ctl.Config
+	c := ctl.Config{USRP: ctl.USRPConfig{AGCTarget: ctl.DefaultAGCTarget, AGCMax: ctl.DefaultAGCMax}}
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&c); err != nil {
@@ -113,8 +117,14 @@ func Validate(c *ctl.Config) error {
 	if c.Vocoder.TimeoutMS < 1 || c.Vocoder.TimeoutMS > 1000 {
 		return fmt.Errorf("config: vocoder.timeoutMs %d out of range 1..1000", c.Vocoder.TimeoutMS)
 	}
-	if c.USRP.GainRx < -20 || c.USRP.GainRx > 20 || c.USRP.GainTx < -20 || c.USRP.GainTx > 20 {
+	if c.USRP.GainRx < -ctl.MaxGainDb || c.USRP.GainRx > ctl.MaxGainDb || c.USRP.GainTx < -ctl.MaxGainDb || c.USRP.GainTx > ctl.MaxGainDb {
 		return errors.New("config: usrp gain out of range -20..20")
+	}
+	if c.USRP.AGCTarget < ctl.MinAGCTarget || c.USRP.AGCTarget > ctl.MaxAGCTarget {
+		return fmt.Errorf("config: usrp agcTargetDb %d out of range %d..%d", c.USRP.AGCTarget, ctl.MinAGCTarget, ctl.MaxAGCTarget)
+	}
+	if c.USRP.AGCMax < 0 || c.USRP.AGCMax > ctl.MaxAGCMaxGain {
+		return fmt.Errorf("config: usrp agcMaxGainDb %d out of range 0..%d", c.USRP.AGCMax, ctl.MaxAGCMaxGain)
 	}
 	seen := map[string]bool{}
 	for i, n := range c.Networks {

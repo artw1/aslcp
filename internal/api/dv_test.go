@@ -32,6 +32,7 @@ type fakeEngine struct {
 	nets    map[string]helper.DVNetworkView
 	pw      map[string]string
 	netErr  error
+	audio   *dvpanel.AudioState
 }
 
 func (f *fakeEngine) note(s string) { f.mu.Lock(); f.calls = append(f.calls, s); f.mu.Unlock() }
@@ -671,7 +672,10 @@ func (f *fakeEngine) DVNetworkGet(context.Context) (helper.DVNetworkReply, error
 }
 
 func (f *fakeEngine) netReply(changed bool) helper.DVNetworkReply {
-	r := helper.DVNetworkReply{Identity: f.ident, Rendered: true, Changed: changed}
+	r := helper.DVNetworkReply{Identity: f.ident, Audio: dvpanel.DefaultAudio(), Rendered: true, Changed: changed}
+	if f.audio != nil {
+		r.Audio = *f.audio
+	}
 	for _, m := range []string{"BM", "TGIF", "DMR", "YSF", "P25", "NXDN", "M17"} {
 		if v, ok := f.nets[m]; ok {
 			v.PasswordSet = f.pw[m] != ""
@@ -690,6 +694,10 @@ func (f *fakeEngine) DVNetworkSet(_ context.Context, q helper.DVNetworkRequest) 
 	}
 	if q.Identity != nil {
 		f.ident = *q.Identity
+	}
+	if q.Audio != nil {
+		a := *q.Audio
+		f.audio = &a
 	}
 	if q.Mode != "" {
 		if f.nets == nil {

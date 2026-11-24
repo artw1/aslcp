@@ -4,7 +4,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
-  import type { DVIdentity, DVNetView, DVResume, DVSetup, DVTuneMode } from '../lib/types';
+  import type { DVAudio, DVIdentity, DVNetView, DVResume, DVSetup, DVTuneMode } from '../lib/types';
   import { app } from '../lib/store.svelte';
   import { cardState, lastUsed, MODE_NAME, RESUME_NOTICE, resumeHint, resumeToast, UNAVAILABLE_TEXT } from '../lib/dvmodes';
   import { NETWORK_MODES } from '../lib/dvnetworks';
@@ -14,6 +14,7 @@
   import DvBridge from './DvBridge.svelte';
   import DvNet from './DvNet.svelte';
   import DvIdentity from './DvIdentity.svelte';
+  import DvAudio from './DvAudio.svelte';
 
   let v = $state<DVSetup | null>(null), err = $state(''), busy = $state(false);
   let resume = $state<DVResume | null>(null), now = $state(Date.now());
@@ -24,9 +25,9 @@
     try { v = await api.dvSetup(); err = ''; } catch (e) { err = e instanceof Error ? e.message : String(e); }
   }
   // Network settings and identity (admin only: an operator gets 403 and the cards show the state only).
-  let nets = $state<DVNetView[]>([]), identity = $state<DVIdentity | null>(null);
+  let nets = $state<DVNetView[]>([]), identity = $state<DVIdentity | null>(null), audio = $state<DVAudio | null>(null);
   async function loadNets() {
-    try { const r = await api.dvNetworks(); nets = r.modes; identity = r.identity; } catch { nets = []; identity = null; }
+    try { const r = await api.dvNetworks(); nets = r.modes; identity = r.identity; audio = r.audio ?? null; } catch { nets = []; identity = null; audio = null; }
   }
   const netOf = (id: string) => nets.find((n) => n.mode === id);
   function netSaved(n: DVNetView) { nets = nets.map((x) => (x.mode === n.mode ? n : x)); loadNets(); }
@@ -103,6 +104,8 @@
         {:else if netOf(id)}<DvNet v={netOf(id)!} {identity} onsaved={netSaved} />{/if}
       </section>
     {/each}
+
+    {#if audio}<DvAudio {audio} onsaved={(a) => { audio = a; loadNets(); }} />{/if}
 
     <div class="lg:col-span-2"><DvBridge b={v.bridgeNode} base={base()} onsaved={load} /></div>
   </div>

@@ -114,3 +114,35 @@ func TestM17Config(t *testing.T) {
 		t.Fatal("enabled M17 without callsign accepted")
 	}
 }
+
+func TestAudioDefaultsAndRanges(t *testing.T) {
+	c, err := Parse([]byte(`{"version":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.USRP.AGCTx || c.USRP.AGCRx || c.USRP.AGCTarget != -22 || c.USRP.AGCMax != 18 || c.USRP.GainRx != 0 || c.USRP.GainTx != 0 {
+		t.Fatalf("defaults %+v", c.USRP)
+	}
+	if d := Default().USRP; d.AGCTarget != -22 || d.AGCMax != 18 {
+		t.Fatalf("Default %+v", d)
+	}
+	c, err = Parse([]byte(`{"version":1,"usrp":{"agcTx":true,"agcRx":true,"agcTargetDb":-40,"agcMaxGainDb":0,"gainRxDb":-20,"gainTxDb":20}}`))
+	if err != nil || !c.USRP.AGCTx || !c.USRP.AGCRx || c.USRP.AGCTarget != -40 || c.USRP.AGCMax != 0 {
+		t.Fatalf("explicit values: %+v, %v", c.USRP, err)
+	}
+	c, err = Parse([]byte(`{"version":1,"usrp":{"agcTargetDb":-6,"agcMaxGainDb":30}}`))
+	if err != nil || c.USRP.AGCTarget != -6 || c.USRP.AGCMax != 30 {
+		t.Fatalf("upper edge: %+v, %v", c.USRP, err)
+	}
+	for name, doc := range map[string]string{
+		"target low":  `{"version":1,"usrp":{"agcTargetDb":-41}}`,
+		"target high": `{"version":1,"usrp":{"agcTargetDb":-5}}`,
+		"max low":     `{"version":1,"usrp":{"agcMaxGainDb":-1}}`,
+		"max high":    `{"version":1,"usrp":{"agcMaxGainDb":31}}`,
+		"agc type":    `{"version":1,"usrp":{"agcTx":"yes"}}`,
+	} {
+		if _, err := Parse([]byte(doc)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

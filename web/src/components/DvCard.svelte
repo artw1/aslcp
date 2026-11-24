@@ -13,6 +13,7 @@
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
   import NodePicker from './NodePicker.svelte';
   import Dialog from './Dialog.svelte';
+  import DvMeter from './DvMeter.svelte';
   import Menu from './Menu.svelte';
   import RadioTower from '@lucide/svelte/icons/radio-tower';
   import Star from '@lucide/svelte/icons/star';
@@ -240,6 +241,8 @@
         </form>
       {/if}
     {/if}
+
+    <DvMeter running={snap.running} />
 
     {#if snap.heard?.length}
       <details class="text-xs" data-testid="dv-heard">

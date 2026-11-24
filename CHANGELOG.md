@@ -3,6 +3,14 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [2.3.0] - 2026-11-24
+
+### Added
+- Automatic gain control (AGC) on the digital modes bridge audio, in both directions, with a target level and a maximum gain. Off by default: the audio is unchanged.
+- The node and network audio gains are now in the settings (Audio, advanced).
+- Level meters on the Digital modes card for both directions, with a summary of the last transmission (speech level, peak, clipping and a Low, OK or High verdict).
+- `GET /api/dv/audio`, `PUT /api/dv/audio` and `GET /api/dv/meter`.
+
 ## [2.2.1] - 2026-11-24
 
 ### Changed

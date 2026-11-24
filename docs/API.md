@@ -377,7 +377,7 @@ System, Terminal (`#/system/terminal`): a `login` prompt on the node in the brow
 
 ## Digital modes (DMR, YSF, P25, NXDN, M17)
 
-Design: docs/DV.md. Digital modes run on the built-in ASLCP engine (`aslcp-dv`); the server talks to it over its control socket and to the root helper for the enable job and the engine config. The digital modes API moved to `/api/dv` in 2.0; the SSE event is `dv`, the backup part is `dv` and the settings keys are `dv.*`. Non-GET needs `X-ASLCP: 1`. Every write is audited as `dv.*` (`dv.enable`, `dv.disable`, `dv.mode`, `dv.tune`, `dv.unlink`, `dv.favorite.*`, `dv.private.*`, `dv.node_name`, `dv.link`, `dv.resume`, `dv.lists.refresh`, `dv.userlist*`).
+Design: docs/DV.md. Digital modes run on the built-in ASLCP engine (`aslcp-dv`); the server talks to it over its control socket and to the root helper for the enable job and the engine config. The digital modes API moved to `/api/dv` in 2.0; the SSE event is `dv`, the backup part is `dv` and the settings keys are `dv.*`. Non-GET needs `X-ASLCP: 1`. Every write is audited as `dv.*` (`dv.enable`, `dv.disable`, `dv.mode`, `dv.tune`, `dv.unlink`, `dv.favorite.*`, `dv.private.*`, `dv.node_name`, `dv.audio`, `dv.link`, `dv.resume`, `dv.lists.refresh`, `dv.userlist*`).
 
 Errors: `503 dv_unavailable` (no helper), `503 engine_down` (the engine does not answer), `409 not_available` (the mode is not implemented in this build), `409 mode_disabled`, `409 not_enabled` (digital modes are off), `409 busy` (a call is in progress, repeat with `force`), `409 apt_busy`, `409 not_supported`, `409 clock_unset`, `409 unexpected_deps`, `400 invalid_field` (never echoes a value), `422 unknown_target` (a YSF, P25, NXDN or M17 value that no host list knows), `422 bad_config`, `502 engine_error`, `502 key_mismatch`, `404 no_list`, `429 too_soon`.
 
@@ -466,6 +466,9 @@ Design: docs/DV.md "Private node and USRP". Admin only (`403 forbidden`), `X-ASL
 | PUT | `/api/dv/link` | `{"exclusive": bool}` (operator, admin) | `200` `{exclusive}`; saves "Disconnect other links first" (`dv.link_exclusive`) |
 | PUT | `/api/dv/private-node` | `{"node","rxPort","txPort","linkMode":"ondemand\|permanent","localNode","linkExclusive"?,"dryRun"?,"restart"?,"base"?}` | `200` plan (dry run) or result `{ok, steps:[...], rollback}`. Steps: `disconnect`, `asterisk_config`, `engine_config`, `asterisk_restart`, `engine_reload`, `health` |
 | DELETE | `/api/dv/private-node` | optional `{"dryRun"?,"restart"?,"base"?}` | removes the bridge node ASLCP added; same step list |
+| GET | `/api/dv/audio` | admin | `200` `{agcTx,agcRx,agcTargetDb,agcMaxGainDb,gainRxDb,gainTxDb}`: the audio settings (defaults `false,false,-22,18,0,0`) |
+| PUT | `/api/dv/audio` (admin) | the same fields; one left out keeps its default. `agcTargetDb` -40..-6, `agcMaxGainDb` 0..30, gains -20..20 | `200` the settings, `applied`, `applyError?`; hot reload, no restart. `400 invalid_field` |
+| GET | `/api/dv/meter` | viewer | `200` `{running, audio?:{targetDb, tx, rx}}`; `tx` is the node audio to the network, `rx` the network audio to the node. Each: `{agc, active, peakDb, rmsDb, outPeakDb, outRmsDb, last?:{speechDb, outSpeechDb, peakDb, outPeakDb, clipped, durationMs, verdict:"low"\|"ok"\|"high", agc, at}}`. Cached 400 ms |
 | PUT | `/api/dv/private-node/name` | `{"name": string}` | `200` `{name}`; the default is "Digital modes linked node" (`dv.node_name`) |
 | POST | `/api/dv/private-node/adopt` | `{}` | `200` `{adopted,node,chanUsrpWas}`: saves ASLCP's record for a bridge node that already exists |
 | POST | `/api/dv/private-node/rollback` | `{}` | `200` `{rolledBack,problems:[],steps:[]}`; `404 no_rollback` |

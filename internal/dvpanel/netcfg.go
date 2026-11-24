@@ -392,6 +392,41 @@ func ValidateIdentity(id IdentityState) (IdentityState, error) {
 	return id, nil
 }
 
+// AudioState is the audio settings shared by all modes (docs/DV.md "Audio
+// level and AGC"). The names are the engine's: "Rx" is the audio the engine
+// receives from the node (to the network), "Tx" the audio it sends to the node
+// (from the network). The zero value is not the default: use DefaultAudio.
+type AudioState struct {
+	AGCTx        bool `json:"agcTx"`        // AGC on the node's audio, going to the network
+	AGCRx        bool `json:"agcRx"`        // AGC on the network's audio, going to the node
+	AGCTargetDb  int  `json:"agcTargetDb"`  // -40..-6
+	AGCMaxGainDb int  `json:"agcMaxGainDb"` // 0..30
+	GainRxDb     int  `json:"gainRxDb"`     // -20..20, node audio (to the network)
+	GainTxDb     int  `json:"gainTxDb"`     // -20..20, network audio (to the node)
+}
+
+// DefaultAudio leaves the audio as it was before the AGC existed.
+func DefaultAudio() AudioState {
+	return AudioState{AGCTargetDb: ctl.DefaultAGCTarget, AGCMaxGainDb: ctl.DefaultAGCMax}
+}
+
+// ValidateAudio checks the ranges.
+func ValidateAudio(a AudioState) error {
+	if a.AGCTargetDb < ctl.MinAGCTarget || a.AGCTargetDb > ctl.MaxAGCTarget {
+		return fieldErr("agcTargetDb", "%d to %d dBFS", ctl.MinAGCTarget, ctl.MaxAGCTarget)
+	}
+	if a.AGCMaxGainDb < 0 || a.AGCMaxGainDb > ctl.MaxAGCMaxGain {
+		return fieldErr("agcMaxGainDb", "0 to %d dB", ctl.MaxAGCMaxGain)
+	}
+	if a.GainRxDb < -ctl.MaxGainDb || a.GainRxDb > ctl.MaxGainDb {
+		return fieldErr("gainRxDb", "-%d to %d dB", ctl.MaxGainDb, ctl.MaxGainDb)
+	}
+	if a.GainTxDb < -ctl.MaxGainDb || a.GainTxDb > ctl.MaxGainDb {
+		return fieldErr("gainTxDb", "-%d to %d dB", ctl.MaxGainDb, ctl.MaxGainDb)
+	}
+	return nil
+}
+
 // EnableBlock says why a network cannot be enabled with these settings ("" when
 // it can).
 func EnableBlock(sp NetSpec, st NetState, id IdentityState) string {

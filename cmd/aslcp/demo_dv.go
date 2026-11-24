@@ -24,6 +24,7 @@ type demoDV struct {
 	status  ctl.Status
 	srv     *ctl.Server
 	ident   helper.DVIdentityView
+	audio   *dvpanel.AudioState
 	nets    map[string]helper.DVNetworkView
 }
 
@@ -172,7 +173,10 @@ func (d *demoDV) DVNetworkGet(context.Context) (helper.DVNetworkReply, error) {
 }
 
 func (d *demoDV) netReply(changed bool) helper.DVNetworkReply {
-	r := helper.DVNetworkReply{Identity: d.ident, Rendered: true, Changed: changed}
+	r := helper.DVNetworkReply{Identity: d.ident, Audio: dvpanel.DefaultAudio(), Rendered: true, Changed: changed}
+	if d.audio != nil {
+		r.Audio = *d.audio
+	}
 	for _, m := range []string{ctl.ModeBM, ctl.ModeTGIF, ctl.ModeDMR, ctl.ModeYSF, ctl.ModeP25, ctl.ModeNXDN, ctl.ModeM17} {
 		if v, ok := d.nets[m]; ok {
 			r.Networks = append(r.Networks, v)
@@ -186,6 +190,10 @@ func (d *demoDV) DVNetworkSet(_ context.Context, q helper.DVNetworkRequest) (hel
 	defer d.mu.Unlock()
 	if q.Identity != nil {
 		d.ident = *q.Identity
+	}
+	if q.Audio != nil {
+		a := *q.Audio
+		d.audio = &a
 	}
 	if q.Mode != "" {
 		if d.nets == nil {

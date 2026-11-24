@@ -175,6 +175,23 @@ P25 is a native reflector client for P25Reflector style reflectors (UDP, the lin
 
 On the dashboard, choose P25, pick a talkgroup from the list (or type up to five digits) and press Tune; unlink is `9999`. The card shows "Reflector not answering" in the same way.
 
+## Audio level and AGC
+
+The bridge sees the audio of both directions: from your node to the network ("Node audio") and from the network to your node ("Network audio"). Under Audio, Show advanced audio settings:
+
+- **Node audio AGC (to network)** and **Network audio AGC (to node)**: automatic gain control, off by default. It evens out the level of speech toward the target and never boosts silence or noise. It has no delay, and a limiter keeps loud audio from clipping.
+- **AGC target level (dBFS)**: the speech level the AGC aims for, -40 to -6, default -22.
+- **AGC maximum gain (dB)**: the most it may raise a quiet voice, 0 to 30, default 18.
+- **Node audio gain (dB)** and **Network audio gain (dB)**: a fixed gain of -20 to 20 dB, default 0. It is applied before the AGC.
+
+With the defaults the audio is not changed at all. Changes apply at once, without a restart.
+
+The Digital modes card shows two small level meters, "To network" and "From network", and a summary of the last transmission in each direction: the speech level, the peak, and a verdict. The verdict is Low when the speech is more than 10 dB under the target, High when it is more than 8 dB over it, and Clipping when any frame clipped; otherwise OK. The verdict uses the configured target even with the AGC off. With the AGC on, the summary also shows the level after it.
+
+This is not the Tune page meter: that one reads the radio receive level of the sound card on the node, while these meters read the audio inside the bridge, after the gain and the codec path of the digital modes.
+
+To check your own level, tune the echo test (LOOP), transmit a few words, and read "To network" when it ends: a speech level near the target is right. The echo test plays your audio back, so you hear what others hear.
+
 ## Voice codecs
 
 DMR, NXDN and YSF DN use AMBE+2 through the md380-emu vocoder; P25 and YSF Voice FR use IMBE, which the engine encodes and decodes itself in pure Go (no extra service). Every frame a network hands the bridge carries its codec, so one YSF call may be DN and the next VW. The bridge encodes your transmissions with the codec of the active network (P25: IMBE; everything else AMBE). A frame of the wrong length for its codec is dropped. IMBE is computed on the CPU of the node: a 20 ms frame (encode plus decode) takes well under a millisecond on a current x86 core. Measured on a Raspberry Pi 3B+ (arm64, Go build): encode plus decode about 2.4 ms per 20 ms frame (about 12% of one core), encode alone about 3.0 ms, decode alone about 0.85 ms, and barely changed (+3%) while also receiving DMR. The engine runs at most one IMBE encoder and one IMBE decoder at a time.
