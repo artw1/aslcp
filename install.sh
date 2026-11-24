@@ -55,15 +55,15 @@
 #   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL3=0 sh
 # ASL3 telemetry: ASL3 ships asl-telemetry.timer, which once a day sends
 # AllStarLink an anonymous usage report (asl-telemetry.service). ASLCP leaves
-# it as it is by default. ASLCP_ASL_TELEMETRY=off (also 0, no, false) turns it
+# it as it is by default. ASLCP_ASL_TELEMETRY=0 (also off, no, false) turns it
 # off: "systemctl disable --now asl-telemetry.timer" and "systemctl mask" of the
 # timer and the service, if they exist (otherwise it says there is nothing to
-# turn off). ASLCP_ASL_TELEMETRY=on (also 1, yes, true) undoes that (unmask and
+# turn off). ASLCP_ASL_TELEMETRY=1 (also on, yes, true) undoes that (unmask and
 # "enable --now" of the timer). Unset or empty changes nothing. It runs right
 # after the ASL3 step, so it also works when ASL3 was just installed. A failure
 # only produces a warning. Any other value is refused, and so is a combination
 # with ASLCP_TAKEOVER=undo (which does no package work and stops before this).
-#   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL_TELEMETRY=off sh
+#   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL_TELEMETRY=0 sh
 # Pre-flight: before anything is changed the installer refuses to run while
 # ASL3 is still finishing its first-boot setup (systemd still starting, or
 # asl3-boot-oneshot.service / resize2fs_once.service running) or while another
@@ -157,7 +157,7 @@ case "${ASLCP_ASL_TELEMETRY:-}" in
 "") ;;
 [Oo][Ff][Ff] | 0 | [Nn][Oo] | [Ff][Aa][Ll][Ss][Ee]) TELEM_MODE=off ;;
 [Oo][Nn] | 1 | [Yy][Ee][Ss] | [Tt][Rr][Uu][Ee]) TELEM_MODE=on ;;
-*) die "ASLCP_ASL_TELEMETRY must be off, 0, no, false, on, 1, yes or true (got '${ASLCP_ASL_TELEMETRY}')" ;;
+*) die "ASLCP_ASL_TELEMETRY must be 0 or 1 (also off, no, false, on, yes, true) (got '${ASLCP_ASL_TELEMETRY}')" ;;
 esac
 [ "$TAKEOVER_UNDO" -eq 0 ] || [ -z "$TELEM_MODE" ] || die "ASLCP_TAKEOVER=undo cannot be combined with ASLCP_ASL_TELEMETRY"
 
@@ -349,28 +349,73 @@ if [ "$TAKEOVER_UNDO" -eq 0 ]; then
 	asl3_ensure
 
 	# ---8<--- asl3-udev (exercised by the Go tests in internal/pkgscripts; keep self-contained)
-	# asl3_udev_apply: the udev rules the ASL3 packages install only apply to
-	# devices plugged in later, so a USB radio interface that was already
-	# connected stays unusable (Asterisk: "USB device string ... was not found")
-	# until a reboot. Re-apply them to the connected devices, only when this run
-	# installed ASL3. Never fatal: a failure sets UDEV_REBOOT=1 (the summary then
-	# asks for a reboot). Skipped without udevadm or systemd.
+	# asl3_udev_apply: ASL3 ships settings that only take effect for devices
+	# plugged in later, so a USB radio interface that was already connected stays
+	# unusable (Asterisk: "USB device string ... was not found") until a reboot.
+	# Two causes, both handled here, only when this run installed ASL3:
+	#  1. ASL3's udev rules (90-asl3.rules) cover the usb, sound and hidraw
+	#     subsystems; they are reloaded and re-triggered for all three.
+	#  2. ASL3's modprobe option (snd_usb_audio lowlatency=...) is read when the
+	#     module loads and the parameter is read-only at runtime. If the value in
+	#     /etc/modprobe.d differs from the running one, the module is reloaded
+	#     (Asterisk is stopped around it and started again afterwards).
+	# Never fatal: a failure sets UDEV_REBOOT=1 (the summary then asks for a
+	# reboot). Skipped without udevadm or systemd. Test overrides:
+	# ASLCP_SYSTEMD_RUN, ASLCP_MODPROBE_D (default /etc/modprobe.d) and
+	# ASLCP_SYS_MODULE (default /sys/module).
 	UDEV_REBOOT=0
 	asl3_udev_apply() {
 		[ "${ASL3_FRESH:-0}" -eq 1 ] || return 0
 		command -v udevadm >/dev/null 2>&1 || return 0
 		[ -d "${ASLCP_SYSTEMD_RUN:-/run/systemd/system}" ] || return 0
 		say "applying the ASL3 device rules to devices that are already connected"
-		if udevadm control --reload-rules &&
-			udevadm trigger --action=add --subsystem-match=sound --subsystem-match=hidraw &&
-			udevadm settle --timeout=30; then
-			if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet asterisk; then
+		udev_ast=0
+		udev_stopped=0
+		udev_bad=0
+		udev_want=
+		for udev_f in "${ASLCP_MODPROBE_D:-/etc/modprobe.d}"/*.conf; do
+			[ -f "$udev_f" ] || continue
+			udev_v=$(sed -n 's/^[[:space:]]*options[[:space:]][[:space:]]*snd[_-]usb[_-]audio[[:space:]].*lowlatency=\([^[:space:]]*\).*/\1/p' "$udev_f" 2>/dev/null | tail -n 1)
+			[ -z "$udev_v" ] || udev_want=$udev_v
+		done
+		udev_cur=$(cat "${ASLCP_SYS_MODULE:-/sys/module}/snd_usb_audio/parameters/lowlatency" 2>/dev/null) || udev_cur=
+		case "$udev_want" in 0 | n | N | false) udev_want=N ;; 1 | y | Y | true) udev_want=Y ;; *) udev_want= ;; esac
+		case "$udev_cur" in 0 | n | N | false) udev_cur=N ;; 1 | y | Y | true) udev_cur=Y ;; *) udev_cur= ;; esac
+		if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet asterisk; then
+			udev_ast=1
+		fi
+		if [ -n "$udev_want" ] && [ -n "$udev_cur" ] && [ "$udev_want" != "$udev_cur" ]; then
+			if command -v modprobe >/dev/null 2>&1; then
+				say "reloading the USB sound driver so the ASL3 setting (lowlatency=$udev_want) applies"
+				if [ "$udev_ast" -eq 1 ]; then
+					if systemctl stop asterisk; then
+						udev_stopped=1
+					else
+						say "warning: could not stop asterisk"
+					fi
+				fi
+				if ! { modprobe -r snd_usb_audio && modprobe snd_usb_audio; }; then
+					say "warning: could not reload the USB sound driver"
+					udev_bad=1
+				fi
+			else
+				udev_bad=1
+			fi
+		fi
+		if ! { udevadm control --reload-rules &&
+			udevadm trigger --action=add --subsystem-match=usb --subsystem-match=sound --subsystem-match=hidraw &&
+			udevadm settle --timeout=30; }; then
+			say "warning: could not apply the device rules"
+			udev_bad=1
+		fi
+		if [ "$udev_ast" -eq 1 ]; then
+			if [ "$udev_stopped" -eq 1 ]; then
+				systemctl start asterisk || say "warning: could not start asterisk (see: journalctl -u asterisk)"
+			elif [ "$udev_bad" -eq 0 ]; then
 				systemctl restart asterisk || say "warning: could not restart asterisk (see: journalctl -u asterisk)"
 			fi
-		else
-			say "warning: could not apply the device rules"
-			UDEV_REBOOT=1
 		fi
+		[ "$udev_bad" -eq 0 ] || UDEV_REBOOT=1
 		return 0
 	}
 	# --->8--- asl3-udev
