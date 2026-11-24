@@ -15,6 +15,9 @@
 #   ASLCP_DEB=/path.deb   install this arm64 deb instead of the one in the repository
 #   BASE_URL, BASE_SHA256 use this base image (.img.xz) instead of the latest Lite
 #   OUT_DIR               where the results go (default ./image-out)
+#   IMAGE_BASE_URL        where the .img.xz will be downloaded from (no trailing slash). The Raspberry
+#                         Pi Imager repository file aslcp-imager.json links to it; without it the
+#                         file is still written but its url is a placeholder and not usable
 #   WORKDIR               scratch space, needs about 9 GB (default ./image-work)
 #   IMAGE_DATE            YYYY.MM.DD in the name (default: today, UTC)
 #   GROW_MIB              space added to the root file system for the build (2560)
@@ -23,8 +26,12 @@
 #   APT_URL               ASLCP apt repository (https://w1jar.github.io/aslcp)
 #   SKIP_CHROOT=1         dry run: download, grow, mount, clean, shrink, compress, no packages
 #
-#   build-image.sh --select-base FILE   print "url<TAB>sha256<TAB>release_date" of the
-#                                       Lite (64-bit) entry of an os_list JSON, and exit
+#   build-image.sh --select-base FILE   print "url<TAB>sha256<TAB>release_date<TAB>init_format<TAB>devices"
+#                                       of the Lite (64-bit) entry of an os_list JSON, and exit
+#                                       (devices is a JSON array of Imager device tags)
+#   build-image.sh --imager-json FILE OUT
+#                                       write the Imager repository file OUT for the base
+#                                       entry in FILE with dummy sizes (used by the tests)
 set -euo pipefail
 
 NAME="ASLCP for ASL3 (Raspberry Pi image)"
@@ -38,19 +45,61 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 say() { printf '%s\n' "build-image: $*" >&2; }
 die() { printf '%s\n' "build-image: error: $*" >&2; exit 1; }
 
-# select_base FILE: url, sha256 (empty when the list has none) and release date of
-# the Lite (64-bit) entry, tab separated. The entry may sit at any depth
+# select_base FILE: url, sha256 (empty when the list has none), release date,
+# init_format and devices (JSON array; defaults cloudinit-rpi and the three 64-bit
+# tags) of the Lite (64-bit) entry, tab separated. The entry may sit at any depth
 # (the official list nests older releases in sub-lists).
 select_base() {
 	jq -er --arg n "$LITE_ENTRY" '
 		[.. | objects | select(.name? == $n and ((.url? // "") | length > 0))]
 		| if length == 0 then error("no entry") else .[0] end
-		| [.url, (.image_download_sha256 // ""), (.release_date // "")] | @tsv' "$1"
+		| [.url, (.image_download_sha256 // ""), (.release_date // ""),
+		   ((.init_format // "") | if . == "" then "cloudinit-rpi" else . end),
+		   ((.devices // []) | if length == 0 then ["pi5-64bit", "pi4-64bit", "pi3-64bit"] else . end | tojson)]
+		| @tsv' "$1"
+}
+
+# write_imager_json OUT DATE FILE SIZE_DL SHA_DL SIZE_EXTRACT SHA_EXTRACT INIT_FORMAT DEVICES_JSON BASE_URL
+# Raspberry Pi Imager repository file (Content Repository, custom URL): the device
+# list plus one OS entry. Raspberry Pi device icons only; no OS icon.
+write_imager_json() {
+	local out=$1 date=$2 file=$3 dl_size=$4 dl_sha=$5 ex_size=$6 ex_sha=$7 init=$8 devs=$9 base=${10}
+	local icons=https://downloads.raspberrypi.com/imager/icons
+	jq -n --arg date "$date" --arg file "$file" --arg base "$base" --arg icons "$icons" \
+		--argjson dl_size "$dl_size" --arg dl_sha "$dl_sha" --argjson ex_size "$ex_size" --arg ex_sha "$ex_sha" \
+		--arg init "$init" --argjson devs "$devs" '
+		{imager: {latest_version: "2.0.0", url: "https://www.raspberrypi.com/software/", devices: [
+			{name: "Raspberry Pi 5", tags: ["pi5-64bit"], default: true, icon: ($icons + "/RPi_5.png"),
+			 description: "Raspberry Pi 5, 500 / 500+, and Compute Module 5", matching_type: "exclusive"},
+			{name: "Raspberry Pi 4", tags: ["pi4-64bit"], icon: ($icons + "/RPi_4.png"),
+			 description: "Raspberry Pi 4 Model B, 400, and Compute Module 4 / 4S", matching_type: "inclusive"},
+			{name: "Raspberry Pi 3", tags: ["pi3-64bit"], icon: ($icons + "/RPi_3.png"),
+			 description: "Raspberry Pi 3 Model A+ / B / B+ and Compute Module 3 / 3+", matching_type: "inclusive"},
+			{name: "Raspberry Pi Zero 2 W", tags: ["pi3-64bit"], icon: ($icons + "/RPi_Zero_2_W.png"),
+			 description: "Raspberry Pi Zero 2 W", matching_type: "inclusive"}]},
+		 os_list: [{name: ("ASLCP for ASL3 " + $date),
+			description: "Unofficial image: Raspberry Pi OS Lite (64-bit) with AllStarLink 3 (ASL3) and ASLCP, a web control panel for ASL3 nodes. Not an official AllStarLink or Raspberry Pi product.",
+			website: "https://github.com/w1jar/aslcp",
+			url: ($base + "/" + $file),
+			extract_size: $ex_size, extract_sha256: $ex_sha,
+			image_download_size: $dl_size, image_download_sha256: $dl_sha,
+			release_date: ($date | gsub("\\."; "-")),
+			devices: $devs, init_format: $init}]}' >"$out"
 }
 
 if [ "${1:-}" = "--select-base" ]; then
 	[ -n "${2:-}" ] || die "usage: $0 --select-base FILE"
 	select_base "$2" || die "no '$LITE_ENTRY' entry with a url in $2"
+	exit 0
+fi
+
+if [ "${1:-}" = "--imager-json" ]; then
+	[ $# -eq 3 ] || die "usage: $0 --imager-json FILE OUT"
+	line=$(select_base "$2") || die "no '$LITE_ENTRY' entry with a url in $2"
+	d=${IMAGE_DATE:-2000.01.02}
+	write_imager_json "$3" "$d" "aslcp-asl3-arm64-$d.img.xz" 1000 "$(printf '%064d' 1)" 4000 "$(printf '%064d' 2)" \
+		"$(printf '%s\n' "$line" | cut -f4)" "$(printf '%s\n' "$line" | cut -f5)" \
+		"${IMAGE_BASE_URL:-https://example.invalid/images}"
 	exit 0
 fi
 
@@ -66,6 +115,8 @@ ASLCP_DEB=${ASLCP_DEB:-}
 OUT_DIR=$(realpath -m "${OUT_DIR:-./image-out}")
 WORKDIR=$(realpath -m "${WORKDIR:-./image-work}")
 IMAGE_DATE=${IMAGE_DATE:-$(date -u +%Y.%m.%d)}
+IMAGE_BASE_URL=${IMAGE_BASE_URL:-}
+IMAGE_BASE_URL=${IMAGE_BASE_URL%/}
 GROW_MIB=${GROW_MIB:-2560}
 MARGIN_MIB=${MARGIN_MIB:-300}
 XZ_LEVEL=${XZ_LEVEL:-6}
@@ -115,6 +166,8 @@ mkdir -p "$WORKDIR" "$OUT_DIR" "$MNT"
 BASE_URL=${BASE_URL:-}
 BASE_SHA256=${BASE_SHA256:-}
 BASE_DATE=
+BASE_INIT=cloudinit-rpi
+BASE_DEVICES='["pi5-64bit","pi4-64bit","pi3-64bit"]'
 if [ -z "$BASE_URL" ]; then
 	say "resolving the latest '$LITE_ENTRY' from $OS_LIST_URL"
 	fetch "$OS_LIST_URL" "$WORKDIR/os_list.json"
@@ -122,6 +175,8 @@ if [ -z "$BASE_URL" ]; then
 	# cut, not read: an empty middle field must stay empty.
 	BASE_URL=$(printf '%s\n' "$line" | cut -f1)
 	list_sha=$(printf '%s\n' "$line" | cut -f2)
+	BASE_INIT=$(printf '%s\n' "$line" | cut -f4)
+	BASE_DEVICES=$(printf '%s\n' "$line" | cut -f5)
 	BASE_DATE=$(printf '%s\n' "$line" | cut -f3)
 	[ -n "$BASE_SHA256" ] || BASE_SHA256=$list_sha
 fi
@@ -431,6 +486,12 @@ jq -n \
 	  base_sha256: $base_sha256, aslcp_version: $aslcp_version, asl3_version: $asl3_version, channel: $channel,
 	  build_date: $build_date, image_download_size: $image_download_size, image_download_sha256: $image_download_sha256,
 	  extract_size: $extract_size, extract_sha256: $extract_sha256}' >"$OUT_DIR/image-info.json"
+# Raspberry Pi Imager repository (Content Repository, custom URL), see packaging/image/README.md.
+if [ -z "${IMAGE_BASE_URL:-}" ]; then
+	say "warning: IMAGE_BASE_URL is not set: the url in aslcp-imager.json is a placeholder"
+fi
+write_imager_json "$OUT_DIR/aslcp-imager.json" "$IMAGE_DATE" "$BASENAME.img.xz" "$dl_size" "$dl_sha" \
+	"$extract_size" "$extract_sha" "$BASE_INIT" "$BASE_DEVICES" "${IMAGE_BASE_URL:-https://example.invalid/set-IMAGE_BASE_URL}"
 rm -f "$IMG"
 say "done:"
 ls -l "$OUT_DIR" >&2

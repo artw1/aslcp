@@ -1,6 +1,7 @@
 package pkgscripts
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -179,7 +180,7 @@ func TestSelectBase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if got, want := strings.TrimRight(string(out), "\n"), "https://example.invalid/lite-arm64.img.xz\t\t2000-01-03"; got != want {
+	if got, want := strings.TrimRight(string(out), "\n"), "https://example.invalid/lite-arm64.img.xz\t\t2000-01-03\tcloudinit-rpi\t[\"pi5-64bit\",\"pi4-64bit\",\"pi3-64bit\"]"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	// No Lite (64-bit) entry: an error, not a wrong pick.
@@ -189,6 +190,94 @@ func TestSelectBase(t *testing.T) {
 	}
 	if out, err := exec.Command("bash", imageScript("build-image.sh"), "--select-base", p).CombinedOutput(); err == nil {
 		t.Errorf("expected failure, got %q", out)
+	}
+}
+
+func TestImagerJSON(t *testing.T) {
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("no jq")
+	}
+	out := filepath.Join(t.TempDir(), "aslcp-imager.json")
+	cmd := exec.Command("bash", imageScript("build-image.sh"), "--imager-json", filepath.Join("testdata", "os_list_sample.json"), out)
+	cmd.Env = append(os.Environ(), "IMAGE_DATE=2026.03.04", "IMAGE_BASE_URL=https://downloads.example.invalid/dl/image-test-1")
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, b)
+	}
+	raw, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%s", raw)
+	var doc struct {
+		Imager struct {
+			LatestVersion string `json:"latest_version"`
+			Devices       []struct {
+				Name, Icon   string
+				MatchingType string `json:"matching_type"`
+				Tags         []string
+				Default      bool
+			} `json:"devices"`
+		} `json:"imager"`
+		OSList []struct {
+			Name, Description, Website, URL string
+			ExtractSize                     int64    `json:"extract_size"`
+			ExtractSHA                      string   `json:"extract_sha256"`
+			DownloadSize                    int64    `json:"image_download_size"`
+			DownloadSHA                     string   `json:"image_download_sha256"`
+			ReleaseDate                     string   `json:"release_date"`
+			Devices                         []string `json:"devices"`
+			InitFormat                      string   `json:"init_format"`
+			Icon                            string   `json:"icon"`
+		} `json:"os_list"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if doc.Imager.LatestVersion == "" || len(doc.Imager.Devices) != 4 {
+		t.Fatalf("imager block: %+v", doc.Imager)
+	}
+	if d := doc.Imager.Devices[0]; d.Name != "Raspberry Pi 5" || !d.Default || d.MatchingType != "exclusive" {
+		t.Errorf("first device: %+v", d)
+	}
+	for _, d := range doc.Imager.Devices {
+		if !strings.HasPrefix(d.Icon, "https://downloads.raspberrypi.com/imager/icons/") || len(d.Tags) == 0 {
+			t.Errorf("device %+v", d)
+		}
+	}
+	if len(doc.OSList) != 1 {
+		t.Fatalf("os_list has %d entries", len(doc.OSList))
+	}
+	e := doc.OSList[0]
+	if e.Name != "ASLCP for ASL3 2026.03.04" || e.Website != "https://github.com/w1jar/aslcp" || e.Icon != "" {
+		t.Errorf("entry: %+v", e)
+	}
+	if !strings.Contains(e.Description, "nofficial") || !strings.Contains(e.Description, "Raspberry Pi OS Lite (64-bit)") || !strings.Contains(e.Description, "AllStarLink 3") {
+		t.Errorf("description: %q", e.Description)
+	}
+	if e.URL != "https://downloads.example.invalid/dl/image-test-1/aslcp-asl3-arm64-2026.03.04.img.xz" {
+		t.Errorf("url: %q", e.URL)
+	}
+	if e.InitFormat != "cloudinit-rpi" || strings.Join(e.Devices, ",") != "pi5-64bit,pi4-64bit,pi3-64bit" {
+		t.Errorf("init_format/devices: %q %v", e.InitFormat, e.Devices)
+	}
+	sha := regexp.MustCompile(`^[0-9a-f]{64}$`)
+	if e.ExtractSize <= 0 || e.DownloadSize <= 0 || !sha.MatchString(e.ExtractSHA) || !sha.MatchString(e.DownloadSHA) {
+		t.Errorf("sizes/checksums: %+v", e)
+	}
+	if e.ReleaseDate != "2026-03-04" {
+		t.Errorf("release_date: %q", e.ReleaseDate)
+	}
+	// An os list entry without init_format/devices falls back to the defaults.
+	p := filepath.Join(t.TempDir(), "l.json")
+	if err := os.WriteFile(p, []byte(`{"os_list":[{"name":"Raspberry Pi OS Lite (64-bit)","url":"https://example.invalid/x.img.xz"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b, err := exec.Command("bash", imageScript("build-image.sh"), "--select-base", p).CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, b)
+	}
+	if !strings.HasSuffix(strings.TrimRight(string(b), "\n"), "\tcloudinit-rpi\t[\"pi5-64bit\",\"pi4-64bit\",\"pi3-64bit\"]") {
+		t.Errorf("fallbacks: %q", b)
 	}
 }
 

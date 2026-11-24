@@ -2,12 +2,20 @@ name: Pi image
 
 # Builds the flashable Raspberry Pi image "ASLCP for ASL3" (latest Raspberry Pi OS
 # Lite arm64 + ASL3 + ASLCP) and attaches it to the run as an artifact (kept 14
-# days). Nothing is released or published: no GitHub release, no gh-pages.
+# days). Tag builds also publish (see below); manual runs stay artifact-only.
 # Three triggers:
 #  - tag v*.*.* (release tags, same pattern as release.yml): builds automatically
-#    with the default inputs (channel stable, aslcp_source build);
+#    with the default inputs (channel stable, aslcp_source build). The files are
+#    attached to the GitHub release of the tag and aslcp-imager.json is published to
+#    gh-pages as imager/latest.json (Raspberry Pi Imager content repository URL
+#    https://w1jar.github.io/aslcp/imager/latest.json);
 #  - tag image-test-*: test builds from any branch (git tag image-test-1 && git push origin image-test-1);
-#  - workflow_dispatch: manual run with the channel and aslcp_source inputs.
+#    the files go to a pre-release of that tag (gh-pages is not touched);
+#  - workflow_dispatch: manual run with the channel and aslcp_source inputs (artifact only).
+# Races with release.yml: for a v tag this workflow never creates the release (release.yml
+# creates it, or adopts one made by hand), it waits for it and uploads. The gh-pages push
+# uses the same concurrency group (publish-apt) and the same checkout script as release.yml,
+# and only adds imager/latest.json, which the apt publishing never touches.
 # Inputs do not exist on tag pushes, so every use of inputs has a default.
 # See packaging/image/README.md.
 on:
@@ -41,6 +49,8 @@ jobs:
     env:
       CHANNEL: ${{ inputs.channel || 'stable' }}
       ASLCP_SOURCE: ${{ inputs.aslcp_source || 'build' }}
+      # where the release assets will be: the Imager list (aslcp-imager.json) links to it
+      IMAGE_BASE_URL: ${{ github.ref_type == 'tag' && format('https://github.com/{0}/releases/download/{1}', github.repository, github.ref_name) || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -72,11 +82,12 @@ jobs:
             deb=$(ls "$PWD"/dist/aslcp_*_arm64.deb)
             export ASLCP_DEB="$deb"
           fi
-          sudo --preserve-env=CHANNEL,ASLCP_DEB env OUT_DIR="$PWD/image-out" packaging/image/build-image.sh
+          sudo --preserve-env=CHANNEL,ASLCP_DEB,IMAGE_BASE_URL env OUT_DIR="$PWD/image-out" packaging/image/build-image.sh
       - name: Result
         run: |
           ls -l image-out
           cat image-out/image-info.json
+          cat image-out/aslcp-imager.json
       - uses: actions/upload-artifact@v4
         with:
           name: pi-image-${{ env.CHANNEL }}-${{ github.run_id }}
@@ -85,6 +96,95 @@ jobs:
             image-out/*.sha256
             image-out/*.manifest.txt
             image-out/image-info.json
+            image-out/aslcp-imager.json
           if-no-files-found: error
           retention-days: 14
           compression-level: 0 # the image is already xz-compressed
+
+  # Tag builds: attach the files to the GitHub release of the tag.
+  release:
+    if: ${{ github.ref_type == 'tag' }}
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # upload release assets
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: pi-image-stable-${{ github.run_id }} # tag builds always use the default channel
+          path: image-out
+      - name: Attach to the release
+        run: |
+          set -euo pipefail
+          files=(image-out/*.img.xz image-out/*.sha256 image-out/*.manifest.txt image-out/image-info.json image-out/aslcp-imager.json)
+          if [[ $TAG == image-test-* ]]; then
+            # test build: a pre-release of its own (created here, or reused on a re-run)
+            if ! gh release view "$TAG" >/dev/null 2>&1; then
+              gh release create "$TAG" --verify-tag --prerelease --title "$TAG" \
+                --notes "Test build of the ASLCP for ASL3 Raspberry Pi image. Not a release."
+            fi
+          else
+            # release tag: release.yml creates the release (or adopts one made by hand).
+            # Never create it here, so the two workflows cannot clash: wait for it.
+            ok=0
+            for i in $(seq 1 90); do
+              if gh release view "$TAG" >/dev/null 2>&1; then ok=1; break; fi
+              echo "waiting for the release $TAG to exist ($i/90)"
+              sleep 10
+            done
+            [ "$ok" -eq 1 ] || { echo "the release $TAG does not exist after 15 minutes (did the Release workflow fail?)" >&2; exit 1; }
+          fi
+          for try in 1 2 3 4; do
+            gh release upload "$TAG" "${files[@]}" --clobber && exit 0
+            echo "upload failed, retrying"; sleep $((try * 15))
+          done
+          exit 1
+
+  # Release tags only: the Imager content repository file on gh-pages.
+  imager-list:
+    if: ${{ github.ref_type == 'tag' && !startsWith(github.ref_name, 'image-test-') }}
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push to the gh-pages branch
+    concurrency:
+      group: publish-apt # the same group as release.yml: never two gh-pages pushes at once
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: code
+      - uses: actions/download-artifact@v4
+        with:
+          name: pi-image-stable-${{ github.run_id }}
+          path: image-out
+      - name: Check out gh-pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: code/packaging/apt-checkout.sh --create site
+      - name: Publish imager/latest.json
+        working-directory: site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          jq -e '.os_list[0].url | startswith("https://")' ../image-out/aslcp-imager.json >/dev/null
+          mkdir -p imager
+          cp ../image-out/aslcp-imager.json imager/latest.json
+          git config user.name "aslcp-release"
+          git config user.email "noreply@users.noreply.github.com"
+          git add imager/latest.json
+          if git diff --cached --quiet; then echo "nothing to publish"; exit 0; fi
+          git commit -m "Imager list ${GITHUB_REF_NAME}"
+          for try in 1 2 3 4; do
+            git push origin HEAD:gh-pages && exit 0
+            echo "push failed, rebasing and retrying"
+            git pull --rebase origin gh-pages || true
+            sleep $((try * 5))
+          done
+          exit 1

@@ -34,12 +34,13 @@
   <div class="card space-y-4 p-5">
     <p class="text-sm text-muted">Setting up a replacement for an existing node? Restore its backup instead of creating a new administrator. The setup code is required (see below).</p>
     <div><label class="label" for="rc">Setup code</label><input id="rc" class="input font-mono" bind:value={code} autocomplete="off" required /></div>
-    <p class="text-xs text-muted">Show it on the server with <code class="font-mono">sudo aslcp admin setup-code</code> (also in <code class="font-mono">/var/lib/aslcp/setup-code</code>), or use the setup link the installer printed.</p>
+    <p class="text-xs text-muted">Log in to the node over SSH and run: <code class="font-mono">sudo aslcp admin setup-code</code> (also in <code class="font-mono">/var/lib/aslcp/setup-code</code>), or use the setup link the installer printed.</p>
     <RestoreFlow mode="setup" {code} />
   </div>
   {:else}
   <form class="card space-y-4 p-5" onsubmit={submit}>
-    <p class="text-sm text-muted">Create the first administrator.{#if showCode} Use the setup link the installer printed, or enter the code shown by <code class="font-mono">sudo aslcp admin setup-code</code>. You can also run <code class="font-mono">sudo aslcp admin create</code> on the server.{/if}</p>
+    <p class="text-sm text-muted">Create the first administrator.{#if showCode} Use the setup link the installer printed, or enter the setup code. You can also run <code class="font-mono">sudo aslcp admin create</code> on the server.{/if}</p>
+    {#if showCode}<p class="text-sm text-muted">No code? Log in to the node over SSH and run: <code class="font-mono">sudo aslcp admin setup-code</code></p>{/if}
     {#if showCode}
       <div><label class="label" for="c">Setup code</label><input id="c" class="input font-mono" bind:value={code} autocomplete="off" required /></div>
     {:else}

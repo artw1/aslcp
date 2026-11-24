@@ -9,8 +9,9 @@ and is not an official AllStarLink or Raspberry Pi product. It contains no
 Allmon3, no Apache landing page and none of the AllStarLink appliance image
 (asl3-appliance-pi) additions.
 
-Status: step 1 of the image plan. The build is manual and nothing is published
-(no release, no Imager list). The image has not been booted on hardware yet.
+Status: step 2 of the image plan. Tag builds are published as GitHub release
+assets together with a Raspberry Pi Imager list (`aslcp-imager.json`), so Imager
+shows its customisation pages. The image has not been booted on hardware yet.
 
 ## Build
 
@@ -26,11 +27,15 @@ smaller download). About 9 GB of free disk. Result in `./image-out/`:
 - `aslcp-asl3-arm64-YYYY.MM.DD.manifest.txt` (package list, see "Licences")
 - `image-info.json` (base image, versions, sizes and sha256 values, in the field
   names of a Raspberry Pi Imager OS list)
+- `aslcp-imager.json`: the Raspberry Pi Imager repository file (devices plus one OS
+  entry, `init_format` and `devices` taken from the base image's entry). Its `url`
+  is `$IMAGE_BASE_URL/<image>.img.xz`; set `IMAGE_BASE_URL` (no trailing slash) to
+  where the file will be downloaded from, otherwise the url is a placeholder.
 
 Options (environment): `CHANNEL=stable|beta` (the ASLCP apt channel inside the
 image, default stable), `ASLCP_DEB=/path/aslcp_..._arm64.deb` (install this
 package instead of the repository's), `BASE_URL`/`BASE_SHA256` (another base
-image), `OUT_DIR`, `WORKDIR`, `GROW_MIB`, `MARGIN_MIB`, `XZ_LEVEL`, `SKIP_CHROOT=1`
+image), `IMAGE_BASE_URL` (download location, for `aslcp-imager.json`), `OUT_DIR`, `WORKDIR`, `GROW_MIB`, `MARGIN_MIB`, `XZ_LEVEL`, `SKIP_CHROOT=1`
 (dry run without packages). The script header lists them all.
 
 On GitHub, the "Pi image" workflow (`.github/workflows/pi-image.yml`) runs in three ways:
@@ -39,14 +44,21 @@ On GitHub, the "Pi image" workflow (`.github/workflows/pi-image.yml`) runs in th
   `git tag image-test-1 && git push origin image-test-1`.
 - Release build: push a release tag `vX.Y.Z` (the same tags as the Release
   workflow). Once the workflow is on `main`, release tags build automatically.
+  The files are attached to the GitHub release (the Release workflow creates it;
+  the image job waits for it and never creates it) and `aslcp-imager.json` is
+  published to gh-pages as `imager/latest.json`.
 - Manual: Actions, "Pi image", Run workflow. Inputs: `channel` (stable or beta)
   and `aslcp_source` (`build`: build the arm64 deb from the selected ref, or `repo`:
   install the published package).
 
-Tag builds use the defaults: channel `stable`, `aslcp_source` `build`. The result
-is a run artifact kept for 14 days. No release asset is attached yet. The
-workflow runs on `ubuntu-24.04-arm`, needs no secrets and has read-only
-permissions.
+Tag builds use the defaults: channel `stable`, `aslcp_source` `build`. Every run
+keeps an artifact for 14 days. A test tag `image-test-*` also creates a
+pre-release of that name with the `.img.xz`, the `.sha256` files, the manifest,
+`image-info.json` and `aslcp-imager.json`. A release tag attaches the same files
+to its release and updates `imager/latest.json` on gh-pages (same `publish-apt`
+concurrency group as the Release workflow). Manual runs stay artifact-only. The
+workflow runs on `ubuntu-24.04-arm` and needs no secrets; the build job has
+read-only permissions, only the release and gh-pages jobs may write.
 
 What the script does:
 
@@ -73,15 +85,32 @@ the base image, and the image is never booted during the build.
 
 ## Flash
 
-With Raspberry Pi Imager: Choose OS, Use custom, select the `.img.xz`. Imager
-2.x offers its customisation (host name, user, Wi-Fi, SSH) only for images it
-knows the `init_format` of; a locally chosen file may get no customisation page.
-Without it, set the user, Wi-Fi and SSH by editing `user-data` and
-`network-config` on the boot partition (cloud-init), or use the ASLCP setup
-hotspot for Wi-Fi. Any other tool that writes `.img.xz` (balenaEtcher, `xzcat`
-and `dd`) works too.
+Raspberry Pi Imager 2.0 or newer shows its customisation pages (host name, user,
+Wi-Fi, SSH) only for images from a list that states the image's `init_format`.
+A file chosen with "Use custom" gets none, so use the ASLCP list:
+
+1. In Imager open Content Repository, Edit, Use custom URL, and enter
+   `https://w1jar.github.io/aslcp/imager/latest.json`.
+   (A test build: the link of the `aslcp-imager.json` asset of its `image-test-*`
+   pre-release on GitHub.)
+2. Choose the device, then the OS "ASLCP for ASL3 YYYY.MM.DD", then the storage.
+3. In the customisation pages set the host name, the user and password, the Wi-Fi
+   network with its country, and enable SSH.
+4. Write the card.
+
+Any other tool that writes `.img.xz` (balenaEtcher, `xzcat` and `dd`) also works,
+without customisation: then edit `user-data` and `network-config` on the boot
+partition (cloud-init) by hand.
 
 ## First boot
+
+Wait a few minutes after the first power-on. Then, from another computer:
+
+    ssh <user>@<host name>.local
+    sudo aslcp admin setup-code
+
+and open the link `http://<host name>.local:8080/#/setup?code=...` (or use the
+address of the node instead of the host name). What happens meanwhile:
 
 1. `aslcp-firstboot.service` (once, before asterisk and aslcp) gives the card its
    own secrets and removes its marker `/var/lib/aslcp-image/firstboot-needed`.
@@ -136,7 +165,10 @@ The test board is a Raspberry Pi 3B+. Pi 4 and Pi 5 are untested.
 - The kernel and firmware packages upgraded in the chroot (`full-upgrade`) boot
   correctly; a stock base image of the same date is the reference.
 - Setup hotspot (`aslcp-wifi-watchdog`) works on the 3B+ without Ethernet.
-- Imager 2.x with `init_format` `cloudinit-rpi` once an Imager list exists (a later step).
+- Imager list: verify that Imager follows the GitHub release download redirects
+  for the test builds (`image-test-*`), and that the customisation pages appear
+  and are applied (host name, user, Wi-Fi, SSH) on the first boot.
+- Done: the Imager repository list (`aslcp-imager.json`) is generated and published.
 
 ## Licences and sources
 
