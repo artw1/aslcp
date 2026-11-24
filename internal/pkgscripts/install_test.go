@@ -1011,28 +1011,68 @@ func TestASL3UpdateFailureTolerance(t *testing.T) {
 	}
 }
 
+// udevOpts configures udevRun.
+type udevOpts struct {
+	failVerb    string // udevadm verb that fails
+	asterisk    bool   // fake systemctl reports asterisk as active
+	noSystemd   bool   // no systemd run directory
+	want        string // lowlatency value in modprobe.d ("" = no option)
+	cur         string // running lowlatency value ("" = module not loaded)
+	modprobeBad bool   // fake modprobe fails
+	noModprobe  bool   // no modprobe on PATH
+}
+
 // udevRun runs asl3_ensure and then asl3_udev_apply (as install.sh does) with
-// fake udevadm and systemctl. failVerb names a udevadm verb that fails;
-// asterisk says whether the fake systemctl reports asterisk as active.
-func udevRun(t *testing.T, installed []string, failVerb string, asterisk, withSystemd bool) (*asl3Env, string, error) {
+// fake udevadm, systemctl and modprobe.
+func udevRun(t *testing.T, installed []string, o udevOpts) (*asl3Env, string, error) {
 	t.Helper()
 	e := newASL3Env(t, installed...)
 	d := filepath.Join(e.dir, "fake")
 	e.writeExec("bin/udevadm", `#!/bin/sh
 echo "udevadm $*" >>`+d+`/calls
-[ "$1" != "`+failVerb+`" ] || exit 1
+[ "$1" != "`+o.failVerb+`" ] || exit 1
 `)
 	active := "exit 1"
-	if asterisk {
+	if o.asterisk {
 		active = "exit 0"
 	}
 	e.writeExec("bin/systemctl", `#!/bin/sh
 echo "systemctl $*" >>`+d+`/calls
 case "$1" in is-active) `+active+` ;; esac
 `)
+	if !o.noModprobe {
+		fail := ""
+		if o.modprobeBad {
+			fail = "exit 1"
+		}
+		e.writeExec("bin/modprobe", `#!/bin/sh
+echo "modprobe $*" >>`+d+`/calls
+`+fail+`
+`)
+	}
 	run := filepath.Join(e.dir, "run-systemd")
-	if withSystemd {
+	if !o.noSystemd {
 		if err := os.MkdirAll(run, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	modD := filepath.Join(e.dir, "modprobe.d")
+	sysMod := filepath.Join(e.dir, "sys-module")
+	if err := os.MkdirAll(modD, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if o.want != "" {
+		conf := "# ASL3\noptions snd_usb_audio lowlatency=" + o.want + "\n"
+		if err := os.WriteFile(filepath.Join(modD, "asl3-snd-usb-audio.conf"), []byte(conf), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if o.cur != "" {
+		pd := filepath.Join(sysMod, "snd_usb_audio", "parameters")
+		if err := os.MkdirAll(pd, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(pd, "lowlatency"), []byte(o.cur+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1046,25 +1086,56 @@ case "$1" in is-active) `+active+` ;; esac
 asl3_udev_apply
 echo "UDEV_REBOOT=$UDEV_REBOOT"
 `
-	out, err := e.ensureTail(t, tail, []string{"ASLCP_SYSTEMD_RUN=" + run}, "auto", "trixie", "arm64")
+	if o.noModprobe {
+		// a PATH holding only the fakes and the basic tools, without modprobe
+		e.path = e.bin + ":" + toolsOnlyPath(t, e.dir)
+	}
+	out, err := e.ensureTail(t, tail, []string{
+		"ASLCP_SYSTEMD_RUN=" + run,
+		"ASLCP_MODPROBE_D=" + modD,
+		"ASLCP_SYS_MODULE=" + sysMod,
+	}, "auto", "trixie", "arm64")
 	return e, out, err
 }
 
+// toolsOnlyPath returns a directory of symlinks to every tool on the host PATH
+// except modprobe, so a modprobe installed on the host cannot leak in.
+func toolsOnlyPath(t *testing.T, dir string) string {
+	t.Helper()
+	td := filepath.Join(dir, "tools")
+	if err := os.MkdirAll(td, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, pd := range filepath.SplitList(os.Getenv("PATH")) {
+		ents, _ := os.ReadDir(pd)
+		for _, en := range ents {
+			if en.Name() == "modprobe" {
+				continue
+			}
+			_ = os.Symlink(filepath.Join(pd, en.Name()), filepath.Join(td, en.Name()))
+		}
+	}
+	return td
+}
+
 func TestUdevAppliedAfterFreshASL3Install(t *testing.T) {
-	e, out, err := udevRun(t, nil, "", true, true)
+	e, out, err := udevRun(t, nil, udevOpts{asterisk: true})
 	if err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
 	c := e.calls()
 	for _, want := range []string{
 		"udevadm control --reload-rules",
-		"udevadm trigger --action=add --subsystem-match=sound --subsystem-match=hidraw",
+		"udevadm trigger --action=add --subsystem-match=usb --subsystem-match=sound --subsystem-match=hidraw",
 		"udevadm settle --timeout=30",
 		"systemctl restart asterisk",
 	} {
 		if !strings.Contains(c, want) {
 			t.Errorf("calls lack %q:\n%s", want, c)
 		}
+	}
+	if strings.Contains(c, "modprobe") {
+		t.Errorf("modprobe called without a setting to apply:\n%s", c)
 	}
 	if strings.Index(c, "apt-get install") > strings.Index(c, "udevadm control") {
 		t.Errorf("udevadm ran before the ASL3 install:\n%s", c)
@@ -1075,7 +1146,7 @@ func TestUdevAppliedAfterFreshASL3Install(t *testing.T) {
 }
 
 func TestUdevNoAsteriskRestartWhenInactive(t *testing.T) {
-	e, out, err := udevRun(t, nil, "", false, true)
+	e, out, err := udevRun(t, nil, udevOpts{})
 	if err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
@@ -1085,17 +1156,17 @@ func TestUdevNoAsteriskRestartWhenInactive(t *testing.T) {
 }
 
 func TestUdevNotCalledWhenASL3AlreadyInstalled(t *testing.T) {
-	e, out, err := udevRun(t, []string{"asl3", "asl3-menu"}, "", true, true)
+	e, out, err := udevRun(t, []string{"asl3", "asl3-menu"}, udevOpts{asterisk: true, want: "0", cur: "Y"})
 	if err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
-	if c := e.calls(); strings.Contains(c, "udevadm") || strings.Contains(c, "restart asterisk") {
+	if c := e.calls(); strings.Contains(c, "udevadm") || strings.Contains(c, "modprobe") || strings.Contains(c, "restart asterisk") {
 		t.Errorf("calls:\n%s", c)
 	}
 }
 
 func TestUdevSkippedWithoutSystemd(t *testing.T) {
-	e, out, err := udevRun(t, nil, "", true, false)
+	e, out, err := udevRun(t, nil, udevOpts{asterisk: true, noSystemd: true})
 	if err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
@@ -1106,7 +1177,7 @@ func TestUdevSkippedWithoutSystemd(t *testing.T) {
 
 func TestUdevFailureSetsRebootNoteAndDoesNotAbort(t *testing.T) {
 	for _, verb := range []string{"control", "trigger", "settle"} {
-		e, out, err := udevRun(t, nil, verb, true, true)
+		e, out, err := udevRun(t, nil, udevOpts{failVerb: verb, asterisk: true})
 		if err != nil {
 			t.Fatalf("%s: %v: %s", verb, err, out)
 		}
@@ -1116,6 +1187,87 @@ func TestUdevFailureSetsRebootNoteAndDoesNotAbort(t *testing.T) {
 		if strings.Contains(e.calls(), "restart asterisk") {
 			t.Errorf("%s: asterisk restarted after a failure", verb)
 		}
+	}
+}
+
+func TestUdevReloadsUSBSoundDriverWhenSettingDiffers(t *testing.T) {
+	e, out, err := udevRun(t, nil, udevOpts{asterisk: true, want: "0", cur: "Y"})
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	c := e.calls()
+	order := []string{
+		"systemctl stop asterisk",
+		"modprobe -r snd_usb_audio",
+		"modprobe snd_usb_audio",
+		"udevadm control --reload-rules",
+		"udevadm trigger --action=add --subsystem-match=usb",
+		"udevadm settle --timeout=30",
+		"systemctl start asterisk",
+	}
+	pos := 0
+	for _, w := range order {
+		k := strings.Index(c[pos:], w+"\n")
+		if k < 0 {
+			k = strings.Index(c[pos:], w)
+		}
+		if k < 0 {
+			t.Fatalf("calls lack %q in order:\n%s", w, c)
+		}
+		pos += k + len(w)
+	}
+	if strings.Contains(c, "restart asterisk") {
+		t.Errorf("asterisk restarted instead of started:\n%s", c)
+	}
+	if !strings.Contains(out, "reloading the USB sound driver so the ASL3 setting (lowlatency=N) applies") || !strings.Contains(out, "UDEV_REBOOT=0") {
+		t.Errorf("out: %s", out)
+	}
+}
+
+func TestUdevNoReloadWhenSettingMatches(t *testing.T) {
+	e, out, err := udevRun(t, nil, udevOpts{asterisk: true, want: "0", cur: "N"})
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	c := e.calls()
+	if strings.Contains(c, "modprobe") || strings.Contains(c, "stop asterisk") || !strings.Contains(c, "systemctl restart asterisk") {
+		t.Errorf("calls:\n%s", c)
+	}
+}
+
+func TestUdevReloadWithoutActiveAsterisk(t *testing.T) {
+	e, out, err := udevRun(t, nil, udevOpts{want: "1", cur: "N"})
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	c := e.calls()
+	if !strings.Contains(c, "modprobe -r snd_usb_audio") {
+		t.Errorf("calls:\n%s", c)
+	}
+	if strings.Contains(c, "systemctl stop") || strings.Contains(c, "systemctl start") || strings.Contains(c, "systemctl restart") {
+		t.Errorf("asterisk touched while inactive:\n%s", c)
+	}
+}
+
+func TestUdevModprobeFailureSetsRebootNoteAndStartsAsterisk(t *testing.T) {
+	e, out, err := udevRun(t, nil, udevOpts{asterisk: true, want: "0", cur: "Y", modprobeBad: true})
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	c := e.calls()
+	if !strings.Contains(out, "UDEV_REBOOT=1") || !strings.Contains(c, "systemctl start asterisk") || strings.Contains(c, "restart asterisk") {
+		t.Errorf("out: %s\ncalls:\n%s", out, c)
+	}
+}
+
+func TestUdevWithoutModprobeAsksForReboot(t *testing.T) {
+	e, out, err := udevRun(t, nil, udevOpts{asterisk: true, want: "0", cur: "Y", noModprobe: true})
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	c := e.calls()
+	if strings.Contains(c, "modprobe") || !strings.Contains(out, "UDEV_REBOOT=1") {
+		t.Errorf("out: %s\ncalls:\n%s", out, c)
 	}
 }
 
