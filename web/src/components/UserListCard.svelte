@@ -6,6 +6,8 @@
   import Toggle from './Toggle.svelte';
   import Download from '@lucide/svelte/icons/download';
 
+  // `embedded`: no card of its own (it sits under a divider inside another card, e.g. Identity).
+  let { embedded = false }: { embedded?: boolean } = $props();
   let st = $state<UserListStatus | null>(null), err = $state(''), busy = $state(false);
   const fmt = (iso?: string) => (iso ? new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'never');
 
@@ -28,10 +30,10 @@
   }
 </script>
 
-<section class="card space-y-3 p-4" aria-label="radioid.net user list">
+{#snippet body()}
   <div class="flex items-center justify-between gap-2">
-    <h2 class="text-base font-semibold">radioid.net user list</h2>
-    {#if st}<Toggle checked={st.enabled} disabled={busy} label={st.enabled ? 'Turn the user list off' : 'Turn the user list on'} onchange={toggle} />{/if}
+    {#if embedded}<h3 class="text-sm font-semibold">radioid.net user list</h3>{:else}<h2 class="text-base font-semibold">radioid.net user list</h2>{/if}
+    {#if st}<Toggle tap checked={st.enabled} disabled={busy} label={st.enabled ? 'Turn the user list off' : 'Turn the user list on'} onchange={toggle} />{/if}
   </div>
   {#if !st}
     <p class="text-sm text-muted">{err || 'Loading…'}</p>
@@ -43,6 +45,11 @@
       <dt class="text-muted">Last updated</dt><dd>{fmt(st.updated)}</dd>
       {#if st.error}<dt class="text-muted">Last error</dt><dd class="break-words text-danger">{st.error}</dd>{/if}
     </dl>
-    <button class="btn" disabled={busy || st.busy || !st.enabled} onclick={download}><Download size={15} />Download now</button>
+    <button class="btn min-h-8" disabled={busy || st.busy || !st.enabled} onclick={download}><Download size={15} />Download now</button>
   {/if}
-</section>
+{/snippet}
+{#if embedded}
+<div class="space-y-3 border-t border-line pt-3" role="group" aria-label="radioid.net user list">{@render body()}</div>
+{:else}
+<section class="card space-y-3 p-4" aria-label="radioid.net user list">{@render body()}</section>
+{/if}

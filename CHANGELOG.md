@@ -11,6 +11,9 @@ Release notes are taken from the section of the tag being released
 - Level meters on the Digital modes card for both directions, with a summary of the last transmission (speech level, peak, clipping and a Low, OK or High verdict).
 - `GET /api/dv/audio`, `PUT /api/dv/audio` and `GET /api/dv/meter`.
 
+### Changed
+- The Digital modes page is shorter and follows the setup flow, in one column: Engine (status, services, resume switch and the enable log), Bridge node (a summary with Edit), Identity (with the radioid.net user list), a single Networks list (one row per mode with its state, a summary, an Enable switch that saves at once, and settings that open on demand) and Audio.
+
 ## [2.2.1] - 2026-11-24
 
 ### Changed

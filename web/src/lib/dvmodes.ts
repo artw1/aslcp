@@ -15,6 +15,13 @@ export function resumeHint(on: boolean): string {
     : 'Off: the engine still starts in the last mode, but nothing is re-tuned; pick a talkgroup or reflector on the dashboard.';
 }
 
+/** The one-line hint of the resume switch in the Engine card: RESUME_NOTICE and resumeHint in short. */
+export function resumeShort(on: boolean): string {
+  return on
+    ? 'The engine restarts in the last mode, and ASLCP re-tunes its last talkgroup or reflector.'
+    : 'The engine restarts in the last mode; nothing is re-tuned, so pick a talkgroup or reflector on the dashboard.';
+}
+
 /** The toast after the resume switch changed. */
 export function resumeToast(on: boolean): string {
   return on ? 'The last talkgroup or reflector is re-tuned after a restart.' : 'After a restart the engine starts in the last mode, without re-tuning.';

@@ -1,12 +1,14 @@
 <script lang="ts">
   // Digital modes (route /dv): enable or disable the native engine (aslcp-dv with md380-emu), its status and
-  // the enable job's log. Setup (private node, resume, mode cards) appears once the engine is enabled.
+  // the enable job's log, the resume switch. Setup (bridge node, identity, networks, audio) appears once the engine is enabled.
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
-  import type { DVJob, DVStatus } from '../lib/types';
+  import type { DVJob, DVResume, DVStatus } from '../lib/types';
   import { app } from '../lib/store.svelte';
   import { dismissKey, isDismissed, jobSummary, jobView, setDismissed } from '../lib/dvjob';
+  import { lastUsed, resumeShort, resumeToast } from '../lib/dvmodes';
+  import Toggle from './Toggle.svelte';
   import Dialog from './Dialog.svelte';
   import DvSetup from './DvSetup.svelte';
   import UserListCard from './UserListCard.svelte';
@@ -33,7 +35,14 @@
   async function load() {
     try { st = await api.dvStatus(); err = ''; await loadJob(); } catch (e) { err = e instanceof Error ? e.message : String(e); }
   }
-  onMount(load);
+  // Resume after restart (admin and operator); no tracker means no switch.
+  let resume = $state<DVResume | null>(null), now = $state(Date.now()), resumeBusy = $state(false);
+  async function loadResume() { try { resume = await api.dvResume(); now = Date.now(); } catch { /* no tracker: no switch */ } }
+  async function setResume(on: boolean) {
+    resumeBusy = true;
+    try { resume = await api.dvSetResume(on); now = Date.now(); toast(resumeToast(on), 'info'); } catch (e) { toastError(e); await loadResume(); } finally { resumeBusy = false; }
+  }
+  onMount(() => { load(); loadResume(); });
 
   // Poll while the enable job runs (also after a reload mid-job), then refresh the status once.
   $effect(() => {
@@ -61,7 +70,6 @@
     busy = true;
     try { st = await api.dvDisable(); err = ''; toast('Digital modes disabled', 'info'); } catch (e) { toastError(e); await load(); } finally { busy = false; }
   }
-  const yes = (b: boolean) => (b ? 'yes' : 'no');
   const unitState = (active: boolean, enabled: boolean | null) => `${active ? 'active' : 'inactive'}${enabled === null ? '' : enabled ? ', enabled' : ', disabled'}`;
 </script>
 <div class="space-y-4">
@@ -69,67 +77,75 @@
   {#if !st}
     <p class="text-sm text-muted">{err || 'Loading…'}</p>
   {:else}
-  <div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-    <section class="card space-y-3 p-4" aria-label="Status">
-      <h2 class="text-base font-semibold">Status</h2>
-      <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-        <dt class="text-muted">Platform</dt><dd>{st.supported ? 'supported' : 'not supported'}</dd>
-        <dt class="text-muted">Enabled</dt><dd>{yes(st.enabled)}</dd>
-        <dt class="text-muted">Engine version</dt><dd class="font-mono">{snap?.engine?.version || 'n/a'}</dd>
-        <dt class="text-muted">Vocoder</dt><dd>{#if !snap?.vocoder}n/a{:else if snap.vocoder.ok}<span class="text-ok">ok</span>{:else}<span class="text-warn">not responding</span>{/if}{#if snap?.vocoder?.timeouts} <span class="text-xs text-muted">({snap.vocoder.timeouts} timeouts)</span>{/if}</dd>
-      </dl>
-      {#if armhf}
-        <p class="rounded border border-warn/60 p-2 text-sm text-warn" role="alert">Digital modes are not supported on a 32-bit (armhf) system: ASL3 and ASLCP need a 64-bit OS. Reinstall with Raspberry Pi OS Lite (64-bit).</p>
-      {:else if !st.supported}
-        <p class="text-sm text-muted" role="status">Digital modes are not supported on this platform{st.reason ? ` (${st.reason})` : ''}.</p>
-      {/if}
-      {#if st.legacyUnits?.length}
-        <p class="rounded border border-line p-2 text-sm text-muted" role="status">The previous digital voice services were stopped. ASLCP removes the ones it installed after the upgrade; run Enable again to retry. <span class="font-mono text-xs">{st.legacyUnits.join(', ')}</span></p>
-      {/if}
-      <h3 class="text-sm font-semibold">Services</h3>
-      <ul class="divide-y divide-line rounded border border-line text-xs" aria-label="Services">
-        <li class="flex flex-wrap items-baseline gap-x-2 px-2 py-1"><span class="font-mono font-semibold">aslcp-dv</span><span class={st.active ? 'text-ok' : 'text-muted'}>{unitState(st.active, st.enabled)}</span></li>
-        <li class="flex flex-wrap items-baseline gap-x-2 px-2 py-1"><span class="font-mono font-semibold">md380-emu</span><span class="text-muted">{st.md380Installed ? unitState(st.md380Active, null) : 'not installed'}</span></li>
-      </ul>
-      <div class="flex flex-wrap gap-2">
-        <button class="btn" disabled={busy || running} onclick={load}><Refresh size={14} />Refresh</button>
+  <section class="card space-y-3 p-4" aria-label="Engine">
+    <div class="flex flex-wrap items-center gap-2">
+      <h2 class="text-base font-semibold">Engine</h2>
+      <span class="ml-auto flex flex-wrap gap-2">
+        <button class="btn min-h-8" disabled={busy || running} onclick={load}><Refresh size={14} />Refresh</button>
         {#if st.enabled}
-          <button class="btn" disabled={busy || running} onclick={() => (disableOpen = true)}><Power size={14} />Disable digital modes</button>
+          <button class="btn min-h-8" disabled={busy || running} onclick={() => (disableOpen = true)}><Power size={14} />Disable digital modes</button>
         {:else}
-          <button class="btn btn-primary" disabled={busy || running || !st.supported} onclick={() => (enableOpen = true)}><Power size={14} />Enable digital modes</button>
+          <button class="btn btn-primary min-h-8" disabled={busy || running || !st.supported} onclick={() => (enableOpen = true)}><Power size={14} />Enable digital modes</button>
+        {/if}
+      </span>
+    </div>
+    <dl class="flex flex-wrap gap-x-5 gap-y-1 text-sm">
+      <div class="flex gap-1.5"><dt class="text-muted">Platform</dt><dd>{st.supported ? 'supported' : 'not supported'}</dd></div>
+      <div class="flex gap-1.5"><dt class="text-muted">Enabled</dt><dd>{st.enabled ? 'yes' : 'no'}</dd></div>
+      <div class="flex gap-1.5"><dt class="text-muted">Engine version</dt><dd class="font-mono">{snap?.engine?.version || 'n/a'}</dd></div>
+      <div class="flex gap-1.5"><dt class="text-muted">Vocoder</dt><dd>{#if !snap?.vocoder}n/a{:else if snap.vocoder.ok}<span class="text-ok">ok</span>{:else}<span class="text-warn">not responding</span>{/if}{#if snap?.vocoder?.timeouts} <span class="text-xs text-muted">({snap.vocoder.timeouts} timeouts)</span>{/if}</dd></div>
+    </dl>
+    <ul class="flex flex-wrap gap-2" aria-label="Services">
+      <li class="badge font-mono"><span class="font-semibold text-fg">aslcp-dv</span><span class={st.active ? 'text-ok' : ''}>{unitState(st.active, st.enabled)}</span></li>
+      <li class="badge font-mono"><span class="font-semibold text-fg">md380-emu</span><span>{st.md380Installed ? unitState(st.md380Active, null) : 'not installed'}</span></li>
+    </ul>
+    {#if armhf}
+      <p class="rounded border border-warn/60 p-2 text-sm text-warn" role="alert">Digital modes are not supported on a 32-bit (armhf) system: ASL3 and ASLCP need a 64-bit OS. Reinstall with Raspberry Pi OS Lite (64-bit).</p>
+    {:else if !st.supported}
+      <p class="text-sm text-muted" role="status">Digital modes are not supported on this platform{st.reason ? ` (${st.reason})` : ''}.</p>
+    {/if}
+    {#if st.legacyUnits?.length}
+      <p class="rounded border border-line p-2 text-sm text-muted" role="status">The previous digital voice services were stopped. ASLCP removes the ones it installed after the upgrade; run Enable again to retry. <span class="font-mono text-xs">{st.legacyUnits.join(', ')}</span></p>
+    {/if}
+
+    {#if st.enabled && resume}
+      <div class="space-y-1 border-t border-line pt-3" data-testid="dv-notice">
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span class="inline-flex items-center gap-2 text-sm"><Toggle tap checked={resume.resume} disabled={resumeBusy} label="Resume after restart" onchange={setResume} />Resume after restart</span>
+          {#if lastUsed(resume, now)}<span class="text-xs text-muted" data-testid="dv-last-used">{lastUsed(resume, now)}</span>{/if}
+        </div>
+        <p class="text-xs text-muted" data-testid="dv-resume-hint">{resumeShort(resume.resume)}</p>
+      </div>
+    {/if}
+
+    {#if running || job.state === 'failed' || (job.state === 'succeeded' && (!dismissed || logOpen))}
+      <div class="space-y-2 border-t border-line pt-3" aria-label="Job">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          {#if running}
+            <span class="flex items-center gap-2" role="status"><Refresh size={14} class="animate-spin" />Enabling…</span>
+          {:else if job.state === 'failed'}
+            <span class="text-danger" role="alert">Last job: failed. Nothing more was changed after the failing step; see the log.</span>
+          {:else}
+            <span class={job.state === 'succeeded' ? 'text-ok' : 'text-muted'} role="status">{summary ? summary.replace('Last enable:', 'Last job:') : 'Last job: finished.'}</span>
+          {/if}
+          {#if job.log && !running && !watched}
+            <button class="btn min-h-8" aria-expanded={logOpen} onclick={() => (expanded = !expanded)}>{logOpen ? 'Hide log' : 'Show log'}</button>
+          {/if}
+          {#if job.state === 'succeeded' && !logOpen && !dismissed}
+            <button class="btn min-h-8" onclick={() => { setDismissed(key); dismissedKey = key; }}>Dismiss</button>
+          {/if}
+        </div>
+        {#if job.log && logOpen}
+          <pre class="max-h-96 overflow-auto rounded border border-line bg-surface-2/40 p-2 text-xs whitespace-pre-wrap" aria-label="Enable log">{job.log}</pre>
         {/if}
       </div>
-    </section>
-
-    <section class="card space-y-3 p-4" aria-label="Job">
-      <h2 class="text-base font-semibold">Enable log</h2>
-      {#if running}
-        <p class="flex items-center gap-2 text-sm" role="status"><Refresh size={14} class="animate-spin" />Enabling…</p>
-      {:else if job.state === 'succeeded'}
-        <p class="text-sm text-ok" role="status">Finished.</p>
-      {:else if job.state === 'failed'}
-        <p class="text-sm text-danger" role="alert">Failed. Nothing more was changed after the failing step; see the log.</p>
-      {:else}
-        <p class="text-sm text-muted">No job has run.</p>
-      {/if}
-      {#if job.log}
-        {#if logOpen}
-          {#if !running && !watched}<button class="btn" onclick={() => (expanded = false)}>Hide log</button>{/if}
-          <pre class="max-h-96 overflow-auto rounded border border-line bg-surface-2/40 p-2 text-xs whitespace-pre-wrap" aria-label="Enable log">{job.log}</pre>
-        {:else if summary && !dismissed}
-          <div class="flex flex-wrap items-center gap-2 text-sm">
-            <span class={job.state === 'failed' ? 'font-semibold text-danger' : 'text-muted'} role={job.state === 'failed' ? 'alert' : 'status'}>{summary}</span>
-            <button class="btn" onclick={() => (expanded = true)}>Show log</button>
-            <button class="btn" onclick={() => { setDismissed(key); dismissedKey = key; }}>Dismiss</button>
-          </div>
-        {/if}
-      {/if}
-    </section>
-  </div>
+    {/if}
+  </section>
   {#if st.enabled && !running}
-    <DvSetup />
+    <DvSetup {resume} reloadResume={loadResume} />
+  {:else}
+    <UserListCard />
   {/if}
-  <UserListCard />
   {/if}
 </div>
 
