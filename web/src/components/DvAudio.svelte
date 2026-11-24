@@ -1,7 +1,7 @@
 <script lang="ts">
   // Audio settings shared by all digital modes: the AGC of each direction and the static gains (docs/DV.md "Audio level and AGC").
   // Renders inside the Audio card of Digital modes setup, under the echo test (DvSetup.svelte).
-  // Advanced: collapsed until asked for. Saved at once to the engine (hot reload, no restart).
+  // The AGC switches are always shown; the levels and gains are advanced: collapsed until asked for. Saved at once to the engine (hot reload, no restart).
   import { untrack } from 'svelte';
   import { api } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
@@ -26,20 +26,22 @@
   }
 </script>
 <div class="space-y-3 border-t border-line pt-3" data-testid="dv-audio">
+  <p class="text-xs text-muted">Level control for the audio between your node and the digital networks. The defaults leave the audio as it is. The Digital modes card shows the levels.</p>
+  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+    <div>
+      <span class="inline-flex items-center gap-2 text-sm"><Toggle checked={f.agcTx} label="Node audio AGC (to network)" onchange={(v) => (f.agcTx = v)} />Node audio AGC (to network)</span>
+      <p class="mt-1 text-xs text-muted">Evens out the level of your voice before it goes to the network. Silence and noise are not boosted.</p>
+    </div>
+    <div>
+      <span class="inline-flex items-center gap-2 text-sm"><Toggle checked={f.agcRx} label="Network audio AGC (to node)" onchange={(v) => (f.agcRx = v)} />Network audio AGC (to node)</span>
+      <p class="mt-1 text-xs text-muted">Evens out the level of stations you hear from the network before it goes to your node.</p>
+    </div>
+  </div>
   <div>
     <button type="button" class="btn btn-sm" aria-expanded={show} onclick={() => (show = !show)}>{show ? 'Hide' : 'Show'} advanced audio settings</button>
   </div>
   {#if show}
-    <p class="text-xs text-muted">Level control for the audio between your node and the digital networks. The defaults leave the audio as it is. The Digital modes card shows the levels.</p>
     <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-      <div>
-        <span class="inline-flex items-center gap-2 text-sm"><Toggle checked={f.agcTx} label="Node audio AGC (to network)" onchange={(v) => (f.agcTx = v)} />Node audio AGC (to network)</span>
-        <p class="mt-1 text-xs text-muted">Evens out the level of your voice before it goes to the network. Silence and noise are not boosted.</p>
-      </div>
-      <div>
-        <span class="inline-flex items-center gap-2 text-sm"><Toggle checked={f.agcRx} label="Network audio AGC (to node)" onchange={(v) => (f.agcRx = v)} />Network audio AGC (to node)</span>
-        <p class="mt-1 text-xs text-muted">Evens out the level of stations you hear from the network before it goes to your node.</p>
-      </div>
       <div><label class="label" for="dva-target">AGC target level (dBFS)</label><input id="dva-target" class="input font-mono" bind:value={f.agcTargetDb} inputmode="numeric" maxlength="3" />
         <p class="mt-1 text-xs text-muted">The speech level the AGC aims for, -40 to -6. Default -22.</p></div>
       <div><label class="label" for="dva-max">AGC maximum gain (dB)</label><input id="dva-max" class="input font-mono" bind:value={f.agcMaxGainDb} inputmode="numeric" maxlength="2" />
@@ -49,6 +51,8 @@
       <div><label class="label" for="dva-gtx">Network audio gain (dB)</label><input id="dva-gtx" class="input font-mono" bind:value={f.gainTxDb} inputmode="numeric" maxlength="3" />
         <p class="mt-1 text-xs text-muted">Fixed gain on the audio from the network to your node, -20 to 20. Default 0. Applied before the AGC.</p></div>
     </div>
+  {/if}
+  {#if dirty || show}
     {#if err && dirty}<p class="text-sm text-danger" role="alert">{err}</p>{/if}
     <button type="button" class="btn btn-primary" disabled={busy || !!err || !dirty} onclick={save} data-testid="dv-audio-save">Save audio settings</button>
   {/if}

@@ -177,9 +177,12 @@ On the dashboard, choose P25, pick a talkgroup from the list (or type up to five
 
 ## Audio level and AGC
 
-The bridge sees the audio of both directions: from your node to the network ("Node audio") and from the network to your node ("Network audio"). In the Audio card of Digital modes setup, under the echo test, press Show advanced audio settings:
+The bridge sees the audio of both directions: from your node to the network ("Node audio") and from the network to your node ("Network audio"). In the Audio card of Digital modes setup, under the echo test:
 
-- **Node audio AGC (to network)** and **Network audio AGC (to node)**: automatic gain control, off by default. It evens out the level of speech toward the target and never boosts silence or noise. It has no delay, and a limiter keeps loud audio from clipping.
+- **Node audio AGC (to network)** and **Network audio AGC (to node)** are always shown: automatic gain control, off by default. It evens out the level of speech toward the target and never boosts silence or noise. It has no delay, and a limiter keeps loud audio from clipping.
+
+Press Show advanced audio settings for the levels and fixed gains:
+
 - **AGC target level (dBFS)**: the speech level the AGC aims for, -40 to -6, default -22.
 - **AGC maximum gain (dB)**: the most it may raise a quiet voice, 0 to 30, default 18.
 - **Node audio gain (dB)** and **Network audio gain (dB)**: a fixed gain of -20 to 20 dB, default 0. It is applied before the AGC.
