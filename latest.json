@@ -1,5 +1,5 @@
 {
-  "version": "2.0.5",
-  "notes": "### Added\n- `install.sh`: `ASLCP_TAKEOVER=1` runs ASLCP on port 80 and turns off the other ASL web services in one step. It stops and disables Allmon3, the web server of the ASL web UIs (Apache, lighttpd or nginx), asl-web-ui and Supermon, only those that exist and are enabled or running, and prints each one. Asterisk and app_rpt keep running, and Cockpit is left alone. The units are recorded in `/var/lib/aslcp/takeover.list`.\n- `ASLCP_TAKEOVER=undo` moves ASLCP back to its previous port and turns exactly those units back on.\n- `ASLCP_PORT=80` is accepted (other ports below 1024 still are not). The installer writes the `port80.conf` systemd drop-in for it, opens the port in firewalld, and refuses to switch, naming the program, if something else still listens on port 80.\n- The install page has the takeover option, its explanation and the undo command.",
-  "date": "2026-11-23"
+  "version": "2.1.3",
+  "notes": "2.1.3 (#28)\n\n2.1.3: apply ASL3's usb device rule and USB sound setting at install",
+  "date": "2026-11-24"
 }
