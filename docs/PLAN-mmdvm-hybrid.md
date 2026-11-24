@@ -2,6 +2,17 @@
 
 Status: design note, no code yet. Branch try/mmdvm-hybrid. Decisions taken by the owner on 2026-11-24 are folded in below (product split, routing model, all modes on RF, owner hardware, optional AllStar, all Pi-Star extras wanted, native Go modem driver with no bundled MMDVMHost, mode switch by radio, DMR first, cross-mode in the core plan). Leaning yes but not decided: dual slot on a duplex hat. What is still open is in section K. The test plan is section J. Nothing here is built.
 
+## Current state (2026-11-24)
+
+Start here if you are picking this up in a new session.
+
+- **Where it lives:** this note, on branch `try/mmdvm-hybrid` only. The PR (w1jar/aslcp#34) was closed without merging on purpose; the owner wants the plan kept on its own branch for now. Commit answers to this branch; open a new PR only when the owner asks.
+- **Nothing is built.** No code exists for any milestone yet. The next step is M1 (RF endpoint with a fake modem), but only once the owner says go.
+- **Decided:** two products in one repo (ASLCP and `hscp`, name pending); a native Go modem driver, no bundled MMDVMHost; two RF modes (AllStar mode and hotspot mode, never both on the same slot); all modes on RF, DMR first; cross-mode in the core plan; AllStar optional for hscp; all Pi-Star extras wanted; D-Star as two late milestones.
+- **Leaning, not decided:** dual slot on the duplex hat (AllStar on one slot, a network on the other); mode switch by radio with DMR talkgroup 8 and a local "AllStar" YSF reflector.
+- **Owner's gear:** duplex MMDVM_HS hat, firmware 1.6.1 (to confirm), Raspberry Pi 3B+, a DMR radio only (model not yet stated).
+- **Decide next:** product name, engine name, release shape (tags, CHANGELOG, apt repo), the owner's radio model (OpenRTX/M17), whether to buy a second hat and an RTL-SDR for testing, and who checks the D-Star patent dates. The full list is section K.
+
 The idea: take a spare Raspberry Pi with an MMDVM hotspot hat (the kind that used to run a hotspot image) and let the engine (`aslcp-dv` today) drive the hat. Two products come out of this repo:
 
 - **ASLCP** stays the AllStar panel.
