@@ -3,6 +3,12 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [2.1.3] - 2026-11-24
+
+### Fixed
+- A fresh install with ASL3 now makes an already connected USB radio interface work without a reboot: the installer also applies ASL3's `usb` device rule (2.1.1 only covered `sound` and `hidraw`) and reloads the USB sound driver when ASL3's `lowlatency` setting differs from the running one. If either step fails, the summary still asks for a reboot.
+- Fixed a data race between the digital-modes status stream and the dashboard snapshot (a login change could be read while it was being written).
+
 ## [2.1.2] - 2026-11-24
 
 ### Changed
