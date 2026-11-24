@@ -1,5 +1,5 @@
 {
-  "version": "2.3.0",
-  "notes": "Merge pull request #32 from w1jar/try/dv-redesign\n\nRelease 2.3.0: DV audio AGC, level meters and a redesigned Digital modes page",
+  "version": "2.3.1",
+  "notes": "Merge pull request #33 from w1jar/try/dv-card\n\nRedesign the dashboard Digital modes card",
   "date": "2026-11-24"
 }
