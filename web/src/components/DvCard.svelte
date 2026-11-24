@@ -242,17 +242,6 @@
       {/if}
     {/if}
 
-    <DvMeter running={snap.running} />
-
-    {#if snap.heard?.length}
-      <details class="text-xs" data-testid="dv-heard">
-        <summary class="cursor-pointer text-muted">Last heard</summary>
-        <ul class="mt-1 space-y-0.5 font-mono">
-          {#each snap.heard as h, i (i)}<li title={h.dmrId ? `DMR ID ${h.dmrId}` : undefined}>{heardLine(h)}</li>{/each}
-        </ul>
-      </details>
-    {/if}
-
     {#if mode && chips.length}
       <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Favourites for {mode}">
         {#each chips as f (f.id)}
@@ -272,6 +261,17 @@
           </span>
         {/each}
       </div>
+    {/if}
+
+    <DvMeter running={snap.running} />
+
+    {#if snap.heard?.length}
+      <details class="text-xs" data-testid="dv-heard">
+        <summary class="cursor-pointer text-muted">Last heard</summary>
+        <ul class="mt-1 space-y-0.5 font-mono">
+          {#each snap.heard as h, i (i)}<li title={h.dmrId ? `DMR ID ${h.dmrId}` : undefined}>{heardLine(h)}</li>{/each}
+        </ul>
+      </details>
     {/if}
   </section>
 
