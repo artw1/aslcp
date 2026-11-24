@@ -6,7 +6,7 @@ Release notes are taken from the section of the tag being released
 ## [2.3.0] - 2026-11-24
 
 ### Added
-- Automatic gain control (AGC) on the digital modes bridge audio, in both directions, with a target level and a maximum gain. Off by default: the audio is unchanged.
+- Automatic gain control (AGC) on the digital modes bridge audio, in both directions, with a target level and a maximum gain. Network audio AGC (to node) is on by default and node audio AGC (to network) is off; an upgrade gets the network audio AGC on unless it is turned off in the Audio card.
 - The node and network audio gains are now in the settings: the Audio card of Digital modes setup, with the echo test, under Show advanced audio settings.
 - Level meters on the Digital modes card for both directions, with a summary of the last transmission (speech level, peak, clipping and a Low, OK or High verdict).
 - `GET /api/dv/audio`, `PUT /api/dv/audio` and `GET /api/dv/meter`.

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,15 +121,31 @@ func TestAudioDefaultsAndRanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.USRP.AGCTx || c.USRP.AGCRx || c.USRP.AGCTarget != -22 || c.USRP.AGCMax != 18 || c.USRP.GainRx != 0 || c.USRP.GainTx != 0 {
+	if c.USRP.AGCTx || !c.USRP.AGCRx || c.USRP.AGCTarget != -22 || c.USRP.AGCMax != 18 || c.USRP.GainRx != 0 || c.USRP.GainTx != 0 {
 		t.Fatalf("defaults %+v", c.USRP)
 	}
-	if d := Default().USRP; d.AGCTarget != -22 || d.AGCMax != 18 {
+	if d := Default().USRP; !d.AGCRx || d.AGCTx || d.AGCTarget != -22 || d.AGCMax != 18 {
 		t.Fatalf("Default %+v", d)
 	}
 	c, err = Parse([]byte(`{"version":1,"usrp":{"agcTx":true,"agcRx":true,"agcTargetDb":-40,"agcMaxGainDb":0,"gainRxDb":-20,"gainTxDb":20}}`))
 	if err != nil || !c.USRP.AGCTx || !c.USRP.AGCRx || c.USRP.AGCTarget != -40 || c.USRP.AGCMax != 0 {
 		t.Fatalf("explicit values: %+v, %v", c.USRP, err)
+	}
+	// an explicit agcRx false is honoured and survives a round trip
+	c, err = Parse([]byte(`{"version":1,"usrp":{"agcRx":false}}`))
+	if err != nil || c.USRP.AGCRx {
+		t.Fatalf("agcRx false: %+v, %v", c.USRP, err)
+	}
+	b, err := json.Marshal(c)
+	if err != nil || !strings.Contains(string(b), `"agcRx":false`) {
+		t.Fatalf("agcRx false not written: %s, %v", b, err)
+	}
+	if c, err = Parse(b); err != nil || c.USRP.AGCRx {
+		t.Fatalf("round trip: %+v, %v", c.USRP, err)
+	}
+	// a usrp block without agcRx stays on
+	if c, err = Parse([]byte(`{"version":1,"usrp":{"agcTx":true}}`)); err != nil || !c.USRP.AGCRx || !c.USRP.AGCTx {
+		t.Fatalf("usrp without agcRx: %+v, %v", c.USRP, err)
 	}
 	c, err = Parse([]byte(`{"version":1,"usrp":{"agcTargetDb":-6,"agcMaxGainDb":30}}`))
 	if err != nil || c.USRP.AGCTarget != -6 || c.USRP.AGCMax != 30 {

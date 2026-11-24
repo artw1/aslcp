@@ -466,7 +466,7 @@ Design: docs/DV.md "Private node and USRP". Admin only (`403 forbidden`), `X-ASL
 | PUT | `/api/dv/link` | `{"exclusive": bool}` (operator, admin) | `200` `{exclusive}`; saves "Disconnect other links first" (`dv.link_exclusive`) |
 | PUT | `/api/dv/private-node` | `{"node","rxPort","txPort","linkMode":"ondemand\|permanent","localNode","linkExclusive"?,"dryRun"?,"restart"?,"base"?}` | `200` plan (dry run) or result `{ok, steps:[...], rollback}`. Steps: `disconnect`, `asterisk_config`, `engine_config`, `asterisk_restart`, `engine_reload`, `health` |
 | DELETE | `/api/dv/private-node` | optional `{"dryRun"?,"restart"?,"base"?}` | removes the bridge node ASLCP added; same step list |
-| GET | `/api/dv/audio` | admin | `200` `{agcTx,agcRx,agcTargetDb,agcMaxGainDb,gainRxDb,gainTxDb}`: the audio settings (defaults `false,false,-22,18,0,0`) |
+| GET | `/api/dv/audio` | admin | `200` `{agcTx,agcRx,agcTargetDb,agcMaxGainDb,gainRxDb,gainTxDb}`: the audio settings (defaults `false,true,-22,18,0,0`) |
 | PUT | `/api/dv/audio` (admin) | the same fields; one left out keeps its default. `agcTargetDb` -40..-6, `agcMaxGainDb` 0..30, gains -20..20 | `200` the settings, `applied`, `applyError?`; hot reload, no restart. `400 invalid_field` |
 | GET | `/api/dv/meter` | viewer | `200` `{running, audio?:{targetDb, tx, rx}}`; `tx` is the node audio to the network, `rx` the network audio to the node. Each: `{agc, active, peakDb, rmsDb, outPeakDb, outRmsDb, last?:{speechDb, outSpeechDb, peakDb, outPeakDb, clipped, durationMs, verdict:"low"\|"ok"\|"high", agc, at}}`. Cached 400 ms |
 | PUT | `/api/dv/private-node/name` | `{"name": string}` | `200` `{name}`; the default is "Digital modes linked node" (`dv.node_name`) |

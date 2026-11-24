@@ -1,6 +1,8 @@
 package dvpanel
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net"
 	"regexp"
@@ -405,9 +407,26 @@ type AudioState struct {
 	GainTxDb     int  `json:"gainTxDb"`     // -20..20, network audio (to the node)
 }
 
-// DefaultAudio leaves the audio as it was before the AGC existed.
+// DefaultAudio is the network audio AGC (to the node) on and the rest off.
+// The audio block is stored only when it differs from this, so an explicit
+// agcRx false is always written.
 func DefaultAudio() AudioState {
-	return AudioState{AGCTargetDb: ctl.DefaultAGCTarget, AGCMaxGainDb: ctl.DefaultAGCMax}
+	return AudioState{AGCRx: ctl.DefaultAGCRx, AGCTargetDb: ctl.DefaultAGCTarget, AGCMaxGainDb: ctl.DefaultAGCMax}
+}
+
+// UnmarshalJSON starts from the defaults, so a field that is absent (an older
+// networks.json block, a PUT without agcRx) keeps its default: agcRx on. An
+// explicit false is read as false.
+func (a *AudioState) UnmarshalJSON(b []byte) error {
+	type plain AudioState
+	v := plain(DefaultAudio())
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&v); err != nil {
+		return err
+	}
+	*a = AudioState(v)
+	return nil
 }
 
 // ValidateAudio checks the ranges.

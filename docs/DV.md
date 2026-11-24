@@ -183,7 +183,7 @@ On the dashboard, choose P25, pick a talkgroup from the list (or type up to five
 
 The bridge sees the audio of both directions: from your node to the network ("Node audio") and from the network to your node ("Network audio"). In the Audio card of Digital modes setup, under the echo test:
 
-- **Node audio AGC (to network)** and **Network audio AGC (to node)** are always shown: automatic gain control, off by default. It evens out the level of speech toward the target and never boosts silence or noise. It has no delay, and a limiter keeps loud audio from clipping.
+- **Node audio AGC (to network)** and **Network audio AGC (to node)** are always shown: automatic gain control. The network audio AGC (to node) is on by default and the node audio AGC (to network) is off. It evens out the level of speech toward the target and never boosts silence or noise. It has no delay, and a limiter keeps loud audio from clipping.
 
 Press Show advanced audio settings for the levels and fixed gains:
 
@@ -191,7 +191,7 @@ Press Show advanced audio settings for the levels and fixed gains:
 - **AGC maximum gain (dB)**: the most it may raise a quiet voice, 0 to 30, default 18.
 - **Node audio gain (dB)** and **Network audio gain (dB)**: a fixed gain of -20 to 20 dB, default 0. It is applied before the AGC.
 
-With the defaults the audio is not changed at all. Changes apply at once, without a restart.
+With the defaults the audio from your node is not changed, and the audio from the network is levelled by the AGC; switch Network audio AGC (to node) off to pass it through unchanged. Changes apply at once, without a restart.
 
 The Digital modes card shows two small level meters, "To network" and "From network", and a summary of the last transmission in each direction: the speech level, the peak, and a verdict. The verdict is Low when the speech is more than 10 dB under the target, High when it is more than 8 dB over it, and Clipping when any frame clipped; otherwise OK. The verdict uses the configured target even with the AGC off. With the AGC on, the summary also shows the level after it.
 

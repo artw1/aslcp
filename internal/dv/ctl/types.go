@@ -272,10 +272,12 @@ type USRPConfig struct {
 	GainTx int    `json:"gainTxDb,omitempty"`
 	// The AGC, shared by all modes (docs/DV.md "Audio level and AGC"). AGCTx
 	// works on the node's audio going to the network, AGCRx on the network's
-	// audio going to the node. Both are off by default. A file without
-	// agcTargetDb and agcMaxGainDb gets the defaults (config.Parse).
+	// audio going to the node. AGCRx is on by default and AGCTx off. A file
+	// without agcRx, agcTargetDb and agcMaxGainDb gets the defaults
+	// (config.Parse). agcRx is always written, so that an explicit false
+	// survives a round trip instead of falling back to on.
 	AGCTx     bool `json:"agcTx,omitempty"`
-	AGCRx     bool `json:"agcRx,omitempty"`
+	AGCRx     bool `json:"agcRx"`
 	AGCTarget int  `json:"agcTargetDb,omitempty"` // -40..-6, default -22
 	AGCMax    int  `json:"agcMaxGainDb"`          // 0..30, default 18
 }
@@ -284,6 +286,7 @@ type USRPConfig struct {
 const (
 	DefaultAGCTarget = -22
 	DefaultAGCMax    = 18
+	DefaultAGCRx     = true // network audio AGC (to the node) is on by default, the node audio AGC (to the network) off
 	MinAGCTarget     = -40
 	MaxAGCTarget     = -6
 	MaxAGCMaxGain    = 30

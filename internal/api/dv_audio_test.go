@@ -19,7 +19,7 @@ func TestDVAudioSettings(t *testing.T) {
 		ApplyError                string
 	}
 	var a audio
-	if c := e.do("admin", "GET", "/api/dv/audio", nil, &a); c != 200 || a.AGCTx || a.AGCRx || a.AGCTargetDb != -22 || a.AGCMaxGainDb != 18 || a.GainRxDb != 0 || a.GainTxDb != 0 {
+	if c := e.do("admin", "GET", "/api/dv/audio", nil, &a); c != 200 || a.AGCTx || !a.AGCRx || a.AGCTargetDb != -22 || a.AGCMaxGainDb != 18 || a.GainRxDb != 0 || a.GainTxDb != 0 {
 		t.Fatalf("defaults: %d %+v", c, a)
 	}
 	var nets struct{ Audio audio }
@@ -41,6 +41,16 @@ func TestDVAudioSettings(t *testing.T) {
 	}
 	if !reloaded || !a.Applied {
 		t.Fatalf("the engine was not reloaded: applied=%v %v", a.Applied, fc.Requests())
+	}
+	// network AGC off is explicit: PUT false, then GET gives false
+	if c := e.do("admin", "PUT", "/api/dv/audio", map[string]any{"agcRx": false}, &a); c != 200 || a.AGCRx {
+		t.Fatalf("put off: %d %+v", c, a)
+	}
+	if c := e.do("admin", "GET", "/api/dv/audio", nil, &a); c != 200 || a.AGCRx {
+		t.Fatalf("get after off: %d %+v", c, a)
+	}
+	if fe.audio == nil || fe.audio.AGCRx {
+		t.Fatalf("the helper got %+v", fe.audio)
 	}
 	// a field left out keeps its default; bad values are refused and change nothing
 	if c := e.do("admin", "PUT", "/api/dv/audio", map[string]any{"agcRx": true}, &a); c != 200 || !a.AGCRx || a.AGCTx || a.AGCTargetDb != -22 || a.AGCMaxGainDb != 18 {
