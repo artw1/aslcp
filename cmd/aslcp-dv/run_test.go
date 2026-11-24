@@ -57,7 +57,7 @@ func TestRunEndToEnd(t *testing.T) {
 	sock := filepath.Join(dir, "ctl.sock")
 	cfgPath := filepath.Join(dir, "c.json")
 	write := func(timeoutMS string) {
-		doc := `{"version":1,"usrp":{"listen":"` + listen + `","peer":"` + peer.LocalAddr().String() + `"},
+		doc := `{"version":1,"usrp":{"agcRx":false,"listen":"` + listen + `","peer":"` + peer.LocalAddr().String() + `"},
 		 "vocoder":{"md380":"` + srv.Addr() + `","timeoutMs":` + timeoutMS + `},
 		 "identity":{"callsign":"N0CALL","dmrId":1234567},
 		 "networks":[{"mode":"LOOP","enabled":true,"options":{"playback_delay_ms":"10"}}],

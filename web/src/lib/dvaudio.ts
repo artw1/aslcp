@@ -4,7 +4,7 @@ import type { DVAudio, DVAudioDir, DVAudioSummary } from './types';
 export const METER_FLOOR = -90;
 export const METER_HINT = 'Use the echo test (LOOP) to check your own audio level.';
 
-export const AUDIO_DEFAULTS: DVAudio = { agcTx: false, agcRx: false, agcTargetDb: -22, agcMaxGainDb: 18, gainRxDb: 0, gainTxDb: 0 };
+export const AUDIO_DEFAULTS: DVAudio = { agcTx: false, agcRx: true, agcTargetDb: -22, agcMaxGainDb: 18, gainRxDb: 0, gainTxDb: 0 };
 
 /** The width of the meter bar in percent: the peak over a 90 dB range, as the Tune page does. */
 export function meterPct(pk: number): number { return Math.max(0, Math.min(100, ((pk + 90) / 90) * 100)); }

@@ -36,6 +36,7 @@ var knownModes = map[string]bool{
 func Default() ctl.Config {
 	c := ctl.Config{Version: ctl.ConfigVersion}
 	c.USRP.AGCMax = ctl.DefaultAGCMax
+	c.USRP.AGCRx = ctl.DefaultAGCRx
 	applyDefaults(&c)
 	return c
 }
@@ -86,7 +87,7 @@ func Load(path string) (ctl.Config, bool, error) {
 // Parse decodes and validates a config document strictly: unknown fields and
 // trailing data are errors.
 func Parse(b []byte) (ctl.Config, error) {
-	c := ctl.Config{USRP: ctl.USRPConfig{AGCTarget: ctl.DefaultAGCTarget, AGCMax: ctl.DefaultAGCMax}}
+	c := ctl.Config{USRP: ctl.USRPConfig{AGCRx: ctl.DefaultAGCRx, AGCTarget: ctl.DefaultAGCTarget, AGCMax: ctl.DefaultAGCMax}}
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&c); err != nil {

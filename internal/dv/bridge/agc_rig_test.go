@@ -54,8 +54,8 @@ func audioStatus(t *testing.T, g *rig) *ctl.AudioStatus {
 }
 
 func TestAGCRaisesQuietNodeAudio(t *testing.T) {
-	const v, n = 300, 60 // about -40.8 dBFS
-	off := newRig(t, rigOpts{})
+	const v, n = 300, 60                                                                              // about -40.8 dBFS
+	off := newRig(t, rigOpts{cfg: func(c *ctl.Config) { c.USRP.AGCTx, c.USRP.AGCRx = false, false }}) // both AGCs explicitly off: bit-exact
 	base := quietCall(t, off, v, n)
 	for k, s := range base {
 		if s != v {
@@ -87,7 +87,7 @@ func TestAGCRaisesQuietNodeAudio(t *testing.T) {
 }
 
 func TestAGCOffMetersWithoutTouchingAudio(t *testing.T) {
-	g := newRig(t, rigOpts{cfg: func(c *ctl.Config) { c.USRP.AGCTarget = -22 }})
+	g := newRig(t, rigOpts{cfg: func(c *ctl.Config) { c.USRP.AGCTx, c.USRP.AGCRx, c.USRP.AGCTarget = false, false, -22 }})
 	got := quietCall(t, g, 1000, 30)
 	for k, s := range got {
 		if s != 1000 {

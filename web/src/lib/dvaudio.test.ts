@@ -1,7 +1,7 @@
 // Run with `npm test`. The audio settings and the level meter of the digital modes card.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { agcLine, audioError, dbText, dirShown, meterColor, meterPct, summaryLine, verdictLabel, verdictTone } from './dvaudio.ts';
+import { AUDIO_DEFAULTS, agcLine, audioError, dbText, dirShown, meterColor, meterPct, summaryLine, verdictLabel, verdictTone } from './dvaudio.ts';
 import type { DVAudioSummary } from './types';
 
 const sum = (o: Partial<DVAudioSummary> = {}): DVAudioSummary => ({ speechDb: -28, outSpeechDb: -22, peakDb: -4, outPeakDb: -3, clipped: 0, durationMs: 4000, verdict: 'low', agc: false, at: '', ...o });
@@ -53,4 +53,9 @@ test('settings form', () => {
   assert.match(audioError({ ...ok, agcMaxGainDb: '' }), /AGC maximum gain/);
   assert.match(audioError({ ...ok, gainRxDb: '21' }), /Node audio gain/);
   assert.match(audioError({ ...ok, gainTxDb: '1.5' }), /Network audio gain/);
+});
+
+test('network audio AGC is on by default, node audio AGC off', () => {
+  assert.equal(AUDIO_DEFAULTS.agcRx, true);
+  assert.equal(AUDIO_DEFAULTS.agcTx, false);
 });

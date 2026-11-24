@@ -34,7 +34,7 @@
     </div>
     <div>
       <span class="inline-flex items-center gap-2 text-sm"><Toggle checked={f.agcRx} label="Network audio AGC (to node)" onchange={(v) => (f.agcRx = v)} />Network audio AGC (to node)</span>
-      <p class="mt-1 text-xs text-muted">Evens out the level of stations you hear from the network before it goes to your node.</p>
+      <p class="mt-1 text-xs text-muted">Evens out the level of stations you hear from the network before it goes to your node. On by default.</p>
     </div>
   </div>
   <div>
