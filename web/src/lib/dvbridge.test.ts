@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ADOPT_CONFIRM, DUPLEX_TEXT, canAdopt, NODE_HINT, canChange, doneText, formError, planApplyLabel, planOrder, planTitle, linkButton, linkLine, nodeError, pausedHint, planConfirm, prefill, linkExclusiveOnClick, exclusiveHint, suggestNode, validPort, stepLabel } from './dvbridge.ts';
+import { ADOPT_CONFIRM, DUPLEX_TEXT, canAdopt, NODE_HINT, canChange, doneText, formError, planApplyLabel, planOrder, planTitle, linkButton, linkLine, linkBoxText, nodeError, pausedHint, planConfirm, prefill, linkExclusiveOnClick, exclusiveHint, suggestNode, validPort, stepLabel } from './dvbridge.ts';
 import type { DVLink } from './types';
 
 const L = (o: Partial<DVLink> = {}): DVLink => ({ mode: 'ondemand', localNode: '1997', linked: false, paused: false, exclusive: false, ...o });
@@ -130,4 +130,13 @@ test('"Manage this bridge node with ASLCP" is offered only for a found, adoptabl
   assert.ok(!canAdopt({ node: '1999', owned: false }));
   assert.ok(!canAdopt({ node: '', owned: false, adoptable: true }));
   assert.ok(ADOPT_CONFIRM('1999').includes('1999'));
+});
+
+test('linkBoxText: short main line and sub line', () => {
+  assert.deepEqual(linkBoxText('1997', L({ mode: 'ondemand', localNode: '2001', linked: true })), { main: 'Node 1997 ⇄ 2001', sub: 'on demand' });
+  assert.deepEqual(linkBoxText('1997', L({ mode: 'ondemand', localNode: '2001', linked: false })), { main: 'Node 1997 not linked to 2001', sub: 'on demand' });
+  assert.deepEqual(linkBoxText('1997', L({ mode: 'ondemand', localNode: '' })), { main: 'Node 1997, no local node chosen', sub: 'on demand' });
+  assert.deepEqual(linkBoxText('1998', L({ mode: 'permanent', localNode: '2002', linked: true })), { main: 'Node 1998 ⇄ 2002', sub: 'permanent' });
+  assert.equal(linkBoxText('1998', L({ mode: 'permanent', localNode: '2002', linked: false, paused: true })).sub, 'permanent, paused: you disconnected it');
+  assert.equal(linkBoxText('1998', L({ mode: 'permanent', localNode: '2002', linked: false, paused: false })).sub, 'permanent, reconnecting');
 });

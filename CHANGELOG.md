@@ -3,6 +3,12 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [2.3.1] - 2026-11-24
+
+### Changed
+- The Digital modes card on the dashboard is redesigned: a status pill in the header, and two link boxes (the YSF, DMR, P25, NXDN or M17 target and the AllStar link) that each hold their own Unlink button, with the "Disconnect other links first" checkbox under the AllStar button.
+- The mode buttons form one segmented control on the same row as the search and Go, the tuned favourite is highlighted, the level meter is compact (TX and RX side by side, the echo test hint only when the level is Low or High), and the Last heard line shows the newest entry.
+
 ## [2.3.0] - 2026-11-24
 
 ### Added

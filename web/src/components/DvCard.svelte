@@ -7,9 +7,10 @@
   import { dvErrorMessage } from '../lib/dvmsg';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-    import { CONFIRM_MS, allOk, bridgeLinked, isTargetLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, masterLine, M17_MODULES, m17Tune, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes, quietHint, QUIET_TICK_MS } from '../lib/dvpanel';
+    import { CONFIRM_MS, allOk, bridgeLinked, isTargetLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, m17Display, masterLine, M17_MODULES, m17Tune, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes, quietHint, QUIET_TICK_MS } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
-  import { exclusiveHint, linkButton, linkExclusiveOnClick, linkLine, pausedHint } from '../lib/dvbridge';
+  import { ECHO_RUNNING } from '../lib/dvecho';
+  import { exclusiveHint, linkButton, linkExclusiveOnClick, linkBoxText, linkLine, pausedHint } from '../lib/dvbridge';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
   import NodePicker from './NodePicker.svelte';
   import Dialog from './Dialog.svelte';
@@ -141,6 +142,19 @@
   // A private call is saved with its #, so the chip calls it privately again.
   const favValue = $derived(target && isDMRFamily(mode) && b?.private ? target + PRIVATE_MARK : target);
   const starred = $derived(mode ? findFavorite(favs, mode, favValue) : undefined);
+  const nodeRow = $derived(!!(bn?.present && bn.node && link));
+  const showNodeBox = $derived(nodeRow);
+  const showTargetBox = $derived(!!mode);
+  const targetUp = $derived(mode === 'LOOP' || targetLinked);
+  const targetMain = $derived(mode === 'M17' ? m17Display(target) : b?.targetName || target);
+  const targetSub = $derived(b?.targetName ? target : '');
+  const targetFull = $derived(b?.targetName ? `${b.targetName} (${target})` : target);
+  // The short status pill: "Linked" when the node link and the target are both up, else why not.
+  const pill = $derived.by(() => {
+    if (linked && targetLinked) return { text: 'Linked', cls: '!border-ok/50 !text-ok' };
+    const text = !ok ? 'Service down' : !mode ? 'Mode unknown' : reflectorSilent(snap) ? 'Reflector not answering' : mode === 'LOOP' ? 'Echo test' : !linked && !targetLinked ? 'Not linked' : !linked ? 'Node not linked' : 'No target';
+    return { text, cls: tone === 'warn' ? '!border-warn/50 !text-warn' : '' };
+  });
   const block = $derived(!mode ? 'Mode unknown' : target && target === unlinkValue ? 'Nothing is linked' : favoriteBlock(favs, mode, favValue));
 
   let dlg = $state({ open: false, id: 0, name: '' });
@@ -168,11 +182,10 @@
 {#if snap?.installed}
   <section class="space-y-2 rounded-md border px-2 py-1.5 text-sm {linked ? 'border-ok/50 bg-ok/10' : 'border-line bg-surface'}" aria-label="Digital modes" data-linked={linked}>
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <span class="inline-flex items-center gap-1.5 font-medium"><RadioTower size={15} class="text-accent" aria-hidden="true" />Digital modes</span>
-      <span class={tone === 'warn' ? 'text-warn' : tone === 'ok' ? 'text-ok' : ''} title={stateTitle(snap)} data-tone={tone}>{stateLine(b, reflectorSilent(snap))}</span>
-      {#if op && live && mode !== 'LOOP'}<button type="button" class="btn btn-xs {targetLinked ? 'btn-bad' : 'btn-off'}" disabled={locked || !mode || !unlinkValue || !targetLinked} title={!targetLinked ? 'Nothing is linked' : mode ? `Unlink the ${modeLabel(mode)} talkgroup or reflector: send ${unlinkValue} to ${modeLabel(mode)}. The bridge node link is not changed.` : 'Mode unknown'} onclick={unlink}><Unlink size={11} aria-hidden="true" />Unlink {mode ? modeLabel(mode) + ' target' : ''}</button>{/if}
+      <span class="inline-flex items-center gap-1.5 text-base font-semibold"><RadioTower size={16} class="text-accent" aria-hidden="true" />Digital modes</span>
+      <span class="badge {pill.cls}" title={stateTitle(snap)} data-tone={tone} data-testid="dv-status">{pill.text}</span>
+      <span class="sr-only">{stateLine(b, reflectorSilent(snap))}</span>
       {#if master}<span class="min-w-0 max-w-full truncate text-xs text-muted" title={masterTitle} data-testid="dv-master">{master}</span>{/if}
-      {#if mode === 'LOOP'}<a href="#/digital" class="text-xs text-accent underline hover:no-underline" data-testid="dv-echo-link">{admin ? 'Stop it in Digital modes setup' : 'Pick a mode to stop it'}</a>{/if}
       <span class="sr-only">{ok ? 'All services running' : 'A service is down or the state is unknown'}</span>
       {#if linked}<span class="sr-only">Bridge node linked</span>{/if}
       {#if admin}<a href="#/digital" class="ml-auto text-xs text-accent underline hover:no-underline">Setup</a>{/if}
@@ -189,63 +202,103 @@
       <p class="flex flex-wrap items-center gap-2 text-warn" role="status">Not confirmed: the bridge still reports {b?.mode || 'no mode'}, not {pending.mode}.
         <button type="button" class="text-xs underline hover:no-underline" onclick={() => { pending = null; }}>Dismiss</button></p>
     {/if}
-    {#if bn?.present && bn.node && link}
-      <p class="flex flex-wrap items-center gap-2" data-testid="dv-node-link">
-        <span class={link.mode === 'permanent' && !link.linked ? 'text-warn' : ''} title={linked ? 'Bridge node linked' : undefined}>{linkLine(bn.node, link, nodeName)}</span>
-        {#if op && nodeBtn}<button type="button" class="btn btn-sm {nodeLinkClass(nodeBtn.action)}" disabled={busy} title={nodeBtn.title} onclick={toggleLink}>{nodeBtn.label}</button>{/if}
-        <label class="inline-flex cursor-pointer items-center gap-1.5 text-xs" title={exclusiveHint(link.mode, link.exclusive)} data-testid="dv-exclusive">
-          <input type="checkbox" class="size-4 accent-[var(--accent)]" checked={link.exclusive} onchange={(e) => setExclusive(e.currentTarget.checked)} disabled={!op || busy} />Disconnect other links first</label>
-      </p>
-      {#if pausedHint(link)}<p class="text-xs text-muted">{pausedHint(link)}</p>{/if}
+
+    {#if showTargetBox || showNodeBox}
+      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {#if showTargetBox}
+          <div class="rounded border bg-surface-2 px-3 py-2 {targetUp ? 'border-ok/40' : 'border-warn/40'}" data-testid="dv-target-box">
+            <div class="flex items-start gap-2">
+              <div class="min-w-0 flex-1">
+                <div class="text-[11px] uppercase tracking-wide text-muted">{mode === 'LOOP' ? 'Echo test' : `${modeLabel(mode)} ${isDMRFamily(mode) ? 'talkgroup' : 'reflector'}`}</div>
+                {#if mode === 'LOOP'}
+                  <div class="truncate font-medium text-ok">{ECHO_RUNNING}</div>
+                  <a href="#/digital" class="text-xs text-accent underline hover:no-underline" data-testid="dv-echo-link">{admin ? 'Stop it in Digital modes setup' : 'Pick a mode to stop it'}</a>
+                {:else if targetLinked}
+                  <div class="truncate font-medium {reflectorSilent(snap) ? 'text-warn' : 'text-ok'}" title={targetFull}>{targetMain}</div>
+                  {#if targetSub}<div class="truncate font-mono text-xs text-muted" title={targetFull}>{targetSub}</div>{/if}
+                {:else}
+                  <div class="text-muted">Not linked</div>
+                {/if}
+              </div>
+              {#if op && live && mode !== 'LOOP'}
+                <div class="flex shrink-0 flex-col items-end gap-1">
+                  <button type="button" class="btn btn-sm btn-bad-outline" disabled={locked || !mode || !unlinkValue || !targetLinked} title={!targetLinked ? 'Nothing is linked' : mode ? `Unlink the ${modeLabel(mode)} talkgroup or reflector: send ${unlinkValue} to ${modeLabel(mode)}. The bridge node link is not changed.` : 'Mode unknown'} data-testid="dv-unlink" onclick={unlink}><Unlink size={12} aria-hidden="true" />Unlink {mode ? modeLabel(mode) : ''}</button>
+                </div>
+              {/if}
+            </div>
+          </div>
+        {/if}
+        {#if showNodeBox && bn?.node && link}
+          {@const lb = linkBoxText(bn.node, link)}
+          <div class="rounded border bg-surface-2 px-3 py-2 {linked ? 'border-ok/40' : 'border-warn/40'}" data-testid="dv-node-link">
+            <div class="flex items-start gap-2">
+              <div class="min-w-0 flex-1">
+                <div class="text-[11px] uppercase tracking-wide text-muted">AllStar link</div>
+                <div class="truncate font-medium {link.mode === 'permanent' && !link.linked ? 'text-warn' : linked ? 'text-ok' : ''}" title={linkLine(bn.node, link, nodeName)}>{lb.main}</div>
+                <div class="text-xs text-muted">{lb.sub}</div>
+                {#if pausedHint(link)}<div class="text-xs text-muted">{pausedHint(link)}</div>{/if}
+              </div>
+              <div class="flex shrink-0 flex-col items-end gap-1">
+                {#if op && nodeBtn}<button type="button" class="btn btn-sm {nodeBtn.action === 'connect' ? nodeLinkClass(nodeBtn.action) : 'btn-bad-outline'}" disabled={busy} title={nodeBtn.title} onclick={toggleLink}>{#if nodeBtn.action !== 'connect'}<Unlink size={12} aria-hidden="true" />{/if}{nodeBtn.label}</button>{/if}
+                <label class="inline-flex cursor-pointer items-center gap-1 text-xs" title={exclusiveHint(link.mode, link.exclusive)} data-testid="dv-exclusive">
+                  <input type="checkbox" class="size-3.5 accent-[var(--accent)]" checked={link.exclusive} onchange={(e) => setExclusive(e.currentTarget.checked)} disabled={!op || busy} />Disconnect other links first</label>
+              </div>
+            </div>
+          </div>
+        {/if}
+      </div>
     {/if}
     {#if snap.running && !snap.bridgeNode.present}
       <p class="text-muted">No bridge node yet: audio through AllStar needs the bridge node setup{admin ? ' (Digital modes tab).' : '.'}</p>
     {/if}
 
     {#if op && live}
-      <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Mode">
-        {#each dashboardModes(snap.modes) as m (m.id)}
-          <button type="button" class="btn btn-sm {shown === m.id ? 'btn-primary' : ''}" aria-pressed={shown === m.id}
-            disabled={!m.enabled || locked}
-            title={m.enabled ? undefined : `${modeButtonLabel(m)} is disabled${admin ? ' (Digital modes tab)' : ''}`}
-            onclick={() => setMode(m.id)}>{modeButtonLabel(m)}{#if pending?.mode === m.id && outcome === 'waiting'}…{/if}</button>
-        {/each}
-      </div>
+      <div class="flex flex-wrap items-center gap-1.5">
+        <div class="inline-flex" role="group" aria-label="Mode">
+          {#each dashboardModes(snap.modes) as m, i (m.id)}
+            <button type="button" class="btn btn-sm rounded-none {i > 0 ? '-ml-px' : 'rounded-l'} {i === dashboardModes(snap.modes).length - 1 ? 'rounded-r' : ''} {shown === m.id ? 'btn-primary relative z-10' : ''}" aria-pressed={shown === m.id}
+              disabled={!m.enabled || locked}
+              title={m.enabled ? undefined : `${modeButtonLabel(m)} is disabled${admin ? ' (Digital modes tab)' : ''}`}
+              onclick={() => setMode(m.id)}>{modeButtonLabel(m)}{#if pending?.mode === m.id && outcome === 'waiting'}…{/if}</button>
+          {/each}
+        </div>
 
-
-      {#if mode && mode !== 'LOOP'}
-        <form class="flex flex-wrap items-center gap-1.5" onsubmit={(e) => { e.preventDefault(); void go(); }}>
-          <div class="min-w-40 flex-1">
-            {#if pickable}
-              <NodePicker id="dvtune" bind:value={tuneValue} options={pickable.items} search={(t) => searchList(pickable.index, t)} label={(o) => optionLabel(mode.toLowerCase() as DVListMode, o)} placeholder="Search {mode} or type a value" inputmode="text" onenter={go} />
-            {:else}
-              <input id="dvtune" class="input font-mono" bind:value={tuneValue} placeholder={isDMRFamily(mode) ? 'Talkgroup number' : 'Target'} inputmode={isDMRFamily(mode) ? 'numeric' : 'text'} autocomplete="off" aria-label="Tune target" />
+        {#if mode && mode !== 'LOOP'}
+          <form class="flex min-w-64 flex-1 flex-wrap items-center gap-1.5" onsubmit={(e) => { e.preventDefault(); void go(); }}>
+            <div class="min-w-40 flex-1">
+              {#if pickable}
+                <NodePicker id="dvtune" bind:value={tuneValue} options={pickable.items} search={(t) => searchList(pickable.index, t)} label={(o) => optionLabel(mode.toLowerCase() as DVListMode, o)} placeholder="Search {mode} or type a value" inputmode="text" onenter={go} />
+              {:else}
+                <input id="dvtune" class="input font-mono" bind:value={tuneValue} placeholder={isDMRFamily(mode) ? 'Talkgroup number' : 'Target'} inputmode={isDMRFamily(mode) ? 'numeric' : 'text'} autocomplete="off" aria-label="Tune target" />
+              {/if}
+            </div>
+            {#if mode === 'M17'}
+              <select class="input w-auto" bind:value={module} disabled={locked} aria-label="Module" title="The module (room) of the reflector" data-testid="dv-m17-module">
+                {#each M17_MODULES as x (x)}<option value={x}>Module {x}</option>{/each}
+              </select>
             {/if}
-          </div>
-          {#if mode === 'M17'}
-            <select class="input w-auto" bind:value={module} disabled={locked} aria-label="Module" title="The module (room) of the reflector" data-testid="dv-m17-module">
-              {#each M17_MODULES as x (x)}<option value={x}>Module {x}</option>{/each}
-            </select>
-          {/if}
-          {#if isDMRFamily(mode)}
-            <label class="inline-flex cursor-pointer items-center gap-1.5 text-xs" title="Call the number as a private call (a trailing # on the ID)" data-testid="dv-private">
-              <input type="checkbox" class="size-4 accent-[var(--accent)]" bind:checked={priv} disabled={locked} />Private call</label>
-          {/if}
-          <button type="submit" class="btn btn-primary btn-sm" disabled={locked || !tuneOk}>Go</button>
-          {#if isDMRFamily(mode)}
-            <button type="button" class="btn btn-sm" disabled={locked} title="BM Parrot: call 9990 as a private call and hear yourself back" data-testid="dv-parrot" onclick={parrot}>Parrot</button>
-          {/if}
-          <button type="button" class="btn btn-sm btn-icon" disabled={locked || !!block} aria-pressed={!!starred}
-            aria-label={starred ? 'Already a favourite' : 'Save the current target as a favourite'} title={block ?? 'Save the current target as a favourite'} onclick={addFav}>
-            <Star size={14} class={starred ? 'fill-current text-accent' : ''} aria-hidden="true" /></button>
-        </form>
-      {/if}
+            {#if isDMRFamily(mode)}
+              <label class="inline-flex cursor-pointer items-center gap-1.5 text-xs" title="Call the number as a private call (a trailing # on the ID)" data-testid="dv-private">
+                <input type="checkbox" class="size-4 accent-[var(--accent)]" bind:checked={priv} disabled={locked} />Private call</label>
+            {/if}
+            <button type="submit" class="btn btn-primary btn-sm" disabled={locked || !tuneOk}>Go</button>
+            {#if isDMRFamily(mode)}
+              <button type="button" class="btn btn-sm" disabled={locked} title="BM Parrot: call 9990 as a private call and hear yourself back" data-testid="dv-parrot" onclick={parrot}>Parrot</button>
+            {/if}
+            <button type="button" class="btn btn-sm btn-icon {starred ? 'border-accent' : ''}" disabled={locked || !!block} aria-pressed={!!starred} data-testid="dv-star"
+              aria-label={starred ? 'Already a favourite' : 'Save the current target as a favourite'} title={block ?? 'Save the current target as a favourite'} onclick={addFav}>
+              <Star size={14} class={starred ? 'fill-accent text-accent' : 'text-muted'} aria-hidden="true" /></button>
+          </form>
+        {/if}
+      </div>
     {/if}
 
     {#if mode && chips.length}
       <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Favourites for {mode}">
         {#each chips as f (f.id)}
-          <span class="inline-flex items-center rounded border border-line {f.value === favValue ? 'bg-accent/10' : ''}">
+          {@const tuned = f.value === favValue}
+          <span class="inline-flex items-center rounded border {tuned ? 'border-accent bg-accent/10' : 'border-line'}" data-tuned={tuned}>
+            {#if tuned}<span class="ml-1.5 inline-block size-1.5 rounded-full bg-ok" aria-hidden="true"></span><span class="sr-only">on air</span>{/if}
             {#if op && live}
               <button type="button" class="px-2 py-0.5 text-xs hover:bg-surface-2 disabled:opacity-45" disabled={locked} title="Tune to {f.value}" onclick={() => tune(f.value)}>{f.name}</button>
               <Menu label="Favourite {f.name}" btnClass="px-1 py-0.5 text-muted hover:bg-surface-2" items={menu}>
@@ -267,7 +320,7 @@
 
     {#if snap.heard?.length}
       <details class="text-xs" data-testid="dv-heard">
-        <summary class="cursor-pointer text-muted">Last heard</summary>
+        <summary class="cursor-pointer text-muted">Last heard <span class="ml-1 font-mono">{heardLine(snap.heard[0])}</span></summary>
         <ul class="mt-1 space-y-0.5 font-mono">
           {#each snap.heard as h, i (i)}<li title={h.dmrId ? `DMR ID ${h.dmrId}` : undefined}>{heardLine(h)}</li>{/each}
         </ul>
