@@ -7,7 +7,7 @@
   import { dvErrorMessage } from '../lib/dvmsg';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-    import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, masterLine, M17_MODULES, m17Tune, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes, quietHint, QUIET_TICK_MS } from '../lib/dvpanel';
+    import { CONFIRM_MS, allOk, bridgeLinked, isTargetLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, masterLine, M17_MODULES, m17Tune, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes, quietHint, QUIET_TICK_MS } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import { exclusiveHint, linkButton, linkExclusiveOnClick, linkLine, pausedHint } from '../lib/dvbridge';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
@@ -136,6 +136,7 @@
   $effect(() => { if (snap?.installed && !favsLoaded) { favsLoaded = true; void loadFavs(); } });
   const chips = $derived(mode ? favoritesFor(favs, mode) : []);
   const target = $derived(b?.tune ?? '');
+  const targetLinked = $derived(isTargetLinked(target, unlinkValue));
   // A private call is saved with its #, so the chip calls it privately again.
   const favValue = $derived(target && isDMRFamily(mode) && b?.private ? target + PRIVATE_MARK : target);
   const starred = $derived(mode ? findFavorite(favs, mode, favValue) : undefined);
@@ -168,7 +169,7 @@
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
       <span class="inline-flex items-center gap-1.5 font-medium"><RadioTower size={15} class="text-accent" aria-hidden="true" />Digital modes</span>
       <span class={tone === 'warn' ? 'text-warn' : tone === 'ok' ? 'text-ok' : ''} title={stateTitle(snap)} data-tone={tone}>{stateLine(b, reflectorSilent(snap))}</span>
-      {#if op && live && mode !== 'LOOP'}<button type="button" class="btn btn-sm btn-bad" disabled={locked || !mode || !unlinkValue} title={mode ? `Unlink the ${modeLabel(mode)} talkgroup or reflector: send ${unlinkValue} to ${modeLabel(mode)}. The bridge node link is not changed.` : 'Mode unknown'} onclick={unlink}><Unlink size={13} aria-hidden="true" />Unlink {mode ? modeLabel(mode) + ' target' : ''}</button>{/if}
+      {#if op && live && mode !== 'LOOP'}<button type="button" class="btn btn-xs {targetLinked ? 'btn-bad' : 'btn-off'}" disabled={locked || !mode || !unlinkValue || !targetLinked} title={!targetLinked ? 'Nothing is linked' : mode ? `Unlink the ${modeLabel(mode)} talkgroup or reflector: send ${unlinkValue} to ${modeLabel(mode)}. The bridge node link is not changed.` : 'Mode unknown'} onclick={unlink}><Unlink size={11} aria-hidden="true" />Unlink {mode ? modeLabel(mode) + ' target' : ''}</button>{/if}
       {#if master}<span class="min-w-0 max-w-full truncate text-xs text-muted" title={masterTitle} data-testid="dv-master">{master}</span>{/if}
       {#if mode === 'LOOP'}<a href="#/digital" class="text-xs text-accent underline hover:no-underline" data-testid="dv-echo-link">{admin ? 'Stop it in Digital modes setup' : 'Pick a mode to stop it'}</a>{/if}
       <span class="sr-only">{ok ? 'All services running' : 'A service is down or the state is unknown'}</span>

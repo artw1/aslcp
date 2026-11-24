@@ -203,6 +203,9 @@ export function validNodeName(name: string): string | null {
 /** Button class of the node link button: green to link, red to unlink (solid colours, readable in both themes). */
 export const nodeLinkClass = (action: 'connect' | 'disconnect'): string => (action === 'connect' ? 'btn-ok' : 'btn-bad');
 
+/** A mode's tune is linked when it is set and is not the mode's unlink value (the "nothing linked" target). */
+export const isTargetLinked = (target: string, unlinkValue: string): boolean => !!target && target !== unlinkValue;
+
 /** The mode and target the bridge is tuned to: "BrandMeister TG 91", "DMR TG 1", "YSF Example room", "P25 TG 10100", "DMR" with no target; null without a bridge node or mode. Not what the talker sent. */
 export function bridgeRxTarget(s: Pick<DVSnapshot, 'bridgeNode' | 'bridge'> | null | undefined): string | null {
   const bn = s?.bridgeNode;

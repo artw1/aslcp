@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIRM_MS, dashboardModes, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, masterLine, MASTER_MAX, quietHint, QUIET_MS, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, pendingOutcome, rxCaller, reflectorSilent, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate, m17Tune, m17Split, m17Display, M17_MODULES } from './dvpanel.ts';
+import { CONFIRM_MS, dashboardModes, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, masterLine, MASTER_MAX, quietHint, QUIET_MS, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, isTargetLinked, pendingOutcome, rxCaller, reflectorSilent, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate, m17Tune, m17Split, m17Display, M17_MODULES } from './dvpanel.ts';
 import type { DVFavorite, DVSnapshot } from './types';
 
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
@@ -138,6 +138,13 @@ test('bridge node name and label', () => {
   assert.equal(validNodeName('bad\u0007name'), null);
   assert.equal(nodeLinkClass('connect'), 'btn-ok');
   assert.equal(nodeLinkClass('disconnect'), 'btn-bad');
+});
+
+test('unlink target is linked only when set and not the unlink value', () => {
+  assert.equal(isTargetLinked('', ''), false);
+  assert.equal(isTargetLinked('91', '91'), false);
+  assert.equal(isTargetLinked('91', '9999'), true);
+  assert.equal(isTargetLinked('91', ''), true);
 });
 
 test('RX line shows the mode and target while the bridge node is keyed', () => {
