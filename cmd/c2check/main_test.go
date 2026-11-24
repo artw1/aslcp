@@ -24,3 +24,20 @@ func TestBitRange(t *testing.T) {
 		t.Fatal("bitRange")
 	}
 }
+
+func TestLSDIdentical(t *testing.T) {
+	a := make([]int16, fs)
+	for i := range a {
+		a[i] = int16(1000 * math.Sin(float64(i)*0.3))
+	}
+	if d := lsd(a, a); d != 0 {
+		t.Fatalf("lsd of identical frames = %v", d)
+	}
+	b := make([]int16, fs)
+	for i := range b {
+		b[i] = a[i] / 2
+	}
+	if d := lsd(a, b); d < 5 || d > 7 {
+		t.Fatalf("lsd of a half-amplitude copy = %v, want about 6 dB", d)
+	}
+}

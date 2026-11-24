@@ -199,6 +199,7 @@ func report(w io.Writer, dir string, names []string) (int, error) {
 		diff []int
 	}
 	var frows []fieldRow
+	var diag []string
 	for _, name := range names {
 		p := func(s string) string { return filepath.Join(dir, name+s) }
 		ref, err := os.ReadFile(p(".ref.bin"))
@@ -272,6 +273,7 @@ func report(w io.Writer, dir string, names []string) (int, error) {
 			name, frames, exact, pexact, pct(diffBits, frames*64), pct(same, n), maxd,
 			fmtSNR(dsnr), fmtSNR(xsnr), res)
 		frows = append(frows, fieldRow{name, fdiff})
+		diag = append(diag, diagnose(name, refdec, godec))
 	}
 	fmt.Fprintln(w, "\nFrames whose field differs from libcodec2 (percent of frames):")
 	fmt.Fprintln(w)
@@ -291,6 +293,9 @@ func report(w io.Writer, dir string, names []string) (int, error) {
 		fmt.Fprintln(w, line)
 	}
 	fmt.Fprintln(w)
+	for _, d := range diag {
+		fmt.Fprint(w, d)
+	}
 	for _, m := range warns {
 		fmt.Fprintln(w, "WARN: "+m+"  ")
 	}

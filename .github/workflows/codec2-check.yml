@@ -2,6 +2,7 @@ name: Codec2 reference check
 
 # Manual comparison of the pure-Go Codec2 3200 port against libcodec2.
 # Not part of normal CI: it runs only on dispatch, or when this file changes.
+# The report includes per-second SNR and per-frame spectral diagnostics.
 # Bit files are headerless (.bin): c2enc is run without a header, matching our encoder.
 on:
   workflow_dispatch:
