@@ -2,6 +2,7 @@ name: Codec2 reference check
 
 # Manual comparison of the pure-Go Codec2 3200 port against libcodec2.
 # Not part of normal CI: it runs only on dispatch, or when this file changes.
+# Bit files are headerless (.bin): c2enc is run without a header, matching our encoder.
 on:
   workflow_dispatch:
   push:
@@ -41,15 +42,15 @@ jobs:
       - name: Reference encode and decode
         run: |
           for n in hts1a hts2a ve9qrp_10s; do
-            c2enc 3200 "work/$n.raw" "work/$n.ref.c2"
-            c2dec 3200 "work/$n.ref.c2" "work/$n.refdec.raw"
+            c2enc 3200 "work/$n.raw" "work/$n.ref.bin"
+            c2dec 3200 "work/$n.ref.bin" "work/$n.refdec.raw"
           done
       - name: Go encode and decode
         run: ./c2check gen work hts1a hts2a ve9qrp_10s
       - name: Cross decode (our bits through libcodec2)
         run: |
           for n in hts1a hts2a ve9qrp_10s; do
-            c2dec 3200 "work/$n.go.c2" "work/$n.xdec.raw"
+            c2dec 3200 "work/$n.go.bin" "work/$n.xdec.raw"
           done
       - name: Compare
         run: |

@@ -6,16 +6,17 @@
 //
 // Usage:
 //
-//	c2check gen    DIR NAME...   write NAME.go.c2 (our encode of NAME.raw) and
-//	                             NAME.godec.raw (our decode of NAME.ref.c2)
-//	c2check report DIR NAME...   compare against NAME.ref.c2, NAME.refdec.raw
-//	                             and NAME.xdec.raw (c2dec of NAME.go.c2); print
+//	c2check gen    DIR NAME...   write NAME.go.bin (our encode of NAME.raw) and
+//	                             NAME.godec.raw (our decode of NAME.ref.bin)
+//	c2check report DIR NAME...   compare against NAME.ref.bin, NAME.refdec.raw
+//	                             and NAME.xdec.raw (c2dec of NAME.go.bin); print
 //	                             a markdown table; exit 1 on failure
 //
 // Audio is 8 kHz, 16-bit signed little-endian, mono, raw.
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -128,14 +129,30 @@ func gen(dir, name string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(p(".go.c2"), encodeAll(pcm), 0o644); err != nil {
+	if err := os.WriteFile(p(".go.bin"), encodeAll(pcm), 0o644); err != nil {
 		return err
 	}
-	ref, err := os.ReadFile(p(".ref.c2"))
+	ref, err := os.ReadFile(p(".ref.bin"))
 	if err != nil {
 		return err
 	}
 	return writePCM(p(".godec.raw"), decodeAll(ref))
+}
+
+// bitMagic is the start of a libcodec2 file header. Bit files must be
+// headerless, so finding it means a headered file was passed by mistake.
+var bitMagic = []byte{0xC0, 0xDE, 0xC2}
+
+// checkBits rejects a headerless bit file that is not a whole number of
+// frames or that starts with the codec2 header magic.
+func checkBits(path string, b []byte) error {
+	if len(b)%fb != 0 {
+		return fmt.Errorf("%s: %d bytes is not a whole number of %d-byte frames (headered file?)", path, len(b), fb)
+	}
+	if bytes.HasPrefix(b, bitMagic) {
+		return fmt.Errorf("%s: starts with codec2 header magic 0xC0 0xDE 0xC2; expected headerless bits", path)
+	}
+	return nil
 }
 
 // bitRange returns the bits [lo,hi) of an 8-byte frame as an integer.
@@ -184,12 +201,18 @@ func report(w io.Writer, dir string, names []string) (int, error) {
 	var frows []fieldRow
 	for _, name := range names {
 		p := func(s string) string { return filepath.Join(dir, name+s) }
-		ref, err := os.ReadFile(p(".ref.c2"))
+		ref, err := os.ReadFile(p(".ref.bin"))
 		if err != nil {
 			return 0, err
 		}
-		ours, err := os.ReadFile(p(".go.c2"))
+		ours, err := os.ReadFile(p(".go.bin"))
 		if err != nil {
+			return 0, err
+		}
+		if err := checkBits(p(".ref.bin"), ref); err != nil {
+			return 0, err
+		}
+		if err := checkBits(p(".go.bin"), ours); err != nil {
 			return 0, err
 		}
 		refdec, err := readPCM(p(".refdec.raw"))
@@ -280,7 +303,7 @@ func report(w io.Writer, dir string, names []string) (int, error) {
 }
 
 func framesOf(dir, name string) int {
-	st, err := os.Stat(filepath.Join(dir, name+".ref.c2"))
+	st, err := os.Stat(filepath.Join(dir, name+".ref.bin"))
 	if err != nil {
 		return 0
 	}
