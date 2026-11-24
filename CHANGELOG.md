@@ -3,6 +3,11 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [2.2.1] - 2026-11-24
+
+### Changed
+- The M17 callsign suffix (for example `N0CALL H`) is now in the main M17 settings; the channel access number moved to Advanced.
+
 ## [2.2.0] - 2026-11-24
 
 ### Added
