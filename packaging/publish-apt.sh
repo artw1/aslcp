@@ -509,7 +509,7 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <dt><code>ASLCP_DV=1</code></dt><dd>Also enable digital modes (<code>yes</code> and <code>true</code> work too).</dd>
 <dt><code>ASLCP_PORT=8181</code></dt><dd>Web port, 1024-65535, or 80. The default is 8080. Avoid 9090 (Cockpit on ASL3).</dd>
 <dt><code>ASLCP_TAKEOVER=1</code></dt><dd>Run ASLCP on port 80 and turn off the other ASL web services (<code>yes</code> and <code>true</code> work too). See below.</dd>
-<dt><code>ASLCP_ASL_TELEMETRY=off</code></dt><dd>Turn off ASL3 telemetry, the anonymous usage report ASL3 sends to AllStarLink every day, and mask it (<code>0</code>, <code>no</code> and <code>false</code> work too). <code>ASLCP_ASL_TELEMETRY=on</code> turns it back on. By default it is left as ASL3 ships it (on).</dd>
+<dt><code>ASLCP_ASL_TELEMETRY=0</code></dt><dd>Turn off ASL3 telemetry, the anonymous usage report ASL3 sends to AllStarLink every day, and mask it (<code>off</code>, <code>no</code> and <code>false</code> work too). <code>ASLCP_ASL_TELEMETRY=1</code> turns it back on (<code>on</code>, <code>yes</code> and <code>true</code> work too). By default it is left as ASL3 ships it (on).</dd>
 <dt><code>ASLCP_CHANNEL=beta</code></dt><dd>Use the beta channel (new builds before they are promoted to stable). The default is <code>stable</code>.</dd>
 </dl>
 <p style="margin-top:10px">Example with several options:</p>
@@ -619,7 +619,7 @@ sudo apt update &amp;&amp; sudo apt install aslcp</code></pre><button type="butt
     if (dvs.checked) vars.push("ASLCP_DV=1");
     if (take.checked) vars.push("ASLCP_TAKEOVER=1");
     if (raw !== "" && raw !== "8080" && !(take.checked && raw === "80")) vars.push("ASLCP_PORT=" + raw);
-    if (telem.checked) vars.push("ASLCP_ASL_TELEMETRY=off");
+    if (telem.checked) vars.push("ASLCP_ASL_TELEMETRY=0");
     if (beta.checked) vars.push("ASLCP_CHANNEL=beta");
     out.textContent = "curl -fsSL " + BASE + "/install.sh | sudo " + (vars.length ? vars.join(" ") + " " : "") + "sh";
   }

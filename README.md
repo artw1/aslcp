@@ -173,13 +173,13 @@ ASLCP moves back to the port it had before (8080 unless you set another), then e
 
 #### ASL3 telemetry at install (`ASLCP_ASL_TELEMETRY`)
 
-ASL3 sends AllStarLink an anonymous usage report once a day (`asl-telemetry.timer`, which starts `asl-telemetry.service`). ASLCP leaves it on by default, as ASL3 ships it. To turn it off when installing, set `ASLCP_ASL_TELEMETRY=off` (`0`, `no` and `false` work too); the installer then runs `systemctl disable --now asl-telemetry.timer` and masks the timer and the service, so an ASL3 update does not turn it back on:
+ASL3 sends AllStarLink an anonymous usage report once a day (`asl-telemetry.timer`, which starts `asl-telemetry.service`). ASLCP leaves it on by default, as ASL3 ships it. To turn it off when installing, set `ASLCP_ASL_TELEMETRY=0` (`off`, `no` and `false` work too); the installer then runs `systemctl disable --now asl-telemetry.timer` and masks the timer and the service, so an ASL3 update does not turn it back on:
 
 ```sh
-curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL_TELEMETRY=off sh
+curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL_TELEMETRY=0 sh
 ```
 
-`ASLCP_ASL_TELEMETRY=on` (`1`, `yes`, `true`) unmasks and enables it again. Unset, the installer changes nothing. Any other value is refused, and so is a combination with `ASLCP_TAKEOVER=undo`. If the units are not there, the installer says there is nothing to turn off. By hand, on any node:
+`ASLCP_ASL_TELEMETRY=1` (`on`, `yes`, `true`) unmasks and enables it again. Unset, the installer changes nothing. Any other value is refused, and so is a combination with `ASLCP_TAKEOVER=undo`. If the units are not there, the installer says there is nothing to turn off. By hand, on any node:
 
 ```sh
 sudo systemctl disable --now asl-telemetry.timer
