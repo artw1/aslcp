@@ -6,7 +6,7 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import type { DVIdentity, DVNetView, DVSnapshot, DVTuneMode } from '../lib/types';
   import { cardState, MODE_NAME, UNAVAILABLE_TEXT } from '../lib/dvmodes';
-  import { enableBlock, formOf } from '../lib/dvnetform';
+  import { enableBlock, formOf, liveLogin, loginText, loginTone } from '../lib/dvnetform';
   import { enableToast, netSummary } from '../lib/dvsummary';
   import { NETWORK_MODES } from '../lib/dvnetworks';
   import Toggle from './Toggle.svelte';
@@ -46,12 +46,16 @@
       {@const v = netOf(id)}
       {@const sum = netSummary(v, c.available, c.enabled)}
       {@const isOpen = open === id}
+      {@const live = v ? liveLogin(v, modes) : null}
+      {@const login = v?.enabled && live ? loginText(live.login, live.detail) : ''}
+      {@const tone = loginTone(live?.login)}
       <li class="card p-3 {isOpen ? 'border-accent' : ''}" data-testid="dv-row-{id.toLowerCase()}">
         <div class="flex items-center gap-2">
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <span class="text-sm font-medium">{MODE_NAME[id]}</span>
               <span class="badge {c.enabled ? 'border-ok text-ok' : ''}" role="status" data-testid="dv-{id.toLowerCase()}-state">{c.available ? (c.enabled ? 'Enabled' : 'Disabled') : 'Unavailable'}</span>
+              {#if login}<span class="badge {tone === 'ok' ? 'border-ok text-ok' : tone === 'err' ? 'border-danger text-danger' : ''}" role="status" data-testid="dvn-{id.toLowerCase()}-login">{login}</span>{/if}
             </div>
             {#if sum}<p class="truncate text-xs text-muted">{sum}</p>{/if}
           </div>

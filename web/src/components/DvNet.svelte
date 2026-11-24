@@ -5,8 +5,7 @@
   import { api } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
   import type { DVIdentity, DVListItem, DVNetView } from '../lib/types';
-  import { buildPut, enableBlock, formError, formOf, hasChanges, loginText, loginTone, MASTER_OTHER, applyMaster, masterChoice, masterListMode, passwordUx, liveLogin, savedMessage, nxdnOffNote } from '../lib/dvnetform';
-  import { app } from '../lib/store.svelte';
+  import { buildPut, enableBlock, formError, formOf, hasChanges, MASTER_OTHER, applyMaster, masterChoice, masterListMode, passwordUx, savedMessage, nxdnOffNote } from '../lib/dvnetform';
 
   let { v, identity, onsaved }: { v: DVNetView; identity: DVIdentity | null; onsaved: (n: DVNetView) => void } = $props();
   let f = $state(untrack(() => formOf(v))), busy = $state(false), editPw = $state(false), showAdv = $state(false);
@@ -38,8 +37,6 @@
   const block = $derived(f.enabled ? enableBlock(v, f, identity) : '');
   const offNote = $derived(nxdnOffNote(v, f));
   const put = $derived(buildPut(v, f));
-  const live = $derived(liveLogin(v, app.dv?.modes));
-  const login = $derived(v.enabled ? loginText(live.login, live.detail) : '');
   const basic = $derived(v.options.filter((o) => !o.advanced));
   const adv = $derived(v.options.filter((o) => o.advanced));
 
@@ -67,7 +64,6 @@
   </div>
 {/snippet}
 <div class="space-y-3" data-testid="{id}-form">
-  {#if login}<div><span class="badge {loginTone(live.login) === 'ok' ? 'border-ok text-ok' : loginTone(live.login) === 'err' ? 'border-danger text-danger' : ''}" role="status" data-testid="{id}-login">{login}</span></div>{/if}
   {#if v.help}<p class="text-xs text-muted" data-testid="{id}-help">{v.help}</p>{/if}
   <div class="grid grid-cols-2 gap-3">
     {#if v.fields.address && hasPicker}
