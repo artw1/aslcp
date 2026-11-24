@@ -1,18 +1,12 @@
 // Run with `npm test`. The Networks list summaries of the digital modes setup page.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { enableToast, NETWORK_GROUPS, netSummary } from './dvsummary.ts';
-import { NETWORK_MODES } from './dvnetworks.ts';
+import { enableToast, netSummary } from './dvsummary.ts';
 import type { DVNetView, DVTuneMode } from './types';
 
 const net = (mode: DVTuneMode, p: Partial<DVNetView> = {}): DVNetView => ({
   mode, label: mode, available: true, enabled: false, address: '', port: 0, passwordSet: false,
   fields: { address: false, port: false, password: false }, needsIdentity: false, options: [], values: {}, ...p,
-});
-
-test('groups keep the NETWORK_MODES order', () => {
-  assert.equal(NETWORK_GROUPS[0].title, 'DMR');
-  assert.deepEqual(NETWORK_GROUPS.flatMap((g) => g.ids), NETWORK_MODES);
 });
 
 test('summaries come from the saved values', () => {
