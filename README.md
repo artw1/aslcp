@@ -56,6 +56,41 @@ The script adds the signed ASLCP apt repository, installs the `aslcp` package an
 
 On a freshly flashed ASL3 card, wait for the first-boot setup and its reboot (20-30 minutes) before installing: ASL3 installs updates and may reboot the node. The installer checks this (first-boot services, another running apt/dpkg or a held dpkg lock) and refuses to change anything until it is done; just run it again later. `ASLCP_SKIP_PREFLIGHT=1` skips the check. A pending reboot only produces a warning. Package operations started from the web UI wait up to 10 minutes for the apt lock instead of failing.
 
+### Raspberry Pi (no screen needed)
+
+You can set up a Raspberry Pi from another computer, without a monitor or keyboard.
+
+1. Install [Raspberry Pi Imager](https://www.raspberrypi.com/software/), version 2.0 or later.
+2. Choose your Pi model, then the operating system: **Raspberry Pi OS (other)**, then **Raspberry Pi OS Lite (64-bit)**. Then choose your microSD card.
+3. On the customisation pages, set a host name (for example `node1997`) and a user name and password. If you will not use Ethernet, also set the Wi-Fi network name, password and country. Turn on SSH; password authentication is fine. Then write the card.
+4. Put the card in the Pi and power it up. Wait a few minutes, then check that it is on the network:
+
+```sh
+ping node1997.local
+```
+
+Or find its address in your router.
+
+5. Log in:
+
+```sh
+ssh <user>@node1997.local
+```
+
+6. Run the installer. Wait for the first boot to finish first (see above).
+
+```sh
+curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo sh
+```
+
+7. Open the one-time setup link that the installer prints, from any device on the same network. If you lose it, show it again:
+
+```sh
+sudo aslcp admin setup-code
+```
+
+Any Raspberry Pi that runs 64-bit Raspberry Pi OS works. 32-bit Raspberry Pi OS does not.
+
 ### ASL3 at install
 
 If the `asl3` package is not installed, the installer adds the AllStarLink apt repository (the `asl-apt-repos` package from `https://repo.allstarlink.org/public/`, whose signing key is checked against a pinned fingerprint) and installs `asl3` and `asl3-menu` before it installs ASLCP. If only `asl3-menu` is missing, it installs that. This can take several minutes and downloads many packages. It does not install Allmon3 or the Pi appliance package.
