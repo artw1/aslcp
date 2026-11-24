@@ -276,3 +276,32 @@ func TestDiffIgnoresEcho(t *testing.T) {
 		t.Fatalf("%v", d)
 	}
 }
+
+func TestDeviceNotFoundReply(t *testing.T) {
+	reply := []string{"Device 1999 is selected, the associated USB device string 1-1.1.3:1.0 was not found\r"}
+	want := "the USB audio interface of 1999 (USB port 1-1.1.3) was not found: it is unplugged, or Asterisk cannot use it yet. If ASL3 was installed recently, reboot the Pi."
+	check := func(name string, err error) {
+		t.Helper()
+		var e *Error
+		if !errors.Is(err, ErrDeviceNotFound) || !errors.As(err, &e) {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if e.Code != CodeDeviceMissing || e.Device != "1999" || e.DevStr != "1-1.1.3:1.0" || e.Msg != want {
+			t.Fatalf("%s: %+v", name, e)
+		}
+	}
+	_, err := ParseMeter(reply)
+	check("meter", err)
+	_, err = ParseParams(reply)
+	check("params", err)
+	_, err = ParseIdentity("1999", reply)
+	check("identity", err)
+	_, err = ParseActive(reply)
+	check("active", err)
+	if err := VerifySetActive("1999", reply); !errors.Is(err, ErrDeviceNotFound) {
+		t.Fatal(err)
+	}
+	if _, err := ParseMeter([]string{"Rx not keyed"}); errors.Is(err, ErrDeviceNotFound) {
+		t.Fatal("unrelated reply matched")
+	}
+}
