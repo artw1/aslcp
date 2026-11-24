@@ -461,8 +461,8 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <div class="cmd">
 <pre tabindex="0"><code id="cmd-default">curl -fsSL @APT_URL@/install.sh | sudo sh</code></pre><button type="button" class="copy" data-copy="cmd-default" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
 </div>
-<p class="note warn"><strong>Fresh ASL3 card?</strong> Wait for the ASL3 first-boot setup and its reboot (20-30 minutes) before you install. The installer checks this and tells you if it is not done yet.</p>
-<p class="note"><strong>Fresh Raspberry Pi OS Lite 64-bit?</strong> That works too. If ASL3 is not installed, the installer installs <code>asl3</code> and <code>asl3-menu</code> first (a few minutes, many packages). ASL3 needs Debian 12 or 13 on arm64 or amd64.</p>
+<p class="note">Run this on the node (over SSH or in a terminal). It works on an ASL3 card or on plain Debian or Raspberry Pi OS Lite 64-bit: if ASL3 is not installed, the installer installs it first (<code>asl3</code> and <code>asl3-menu</code>; a few minutes, many packages).</p>
+<p class="note warn">On a freshly flashed ASL3 card, wait for its first-boot setup and reboot (20-30 minutes) before you install. The installer checks this.</p>
 <p class="note">At the end the installer prints a one-time setup link. Open it to create the administrator or to restore a backup from an existing node. <code>sudo aslcp admin setup-code</code> shows the code again.</p>
 </section>
 

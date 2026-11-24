@@ -24,7 +24,7 @@ aslcp-dv <-- UDP 127.0.0.1:2470 --> md380-emu (the vocoder)
 
 `aslcp dv enable` (as root) or the Enable button of the digital modes page runs one job, `aslcp-dv-enable`:
 
-1. apt installs the md380-emu vocoder, plus qemu-user-static (the vocoder is an ARM binary). Nothing else is installed.
+1. apt installs the md380-emu vocoder. Nothing else is installed on purpose; qemu-user-static comes along only because the md380-emu package depends on it (the vocoder is an ARM binary). On arm64 that package ships its own `/opt/md380-emu/qemu-arm-static` and its service runs that directly.
 2. The previous stack that ASLCP installed is removed (see "Upgrading from 1.x"); this step is also the retry if the removal after the upgrade failed.
 3. The engine config is rendered and `aslcp-dv` is enabled and started.
 

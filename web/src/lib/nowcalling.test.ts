@@ -22,6 +22,14 @@ test('place: city, ST in the US, city, country elsewhere', () => {
   assert.equal(placeText({}), '');
 });
 
+test('P25 and NXDN calls show their own mode name', () => {
+  assert.equal(sourceLabel({ ...base, network: 'P25', slot: 0 }), 'P25 · TG 91');
+  assert.equal(sourceLabel({ ...base, network: 'NXDN', slot: 0 }), 'NXDN · TG 91');
+  assert.equal(sourceLabel({ ...base, network: 'BrandMeister', slot: 2 }), 'DMR · TG 91 · TS2');
+  assert.equal(sourceShort({ ...base, network: 'NXDN' }), 'NXDN TG 91');
+  assert.equal(sourceShort({ ...base, network: 'P25', tg: '' }), 'P25');
+});
+
 test('main line leaves out what is unknown', () => {
   assert.equal(mainLine(base), 'N0CALL · Alex · Springfield, IL');
   assert.equal(mainLine({ id: 'x', kind: 'allstar', node: '2001', start: base.start, active: true }), 'Node 2001');
