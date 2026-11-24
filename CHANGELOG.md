@@ -3,7 +3,7 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
-## [2.1.0] - 2026-11-23
+## [2.1.0] - 2026-11-24
 
 ### Added
 - `install.sh` installs ASL3 and asl3-menu from the AllStarLink repository when they are missing. The repository key is checked against a pinned fingerprint first, and gpg is installed if it is missing. `ASLCP_ASL3=0` skips this, `ASLCP_ASL3=1` makes an unsupported release an error instead of a panel-only install.
