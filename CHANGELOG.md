@@ -10,8 +10,10 @@ Release notes are taken from the section of the tag being released
 - M17 in the panel: configuration, tuning to a reflector and module, the reflector host list and the API.
 - M17 in the web UI, including M17 calls in the Now calling strip.
 - The DVRef credit for the reflector lists is in docs/DV.md.
+- A manual "Codec2 reference check" workflow (Actions tab, Run workflow) compares the Go Codec2 3200 encoder and decoder with libcodec2's `c2enc` and `c2dec` on standard speech samples. It is not part of normal CI.
 
 ### Changed
+- The M17 Codec2 3200 decoder now follows libcodec2 1.2's arithmetic (postfilter, synthesis, LSP/Wo decoding) instead of the faster approximations of the fork it was ported from. Its output now tracks the reference decoder closely, 41-48 dB SNR on the standard test samples. The encoder is unchanged.
 - The public install page and README say up front that the installer installs ASL3 (`asl3` and `asl3-menu`) first when it is missing, and that a freshly flashed ASL3 card must finish its first-boot setup and reboot before installing.
 
 ### Fixed
