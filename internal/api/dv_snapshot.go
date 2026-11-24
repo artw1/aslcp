@@ -477,6 +477,7 @@ func (d *dvSnapper) snapshot(ctx context.Context) DVSnapshot {
 	hs, hok := d.helperStatus(ctx)
 	d.mu.Lock()
 	connected, st := d.connected, d.st
+	st.Networks = append([]ctl.NetStatus(nil), d.st.Networks...) // own copy: event() updates entries in place
 	var talk *ctl.Talk
 	if d.talk != nil {
 		t := *d.talk
