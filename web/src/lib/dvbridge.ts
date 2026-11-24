@@ -67,6 +67,16 @@ export function linkLine(node: string, l: DVLink, name = ''): string {
   return l.linked ? `${label} linked to ${l.localNode} (${how})` : `${label} not linked to ${l.localNode} (${how})`;
 }
 
+/** The AllStar link box: a short main line and a small sub line (the full linkLine goes in the tooltip). */
+export function linkBoxText(node: string, l: DVLink): { main: string; sub: string } {
+  const perm = l.mode === 'permanent';
+  if (!l.localNode) return { main: `Node ${node}, no local node chosen`, sub: perm ? 'permanent' : 'on demand' };
+  const main = l.linked ? `Node ${node} ⇄ ${l.localNode}` : `Node ${node} not linked to ${l.localNode}`;
+  if (!perm) return { main, sub: 'on demand' };
+  if (l.linked) return { main, sub: 'permanent' };
+  return { main, sub: l.paused ? 'permanent, paused: you disconnected it' : 'permanent, reconnecting' };
+}
+
 /** The node link button of the card. Ondemand mode only; the talkgroup button stays "Unlink" and is a different thing. */
 export function linkButton(l: DVLink, node: string): { label: string; action: 'connect' | 'disconnect'; title: string } | null {
   if (!node || !l.localNode) return null;

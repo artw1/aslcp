@@ -53,6 +53,7 @@ body { background: var(--bg); color: var(--fg); font-family: var(--font-sans); -
   .btn-primary { @apply border-transparent bg-accent text-accent-fg hover:opacity-90 hover:bg-accent; }
   .btn-ok { @apply border-transparent bg-ok text-accent-fg hover:bg-ok hover:opacity-90; }
   .btn-bad { @apply border-transparent bg-danger text-accent-fg hover:bg-danger hover:opacity-90; }
+  .btn-bad-outline { @apply border-danger/50 bg-transparent text-danger hover:bg-danger/10; }
   .btn-danger { @apply text-danger hover:bg-danger/10; }
   .btn-sm { @apply px-2 py-0.5 text-xs; min-height: 1.6rem; }
   .btn-xs { @apply px-1.5 py-0 text-[11px]; min-height: 1.35rem; }
