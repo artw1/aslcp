@@ -471,6 +471,12 @@ func (e *asl3Env) ensure(t *testing.T, mode, codename, arch string) (string, err
 // ensureEnv is ensure with extra environment variables.
 func (e *asl3Env) ensureEnv(t *testing.T, extra []string, mode, codename, arch string) (string, error) {
 	t.Helper()
+	return e.ensureTail(t, "", extra, mode, codename, arch)
+}
+
+// ensureTail is ensureEnv that also runs tail (shell code) after asl3_ensure.
+func (e *asl3Env) ensureTail(t *testing.T, tail string, extra []string, mode, codename, arch string) (string, error) {
+	t.Helper()
 	s := installScript(t)
 	i := strings.Index(s, "# ---8<--- asl3-install")
 	j := strings.Index(s, "# --->8--- asl3-install")
@@ -485,7 +491,8 @@ fetch() { echo "fetch $1" >>` + d + `/calls; : >"$2"; }
 ASL3_MODE=` + mode + `
 VERSION_CODENAME=` + codename + `
 ARCH=` + arch + `
-` + s[i:j] + "\nasl3_ensure\n"
+ASL3_FRESH=0
+` + s[i:j] + "\nasl3_ensure\n" + tail
 	cmd := exec.Command("sh", "-c", script)
 	path := e.path
 	if path == "" {
@@ -1001,5 +1008,120 @@ func TestASL3UpdateFailureTolerance(t *testing.T) {
 		} else if !strings.Contains(out, "apt-get update failed") || len(e.installs()) != 0 {
 			t.Errorf("%s: want a fatal error before the install: %s", tc.name, out)
 		}
+	}
+}
+
+// udevRun runs asl3_ensure and then asl3_udev_apply (as install.sh does) with
+// fake udevadm and systemctl. failVerb names a udevadm verb that fails;
+// asterisk says whether the fake systemctl reports asterisk as active.
+func udevRun(t *testing.T, installed []string, failVerb string, asterisk, withSystemd bool) (*asl3Env, string, error) {
+	t.Helper()
+	e := newASL3Env(t, installed...)
+	d := filepath.Join(e.dir, "fake")
+	e.writeExec("bin/udevadm", `#!/bin/sh
+echo "udevadm $*" >>`+d+`/calls
+[ "$1" != "`+failVerb+`" ] || exit 1
+`)
+	active := "exit 1"
+	if asterisk {
+		active = "exit 0"
+	}
+	e.writeExec("bin/systemctl", `#!/bin/sh
+echo "systemctl $*" >>`+d+`/calls
+case "$1" in is-active) `+active+` ;; esac
+`)
+	run := filepath.Join(e.dir, "run-systemd")
+	if withSystemd {
+		if err := os.MkdirAll(run, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := installScript(t)
+	i := strings.Index(s, "# ---8<--- asl3-udev")
+	j := strings.Index(s, "# --->8--- asl3-udev")
+	if i < 0 || j < i {
+		t.Fatal("asl3-udev markers not found")
+	}
+	tail := s[i:j] + `
+asl3_udev_apply
+echo "UDEV_REBOOT=$UDEV_REBOOT"
+`
+	out, err := e.ensureTail(t, tail, []string{"ASLCP_SYSTEMD_RUN=" + run}, "auto", "trixie", "arm64")
+	return e, out, err
+}
+
+func TestUdevAppliedAfterFreshASL3Install(t *testing.T) {
+	e, out, err := udevRun(t, nil, "", true, true)
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	c := e.calls()
+	for _, want := range []string{
+		"udevadm control --reload-rules",
+		"udevadm trigger --action=add --subsystem-match=sound --subsystem-match=hidraw",
+		"udevadm settle --timeout=30",
+		"systemctl restart asterisk",
+	} {
+		if !strings.Contains(c, want) {
+			t.Errorf("calls lack %q:\n%s", want, c)
+		}
+	}
+	if strings.Index(c, "apt-get install") > strings.Index(c, "udevadm control") {
+		t.Errorf("udevadm ran before the ASL3 install:\n%s", c)
+	}
+	if !strings.Contains(out, "UDEV_REBOOT=0") {
+		t.Errorf("out: %s", out)
+	}
+}
+
+func TestUdevNoAsteriskRestartWhenInactive(t *testing.T) {
+	e, out, err := udevRun(t, nil, "", false, true)
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if c := e.calls(); !strings.Contains(c, "udevadm settle") || strings.Contains(c, "restart asterisk") {
+		t.Errorf("calls:\n%s", c)
+	}
+}
+
+func TestUdevNotCalledWhenASL3AlreadyInstalled(t *testing.T) {
+	e, out, err := udevRun(t, []string{"asl3", "asl3-menu"}, "", true, true)
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if c := e.calls(); strings.Contains(c, "udevadm") || strings.Contains(c, "restart asterisk") {
+		t.Errorf("calls:\n%s", c)
+	}
+}
+
+func TestUdevSkippedWithoutSystemd(t *testing.T) {
+	e, out, err := udevRun(t, nil, "", true, false)
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if c := e.calls(); strings.Contains(c, "udevadm") {
+		t.Errorf("calls:\n%s", c)
+	}
+}
+
+func TestUdevFailureSetsRebootNoteAndDoesNotAbort(t *testing.T) {
+	for _, verb := range []string{"control", "trigger", "settle"} {
+		e, out, err := udevRun(t, nil, verb, true, true)
+		if err != nil {
+			t.Fatalf("%s: %v: %s", verb, err, out)
+		}
+		if !strings.Contains(out, "UDEV_REBOOT=1") {
+			t.Errorf("%s: out: %s", verb, out)
+		}
+		if strings.Contains(e.calls(), "restart asterisk") {
+			t.Errorf("%s: asterisk restarted after a failure", verb)
+		}
+	}
+}
+
+func TestInstallSummaryHasRebootNote(t *testing.T) {
+	s := installScript(t)
+	if !strings.Contains(s, "Reboot the Pi before using a USB radio interface (its device permissions were not applied yet).") {
+		t.Error("reboot note missing from install.sh")
 	}
 }

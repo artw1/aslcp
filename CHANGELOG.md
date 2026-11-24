@@ -3,6 +3,12 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [2.1.1] - 2026-11-24
+
+### Fixed
+- After `install.sh` installed ASL3 on a running system, a USB radio interface that was already plugged in stayed unusable (no audio, Audio Tuning showed "USB device string … was not found") until the Pi was rebooted. The installer now applies ASL3's device rules right away.
+- Audio Tuning explains a missing or not yet usable USB audio interface in plain words instead of "unexpected reply".
+
 ## [2.1.0] - 2026-11-24
 
 ### Added
