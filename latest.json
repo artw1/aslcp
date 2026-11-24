@@ -1,5 +1,5 @@
 {
-  "version": "2.3.0",
-  "notes": "### Added\n- Automatic gain control (AGC) on the digital modes bridge audio, in both directions, with a target level and a maximum gain. Network audio AGC (to node) is on by default and node audio AGC (to network) is off; an upgrade gets the network audio AGC on unless it is turned off in the Audio card.\n- The node and network audio gains are now in the settings: the Audio card of Digital modes setup, with the echo test, under Show advanced audio settings.\n- Level meters on the Digital modes card for both directions, with a summary of the last transmission (speech level, peak, clipping and a Low, OK or High verdict).\n- `GET /api/dv/audio`, `PUT /api/dv/audio` and `GET /api/dv/meter`.\n\n### Changed\n- The Digital modes page is shorter and follows the setup flow, in one column: Engine (status, services, resume switch, the radioid.net user list and the enable log), Bridge node (a summary with Edit), Identity, Networks (one card per mode with its state, a summary, an Enable switch that saves at once, and settings that open on demand) and Audio.",
+  "version": "2.3.1",
+  "notes": "Merge pull request #33 from w1jar/try/dv-card\n\nRedesign the dashboard Digital modes card",
   "date": "2026-11-24"
 }
