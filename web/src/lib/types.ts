@@ -31,6 +31,7 @@ export interface OSUpdates {
   available: boolean; reason: string | null; checkedAt: string | null; checking: boolean; error: string | null;
   packages: OSPackage[]; keptBack: string[]; rebootRequired: boolean; rebootPkgs: string[];
   job: 'idle' | 'running' | 'succeeded' | 'failed' | 'noop'; jobLog: string;
+  /** Non-fatal notes of the last check (e.g. a package repository could not be refreshed). */ warnings?: string[];
 }
 /** Admin-only SSE event "updates": counts only. */
 export interface UpdatesBadge { aslcp: boolean; aslcpVersion: string; os: number; security: number; reboot: boolean }
@@ -174,7 +175,7 @@ export interface SchedulesSnapshot {
 /** GET /api/dv/status (admin; plan C.1 DVStatus). `job` is the state of the enable job unit; its log is GET /api/dv/job. */
 export type DVJobState = '' | 'idle' | 'running' | 'failed' | 'done' | 'succeeded';
 export interface DVStatus {
-  /** The platform can run the engine (bookworm/trixie; amd64/arm64/armhf with ARMv7 or newer). `reason` says why not ("armv6_unsupported"). */
+  /** The platform can run the engine (bookworm/trixie; amd64 or arm64). `reason` says why not ("armhf_unsupported" on a 32-bit system). */
   supported: boolean; reason?: string;
   md380Installed: boolean;
   /** aslcp-dv.service is enabled / running; md380-emu.service is running. */

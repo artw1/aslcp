@@ -96,14 +96,12 @@ type Ops struct {
 	// previous stack that PurgeLegacy deletes (default DefaultDVHistoryDir and
 	// legacy.OldHistoryDir); DVOldStateDir is the 1.x name of the state
 	// directory that MigrateDVState moves (default legacy.OldStateDir);
-	// DVCpuInfo is /proc/cpuinfo.
 	DVHistoryDir string
 	// PurgeLegacy: wait for dpkg and its sleep (tests).
 	DVPurgeWait     time.Duration
 	DVPurgeSleep    func(time.Duration)
 	DVOldStateDir   string
 	DVOldHistoryDir string
-	DVCpuInfo       string
 	// DVEngineDir holds the engine's config.json (default /var/lib/aslcp-dv)
 	// and DVEngineUser owns it (default aslcp-dv). DVSocket is the engine's
 	// control socket (default ctl.SocketPath); DVCheckWait bounds dv-step check.

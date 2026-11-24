@@ -12,35 +12,30 @@ import (
 	dvctl "github.com/artw1/aslcp/internal/dv/ctl"
 )
 
-func TestDVPackagesByArch(t *testing.T) {
-	if got := dvPackages("armhf"); len(got) != 1 || got[0] != dvMD380Pkg {
-		t.Fatalf("armhf: %v", got)
-	}
-	if got := dvPackages("arm64"); len(got) != 2 || got[1] != dvQemuPkg {
-		t.Fatalf("arm64: %v", got)
+func TestDVPackages(t *testing.T) {
+	if got := dvPackages(); len(got) != 2 || got[0] != dvMD380Pkg || got[1] != dvQemuPkg {
+		t.Fatalf("%v", got)
 	}
 }
 
-func TestDVARMv6Refused(t *testing.T) {
-	dir := t.TempDir()
-	write := func(model string) *Ops {
-		p := filepath.Join(dir, "cpuinfo")
-		os.WriteFile(p, []byte("processor\t: 0\nmodel name\t: "+model+"\n"), 0o644)
-		return &Ops{DVCpuInfo: p}
+func TestDVPlatformArmhfRefused(t *testing.T) {
+	for _, c := range []string{"bookworm", "trixie"} {
+		if ok, reason := DVPlatform(c, "armhf"); ok || reason != DVReasonArmhf {
+			t.Errorf("%s armhf: %v %q", c, ok, reason)
+		}
+		for _, arch := range []string{"arm64", "amd64"} {
+			if ok, reason := DVPlatform(c, arch); !ok || reason != "" {
+				t.Errorf("%s %s: %v %q", c, arch, ok, reason)
+			}
+		}
 	}
-	if !write("ARMv6-compatible processor rev 7 (v6l)").dvARMv6() {
-		t.Fatal("v6l not detected")
-	}
-	if write("ARMv7 Processor rev 4 (v7l)").dvARMv6() {
-		t.Fatal("v7l detected as v6")
-	}
-	if (&Ops{DVCpuInfo: filepath.Join(dir, "missing")}).dvARMv6() {
-		t.Fatal("missing file is not v6")
+	if ok, _ := DVPlatform("bullseye", "arm64"); ok {
+		t.Error("bullseye accepted")
 	}
 }
 
 func TestDVUnexpectedDepsGuard(t *testing.T) {
-	out := "Inst md380-emu (1.0 aslcp [armhf])\nInst qemu-user-static (1:8 Debian [arm64])\nInst libc6 [2.36] (2.36-9 Debian [arm64])\n"
+	out := "Inst md380-emu (1.0 aslcp [arm64])\nInst qemu-user-static (1:8 Debian [arm64])\nInst libc6 [2.36] (2.36-9 Debian [arm64])\n"
 	inst := ParseInstLines(out)
 	if len(inst) != 3 || inst[0].Name != "md380-emu" || !inst[0].New || inst[2].New {
 		t.Fatalf("%+v", inst)
@@ -59,7 +54,7 @@ func TestDVUnexpectedDepsGuard(t *testing.T) {
 
 func TestDVEnableScript(t *testing.T) {
 	o := &Ops{SelfPath: "/usr/bin/aslcp-helper", DVStateDir: "/var/lib/test-state"}
-	s := o.dvEnableScript("arm64")
+	s := o.dvEnableScript()
 	order := []string{
 		"apt-get update", "apt-get -s -q install", "dv-step " + StepInstallPlan, "apt-get install -y",
 		"systemctl cat", "disable --now", "IPAddressDeny", "dv-step " + StepConfig, "daemon-reload",
@@ -74,13 +69,10 @@ func TestDVEnableScript(t *testing.T) {
 		at += i + 1
 	}
 	if !strings.Contains(s, dvQemuPkg) {
-		t.Error("arm64 needs qemu-user-static")
+		t.Error("the enable script installs qemu-user-static")
 	}
 	if strings.Contains(s, "apt-get purge") || strings.Contains(s, "apt-get remove") {
 		t.Error("the enable job must not call apt to remove packages itself")
-	}
-	if strings.Contains(o.dvEnableScript("armhf"), dvQemuPkg) {
-		t.Error("armhf needs no qemu")
 	}
 }
 

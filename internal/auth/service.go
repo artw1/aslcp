@@ -167,8 +167,31 @@ func randomCode() (string, error) {
 	return string(out), nil
 }
 
-// EnsureSetupCode creates the setup code file when no users exist, and
-// removes a stale one otherwise. It returns the code ("" when not needed).
+// readSetupCode returns the valid code in the setup-code file (first line,
+// trimmed, uppercased), or "" when the file is missing or does not hold one.
+func (s *Service) readSetupCode() string {
+	b, err := os.ReadFile(s.setupPath())
+	if err != nil {
+		return ""
+	}
+	line, _, _ := strings.Cut(string(b), "\n")
+	c := strings.ToUpper(strings.TrimSpace(line))
+	if len(c) != setupCodeLen {
+		return ""
+	}
+	for i := 0; i < len(c); i++ {
+		if strings.IndexByte(codeAlphabet, c[i]) < 0 {
+			return ""
+		}
+	}
+	return c
+}
+
+// EnsureSetupCode makes sure the setup code file exists while no users exist,
+// and removes it otherwise. It returns the code ("" when not needed). A valid
+// code already in the file is kept, so the code printed by the installer
+// stays right when ASLCP restarts; a missing, empty or invalid file gets a new
+// code.
 func (s *Service) EnsureSetupCode() (string, error) {
 	n, err := s.Store.CountUsers()
 	if err != nil {
@@ -180,6 +203,11 @@ func (s *Service) EnsureSetupCode() (string, error) {
 		s.setupCode = ""
 		os.Remove(s.setupPath())
 		return "", nil
+	}
+	if code := s.readSetupCode(); code != "" {
+		_ = os.Chmod(s.setupPath(), 0o600)
+		s.setupCode = code
+		return code, nil
 	}
 	code, err := randomCode()
 	if err != nil {

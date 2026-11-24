@@ -14,7 +14,7 @@ Items marked **To verify** are assumptions that need confirmation on real hardwa
 | Easy install and update | One-line install, signed apt repo, updates through `apt upgrade`. |
 | Works with any configuration | Real nodes vary widely. The panel adapts to what is on disk; migration is optional. |
 
-**Targets.** Raspberry Pi 3, 4, 5 and Zero 2 W on Debian 12 (bookworm) or 13 (trixie) and Raspberry Pi OS, arm64, plus amd64. armhf (32-bit Pi OS) is built but best-effort: not tested in CI on hardware until a tester with a 32-bit node is available, and dropped if ASL3 itself does not ship armhf packages.
+**Targets.** Raspberry Pi 3, 4, 5 and Zero 2 W on Debian 12 (bookworm) or 13 (trixie) and Raspberry Pi OS, arm64, plus amd64. 64-bit only: armhf (32-bit) was dropped because ASL3 ships only arm64 and amd64 packages. A 32-bit install must be redone with Raspberry Pi OS Lite (64-bit); `install.sh` refuses on armhf.
 
 **Prior art.** AllScan (PHP: connects and manages favorite nodes; the main inspiration for ASLCP's dashboard) and Allmon3 (ASL's monitor, widely used for public status pages). ASLCP covers AllScan's role, coexists with Allmon3 and other AMI clients, aims to offer a better public status page (section 9), and goes much further on configuration.
 
@@ -329,7 +329,7 @@ A replacement for the public Allmon3 pages, built on the same AMI live data as t
 
 ## 10. Packaging and updates
 
-- nfpm (pinned in the Makefile, `make deb` / `make debs`) builds `.deb` for arm64, armhf, and amd64 in GitHub Actions (`.github/workflows/`). Definitions live in `packaging/`.
+- nfpm (pinned in the Makefile, `make deb` / `make debs`) builds `.deb` for arm64 and amd64 in GitHub Actions (`.github/workflows/`). Definitions live in `packaging/`.
 - A signed apt repository hosted on GitHub Pages. A one-line install script adds the repo key and source, then runs `apt install`.
 - Updates through normal `apt upgrade`; the in-app "update available" notice reads `latest.json` (see below).
 - Release channels and process: versions are plain `X.Y.Z`. Every tag `vX.Y.Z` builds the debs and publishes them to the `beta` suite (and `latest-beta.json`), with a GitHub pre-release. A release is made by the `Promote` workflow (manual, input: version): the already built debs move from `pool/beta` to `pool/main`, `latest.json` is updated and the GitHub release becomes the full/latest release. No rebuild, so the tested package is the release; promotion refuses a version that is not in beta and is idempotent. The apt repo has two suites in one repository: `beta` indexes all of `pool/` (new builds in `pool/beta`, everything promoted in `pool/main`), `stable` indexes only `pool/main`, so beta nodes also get every release. Both suites are signed. Retention keeps the newest 5 per architecture in each pool directory separately (never the version just added or promoted). `latest.json` is the newest promoted version (format unchanged, existing installs read it), `latest-beta.json` the newest overall. Release notes come from the CHANGELOG section matching the version (`## [1.1.16]`). `install.sh` is refreshed only when the version being published is the newest in the pool, so a backport does not revert it. The 1.0.x line is maintained on the `release/1.0` branch (CI runs there; the release workflow runs on every `vX.Y.Z` tag and uses the tagged commit's script); a backport tag also goes to beta first and needs a promote. The `Remove from beta` workflow (dry run by default) deletes beta-pool versions by glob. Debian ordering still decides what apt offers; a node on a version higher than the suite offers is never downgraded automatically.
@@ -350,7 +350,7 @@ A replacement for the public Allmon3 pages, built on the same AMI live data as t
 | Integration | A fake AMI server replays recorded event and command-output transcripts. |
 | Fuzz | Go fuzzing on the parser (never panic; round-trip invariant). |
 | E2E | Playwright against a built binary with a fake AMI and a temp config tree. |
-| CI | GitHub Actions: lint, test, build for all three architectures, package smoke test. |
+| CI | GitHub Actions: lint, test, build for both architectures (arm64, amd64), package smoke test. |
 | Hardware | Manual checklist on a Pi (reload semantics, memory use, audio device handling, upgrade path). |
 
 ## 12. Repository layout
@@ -381,7 +381,7 @@ docs/
 | AMI clients | Exact config locations and formats of Allmon3 (believed `/etc/allmon3/`), AllScan and Supermon; whether `allmon.ini.php` is Allmon2/Supermon format as believed. Update their credentials automatically or only warn? |
 | Public page exposure | Recommended deployment (Cloudflare Tunnel, Caddy, port forward) and defaults for what is public. |
 | Node list source | Source, format, size, and update cadence of the ASL node list for lookup; local caching and offline behavior. |
-| armhf support | Does ASL3 publish armhf packages? If not, drop the armhf build. If yes, keep it best-effort (it costs only an extra build target in Go) until a 32-bit tester is available. Relevant for older 32-bit Pi OS installs and memory-constrained Zero 2 W setups. |
+| armhf support | Resolved: ASL3 publishes arm64 and amd64 only, so armhf was dropped (no new armhf builds; the armhf packages already in the apt repository stay indexed, frozen, so existing 32-bit installs see no errors but get no updates; the in-app update page says to reinstall 64-bit). |
 | Minimum ASL3 version | Which ASL3 releases (and `app_rpt` output formats) are supported. |
 | Helper transport | Socket activation versus polkit/sudoers: which is simpler and more robust on bookworm and trixie. |
 | Multi-file atomicity | Is staged write plus snapshot rollback sufficient? |

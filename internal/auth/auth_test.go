@@ -263,3 +263,78 @@ func TestSetupCodeFileWins(t *testing.T) {
 		t.Fatalf("new code: %v", err)
 	}
 }
+
+// A restart keeps the setup code: the same code comes back, the file is not
+// rewritten, and a fresh Service on the same data directory sees it too.
+func TestSetupCodeSurvivesRestart(t *testing.T) {
+	s := newSvc(t)
+	code, err := s.EnsureSetupCode()
+	if err != nil || code == "" {
+		t.Fatalf("first start: %q %v", code, err)
+	}
+	before, err := os.ReadFile(s.setupPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.EnsureSetupCode()
+	if err != nil || again != code {
+		t.Fatalf("second call on same service: %q %v, want %q", again, err, code)
+	}
+	restarted, err := NewService(s.Store, s.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := restarted.EnsureSetupCode()
+	if err != nil || third != code {
+		t.Fatalf("restarted service: %q %v, want %q", third, err, code)
+	}
+	after, err := os.ReadFile(s.setupPath())
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("file changed: %q -> %q (%v)", before, after, err)
+	}
+	if fi, err := os.Stat(s.setupPath()); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatal(err, fi)
+	}
+	if err := restarted.CheckSetupCode("192.0.2.1", code); err != nil {
+		t.Fatalf("code rejected after restart: %v", err)
+	}
+}
+
+// A missing, empty or invalid setup-code file gets a new valid code.
+func TestSetupCodeReplacesInvalidFile(t *testing.T) {
+	for _, content := range []string{"", "\n", "garbage\n", "ABC123\n", "ABCDEFGHI0\n", "ABCDEFGHI!\n"} {
+		s := newSvc(t)
+		if err := os.WriteFile(s.setupPath(), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		code, err := s.EnsureSetupCode()
+		if err != nil || len(code) != setupCodeLen || s.readSetupCode() != code {
+			t.Fatalf("content %q: code %q, err %v", content, code, err)
+		}
+		if b, _ := os.ReadFile(s.setupPath()); strings.TrimSpace(string(b)) != code {
+			t.Fatalf("content %q: file holds %q, want %q", content, b, code)
+		}
+	}
+}
+
+// With an account present the setup code file is removed.
+func TestSetupCodeRemovedWhenUserExists(t *testing.T) {
+	s := newSvc(t)
+	if _, err := s.EnsureSetupCode(); err != nil {
+		t.Fatal(err)
+	}
+	hash, err := HashPassword("password123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Store.CreateUser("admin", hash, store.RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	code, err := s.EnsureSetupCode()
+	if err != nil || code != "" {
+		t.Fatalf("code with user present: %q %v", code, err)
+	}
+	if _, err := os.Stat(s.setupPath()); !os.IsNotExist(err) {
+		t.Fatal("setup code file not removed")
+	}
+}

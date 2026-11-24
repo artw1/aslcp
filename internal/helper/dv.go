@@ -89,7 +89,7 @@ type DVRequest struct {
 // DVStatus is the reply of dv-status, dv-enable, dv-disable, dv-restart and
 // dv-restore-discard. It never carries a secret.
 type DVStatus struct {
-	Supported      bool   `json:"supported"` // DVPlatform and not ARMv6
+	Supported      bool   `json:"supported"` // DVPlatform
 	Reason         string `json:"reason,omitempty"`
 	Arch           string `json:"arch,omitempty"`
 	MD380Installed bool   `json:"md380Installed"`
@@ -169,31 +169,11 @@ func UnexpectedDeps(inst []DVInst) []string {
 // protected packages are never recorded as ours.
 var dvProtectedRe = regexp.MustCompile(`^(asterisk|allstarlink|asl3|asl-|aslcp)`)
 
-// dvPackages is the install set for arch: the vocoder emulator, and qemu
-// user-mode emulation where the host cannot run its armhf binary natively.
-func dvPackages(arch string) []string {
-	if arch == "armhf" {
-		return []string{dvMD380Pkg}
-	}
-	return []string{dvMD380Pkg, dvQemuPkg}
-}
+// dvPackages is the install set: the vocoder emulator (an ARM binary) and
+// qemu user-mode emulation to run it on arm64 and amd64 hosts.
+func dvPackages() []string { return []string{dvMD380Pkg, dvQemuPkg} }
 
 // ---- platform
-
-// dvCPUInfo reads the CPU model lines for the ARMv6 check.
-func (o *Ops) dvARMv6() bool {
-	data, err := os.ReadFile(orDefault(o.DVCpuInfo, "/proc/cpuinfo"))
-	if err != nil {
-		return false
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		k, v, ok := strings.Cut(line, ":")
-		if ok && strings.TrimSpace(k) == "model name" && strings.Contains(v, "(v6l)") {
-			return true
-		}
-	}
-	return false
-}
 
 func (o *Ops) dvArch(ctx context.Context) string {
 	if out, code, err := o.Run.Run(ctx, "dpkg", "--print-architecture"); err == nil && code == 0 {
@@ -202,14 +182,8 @@ func (o *Ops) dvArch(ctx context.Context) string {
 	return ""
 }
 
-// dvSupported combines the platform check with the ARMv6 refusal.
-func (o *Ops) dvSupported(arch string) (bool, string) {
-	ok, reason := DVPlatform(o.osCodename(), arch)
-	if ok && arch == "armhf" && o.dvARMv6() {
-		return false, "armv6_unsupported"
-	}
-	return ok, reason
-}
+// dvSupported is the platform check (DVPlatform) on this host.
+func (o *Ops) dvSupported(arch string) (bool, string) { return DVPlatform(o.osCodename(), arch) }
 
 // ---- status
 
@@ -297,9 +271,9 @@ func shQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) 
 // dvEnableScript is the fixed script of the enable unit. The guard, the
 // marker, the config and the check are done by the helper binary (dv-step),
 // which is tested in Go; the script only sequences apt and systemctl.
-func (o *Ops) dvEnableScript(arch string) string {
+func (o *Ops) dvEnableScript() string {
 	self, sim := shQuote(o.selfPath()), shQuote(o.dvSimPath())
-	pkgs := strings.Join(dvPackages(arch), " ")
+	pkgs := strings.Join(dvPackages(), " ")
 	apt := "-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0"
 	b := []string{
 		"set -e",
@@ -377,7 +351,7 @@ func (o *Ops) DVEnable(ctx context.Context) (DVStatus, error) {
 		return st, err
 	}
 	if !st.Supported {
-		return DVStatus{}, fmt.Errorf("%w: %s", ErrDVUnsupported, st.Reason)
+		return DVStatus{}, fmt.Errorf("%w: %s", ErrDVUnsupported, DVReasonText(st.Reason))
 	}
 	if o.now().Year() < dvMinYear {
 		return DVStatus{}, ErrDVClockUnset
@@ -408,7 +382,7 @@ func (o *Ops) DVEnable(ctx context.Context) (DVStatus, error) {
 	if err := os.MkdirAll(o.dvStateDir(), 0o700); err != nil {
 		return DVStatus{}, fmt.Errorf("cannot create the state directory: %w", err)
 	}
-	out, code, err := o.Run.Run(ctx, dvArgv(dvEnableUnit, o.dvEnableScript(st.Arch))...)
+	out, code, err := o.Run.Run(ctx, dvArgv(dvEnableUnit, o.dvEnableScript())...)
 	o.resetJobUnit(dvEnableUnit)
 	if err != nil {
 		return DVStatus{}, fmt.Errorf("systemd-run: %w", err)

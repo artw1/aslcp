@@ -44,6 +44,9 @@ type OSInfo struct {
 	RebootPkgs     []string           `json:"rebootPkgs"`
 	Job            string             `json:"job"`
 	JobLog         string             `json:"jobLog"`
+	// Warnings of the last check, e.g. that a package repository could not
+	// be refreshed.
+	Warnings []string `json:"warnings"`
 }
 
 // OSCounts is what the header badge needs: no package names.
@@ -58,6 +61,7 @@ type osResult struct {
 	KeptBack   []string           `json:"keptBack"`
 	Reboot     bool               `json:"reboot"`
 	RebootPkgs []string           `json:"rebootPkgs"`
+	Warnings   []string           `json:"warnings,omitempty"`
 }
 
 // OSManager checks for operating system (apt) updates once a day, on demand,
@@ -181,7 +185,7 @@ func (m *OSManager) Info(ctx context.Context) OSInfo {
 	defer m.mu.Unlock()
 	m.loadLocked()
 	in := OSInfo{Available: herr == nil, Checking: m.checking, Job: helper.JobIdle,
-		Packages: norm(m.res.Packages), KeptBack: norm(m.res.KeptBack), RebootRequired: m.res.Reboot, RebootPkgs: norm(m.res.RebootPkgs)}
+		Packages: norm(m.res.Packages), KeptBack: norm(m.res.KeptBack), RebootRequired: m.res.Reboot, RebootPkgs: norm(m.res.RebootPkgs), Warnings: norm(m.res.Warnings)}
 	if herr != nil {
 		in.Reason = ptr(reasonFor(herr))
 	} else {
@@ -275,7 +279,7 @@ func (m *OSManager) runCheck(ctx context.Context) error {
 	switch {
 	case err == nil:
 		m.checked = m.now()
-		m.res = osResult{Packages: norm(st.Packages), KeptBack: norm(st.KeptBack), Reboot: st.RebootRequired, RebootPkgs: norm(st.RebootPkgs)}
+		m.res = osResult{Packages: norm(st.Packages), KeptBack: norm(st.KeptBack), Reboot: st.RebootRequired, RebootPkgs: norm(st.RebootPkgs), Warnings: st.Warnings}
 		m.errMsg = ""
 		m.recheck = false
 		m.persistLocked()

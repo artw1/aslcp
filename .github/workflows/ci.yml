@@ -46,7 +46,7 @@ jobs:
           npm ci
           npm run check
           npm test
-      - name: Build debs (arm64, armhf, amd64; nothing is published)
+      - name: Build debs (arm64, amd64; nothing is published)
         run: make debs
       - name: go test -race
         run: go test -race ./...
@@ -67,4 +67,4 @@ jobs:
         with:
           name: ${{ steps.art.outputs.name }}
           path: dist/*.deb
-          retention-days: 14
+          retention-days: 7

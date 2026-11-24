@@ -243,6 +243,7 @@ Strict, fixed command strings only; no pass-through of user text:
 
 - `<dev>`: must be in the list returned by `menu-support 1` (refreshed on each request, cached for a few seconds) and match `^[A-Za-z0-9_-]{1,32}$`.
 - levels: integers 0-999; booleans: `0` or `1`; carrier code in {0,3,4,5,6}, ctcss code in {0,1,2,4,5}; delays: integers 0-3000 (frames).
+- A `Device <name> is selected, the associated USB device string <devstr> was not found` reply is returned as `502 device_not_found` with a plain message (the interface is unplugged, or Asterisk cannot use it yet; on a fresh ASL3 install the installer applies ASL3's `usb`, `sound` and `hidraw` udev rules and reloads the USB sound driver when its `lowlatency` setting differs, and asks for a reboot only if that fails) instead of `radio_unexpected_output`.
 - Output parse failures are returned as `502 radio_unexpected_output` with the raw first line (trimmed, no secrets) for diagnostics.
 
 ### 5.3 Save and the config history (helper involvement)

@@ -1,7 +1,11 @@
 package helper
 
 import (
+	"context"
+	"errors"
 	"os"
+	"os/user"
+	"strings"
 
 	"github.com/artw1/aslcp/internal/backup"
 )
@@ -67,7 +71,11 @@ func dvHasLegacyFiles(m *backup.Manifest) bool {
 // restoreDV restores the engine's own state: the bridge node record and the
 // DMR network settings. The ini files of the previous stack in an archive
 // made by 1.x are ignored, and the step says so.
-func (o *Ops) restoreDV(sp *spool, m *backup.Manifest) (detail string, err error) {
+//
+// When it wrote either file it also renders the engine's config.json again
+// (the caller holds applyMu) and reports rendered, so that BackupRestore
+// restarts the engine once Asterisk is back.
+func (o *Ops) restoreDV(sp *spool, m *backup.Manifest) (detail string, rendered bool, err error) {
 	// The bridge node record (dv/state/privatenode.json): kept only when
 	// the restored rpt.conf, written by the Asterisk step before this one,
 	// has the node's stanza. Older backups have none.
@@ -76,10 +84,12 @@ func (o *Ops) restoreDV(sp *spool, m *backup.Manifest) (detail string, err error
 	// network mode's settings and enabled state. Older backups have none.
 	nets, netsNote := dvRestoredNetworks(sp, m)
 	privNote = joinNote(privNote, netsNote)
+	wrote := false
 	if len(priv) > 0 {
 		if err := o.dvWritePrivate(priv); err != nil {
 			privNote = "the bridge node record could not be restored: " + err.Error()
 		} else {
+			wrote = true
 			detail = "bridge node " + privNode + " is managed by ASLCP again"
 		}
 	}
@@ -87,14 +97,48 @@ func (o *Ops) restoreDV(sp *spool, m *backup.Manifest) (detail string, err error
 		if err := o.dvWriteNetworks(nets); err != nil {
 			privNote = joinNote(privNote, "the DMR network settings could not be restored: "+err.Error())
 		} else {
+			wrote = true
 			detail = joinNote(detail, "DMR network settings restored")
+		}
+	}
+	if wrote {
+		// rpt.conf, which holds the bridge node's ports, was restored by
+		// the Asterisk step before this one.
+		_, cerr := o.dvConfigLocked()
+		var unknown user.UnknownUserError
+		switch {
+		case cerr == nil:
+			rendered = true
+			detail = joinNote(detail, "engine configuration written")
+		case errors.As(cerr, &unknown):
+			// digital modes are not enabled: the enable job renders it
+		default:
+			privNote = joinNote(privNote, "the engine configuration could not be written: "+cerr.Error())
 		}
 	}
 	detail = joinNote(detail, privNote)
 	if dvHasLegacyFiles(m) {
 		detail = joinNote(detail, DVRestoreIgnoredDetail)
 	}
-	return detail, nil
+	return detail, rendered, nil
+}
+
+// dvRestartRestored restarts the engine so that it reads the configuration the
+// restore rendered; an engine that is not running is left alone (it reads the
+// file when it starts). The caller holds applyMu. It returns a note for the
+// step detail.
+func (o *Ops) dvRestartRestored(ctx context.Context) string {
+	for _, u := range o.dvUnitStates(ctx, []string{dvEngineUnit}) {
+		if u.Name != dvEngineUnit || u.Active != "active" {
+			return ""
+		}
+	}
+	out, code, err := o.Run.Run(ctx, "systemctl", "restart", dvEngineUnit+".service")
+	if err != nil || code != 0 {
+		return "the digital modes engine could not be restarted, restart it from the Digital modes page: " +
+			strings.TrimSpace(LastLines(out, 2)+" "+errOr(err))
+	}
+	return "the engine was restarted with the restored settings"
 }
 
 // joinNote appends note to a step detail.

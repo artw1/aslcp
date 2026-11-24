@@ -36,6 +36,14 @@ func main() {
 	if len(os.Args) == 3 && os.Args[1] == "dv-step" {
 		os.Exit(runStep(os.Args[2]))
 	}
+	// The OS upgrade unit asks whether a failed apt-get update may be ignored.
+	if len(os.Args) == 4 && os.Args[1] == "dv-step" && os.Args[2] == helper.StepAptUpdateCheck {
+		if err := helper.NewOps().AptUpdateCheck(os.Args[3], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stdout, "error:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	// The port 80 revert timer (internal/helper/sys_webport.go).
 	if len(os.Args) == 2 && os.Args[1] == "web-port-guard" {
 		os.Exit(runGuard())
