@@ -1,6 +1,6 @@
 name: Release
 
-# Tag vX.Y.Z -> build the three debs, then publish them to the BETA suite of the
+# Tag vX.Y.Z -> build the arm64 and amd64 debs, then publish them to the BETA suite of the
 # apt repository (the gh-pages branch of this repository, served by GitHub
 # Pages at ${APT_URL}; created by the first release if it does not exist), update
 # latest-beta.json and attach the debs to a GitHub pre-release. Nothing is

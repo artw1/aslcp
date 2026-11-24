@@ -17,7 +17,7 @@
   let enableOpen = $state(false), disableOpen = $state(false);
   const job = $derived(jobView(jobData ?? (st ? { job: st.job } : null)));
   const running = $derived(st?.job === 'running' || job.state === 'running');
-  const armv6 = $derived(!!st && !st.supported && st.reason === 'armv6_unsupported');
+  const armhf = $derived(!!st && !st.supported && st.reason === 'armhf_unsupported');
   const snap = $derived(app.dv);
   // A job seen running (or just finished) on this page keeps its log open; an old one is a summary.
   let watched = $state(false), expanded = $state(false), dismissedKey = $state('');
@@ -78,8 +78,8 @@
         <dt class="text-muted">Engine version</dt><dd class="font-mono">{snap?.engine?.version || 'n/a'}</dd>
         <dt class="text-muted">Vocoder</dt><dd>{#if !snap?.vocoder}n/a{:else if snap.vocoder.ok}<span class="text-ok">ok</span>{:else}<span class="text-warn">not responding</span>{/if}{#if snap?.vocoder?.timeouts} <span class="text-xs text-muted">({snap.vocoder.timeouts} timeouts)</span>{/if}</dd>
       </dl>
-      {#if armv6}
-        <p class="rounded border border-warn/60 p-2 text-sm text-warn" role="alert">Digital modes are not supported on this hardware: the voice engine needs an ARMv7 or newer processor (this one is ARMv6).</p>
+      {#if armhf}
+        <p class="rounded border border-warn/60 p-2 text-sm text-warn" role="alert">Digital modes are not supported on a 32-bit (armhf) system: ASL3 and ASLCP need a 64-bit OS. Reinstall with Raspberry Pi OS Lite (64-bit).</p>
       {:else if !st.supported}
         <p class="text-sm text-muted" role="status">Digital modes are not supported on this platform{st.reason ? ` (${st.reason})` : ''}.</p>
       {/if}

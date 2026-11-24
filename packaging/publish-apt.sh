@@ -72,7 +72,13 @@ CODE_DIR=${CODE_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}
 APT_URL=${APT_URL:-https://w1jar.github.io/aslcp}
 APT_URL=${APT_URL%/}
 KEEP=${KEEP:-5}
-ARCHES="arm64 armhf amd64"
+ARCHES="arm64 amd64"
+# armhf is no longer built (ASL3 has no armhf packages). The armhf debs that
+# are already in the pool stay and stay indexed (frozen: nothing is added,
+# promoted or pruned for armhf), so existing 32-bit installs keep a valid
+# repository (no apt errors) and simply see no newer version.
+LEGACY_ARCHES="armhf"
+INDEX_ARCHES="$ARCHES $LEGACY_ARCHES"
 COMPONENT=main
 POOL_STABLE=pool/main/a/aslcp
 POOL_BETA=pool/beta/a/aslcp
@@ -120,6 +126,12 @@ add)
 		[ -e "$f" ] || continue
 		v=$(dpkg-deb -f "$f" Version)
 		arch=$(dpkg-deb -f "$f" Architecture)
+		case " $LEGACY_ARCHES " in
+		*" $arch "*)
+			echo "publish-apt: $f is $arch, which is no longer published; skipping it" >&2
+			continue
+			;;
+		esac
 		if [ -n "$(deb_of "$POOL_STABLE" "$v" "$arch")" ]; then
 			echo "publish-apt: $v ($arch) is already promoted to stable; refusing to publish another build of it" >&2
 			exit 1
@@ -263,7 +275,7 @@ conf=$(mktemp)
 trap 'rm -f "$conf"' EXIT
 publish_suite() { # publish_suite SUITE POOLROOT
 	local suite=$1 root=$2 arch d
-	for arch in $ARCHES; do
+	for arch in $INDEX_ARCHES; do
 		d="dists/$suite/$COMPONENT/binary-$arch"
 		mkdir -p "$d"
 		apt-ftparchive --arch "$arch" packages "$root" >"$d/Packages"
@@ -274,7 +286,7 @@ APT::FTPArchive::Release::Origin "ASLCP";
 APT::FTPArchive::Release::Label "ASLCP";
 APT::FTPArchive::Release::Suite "$suite";
 APT::FTPArchive::Release::Codename "$suite";
-APT::FTPArchive::Release::Architectures "$ARCHES";
+APT::FTPArchive::Release::Architectures "$INDEX_ARCHES";
 APT::FTPArchive::Release::Components "$COMPONENT";
 APT::FTPArchive::Release::Description "ASLCP packages for Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS ($suite)";
 EOC
@@ -435,7 +447,7 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <main class="wrap" id="top">
 <section class="hero">
 <h1>A web control panel for your AllStarLink 3 node</h1>
-<p class="lead">ASLCP lets you connect, monitor and manage favorites with live status from any browser, and it can set up digital modes for you. It runs on Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS (arm64, armhf, amd64).</p>
+<p class="lead">ASLCP lets you connect, monitor and manage favorites with live status from any browser, and it can set up digital modes for you. It runs on Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS (arm64 and amd64; 64-bit only).</p>
 <ul class="badges">
 <li class="badge">Latest release <b>@STABLE@</b></li>
 <li class="badge">Latest beta <b>@BETA@</b>@BETA_NOTE@</li>
@@ -450,6 +462,7 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <pre tabindex="0"><code id="cmd-default">curl -fsSL @APT_URL@/install.sh | sudo sh</code></pre><button type="button" class="copy" data-copy="cmd-default" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
 </div>
 <p class="note warn"><strong>Fresh ASL3 card?</strong> Wait for the ASL3 first-boot setup and its reboot (20-30 minutes) before you install. The installer checks this and tells you if it is not done yet.</p>
+<p class="note"><strong>Fresh Raspberry Pi OS Lite 64-bit?</strong> That works too. If ASL3 is not installed, the installer installs <code>asl3</code> and <code>asl3-menu</code> first (a few minutes, many packages). ASL3 needs Debian 12 or 13 on arm64 or amd64.</p>
 <p class="note">At the end the installer prints a one-time setup link. Open it to create the administrator or to restore a backup from an existing node. <code>sudo aslcp admin setup-code</code> shows the code again.</p>
 </section>
 
@@ -461,6 +474,10 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <fieldset>
 <legend>Digital modes</legend>
 <div class="opt"><input type="checkbox" id="o-dvs"><label for="o-dvs">Also enable digital modes<small>Runs <code>aslcp dv enable</code> once ASLCP is up. It takes a few minutes.</small></label></div>
+</fieldset>
+<fieldset>
+<legend>ASL3 telemetry</legend>
+<div class="opt"><input type="checkbox" id="o-telem"><label for="o-telem">Turn off ASL3 telemetry<small>Disables and masks <code>asl-telemetry.timer</code>, the anonymous usage report ASL3 sends to AllStarLink every day. Left unchecked, ASL3 stays as it is.</small></label></div>
 </fieldset>
 <fieldset>
 <legend>Port 80 and other ASL web services</legend>
@@ -488,12 +505,14 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <div id="params-static">
 <p>Add these before <code>sh</code>, after <code>sudo</code>, separated by spaces. All are optional:</p>
 <dl class="params">
+<dt><code>ASLCP_ASL3=0</code></dt><dd>Do not install ASL3 (<code>no</code> and <code>false</code> work too). By default the installer installs <code>asl3</code> and <code>asl3-menu</code> if they are missing. <code>ASLCP_ASL3=1</code> fails instead of continuing when ASL3 is not available for the system.</dd>
 <dt><code>ASLCP_DV=1</code></dt><dd>Also enable digital modes (<code>yes</code> and <code>true</code> work too).</dd>
 <dt><code>ASLCP_PORT=8181</code></dt><dd>Web port, 1024-65535, or 80. The default is 8080. Avoid 9090 (Cockpit on ASL3).</dd>
 <dt><code>ASLCP_TAKEOVER=1</code></dt><dd>Run ASLCP on port 80 and turn off the other ASL web services (<code>yes</code> and <code>true</code> work too). See below.</dd>
+<dt><code>ASLCP_ASL_TELEMETRY=off</code></dt><dd>Turn off ASL3 telemetry, the anonymous usage report ASL3 sends to AllStarLink every day, and mask it (<code>0</code>, <code>no</code> and <code>false</code> work too). <code>ASLCP_ASL_TELEMETRY=on</code> turns it back on. By default it is left as ASL3 ships it (on).</dd>
 <dt><code>ASLCP_CHANNEL=beta</code></dt><dd>Use the beta channel (new builds before they are promoted to stable). The default is <code>stable</code>.</dd>
 </dl>
-<p style="margin-top:10px">Example with all four:</p>
+<p style="margin-top:10px">Example with several options:</p>
 <div class="cmd"><pre tabindex="0"><code id="cmd-example">curl -fsSL @APT_URL@/install.sh | sudo ASLCP_DV=1 ASLCP_PORT=8181 ASLCP_CHANNEL=beta sh</code></pre><button type="button" class="copy" data-copy="cmd-example" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
 </div>
 </section>
@@ -581,7 +600,7 @@ sudo apt update &amp;&amp; sudo apt install aslcp</code></pre><button type="butt
 
   var wiz = document.getElementById("wizard"), stat = document.getElementById("params-static");
   var dvs = document.getElementById("o-dvs"), port = document.getElementById("o-port"),
-    beta = document.getElementById("o-beta"), take = document.getElementById("o-take"), out = document.getElementById("cmd-gen"),
+    beta = document.getElementById("o-beta"), take = document.getElementById("o-take"), telem = document.getElementById("o-telem"), out = document.getElementById("cmd-gen"),
     err = document.getElementById("o-port-err"), warn = document.getElementById("o-port-warn"),
     copyGen = document.getElementById("copy-gen");
   wiz.hidden = false; stat.hidden = true;
@@ -600,6 +619,7 @@ sudo apt update &amp;&amp; sudo apt install aslcp</code></pre><button type="butt
     if (dvs.checked) vars.push("ASLCP_DV=1");
     if (take.checked) vars.push("ASLCP_TAKEOVER=1");
     if (raw !== "" && raw !== "8080" && !(take.checked && raw === "80")) vars.push("ASLCP_PORT=" + raw);
+    if (telem.checked) vars.push("ASLCP_ASL_TELEMETRY=off");
     if (beta.checked) vars.push("ASLCP_CHANNEL=beta");
     out.textContent = "curl -fsSL " + BASE + "/install.sh | sudo " + (vars.length ? vars.join(" ") + " " : "") + "sh";
   }

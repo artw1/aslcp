@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/artw1/aslcp/internal/backup"
+	dvctl "github.com/artw1/aslcp/internal/dv/ctl"
 )
 
 const (
@@ -119,7 +121,7 @@ func TestRestoreDVIgnoresLegacyFiles(t *testing.T) {
 		t.Fatal("classification")
 	}
 	n := newBkNode(t, "1.0", nil)
-	d, err := n.o.restoreDV(nil, m)
+	d, _, err := n.o.restoreDV(nil, m)
 	if err != nil || d != DVRestoreIgnoredDetail {
 		t.Fatalf("%q %v", d, err)
 	}
@@ -182,4 +184,104 @@ func TestBackupInfoDVPart(t *testing.T) {
 		}
 	}
 	t.Error("no dv part")
+}
+
+// dvEngineSource is a node whose settings are complete: BrandMeister and YSF
+// are enabled and the identity is set, so the engine config enables both.
+func dvEngineSource(t *testing.T) []byte {
+	t.Helper()
+	src := dvFullSource(t)
+	src.put("var/dv-state/networks.json", `{"version":1,"identity":{"callsign":"N0CALL","dmrId":1234567},`+
+		`"networks":{"BM":{"enabled":true,"address":"master.example.net","password":"example-pass"},"YSF":{"enabled":true},`+
+		`"TGIF":{"password":"example-pass"}}}`, 0o600)
+	return src.archive(BackupRequest{DV: true})
+}
+
+// dvEngineNode makes dst able to render the engine configuration (the current
+// user stands in for the engine user) and answers the unit state query.
+func dvEngineNode(t *testing.T, active string) *bkNode {
+	t.Helper()
+	u, err := user.Current()
+	if err != nil {
+		t.Skip(err)
+	}
+	dst := newBkNode(t, "1.0", nil)
+	dst.o.DVEngineDir = filepath.Join(t.TempDir(), "engine")
+	dst.o.DVEngineUser = u.Username
+	dst.fake.rules["systemctl show"] = resp{out: "Id=aslcp-dv.service\nLoadState=loaded\nActiveState=" + active + "\nUnitFileState=enabled\n"}
+	dst.fake.rules["systemctl restart aslcp-dv.service"] = resp{}
+	return dst
+}
+
+// A restore renders the engine configuration from the restored settings and
+// restarts the running engine after Asterisk is back.
+func TestRestoreDVAppliesToEngine(t *testing.T) {
+	arc := dvEngineSource(t)
+	dst := dvEngineNode(t, "active")
+	res, err := restoreInto(t, dst, arc, RestoreRequest{})
+	if err != nil || !res.OK {
+		t.Fatalf("%+v %v", res, err)
+	}
+	cfg := dvRendered(t, dst.o)
+	on := map[string]bool{}
+	for _, n := range cfg.Networks {
+		on[n.Mode] = n.Enabled
+	}
+	if !on[dvctl.ModeBM] || !on[dvctl.ModeYSF] || on[dvctl.ModeTGIF] {
+		t.Fatalf("networks = %+v", cfg.Networks)
+	}
+	st := dvStep(res)
+	if st == nil || !st.OK || !strings.Contains(st.Detail, "engine configuration written") ||
+		!strings.Contains(st.Detail, "restarted with the restored settings") || strings.Contains(st.Detail, "could not") {
+		t.Fatalf("step = %+v", st)
+	}
+	calls := dst.fake.calls
+	ast, eng := -1, -1
+	for i, c := range calls {
+		switch c {
+		case "systemctl start asterisk":
+			ast = i
+		case "systemctl restart aslcp-dv.service":
+			eng = i
+		}
+	}
+	if ast < 0 || eng < ast {
+		t.Fatalf("engine restart must follow the Asterisk start: %v", calls)
+	}
+}
+
+// An engine that is not running is not restarted; it reads the file at start.
+func TestRestoreDVInactiveEngineNotRestarted(t *testing.T) {
+	arc := dvEngineSource(t)
+	dst := dvEngineNode(t, "inactive")
+	res, err := restoreInto(t, dst, arc, RestoreRequest{})
+	if err != nil || !res.OK {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if dst.fake.called("systemctl restart aslcp-dv") != 0 {
+		t.Error("an inactive engine was restarted")
+	}
+	if _, err := os.Stat(filepath.Join(dst.o.DVEngineDir, "config.json")); err != nil {
+		t.Error("config.json not rendered")
+	}
+}
+
+// No engine user (digital modes not enabled): no error, no note, no restart.
+func TestRestoreDVNoEngineUser(t *testing.T) {
+	arc := dvFullSource(t).archive(BackupRequest{DV: true})
+	dst := newBkNode(t, "1.0", nil)
+	dst.o.DVEngineUser = "aslcp-no-such-user-example"
+	dst.o.DVEngineDir = filepath.Join(t.TempDir(), "engine")
+	res, err := restoreInto(t, dst, arc, RestoreRequest{})
+	if err != nil || !res.OK {
+		t.Fatalf("%+v %v", res, err)
+	}
+	st := dvStep(res)
+	if st == nil || !st.OK || strings.Contains(st.Detail, "engine") {
+		t.Fatalf("step = %+v", st)
+	}
+	if dst.fake.called("systemctl restart aslcp-dv") != 0 {
+		t.Error("engine restarted")
+	}
+	checkRestoredState(t, dst.o)
 }

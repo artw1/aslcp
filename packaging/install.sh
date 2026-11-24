@@ -36,6 +36,34 @@
 # the job fails the installer warns and still finishes; run "sudo aslcp dv
 # enable" later to retry. It combines with ASLCP_PORT:
 #   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_DV=1 ASLCP_PORT=8181 sh
+# 64-bit only: arm64 and amd64. On a 32-bit system (dpkg architecture armhf,
+# including a 32-bit userland on a 64-bit kernel) the installer refuses before
+# anything is changed; reinstall with Raspberry Pi OS Lite (64-bit).
+# AllStarLink 3: ASLCP_ASL3 controls whether the installer installs ASL3 itself.
+# auto (default, also 1, yes, true): if the asl3 package is missing, install
+# asl3 and asl3-menu; if asl3 is there but asl3-menu is not, install asl3-menu.
+# This happens before aslcp is installed. If ASL's apt repository is not set up
+# yet, the installer downloads asl-apt-repos from https://repo.allstarlink.org/public/,
+# checks its signing key against a pinned fingerprint and installs it, then runs
+# apt-get update. It can take several minutes. allmon3 and the Pi appliance
+# package are not installed. 0 (or no, false) never touches ASL3 (panel only).
+# ASL3 exists for Debian 12/13 (the architecture was checked above: 64-bit
+# only). On another release the installer says so and carries on with a
+# panel-only install, unless
+# ASLCP_ASL3=1 (yes, true) was given: then it stops with an error. Any other
+# value is refused.
+#   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL3=0 sh
+# ASL3 telemetry: ASL3 ships asl-telemetry.timer, which once a day sends
+# AllStarLink an anonymous usage report (asl-telemetry.service). ASLCP leaves
+# it as it is by default. ASLCP_ASL_TELEMETRY=off (also 0, no, false) turns it
+# off: "systemctl disable --now asl-telemetry.timer" and "systemctl mask" of the
+# timer and the service, if they exist (otherwise it says there is nothing to
+# turn off). ASLCP_ASL_TELEMETRY=on (also 1, yes, true) undoes that (unmask and
+# "enable --now" of the timer). Unset or empty changes nothing. It runs right
+# after the ASL3 step, so it also works when ASL3 was just installed. A failure
+# only produces a warning. Any other value is refused, and so is a combination
+# with ASLCP_TAKEOVER=undo (which does no package work and stops before this).
+#   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL_TELEMETRY=off sh
 # Pre-flight: before anything is changed the installer refuses to run while
 # ASL3 is still finishing its first-boot setup (systemd still starting, or
 # asl3-boot-oneshot.service / resize2fs_once.service running) or while another
@@ -55,6 +83,23 @@ say() { printf '%s\n' "aslcp-install: $*"; }
 die() { printf '%s\n' "aslcp-install: error: $*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "run as root (for example: curl -fsSL $APT_URL/install.sh | sudo sh)"
+
+# ---8<--- arch-check (exercised by the Go tests in internal/pkgscripts; keep self-contained)
+# check_arch: succeeds on arm64 and amd64 (the dpkg architecture, i.e. the
+# userland); refuses everything else. A 32-bit userland on a 64-bit kernel
+# reports armhf too. Read-only; changes nothing.
+check_arch() {
+	command -v dpkg >/dev/null 2>&1 || die "dpkg not found"
+	ARCH=$(dpkg --print-architecture)
+	case "$ARCH" in
+	arm64 | amd64) ;;
+	armhf | armel)
+		die "this system is 32-bit ($ARCH, kernel $(uname -m 2>/dev/null || echo unknown)). ASL3 and ASLCP need a 64-bit OS: reinstall with Raspberry Pi OS Lite (64-bit), then install ASL3 and ASLCP again. Nothing was changed."
+		;;
+	*) die "unsupported architecture '$ARCH' (supported: arm64, amd64)" ;;
+	esac
+}
+# --->8--- arch-check
 
 # --- takeover (ASLCP_TAKEOVER) ----------------------------------------------
 TAKEOVER_WANT=0
@@ -93,6 +138,31 @@ case "$DV_VAL" in
 *) die "ASLCP_DV must be 1, yes or true (got '$DV_VAL')" ;;
 esac
 [ "$TAKEOVER_UNDO" -eq 0 ] || [ "$DV_WANT" -eq 0 ] || die "ASLCP_TAKEOVER=undo cannot be combined with ASLCP_DV"
+
+# --- ASL3 (ASLCP_ASL3) -------------------------------------------------------
+# ASL3_MODE: auto (install what is missing, carry on if unavailable), force
+# (the same, but unavailable is an error) or skip.
+ASL3_MODE=auto
+case "${ASLCP_ASL3:-}" in
+"" | [Aa][Uu][Tt][Oo]) ;;
+1 | [Yy][Ee][Ss] | [Tt][Rr][Uu][Ee]) ASL3_MODE=force ;;
+0 | [Nn][Oo] | [Ff][Aa][Ll][Ss][Ee]) ASL3_MODE=skip ;;
+*) die "ASLCP_ASL3 must be auto, 1, yes, true, 0, no or false (got '${ASLCP_ASL3}')" ;;
+esac
+
+# --- ASL3 telemetry (ASLCP_ASL_TELEMETRY) ------------------------------------
+# TELEM_MODE: empty (leave as is), off or on.
+TELEM_MODE=
+case "${ASLCP_ASL_TELEMETRY:-}" in
+"") ;;
+[Oo][Ff][Ff] | 0 | [Nn][Oo] | [Ff][Aa][Ll][Ss][Ee]) TELEM_MODE=off ;;
+[Oo][Nn] | 1 | [Yy][Ee][Ss] | [Tt][Rr][Uu][Ee]) TELEM_MODE=on ;;
+*) die "ASLCP_ASL_TELEMETRY must be off, 0, no, false, on, 1, yes or true (got '${ASLCP_ASL_TELEMETRY}')" ;;
+esac
+[ "$TAKEOVER_UNDO" -eq 0 ] || [ -z "$TELEM_MODE" ] || die "ASLCP_TAKEOVER=undo cannot be combined with ASLCP_ASL_TELEMETRY"
+
+# --- architecture: 64-bit only (before anything is changed) -----------------
+[ "$TAKEOVER_UNDO" -eq 1 ] || check_arch
 
 # --- pre-flight: first-boot setup / other package managers ------------------
 # preflight_busy: prints what is busy (one line) and succeeds, or fails when
@@ -168,13 +238,6 @@ if [ "$TAKEOVER_UNDO" -eq 0 ]; then
 	bookworm | trixie) ;;
 	*) say "warning: this is '${VERSION_CODENAME:-unknown}', the packages are built for Debian 12 (bookworm) or 13 (trixie); continuing" ;;
 	esac
-	command -v dpkg >/dev/null 2>&1 || die "dpkg not found"
-	ARCH=$(dpkg --print-architecture)
-	case "$ARCH" in
-	arm64 | armhf | amd64) ;;
-	*) die "unsupported architecture '$ARCH' (supported: arm64, armhf, amd64)" ;;
-	esac
-
 	# --- downloader ------------------------------------------------------------
 	fetch() { # fetch URL DEST
 		if command -v curl >/dev/null 2>&1; then
@@ -186,6 +249,143 @@ if [ "$TAKEOVER_UNDO" -eq 0 ]; then
 		fi
 	}
 
+	# --- ASL3 and asl3-menu (ASLCP_ASL3) ---------------------------------------
+	# ---8<--- asl3-install (exercised by the Go tests in internal/pkgscripts; keep self-contained)
+	# Fingerprint of the ASL repository signing key: the key shipped in
+	# asl-apt-repos (deb12 and deb13 carry the same one), uid "AllStarLink
+	# Repository <repo@allstarlink.org>". Checked after asl-apt-repos is installed.
+	ASL_KEY_FPR=F2AF416869932ABB39E165E5409D50181BD84509
+	ASL_KEYRING="${ASLCP_ASL_KEYRING:-/etc/apt/keyrings/allstarlink.gpg}"
+	ASL_REPO_URL=https://repo.allstarlink.org/public
+
+	# apt_update_full MESSAGE: a full apt-get update. When it fails only because
+	# the md380-emu package repository (a third-party source that may be dead) could
+	# not be refreshed, that is a warning and the installer carries on. The
+	# installed helper decides (its apt-update-check step knows the repository);
+	# without it, or for any other failure, the installer stops with MESSAGE.
+	APT_HELPER="${ASLCP_HELPER:-/usr/libexec/aslcp/aslcp-helper}"
+	apt_update_full() {
+		apt_out="$tmp/apt-update.out"
+		apt_rc=0
+		LC_ALL=C apt-get update -o DPkg::Lock::Timeout=600 >"$apt_out" 2>&1 || apt_rc=$?
+		cat "$apt_out"
+		[ "$apt_rc" -ne 0 ] || return 0
+		if [ -x "$APT_HELPER" ] && "$APT_HELPER" dv-step apt-update-check "$apt_out" >/dev/null 2>&1; then
+			say "warning: the digital modes package repository (md380-emu) could not be refreshed; continuing without it"
+			return 0
+		fi
+		die "$1"
+	}
+
+	# pkg_installed PKG: succeeds when dpkg says PKG is fully installed.
+	pkg_installed() {
+		st=$(dpkg-query -W -f='${Status}' "$1" 2>/dev/null || true)
+		[ "$st" = "install ok installed" ]
+	}
+
+	# asl3_unavailable WHY: ASL3 cannot be installed here. Fatal when it was
+	# asked for explicitly, else the install goes on with the panel only.
+	asl3_unavailable() {
+		if [ "$ASL3_MODE" = force ]; then
+			die "ASL3 is not available for this system ($1) and ASLCP_ASL3=1 was given"
+		fi
+		say "ASL3 is not available for this system ($1); installing the panel only."
+		say "  (ASL3 needs Debian 12 (bookworm) or 13 (trixie), for example Raspberry Pi OS 64-bit.)"
+		return 0
+	}
+
+	asl3_ensure() {
+		[ "$ASL3_MODE" != skip ] || return 0
+		missing=
+		pkg_installed asl3 || missing="asl3 asl3-menu"
+		if [ -z "$missing" ] && ! pkg_installed asl3-menu; then
+			missing=asl3-menu
+		fi
+		if [ -z "$missing" ]; then
+			say "ASL3 and asl3-menu are already installed"
+			return 0
+		fi
+		case "${VERSION_CODENAME:-}" in
+		bookworm) asl_nn=12 ;;
+		trixie) asl_nn=13 ;;
+		*)
+			asl3_unavailable "release '${VERSION_CODENAME:-unknown}'"
+			return 0
+			;;
+		esac
+		say "installing $missing; this can take several minutes and downloads many packages"
+		if ! pkg_installed asl-apt-repos; then
+			if ! command -v gpg >/dev/null 2>&1; then
+				# gpg is not part of a minimal Debian/Raspberry Pi OS Lite (apt only needs
+				# gpgv) but is required to check the repository key. Get it first so a
+				# failure leaves nothing half-installed.
+				say "gpg is not installed; installing it to verify the AllStarLink repository key"
+				apt_update_full "apt-get update failed (needed to install gpg)"
+				DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=600 gpg || die "could not install gpg, which is needed to verify the AllStarLink repository key"
+				command -v gpg >/dev/null 2>&1 || die "gpg is still not available after installing it"
+			fi
+			asl_deb="$tmp/asl-apt-repos.deb${asl_nn}_all.deb"
+			say "adding the AllStarLink apt repository ($ASL_REPO_URL)"
+			fetch "$ASL_REPO_URL/asl-apt-repos.deb${asl_nn}_all.deb" "$asl_deb" || die "could not download $ASL_REPO_URL/asl-apt-repos.deb${asl_nn}_all.deb"
+			[ "$(dpkg-deb -f "$asl_deb" Package 2>/dev/null || true)" = asl-apt-repos ] || die "the downloaded file is not the asl-apt-repos package"
+			dpkg -i "$asl_deb" || die "could not install asl-apt-repos"
+			fpr=$(gpg --show-keys --with-colons --fingerprint "$ASL_KEYRING" 2>/dev/null | awk -F: '$1 == "pub" { p = 1; next } p && $1 == "fpr" { print $10; exit }' || true)
+			if [ "$fpr" != "$ASL_KEY_FPR" ]; then
+				dpkg --purge asl-apt-repos || true
+				die "the AllStarLink repository key does not match the expected fingerprint (got '${fpr:-none}', expected $ASL_KEY_FPR); asl-apt-repos was removed again"
+			fi
+			say "repository key verified ($ASL_KEY_FPR)"
+		fi
+		say "updating package lists"
+		apt_update_full "apt-get update failed"
+		# shellcheck disable=SC2086
+		DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 $missing || die "could not install $missing"
+		say "installed $missing"
+	}
+	# --->8--- asl3-install
+
+	asl3_ensure
+
+	# ---8<--- asl-telemetry (exercised by a local test harness; keep self-contained)
+	# asl_telemetry_apply: acts on TELEM_MODE (off, on or empty). Never fatal.
+	asl_telemetry_apply() {
+		[ -n "$TELEM_MODE" ] || return 0
+		telem_t=0
+		telem_s=0
+		if command -v systemctl >/dev/null 2>&1; then
+			systemctl cat asl-telemetry.timer >/dev/null 2>&1 && telem_t=1
+			systemctl cat asl-telemetry.service >/dev/null 2>&1 && telem_s=1
+		fi
+		if [ "$telem_t" -eq 0 ] && [ "$telem_s" -eq 0 ]; then
+			say "ASL3 telemetry: asl-telemetry.timer is not installed, nothing to turn $TELEM_MODE"
+			return 0
+		fi
+		if [ "$TELEM_MODE" = off ]; then
+			if [ "$telem_t" -eq 1 ] && ! systemctl disable --now asl-telemetry.timer >/dev/null 2>&1; then
+				say "warning: could not disable asl-telemetry.timer"
+			fi
+			if systemctl mask asl-telemetry.timer asl-telemetry.service >/dev/null 2>&1; then
+				say "ASL3 telemetry turned off (asl-telemetry.timer masked)"
+			else
+				say "warning: could not mask asl-telemetry.timer and asl-telemetry.service"
+			fi
+		else
+			if ! systemctl unmask asl-telemetry.timer asl-telemetry.service >/dev/null 2>&1; then
+				say "warning: could not unmask asl-telemetry.timer and asl-telemetry.service"
+			fi
+			if [ "$telem_t" -eq 1 ]; then
+				if systemctl enable --now asl-telemetry.timer >/dev/null 2>&1; then
+					say "ASL3 telemetry turned on (asl-telemetry.timer enabled)"
+				else
+					say "warning: could not enable asl-telemetry.timer"
+				fi
+			fi
+		fi
+		return 0
+	}
+	# --->8--- asl-telemetry
+
+	asl_telemetry_apply
 
 	# --- signing key -----------------------------------------------------------
 	say "downloading the repository key"
