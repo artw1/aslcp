@@ -88,7 +88,7 @@ func interpWo(interp *model, prev, next *model) {
 	}
 	if interp.voiced {
 		if prev.voiced && next.voiced {
-			interp.wo = prev.wo + float32(0.5*(next.wo-prev.wo))
+			interp.wo = float32(0.5*float64(prev.wo) + 0.5*float64(next.wo))
 		}
 		if !prev.voiced && next.voiced {
 			interp.wo = next.wo
@@ -97,9 +97,9 @@ func interpWo(interp *model, prev, next *model) {
 			interp.wo = prev.wo
 		}
 	} else {
-		interp.wo = float32(w0Min)
+		interp.wo = woMinF
 	}
-	interp.l = int(piD / float64(interp.wo))
+	interp.l = int(cPi / float64(interp.wo))
 }
 
 // interpEnergy is interp_energy().
@@ -110,6 +110,9 @@ func interpEnergy(prevE, nextE float32) float32 {
 // interpolateLSP is interpolate_lsp().
 func interpolateLSP(interp, prev, next *[lspOrd]float32) {
 	for i := 0; i < lspOrd; i++ {
-		interp[i] = prev[i] + float32(0.5*(next[i]-prev[i]))
+		interp[i] = float32(0.5*float64(prev[i]) + 0.5*float64(next[i]))
 	}
 }
+
+// powf is powf(x, y), evaluated in double and rounded once.
+func powf(x, y float32) float32 { return float32(math.Pow(float64(x), float64(y))) }

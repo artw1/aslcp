@@ -99,10 +99,10 @@ func NewDecoder() *Decoder {
 	d.inv.init(true)
 	makeSynthesisWindow(&d.pn)
 
-	d.prevModel.wo = float32(loPitch)
-	d.prevModel.l = int(piD / float64(d.prevModel.wo))
+	d.prevModel.wo = woMinF
+	d.prevModel.l = int(cPi / float64(d.prevModel.wo))
 	for i := range d.prevLSPs {
-		d.prevLSPs[i] = float32(float64(i) * piD / (lspOrd + 1))
+		d.prevLSPs[i] = float32(float64(i) * cPi / (lspOrd + 1))
 	}
 	d.prevE = 1
 	return d
@@ -125,7 +125,7 @@ func (d *Decoder) Decode(pcm *[SamplesPerFrame]int16, src *[BytesPerFrame]byte) 
 
 	woIndex := unpack(src, &nbit, woBits)
 	mo[1].wo = decodeWo(woIndex, woBits)
-	mo[1].l = int(piD / float64(mo[1].wo))
+	mo[1].l = int(cPi / float64(mo[1].wo))
 
 	eIndex := unpack(src, &nbit, eBits)
 	en[1] = decodeEnergy(eIndex, eBits)

@@ -60,17 +60,12 @@
 //
 //   - Encode is bit-exact with the C reference on every frame of the test
 //     signal (512 frames), on amd64, arm64 and armhf.
-//   - Decode is bit-exact on 300 random frames and, on 512 frames of coded
-//     synthetic speech, differs from the glibc build of the reference in 1
-//     sample of 81920 (by 1 LSB, SNR 118.8 dB). The cause is libm, see
-//     below. The test allows at most 1 LSB and 16 samples per vector, and an
-//     SNR of at least 60 dB.
-//   - The goldens come from Codec2-mod's C sources, not from upstream
-//     libcodec2. Codec2-mod's README says its encoder bitstream is
-//     bit-exact with libcodec2 provided cosf is accurate, and that decoded
-//     audio may differ from libcodec2 because the decoder uses approximations
-//     (fast_acosf, fast_cosf, fast_powf_pos). Equivalence with upstream
-//     libcodec2 was not tested here.
+//   - The encoder goldens come from Codec2-mod's C sources. The decoder
+//     follows upstream libcodec2 1.2 (cosf in lsp_to_lpc, powf LPC
+//     post-filter with bass boost, libcodec2's PI and float Wo limits),
+//     not Codec2-mod's approximations; its goldens are regression pins of
+//     this port. Agreement with libcodec2 is measured by the manual
+//     workflow .github/workflows/codec2-check.yml.
 //
 // # Floating point
 //

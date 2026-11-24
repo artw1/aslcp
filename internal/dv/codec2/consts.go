@@ -73,6 +73,19 @@ var (
 	lpcCorrWo  = piD * float64(float32(150)) / float64(float32(4000))               // M_PI*150.0f/4000.0f
 )
 
+// libcodec2's own (truncated) PI and TWO_PI, and the float Wo limits derived
+// from them (c2const_create). The decoder uses these so that its double
+// arithmetic matches the C decoder.
+const (
+	cPi    = 3.141592654
+	cTwoPi = 6.283185307
+)
+
+var (
+	woMinF = float32(cTwoPi / 160.0) // Wo_min (float)
+	woMaxF = float32(cTwoPi / 20.0)  // Wo_max (float)
+)
+
 var (
 	lpcpfTwoBeta = float32(2.0 * lpcpfBeta) // LPCPF_TWO_BETA, passed as float
 	bgKeep       = 1.0 - bgBeta             // 1.0 - BG_BETA

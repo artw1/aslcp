@@ -85,8 +85,8 @@ func encodeWo(wo float32, bits uint) int {
 // decodeWo is decode_Wo.
 func decodeWo(index int, bits uint) float32 {
 	levels := 1 << bits
-	step := float32((w0Max - w0Min) / float64(levels))
-	return float32(w0Min + float64(float32(step*float32(index))))
+	step := (woMaxF - woMinF) / float32(levels)
+	return woMinF + float32(step*float32(index))
 }
 
 // encodeEnergy quantises the LPC energy in dB (encode_energy).
@@ -163,6 +163,6 @@ func decodeLSPDScalar(lsp *[lspOrd]float32, indexes *[lspOrd]int) {
 	hz := 0
 	for i := 0; i < lspOrd; i++ {
 		hz += int(deltaLSPCB[i][indexes[i]])
-		lsp[i] = float32(lspDecK * float32(hz))
+		lsp[i] = float32((cPi / 4000.0) * float64(hz))
 	}
 }

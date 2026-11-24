@@ -10,27 +10,39 @@
 
 package codec2
 
-// makeSynthesisWindow is make_synthesis_window(): the Parzen window.
+import "math"
+
+// makeSynthesisWindow is make_synthesis_window(): the Parzen window. The
+// ramps accumulate in float as the C code does.
 func makeSynthesisWindow(pn *[2 * nSamp]float32) {
 	const n0 = nSamp / 2
 	const n1 = 3 * nSamp / 2
-	inv2TW := float32(1.0) / float32(2.0*tw)
+	const step = 1.0 / (2 * tw)
 
 	for i := range pn {
 		pn[i] = 0
 	}
 	// ramp up
+	var win float32
 	for i := n0 - tw; i < n0+tw; i++ {
-		pn[i] = float32(float32(i-(n0-tw)) * inv2TW)
+		pn[i] = win
+		win = float32(float64(win) + step)
 	}
 	// flat
 	for i := n0 + tw; i < n1-tw; i++ {
 		pn[i] = 1.0
 	}
 	// ramp down
+	win = 1.0
 	for i := n1 - tw; i < n1+tw; i++ {
-		pn[i] = float32(float32((n1+tw)-i) * inv2TW)
+		pn[i] = win
+		win = float32(float64(win) - step)
 	}
+}
+
+// randPhase is TWO_PI * (float)codec2_rand() / CODEC2_RAND_MAX in double.
+func randPhase(state *uint32) float32 {
+	return float32(cTwoPi * float64(float32(codec2Rand(state))) / randMax)
 }
 
 // codec2Rand is codec2_rand().
@@ -41,12 +53,13 @@ func codec2Rand(state *uint32) int {
 
 // samplePhase is sample_phase(): the synthesis filter phase at the harmonics.
 func samplePhase(mo *model, h *[maxAmp + 1]cpx, a *[fftEnc/2 + 1]cpx) {
-	k := float32(float64(mo.wo) / fftR)
+	r := float32(cTwoPi / fftEnc)
 
 	for m := 1; m <= mo.l; m++ {
-		b := int(float64(float32(float32(m)*k)) + 0.5)
-		if b >= fftEnc/2 {
-			b = fftEnc/2 - 1
+		// float division, as in C (m * Wo / r)
+		b := int(float64(float32(m)*mo.wo/r) + 0.5)
+		if b > fftEnc/2 {
+			b = fftEnc / 2
 		}
 		// synth filter 1/A is opposite phase to analysis filter
 		h[m] = cpx{a[b].r, -a[b].i}
@@ -58,8 +71,8 @@ func samplePhase(mo *model, h *[maxAmp + 1]cpx, a *[fftEnc/2 + 1]cpx) {
 func (d *Decoder) phaseSynthZeroOrder(mo *model, h *[maxAmp + 1]cpx, p *[maxAmp + 1]cpx) {
 	// ex_phase += Wo * N_SAMP (float); then wrapped to +-pi in double.
 	d.exPhase += float32(mo.wo * nSamp)
-	fl := floorf(float32(float64(d.exPhase)/twoPiD + 0.5))
-	d.exPhase = float32(float64(d.exPhase) - float64(twoPiD*float64(fl)))
+	fl := floorf(float32(float64(d.exPhase)/cTwoPi + 0.5))
+	d.exPhase = float32(float64(d.exPhase) - cTwoPi*float64(fl))
 	phi0 := d.exPhase
 
 	for m := 1; m <= mo.l; m++ {
@@ -67,15 +80,17 @@ func (d *Decoder) phaseSynthZeroOrder(mo *model, h *[maxAmp + 1]cpx, p *[maxAmp 
 		if mo.voiced {
 			ph = float32(phi0 * float32(m))
 		} else {
-			ph = float32(randK * float32(codec2Rand(&d.nextRn)))
+			ph = randPhase(&d.nextRn)
 		}
 		ex := cpx{r: cosf(ph), i: sinf(ph)}
 
 		ar := float32(h[m].r*ex.r) - float32(h[m].i*ex.i)
 		ai := float32(h[m].i*ex.r) + float32(h[m].r*ex.i)
 
-		inv := 1.0 / sqrtf(float32(ar*ar)+float32(ai*ai)+1e-24)
-		p[m] = cpx{float32(ar * inv), float32(ai * inv)}
+		// model->phi = atan2f(A_.imag, A_.real + 1E-12); synthesis then
+		// uses cosf/sinf of it.
+		phi := float32(math.Atan2(float64(ai), float64(float32(float64(ar)+1e-12))))
+		p[m] = cpx{r: cosf(phi), i: sinf(phi)}
 	}
 }
 
@@ -101,7 +116,7 @@ func (d *Decoder) postfilter(mo *model, p *[maxAmp + 1]cpx) {
 
 		for m := 1; m <= mo.l; m++ {
 			if mo.a[m] < thresh {
-				ph := float32(randK * float32(codec2Rand(&d.nextRn)))
+				ph := randPhase(&d.nextRn)
 				p[m] = cpx{r: cosf(ph), i: sinf(ph)}
 			}
 		}
@@ -143,10 +158,9 @@ func (d *Decoder) synthesise(mo *model, p *[maxAmp + 1]cpx) {
 	sw := &d.sw
 	*sw = [fftEnc/2 + 1]cpx{}
 
-	woBin := float32(float64(mo.wo) * fft1R)
-
 	for l := 1; l <= mo.l; l++ {
-		b := int(float64(float32(float32(l)*woBin)) + 0.5)
+		// l * Wo * FFT_DEC is float, then / TWO_PI in double
+		b := int(float64(float32(l)*mo.wo*fftEnc)/cTwoPi + 0.5)
 		if b > fftEnc/2-1 {
 			b = fftEnc/2 - 1
 		}

@@ -154,7 +154,7 @@ func lspToLPC(lsp *[lspOrd]float32, ak *[lspOrd + 1]float32) {
 	var wp [2*lspOrd + 2]float32
 
 	for i := 0; i < lspOrd; i++ {
-		freq[i] = fastCosf(lsp[i])
+		freq[i] = cosf(lsp[i])
 	}
 
 	xin1, xin2 := float32(1.0), float32(1.0)
@@ -232,79 +232,82 @@ func (e *Encoder) speechToUqLSPs(lsp *[lspOrd]float32, ak *[lspOrd + 1]float32) 
 	return energy
 }
 
-// aksToMag2 is aks_to_mag2(): spectral amplitudes from the LPC filter with
-// the LPC post-filter, and Aw, the spectrum of A(z) (bins 0..256).
+// aksToMag2 is aks_to_M2() with the LPC post-filter (lpc_post_filter) and
+// bass boost enabled, as libcodec2 runs it: spectral amplitudes from the LPC
+// filter, and Aw, the spectrum of A(z) (bins 0..256). Mixed float/double
+// expressions follow the C promotion rules.
 func (d *Decoder) aksToMag2(ak *[lspOrd + 1]float32, mo *model, en float32, aw *[fftEnc/2 + 1]cpx) {
 	var a [fftEnc]float32
-	var a2 [fftEnc / 2]float32
 	for i := 0; i <= lspOrd; i++ {
 		a[i] = ak[i]
 	}
-
 	d.fwd.forward(&a, aw)
+
+	// Pw = 1 / (|Aw|^2 + 1E-6): the float sum is promoted to double by 1E-6
+	var pw [fftEnc / 2]float32
 	for i := 0; i < fftEnc/2; i++ {
-		a2[i] = float32(aw[i].r*aw[i].r) + float32(aw[i].i*aw[i].i) + 1e-6
+		s := float32(aw[i].r*aw[i].r) + float32(aw[i].i*aw[i].i)
+		pw[i] = float32(1.0 / (float64(s) + 1e-6))
 	}
 
-	// A(z/gamma)
-	var ag [fftEnc]float32
-	g := float32(0.5) // LPCPF_GAMMA
-	ag[0] = ak[0]
+	// lpc_post_filter: weighting spectrum W = A(z/gamma)
+	var x [fftEnc]float32
+	x[0] = ak[0]
+	coeff := float32(0.5) // gamma
 	for i := 1; i <= lspOrd; i++ {
-		ag[i] = float32(ak[i] * g)
-		g = float32(float64(g) * 0.5)
+		x[i] = float32(ak[i] * coeff)
+		coeff = float32(coeff * 0.5)
+	}
+	var ww [fftEnc/2 + 1]cpx
+	d.fwd.forward(&x, &ww)
+
+	var rw [fftEnc / 2]float32
+	for i := 0; i < fftEnc/2; i++ {
+		w2 := float32(ww[i].r*ww[i].r) + float32(ww[i].i*ww[i].i)
+		rw[i] = sqrtf(float32(w2 * pw[i]))
 	}
 
-	var awg [fftEnc/2 + 1]cpx
-	d.fwd.forward(&ag, &awg)
-
-	var a2g [fftEnc / 2]float32
+	var eBefore, eAfter float32 = 1e-4, 1e-4
 	for i := 0; i < fftEnc/2; i++ {
-		a2g[i] = float32(awg[i].r*awg[i].r) + float32(awg[i].i*awg[i].i) + 1e-6
+		eBefore += pw[i]
 	}
-
-	// normalisation gain
-	var eBefore, eAfter float32 = 1e-12, 1e-12
-	pw := &a2
+	const beta float32 = 0.2 // LPCPF_BETA
 	for i := 0; i < fftEnc/2; i++ {
-		invA2 := 1.0 / a2[i]
-		r := sqrtf(float32(a2g[i] * invA2))
-
-		eBefore += invA2
-		pw[i] = float32(invA2 * fastPowfPos(r+1e-5, lpcpfTwoBeta))
+		pfw := powf(rw[i], beta)
+		pw[i] *= float32(pfw * pfw)
 		eAfter += pw[i]
 	}
-
-	// boost low frequencies a bit (< 1000 Hz)
-	for i := 0; i < fftEnc/2*1000/(sampRate/2); i++ {
-		pw[i] *= 1.96
+	gain := eBefore / eAfter
+	gain *= en
+	for i := 0; i < fftEnc/2; i++ {
+		pw[i] *= gain
+	}
+	// 3 dB bass boost below 1 kHz
+	for i := 0; i < fftEnc/8; i++ {
+		pw[i] = float32(float64(pw[i]) * (1.4 * 1.4))
 	}
 
-	gain := float32(en*eBefore) / eAfter
-
-	// Determine magnitudes
+	// Determine magnitudes from P(w); all double, as in C
+	r := float64(float32(cTwoPi / fftEnc))
+	wo := float64(mo.wo)
 	for m := 1; m <= mo.l; m++ {
-		ta := float32(float32(float32(m)-0.5) * mo.wo)
-		tb := float32(float32(float32(m)+0.5) * mo.wo)
-		am := int(float64(float64(ta)/fftR) + 0.5)
-		bm := int(float64(float64(tb)/fftR) + 0.5)
+		am := int((float64(m)-0.5)*wo/r + 0.5)
+		bm := int((float64(m)+0.5)*wo/r + 0.5)
 		if bm > fftEnc/2 {
 			bm = fftEnc / 2
 		}
-
 		var em float32
 		for i := am; i < bm; i++ {
 			em += pw[i]
 		}
-
-		mo.a[m] = sqrtf(float32(em * gain))
+		mo.a[m] = sqrtf(em)
 	}
 }
 
 // applyLPCCorrection is apply_lpc_correction(): the first harmonic
 // correction for low pitched male speakers.
 func applyLPCCorrection(mo *model) {
-	if float64(mo.wo) < lpcCorrWo {
+	if float64(mo.wo) < cPi*150.0/4000 {
 		mo.a[1] *= 0.032
 	}
 }

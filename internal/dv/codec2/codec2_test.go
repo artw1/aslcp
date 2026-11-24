@@ -15,8 +15,13 @@ import (
 	"testing"
 )
 
-// The goldens in testdata/ were produced by testdata/gen/gen.c linked
-// against the unmodified Codec2-mod C sources; see testdata/README.md.
+// The encoder goldens in testdata/ were produced by testdata/gen/gen.c linked
+// against the unmodified Codec2-mod C sources; see testdata/README.md. The
+// decoder goldens (dec.pcm.gz, rnddec.pcm.gz) are regression pins of this
+// port's own output since the decoder was aligned with upstream libcodec2
+// (whose decoder differs from Codec2-mod's); regenerate them with
+// CODEC2_UPDATE_DEC_GOLDEN=1 go test. Agreement with libcodec2 itself is
+// measured by .github/workflows/codec2-check.yml.
 
 const (
 	kFrames  = 512
@@ -189,6 +194,24 @@ func readGz(t testing.TB, name string) []byte {
 	return b
 }
 
+// writeGz stores pcm as gzip-compressed little-endian samples in testdata.
+func writeGz(t testing.TB, name string, pcm []int16) {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	b := make([]byte, 2*len(pcm))
+	for i, v := range pcm {
+		binary.LittleEndian.PutUint16(b[2*i:], uint16(v))
+	}
+	zw.Write(b)
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join("testdata", name), buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func toPCM(b []byte) []int16 {
 	p := make([]int16, len(b)/2)
 	for i := range p {
@@ -298,6 +321,9 @@ func TestDecodeGolden(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := decodeAll(readFile(t, tc.in))
+			if os.Getenv("CODEC2_UPDATE_DEC_GOLDEN") != "" {
+				writeGz(t, tc.out, got)
+			}
 			want := toPCM(readGz(t, tc.out))
 			if len(got) != len(want) {
 				t.Fatalf("length %d, want %d", len(got), len(want))
