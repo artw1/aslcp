@@ -1,13 +1,13 @@
 # Plan: hscp hotspot panel and AllStar hybrid (MMDVM hat, one repo, two products)
 
-Status: design note, no code yet. Branch try/mmdvm-hybrid. Decisions taken by the owner on 2026-11-24 are folded in below (product split, routing model, all modes on RF, owner hardware, optional AllStar, all Pi-Star extras wanted). What is still open is in section J. Nothing here is built.
+Status: design note, no code yet. Branch try/mmdvm-hybrid. Decisions taken by the owner on 2026-11-24 are folded in below (product split, routing model, all modes on RF, owner hardware, optional AllStar, all Pi-Star extras wanted, native Go modem driver with no bundled MMDVMHost, mode switch by radio, DMR first, cross-mode in the core plan). Leaning yes but not decided: dual slot on a duplex hat. What is still open is in section K. The test plan is section J. Nothing here is built.
 
 The idea: take a spare Raspberry Pi with an MMDVM hotspot hat (the kind that used to run a hotspot image) and let the engine (`aslcp-dv` today) drive the hat. Two products come out of this repo:
 
 - **ASLCP** stays the AllStar panel.
 - **hscp** (working name, name pending) is a hotspot panel: a one-package Pi-Star replacement with a nicer UI.
 
-The big use case is AllStar for people who only have a DMR (or YSF, P25, NXDN) radio: the hotspot can act as an AllStar node, so a digital radio reaches AllStar through it. The hotspot can also be a plain Pi-Star style hotspot to an internet network. It is one or the other at a time (section E).
+The big use case is AllStar for people who only have a DMR (or YSF, P25, NXDN) radio: the hotspot can act as an AllStar node, so a digital radio reaches AllStar through it. The hotspot can also be a plain Pi-Star style hotspot to an internet network. On a simplex hat it is one or the other at a time; on a duplex hat the two can share the hat, one per DMR timeslot (section E).
 
 Things marked "to verify" are claims about external software (MMDVMHost, the modem firmware, the serial protocol, Pi-Star) that this repo cannot confirm. Check them against the upstream sources before building on them. Everything else cites a file in this repo.
 
@@ -19,10 +19,12 @@ Things marked "to verify" are claims about external software (MMDVMHost, the mod
 
 - One Pi runs the hat, the engine and a panel. With ASL3 installed it can also be an AllStar node; without ASL3 it is a plain hotspot.
 - A licensed operator keys a DMR, YSF, P25, NXDN (or M17, if the firmware supports it) radio on the hotspot frequency. All of these modes work on RF.
-- The hotspot runs in exactly one of two modes (section E):
+- The hotspot runs in one of two modes (section E):
   - **AllStar mode:** RF to AllStar and back. No internet DV network.
   - **Hotspot mode:** RF to one internet DV network and back, like Pi-Star. Nothing from AllStar on RF.
-- In AllStar mode the radio can control AllStar (link and unlink nodes) from the keypad or by calling a number (E.3).
+- Never both on the same slot. On a simplex hat it is one or the other. On a duplex hat, AllStar mode may take one DMR timeslot while the other stays in hotspot mode (E.1; leaning yes, not decided).
+- In AllStar mode the radio can control AllStar (link and unlink nodes) by calling a number (E.3).
+- The radio can also switch between the two modes (E.10).
 - Set-up, status and control are in the panel and the CLI. No hand-edited ini files.
 - Everything a Pi-Star user expects is on the roadmap (section C and the phased plan in section I), not "maybe".
 
@@ -85,7 +87,7 @@ Why one repo, not two:
 - New `cmd/hscp`: the hotspot panel server and its CLI (name pending).
 - The engine (`aslcp-dv` today) is shared. It runs as a service under both products. See B.5 for naming.
 - Packaging: the existing `packaging/nfpm.yaml` stays. A second definition (for example `packaging/nfpm-hscp.yaml`) builds the hscp package. A third, shared engine package is likely (B.6). All for arm64 and amd64, `CGO_ENABLED=0` as today (Makefile).
-- Web UI: **one Svelte codebase with a product build flag** is the proposal. The flag selects the product's pages, branding (name, logo, colours) and which API areas exist. Each binary embeds its own build. Alternative: two app shells over a shared component library. Which one: open question (J).
+- Web UI: **one Svelte codebase with a product build flag** is the proposal. The flag selects the product's pages, branding (name, logo, colours) and which API areas exist. Each binary embeds its own build. Alternative: two app shells over a shared component library. Which one: open question (K).
 - systemd units, helper ops and the sandbox profile follow the existing pattern (docs/PLAN-2.0-M1.md A.1). Unit names carry the product or engine name.
 
 ### B.4 Shared and product-specific
@@ -105,7 +107,7 @@ Product-specific:
 
 ### B.5 The engine's name
 
-The engine is called `aslcp-dv` and lives under `internal/dv`. For hscp the name is off. A product-neutral name is likely needed, for the binary, the service, the helper ops (`dv-*` already sounds neutral) and the paths. Renaming has a cost for existing ASLCP installs (service name, config path, upgrade handling). Open question (J).
+The engine is called `aslcp-dv` and lives under `internal/dv`. For hscp the name is off. A product-neutral name is likely needed, for the binary, the service, the helper ops (`dv-*` already sounds neutral) and the paths. Renaming has a cost for existing ASLCP installs (service name, config path, upgrade handling). Open question (K).
 
 ### B.6 Can both products run on one Pi?
 
@@ -114,7 +116,7 @@ Technically yes, if the Pi has exactly one engine process that owns the serial p
 - The engine is its own package, depended on by both products. One engine process, one config, one modem owner.
 - Both panels talk to the engine over the same control socket (`ctl`). Neither panel opens the serial port.
 - The RF settings and the mode switch live in the engine config, so either panel shows and changes the same state.
-- Two panels means two web ports and two user databases unless auth is shared. Whether to allow that, or to make the two packages conflict (so a Pi runs one panel), is open (J). A simpler line: on a Pi with ASL3, install ASLCP, which then shows the RF card; hscp is for Pis without ASL3, and also works with ASL3 for AllStar mode.
+- Two panels means two web ports and two user databases unless auth is shared. Whether to allow that, or to make the two packages conflict (so a Pi runs one panel), is open (K). A simpler line: on a Pi with ASL3, install ASLCP, which then shows the RF card; hscp is for Pis without ASL3, and also works with ASL3 for AllStar mode.
 - Without the engine package split, installing both would ship two copies of the engine fighting over the port. The package split avoids that.
 
 ### B.7 CI and release impact (details open)
@@ -123,7 +125,7 @@ Technically yes, if the Pi has exactly one engine process that owns the serial p
 - Tags and notes: today a `vX.Y.Z` tag with a `## [X.Y.Z]` CHANGELOG entry drives a release (CLAUDE.md "Release numbers"). With two products: one shared version number for everything, or product-prefixed tags? One CHANGELOG with product headings or two?
 - apt repository: one repo with two components, or two suites/channels (stable and testing per product)? Does hscp reuse the existing update page and apt source mechanism with its own source entry?
 - Tests: the shared engine tests run once; each product adds its own build and UI checks. An hscp install test without ASL3 is needed (no node, no Asterisk).
-- All of the above are questions for the owner (J).
+- All of the above are questions for the owner (K).
 
 ---
 
@@ -135,22 +137,25 @@ Technically yes, if the Pi has exactly one engine process that owns the serial p
 
 | Pi-Star feature | Today | Needed | Milestone |
 |---|---|---|---|
-| MMDVM modem control, RF calibration (frequency offset, levels, BER check) | Nothing. No serial code in the repo. | Modem driver (section D), offset and level settings, a receive-only BER/level check page. | M3 to M6 |
-| Multi-mode hotspot with mode hang (one RF mode at a time, hang time after a call) | One active mode at a time, a mode switch is refused while a call is in progress (internal/dv/bridge/router.go `switchMode`). No RF. | RF endpoint, hang time (E.6), mode scan (E.8). | M1, M6 |
+| MMDVM modem control, RF calibration (frequency offset, levels, BER check) | Nothing. No serial code in the repo. | Modem driver (section D), offset and level settings, a receive-only BER/level check page. | M3 to M5 |
+| Multi-mode hotspot with mode hang (one RF mode at a time, hang time after a call) | One active mode at a time, a mode switch is refused while a call is in progress (internal/dv/bridge/router.go `switchMode`). No RF. | RF endpoint, hang time (E.6), mode scan (E.8). | M1, M5 |
 | Internet networks: BM, TGIF, Homebrew masters, YSF, P25, NXDN, M17 | All native clients, with tests (internal/dv/network/*). | Nothing new for networks. | none |
-| DMRGateway-style rewrite rules | One active network (`active()` in router.go). | A rules layer: talkgroup and slot maps, per-network prefixes. | M11 |
-| Several DMR networks at once | BM, TGIF and DMR - Other can all be logged in at once, but only the active one carries calls. | Several networks carry calls at once, routed by the rules. Duplex helps: one network per timeslot. | M11 |
-| Cross-mode (YSF2DMR, DMR2YSF, YSF2NXDN, ...) | None. | AMBE+2 repack for DMR, YSF DN, NXDN (E.9); a PCM transcode for P25 and Voice FR. | M12 |
+| DMRGateway-style rewrite rules | One active network (`active()` in router.go). | A rules layer: talkgroup and slot maps, per-network prefixes. | M15 |
+| Several DMR networks at once | BM, TGIF and DMR - Other can all be logged in at once, but only the active one carries calls. | Several networks carry calls at once, routed by the rules. Duplex helps: one network per timeslot. | M15 |
+| Cross-mode (YSF2DMR, DMR2YSF, YSF2NXDN, ...) | None. | AMBE+2 repack for DMR, YSF DN, NXDN, no transcode (E.9); a PCM transcode for P25, Voice FR and M17, reusing the AllStar audio path. | M7, M8 |
+| D-Star (hotspot mode, callsign routing, slow data) | None. No D-Star code in the engine. | DPlus, DExtra and DCS clients and the RF framing (E.11); frame pass-through, no codec. | M16 |
+| D-Star codec (AMBE 3600x2400, not AMBE+2) | None. md380 cannot do it. | A pure-Go decoder, then an encoder, or a USB AMBE dongle; needed for AllStar mode and cross-mode with D-Star (E.11). | M17 |
+| Mode switch by radio | None. | A reserved talkgroup or reflector per mode (E.10). | M6 |
 | Host list updates | Daily download of the DMR, YSF, P25, NXDN and M17 lists (docs/DV.md "Host lists"). | Nothing. | none |
-| Last heard, live dashboard | Now calling, Last heard, SSE event `dv` (docs/DV.md "Parts"). | "via RF" source tag, RF state card (G.3). | M1, M6 |
+| Last heard, live dashboard | Now calling, Last heard, SSE event `dv` (docs/DV.md "Parts"). | "via RF" source tag, RF state card (G.3). | M1, M5 |
 | Wi-Fi setup and a setup hotspot | Scan, add, reorder, and a setup network `ASLCP-<hostname>` when no network is found (README.md "WiFi"). | Nothing for the code; hscp needs its own setup network name (B.4). | M2 |
-| Config backup and restore | Present (docs/BACKUP.md). | RF settings with `transmit` forced off on restore (G.6). Import from a Pi-Star backup (C.3). | M6, M10 |
+| Config backup and restore | Present (docs/BACKUP.md). | RF settings with `transmit` forced off on restore (G.6). Import from a Pi-Star backup (C.3). | M5, M14 |
 | Updates | Update page and apt source (README.md). | hscp channel (B.7). | M2 |
-| POCSAG / DAPNET paging | None. | A DAPNET client and the modem's pager frames (to verify). | M13 |
-| Nextion / OLED displays | None. | Serial and I2C display drivers fed from the engine state. | M14 |
+| POCSAG / DAPNET paging | None. | A DAPNET client and the modem's pager frames (to verify). | M18 |
+| Nextion / OLED displays | None. | Serial and I2C display drivers fed from the engine state. | M19 |
 | Remote command, firewall, SSH access | A browser terminal, firewall service control and SSH are part of the System page (README.md). | Nothing for parity; the panel is already ahead here. | none |
-| BrandMeister manager (static talkgroups, dynamic TG list) | Tune and favourites on the dashboard (docs/DV.md "BrandMeister"). No static talkgroup management through the BrandMeister API. | A static-talkgroup editor through the BrandMeister API and an API key (to verify). | M10 |
-| "Expert editors" (edit every ini file by hand) | None, by design: settings are typed fields and the config is rendered. | A read-only "show the rendered config" view, plus an `advanced` key/value passthrough per network. Every raw editor weakens validation and the safety rules in section H, so go no further than that. | M6 |
+| BrandMeister manager (static talkgroups, dynamic TG list) | Tune and favourites on the dashboard (docs/DV.md "BrandMeister"). No static talkgroup management through the BrandMeister API. | A static-talkgroup editor through the BrandMeister API and an API key (to verify). | M14 |
+| "Expert editors" (edit every ini file by hand) | None, by design: settings are typed fields and the config is rendered. | A read-only "show the rendered config" view, plus an `advanced` key/value passthrough per network. Every raw editor weakens validation and the safety rules in section H, so go no further than that. | M5 |
 
 What this says:
 
@@ -171,13 +176,13 @@ What this means for the code:
 
 ### C.3 Migration from a Pi-Star backup
 
-The owner reflashes anyway (32-bit to 64-bit, section A.2), so migration is an import from a backup file taken before the reflash, not an in-place upgrade. The panel's restore flow already accepts an uploaded backup (docs/BACKUP.md). A Pi-Star import is a second, read-only importer for a zip. It is wanted (milestone M10).
+The owner reflashes anyway (32-bit to 64-bit, section A.2), so migration is an import from a backup file taken before the reflash, not an in-place upgrade. The panel's restore flow already accepts an uploaded backup (docs/BACKUP.md). A Pi-Star import is a second, read-only importer for a zip. It is wanted (milestone M14).
 
 What could be imported (file names and keys are from memory, all to verify against a real backup):
 
 - The backup zip's config files: `MMDVM.ini` (callsign, DMR ID, frequencies, colour code, offsets, modes enabled, modem port), `DMRGateway.ini` (network entries; passwords), `ysfgateway`, `p25gateway`, `nxdngateway` ini files (reflector settings), and a Pi-Star `config` file (to verify the name and format; it may hold the same data).
 - A small set of values maps onto the engine settings: callsign, DMR ID and ESSID (Identity), RX/TX frequency, frequency offset, colour code, RAN, and the BrandMeister, TGIF or other master address and password.
-- Once the matching features exist (M10, M11): static talkgroups and DMRGateway rewrite rules.
+- Once the matching features exist (M14, M15): static talkgroups and DMRGateway rewrite rules.
 
 Rules for an importer:
 
@@ -216,8 +221,9 @@ The hat does the modulation. The modem and the host exchange air-interface frame
 | NXDN | Frames close to the network frame | NXDN network frame (33 bytes, FEC stripped, internal/dv/nxdn/doc.go) | Medium: the 72-bit AMBE+2 FEC and the LICH/SACCH handling. |
 | P25 | Over-the-air LDU frames (voice, NID, FEC) | The P25 network protocol carries IMBE voice pieces, not over-the-air frames | **Large**: the engine must rebuild the RF framing (LDU1/LDU2, NID, FEC, link control). |
 | M17 | LSF and stream frames, if the firmware supports M17 | M17 reflector frames | Small to medium; firmware support to verify. |
+| D-Star | D-Star frames with slow data (firmware support to verify) | DPlus, DExtra and DCS reflector frames (to verify) | Medium: no D-Star code in the engine today. Pass-through needs no codec (E.11). |
 
-This is why same-mode pass-through in hotspot mode (E.4) is cheap, and why the milestones are ordered by effort with P25 last (section I).
+This is why same-mode pass-through in hotspot mode (E.4) is cheap. The milestones start with DMR because it is the owner's radio and the DMR coder is the most complete (section I); P25 is last of the main modes, D-Star comes late.
 
 ### D.3 Option (a): MMDVMHost as the modem driver, aslcp-dv as its network peer
 
@@ -287,7 +293,7 @@ Cons:
 
 ### D.5 Recommendation
 
-**Build option (b), the native Go modem driver, as the product. Do not ship MMDVMHost.** Use an existing MMDVMHost only as a reference and as a comparison tool on the owner's bench.
+**Build option (b), the native Go modem driver, as the product. Do not ship MMDVMHost.** Decided by the owner. MMDVMHost stays a reference and a comparison tool on the owner's bench only.
 
 Reasons, from the code and the one-package goal:
 
@@ -297,23 +303,23 @@ Reasons, from the code and the one-package goal:
 - **Behaviour.** One router owns timers, hang time, contention and the AllStar radio control (section E). Under (a) MMDVMHost has its own and the two can disagree.
 - **Risk.** The real risk of (b) is a bad signal on the air from a driver bug. That is handled by process, not by a second program: transmit off by default (H), receive-only first, low power and a dummy load for the first TX, and a side-by-side check against an MMDVMHost the owner already has (it can be the old hotspot image on another card).
 
-The order of work is in section I. In short: the RF endpoint and router changes with a fake modem first (no hardware), then the Go modem driver, receive only, then TX, YSF first (DN framing is complete in internal/dv/ysf), then DMR, then NXDN, M17 and P25 last.
+The order of work is in section I. In short: the RF endpoint and router changes with a fake modem first (no hardware), then the Go modem driver with DMR, receive only, then TX, then the AllStar side and cross-mode (all testable with the owner's DMR radio), then YSF, NXDN, M17 and P25 last, and D-Star late.
 
-What would change my mind: if the owner needs P25 on RF soon, (a) gets it for free because MMDVMHost already has it. In that case ship (a) as an *optional, user-installed* add-on for P25 only, not bundled. Otherwise do not take (a) on. (J, question 2)
+An optional, user-installed MMDVMHost for P25 was considered as a fallback and rejected by the owner. If P25 on RF is late, it is late.
 
 Whichever driver is used, the router sees RF as one more endpoint with frames in and frames out (section E). The code boundary is the `Endpoint` interface of M1, so a different driver can sit behind it.
 
 ### D.6 Calibration
 
 - Under (a), calibration is MMDVMHost's and the firmware's; the product only renders the level and offset settings into MMDVM.ini. The owner calibrates the frequency offset with a known-good receiver, as for any hotspot.
-- Under (b), which is recommended, the engine needs the modem calibration commands (to verify) and a simple "send a test tone / carrier for N seconds" tool. TX must stay off by default (section H).
+- Under (b), which is the chosen driver, the engine needs the modem calibration commands (to verify) and a simple "send a test tone / carrier for N seconds" tool. TX must stay off by default (section H).
 - A generic "frequency offset (ppm)" and "per-mode TX/RX level" setting exists in both cases (section G).
 
 ---
 
 ## E. Routing model
 
-### E.1 Two modes, never both
+### E.1 Two modes, never both on the same slot
 
 The core idea: **someone with only a DMR (or YSF, P25, NXDN) radio can get into AllStar through the hotspot.**
 
@@ -332,7 +338,13 @@ Hotspot mode:
 - **Hotspot mode:** RF to one internet DV network or target, exactly like Pi-Star. **Nothing from AllStar goes out on RF.**
 - Without ASL3 installed (hscp only), only hotspot mode exists (C.2).
 
-There is no mode where RF, an internet network and AllStar are all joined. AllStar audio never mixes with network traffic on RF.
+There is no mode where RF, an internet network and AllStar are all joined on one channel. AllStar audio never mixes with network traffic on the same slot.
+
+**Duplex and dual slot (leaning yes, not decided).** On a duplex hat, AllStar mode may take one DMR timeslot while the other slot stays in hotspot mode on a network, at the same time ("dual slot" or "dual watch"). This bends the rule "never both" into "never both on the same slot".
+
+- A simplex hat keeps strict one-or-the-other.
+- The two slots share one transmitter. Contention between them is in E.6.
+- Open questions (K): which slot is AllStar by default, and whether dual slot is a setting.
 
 ### E.2 AllStar mode
 
@@ -350,7 +362,7 @@ What changes in the engine:
 - Because audio goes through PCM, a DMR radio and a YSF radio on the same hotspot can both be heard on AllStar. They are not on air at once (E.8).
 - Outgoing identity: the source is the owner's identity (callsign and DMR ID from the identity), and the destination is a fixed value such as "ALL" or the configured talkgroup, as the network TX path does today (see `startTX` in router.go). Whether the operator may send AllStar audio on RF is a licence question for the owner (H).
 - In AllStar mode the existing network clients are logged out or idle. The panel shows no network target.
-- Duplex: DMR has two timeslots, but AllStar mode uses one RF channel for one conversation. Which slot carries it, and whether the other slot is free or refused, is open (J).
+- Duplex: AllStar mode uses one DMR timeslot for one conversation. The other slot may stay in hotspot mode (E.1, leaning yes). Which slot is the default is open (K).
 
 ### E.3 Radio control of AllStar (AllStar mode)
 
@@ -360,7 +372,8 @@ An analog node is controlled with DTMF function codes. A digital radio has no ke
   - A private call to an AllStar node number **links the hotspot's node to it**. Example placeholders: nodes 1997 to 2002. The engine takes the destination ID of a private call, sees it is not a talkgroup, and runs the link command for that node. No voice is passed for that call.
   - A private call to a reserved number **unlinks**. Example: a number such as 9999 (reserved numbers are a setting).
   - A private call to another reserved number could ask for **status** (the engine answers with a short voice or text announcement, to design) or reach a **parrot** (echo test).
-  - Group calls are voice, bridged to AllStar. Whether any talkgroup counts or a chosen one does is open (J).
+  - Group calls are voice, bridged to AllStar. Whether any talkgroup counts or a chosen one does is open (K).
+- **Mode switch:** keying a reserved talkgroup (or a fake reflector in YSF) switches the whole hotspot between the two modes. See E.10. It sits beside the link and unlink calls above.
 - **YSF, P25, NXDN, M17:** equivalents are **to design**. Ideas: the YSF DG-ID selects an entry from a configured table (DG-ID 10 means node 1997, a reserved DG-ID means unlink); P25 and NXDN talkgroup digits can map to node numbers or to table entries; M17 uses the destination field. Each mode's header fields limit what can be encoded (to verify), so a table is likely needed.
 - The link and unlink actions use the same control path the panel uses for the bridge node today (docs/DV.md "Private bridge node and USRP"; to check), so the AllStar side sees one kind of request.
 - Safety: only calls from the owner's allowed IDs may control (a list, default: the owner's DMR ID only). A control call changes the AllStar link state and is audited (G.5). Rate limited.
@@ -378,27 +391,28 @@ Paths:
 - Pure pass-through: frames are re-framed, not decoded. The RF mode must equal the tuned network's mode (a BrandMeister target means DMR on RF, a YSF reflector means YSF on RF).
 - A voice frame already carries its codec (`network.VoiceFrame.Codec`, internal/dv/network/network.go). The pass-through case is a check that codecs match and the length is right (`codecLen` in router.go).
 - Contention here is **only RF versus the network.** No AllStar leg exists in this mode.
-- Duplex: both DMR timeslots can carry calls at once, for example one network or talkgroup per slot. Several networks at once come with the rules layer (M11).
+- Duplex: both DMR timeslots can carry calls at once, for example one network or talkgroup per slot. Several networks at once come with the rules layer (M15).
 - Hotspot mode is what Pi-Star does. It is the only mode without ASL3.
 
 ### E.5 Switching between the modes
 
-The two modes are mutually exclusive, the same rule as the existing Digital modes card: for personal use you should not be connected to BrandMeister **and** linked to AllStar at the same time.
+The two modes are mutually exclusive on a slot, the same rule as the existing Digital modes card: for personal use you should not be connected to BrandMeister **and** linked to AllStar at the same time. On a duplex hat with dual slot (E.1), the rule holds per slot, and the mode is chosen per slot.
 
 - Switching to hotspot mode drops the AllStar side: the bridge node is unlinked from AllStar nodes (or the USRP leg is detached; to design which) and no AllStar audio goes to RF.
 - Switching to AllStar mode drops the network side: the network client logs out and stops carrying calls.
 - The existing busy rule applies: with a call in progress, the switch is refused unless forced (router.go `switchMode`).
 - The switch is one control in the panel and one CLI command (G.4), saved at once. The current mode and the reason for a refusal are shown.
 - What mode is active after a restart or a restore: the saved mode, except that a restore never turns transmit on (G.6, H).
-- Whether a radio can also switch the mode, not only the panel, is open (J).
+- A radio can also switch the mode, not only the panel (E.10).
 
 ### E.6 Contention, hang time and timeouts
 
 Who holds the channel: one talker at a time, first come first served, per RF channel (on a duplex hat, per timeslot for DMR).
 
 - RF talker active: audio for the other leg is dropped on the RF side (nothing to transmit anyway; the hat is receiving). In AllStar mode the other leg is AllStar; in hotspot mode it is the network.
+- On a duplex hat with dual slot (E.1), both slots share one transmitter. Two calls cannot be on air at once if the firmware cannot transmit both slots together (to verify); the rule for that case is open (K). The simple choice is first come first served.
 - RF is transmitting a call from the other leg: RF keying by a radio user is ignored while the hotspot transmits (on a simplex hat; a duplex hat can receive while it transmits, to verify what the firmware does with it). The RF user's call is lost until the TX ends. Hang time keeps the channel from flipping back and forth.
-- Proposed priority, highest first: local RF talker, then the other leg's talker. This matches the router's current rule that a node transmission wins over a received call (`startTX` calls `cutRX`). With only two legs in each mode there is no three-way question left. To be confirmed (J).
+- Proposed priority, highest first: local RF talker, then the other leg's talker. This matches the router's current rule that a node transmission wins over a received call (`startTX` calls `cutRX`). With only two legs in each mode there is no three-way question left. To be confirmed (K).
 - **Hang time.** After a call ends on RF, hold the channel for a short time (example: 2 s) before sending the next queued call, so a reply on RF is not cut by an incoming call. Configurable. Default value is an open question.
 - **Timeouts.**
   - RF call: ends on terminator, or after the existing RX silence timeout (`DefaultRxSilence`, router.go), or when the modem reports lost sync.
@@ -418,15 +432,54 @@ The hat listens on one air interface at a time. All modes work on RF (D.2), but 
 - **Fixed mode:** the RF mode is the one chosen (in hotspot mode, the one matching the network target; in AllStar mode, the one chosen in the panel).
 - **Scan:** a list of enabled RF modes, and the first mode that sees a call wins, with a mode hang afterwards. In hotspot mode that conflicts with the router's rule that a mode switch cuts a call (`switchMode`) and needs its own design, since the network target is tied to one mode.
 
-v1 is a fixed single mode per mode of operation. Scan comes with M6 or later. Question (J).
+v1 is a fixed single mode per mode of operation. Scan comes with M9 or later, once more than one mode is on RF. Question (K).
 
-### E.9 Cross-mode (later, M12)
+### E.9 Cross-mode (core plan, M7 and M8)
 
-Example: the radio is DMR on RF while the hotspot mode target is a YSF reflector.
+Cross-mode is essential, not a late extra. Example: the radio is DMR on RF while the hotspot mode target is a YSF reflector. It comes right after DMR on RF in the plan (section I).
 
-- **Repack, no transcode.** DMR, NXDN and YSF DN all carry the same 49-bit AMBE+2 frame (internal/dv/nxdn/doc.go: "the same 49-bit frame as the md380 vocoder"; internal/dv/ysf/ysf.go; internal/dv/dmr/doc.go). Only the FEC and framing differ. A DMR to YSF DN or NXDN bridge can copy the 7-byte frames and rebuild framing. This is cheap and lossless in the vocoder sense. It needs a call model that maps header data (source callsign, DMR ID, talkgroup) to the other side's fields. YSF Voice FR and P25 are IMBE, which is a different codec; AMBE+2 to IMBE needs a transcode.
-- **Full transcode through PCM.** Works for any pair. Costs a decode and an encode per frame, plus a quality loss (a second lossy vocoder pass).
-- Before M12, the RF mode follows the tuned target mode in hotspot mode. In AllStar mode cross-mode between radios already works through PCM (E.2).
+- **Same codec: repack, no transcode.** DMR, YSF DN and NXDN all use AMBE+2 3600x2450 (internal/dv/nxdn/doc.go: "the same 49-bit frame as the md380 vocoder"; internal/dv/ysf/ysf.go; internal/dv/dmr/doc.go). Cross-mode between them is a bit repack into the other mode's frames, as YSF2DMR does. Only the FEC and framing differ. No transcode, no quality loss. It needs a call model that maps header data (source callsign, DMR ID, talkgroup) to the other side's fields.
+  - This is the first cross-mode step (M7).
+  - It is testable with the owner's DMR radio on a YSF reflector. No YSF radio is needed.
+- **Different codec: transcode through PCM.** P25 and YSF Voice FR (VW) use IMBE. M17 uses Codec2. Pairs with these need a real transcode via PCM (M8).
+  - The engine's own codecs do it: pure-Go IMBE, Codec2 (M17), and md380 for AMBE+2.
+  - Quality loss is expected (a second lossy vocoder pass). The UI labels such a link "transcoded".
+- **One machinery.** The AllStar mode audio path (any mode to PCM and back, E.2) is the same code. Transcoded pairs reuse it. Same-codec pairs skip PCM.
+- **D-Star** joins through PCM once its codec exists (M17, E.11), or with a USB AMBE dongle. D-Star is not AMBE+2, so it is not a repack.
+- In AllStar mode, cross-mode between radios of different modes already works through PCM (E.2).
+
+### E.10 Mode switching by radio
+
+Decided: yes, a radio can switch the hotspot between AllStar mode and hotspot mode. The method is still being thought through. The owner's first proposals:
+
+- **DMR:** a reserved talkgroup that is not on any network, default 8 (a setting).
+  - Keying it puts the hotspot in AllStar mode.
+  - Keying any network talkgroup puts it back in hotspot mode.
+  - The default must not collide with a talkgroup the networks use. On BrandMeister, TG 8 is a regional talkgroup; here it would never leave the hotspot (to verify, and so the number is a setting).
+  - On a duplex hat with dual slot (E.1), the switch can act on the slot it was keyed on (to design).
+- **YSF:** a local fake reflector, for example named "AllStar", in the reflector list the radio sees. Selecting it is AllStar mode. Selecting a real reflector is hotspot mode.
+- **P25, NXDN, M17:** the same idea (a reserved talkgroup or reflector). To design.
+
+How it fits with radio control (E.3):
+
+- Same checks: only the allowed IDs may switch (default: the owner's ID), every switch is audited (G.5), and it is rate limited.
+- It follows the busy rule of E.5: no switch with a call in progress unless forced.
+- Link and unlink by private call (E.3) works inside AllStar mode. The mode switch is how the radio gets into AllStar mode in the first place.
+- Remaining details are open questions (K): the defaults, the P25, NXDN and M17 equivalents, and feedback to the radio.
+
+### E.11 D-Star
+
+D-Star is a completely different animal: a different codec and a different protocol. The engine has no D-Star code today. It comes as two late milestones.
+
+**D-Star hotspot mode (M16).** RF to D-Star reflectors (DPlus, DExtra, DCS: details to verify), callsign routing, slow data. Frame pass-through, so no codec is needed.
+
+**D-Star codec research (M17).**
+
+- D-Star uses the older AMBE 3600x2400, not AMBE+2. md380 cannot do it.
+- mbelib decodes it, and "AMBE Exposed" documents the reverse-engineered frame layout. The historically poor sound is attributed to incomplete or guessed quantization tables. There is no published spec, unlike IMBE.
+- Plan: a pure-Go decoder first, checked against mbelib and recordings. Then an encoder, if the tables hold up. The IMBE encoder's analysis (pitch, voicing, spectral magnitudes) is a head start.
+- **Patents.** One project page reports the codec as out of patent. That is consistent with a 2013 statement that older AMBE patents were about two years from expiry. But mbelib carries a patent caution. The owner must check the specific US patent numbers and expiry dates before shipping (open question, to verify).
+- AllStar mode and cross-mode for D-Star depend on this milestone, or on a USB AMBE dongle (for example ThumbDV: to verify the model) as a fallback.
 
 ---
 
@@ -496,10 +549,14 @@ A new `rf` section in the engine config (internal/dv/config/config.go, `ctl.Conf
 | `colour_code` | DMR colour code | 1 |
 | `ran` | NXDN RAN | 1 |
 | `dmr_slots` | DMR timeslots in use (both on a duplex hat) | `[1,2]` |
+| `allstar_slot` | which slot is AllStar when dual slot is on (E.1; default open) | 2 |
+| `dual_slot` | on a duplex hat, AllStar on one slot and hotspot mode on the other (E.1; leaning yes) | false |
 | `rf_id` | use Identity.DMRID, or `DMRID + ESSID` as the repeater ID | DMR ID 1234567 |
 | `hang_ms`, `tx_timeout_s` | contention timers (E.6) | 2000, 180 |
 | `control.allowed_ids` | who may control AllStar by radio (E.3) | `[1234567]` |
 | `control.unlink`, `control.status` | reserved numbers for unlink, status | 9999, 9998 (examples) |
+| `control.mode_tg` | reserved DMR talkgroup that switches to AllStar mode (E.10); must not collide with a network talkgroup | 8 (to verify) |
+| `control.mode_reflector` | name of the local fake YSF reflector (E.10) | `AllStar` |
 
 ID use: the existing identity is callsign N0CALL and DMR ID 1234567, with an optional 2-digit ESSID (docs/DV.md "BrandMeister"). Over RF, a radio has its own DMR ID. The hotspot's repeater ID towards the network is `DMRID + ESSID` as today (`repeater_id` option, internal/dv/network/homebrew/doc.go). Use a different ESSID from any other hotspot of the same person on the same master, or one drops the other.
 
@@ -512,7 +569,8 @@ In ASLCP: a new card, "RF / hotspot", on the Digital modes page between "Bridge 
 - Enable switch (saves at once; refuses with the reason when something is missing: identity, port, frequency).
 - Modem port, RX and TX frequency (MHz, validated, see H), offset, power.
 - Mode checkboxes, limited to what the firmware reports.
-- "advanced": levels, colour code, RAN, slots, hang time, TX timeout, the control numbers (E.3).
+- Dual slot (duplex hat only) and which slot is AllStar (E.1).
+- "advanced": levels, colour code, RAN, slots, hang time, TX timeout, the control numbers and the mode-switch talkgroup (E.3, E.10).
 - A separate **Allow transmit** switch, off until the frequency is set and the operator confirms (H).
 - "Reboot needed" banner after `dv-rf-prepare`.
 - A test button "Check modem" (read-only, no TX).
@@ -566,7 +624,7 @@ The hotspot transmits. Only a licensed operator may do that, on frequencies and 
 - **Licensed operator only.** The RF card says so in plain words. Enabling RF needs a callsign in the identity (it already does for the networks). The callsign is checked for shape only; the product cannot check a licence.
 - **Transmit off by default.** Even with the modem enabled, RF only receives until the owner turns on *Allow transmit*. The modem is started in a receive-only state. A restore, an upgrade or a reset never turns transmit on.
 - **Hotspot mode is the default.** AllStar mode is a deliberate choice, with a confirmation that the owner is the control operator of what AllStar sends out on RF. That audio comes from other people and other nodes.
-- **Frequency validation.** Reject frequencies outside hotspot bands. Keep a small table of the bands where hotspots are used (UHF and VHF amateur allocations; the table lives in code and is reviewed, because these differ by country). A duplex hat needs RX and TX both checked. Reject a TX frequency outside the table, and ask the owner to confirm a country/band choice. The table and the confirmation are an open question (J). Example frequency in docs: 433.000 MHz, clearly marked as an example.
+- **Frequency validation.** Reject frequencies outside hotspot bands. Keep a small table of the bands where hotspots are used (UHF and VHF amateur allocations; the table lives in code and is reviewed, because these differ by country). A duplex hat needs RX and TX both checked. Reject a TX frequency outside the table, and ask the owner to confirm a country/band choice. The table and the confirmation are an open question (K). Example frequency in docs: 433.000 MHz, clearly marked as an example.
 - **Station ID.** Digital modes carry the callsign in the stream (DMR LC, YSF CSD, NXDN, P25), so the callsign in the identity is sent with every transmission. For AllStar audio on RF, the owner is the control operator; whether the licence allows it is for the owner to decide. The panel must not claim compliance.
 - **Radio control is not open to everyone.** Only the allowed IDs (E.3) may link or unlink nodes. Everything else is ignored and logged.
 - **Timeouts.** A hard TX timeout (default 3 min, maximum bounded in code), plus the silence timeout. The carrier is dropped on any engine error, on SIGTERM (the existing signal handler already sends keyup=0 for the USRP side, docs/PLAN-2.0-M1.md A.2; RF needs the same: tell the modem to stop TX before exit), and when the modem stops answering.
@@ -579,11 +637,11 @@ The hotspot transmits. Only a licensed operator may do that, on frequencies and 
 
 ## I. Phased plan
 
-Each milestone is one commit or a short series; each states what it delivers and how it is tested. Hardware checks are done by the owner on the real hat (duplex MMDVM_HS hat, Pi 3B+). All modes come to RF. The mode milestones are ordered by effort: YSF, DMR, NXDN, M17, P25 last. The Pi-Star extras follow the core.
+Each milestone is one commit or a short series; each states what it delivers and how it is tested. Hardware checks are done by the owner on the real hat (duplex MMDVM_HS hat, Pi 3B+). The owner has only a DMR radio, so DMR comes first and everything that can be tested with it comes next (section J). The order is: fake modem and product skeleton, DMR on RF, the AllStar side, cross-mode, then the other modes (YSF, NXDN, M17, P25 last), then the Pi-Star extras, then D-Star.
 
 ### M0: this note
 
-Decided so far (2026-11-24): two products in one repo, the two-mode routing model, all modes on RF, the owner hardware, optional AllStar, all Pi-Star extras wanted. Still to decide: section J.
+Decided so far (2026-11-24): two products in one repo, the two-mode routing model, all modes on RF, the owner hardware, optional AllStar, all Pi-Star extras wanted, the native Go modem driver with no bundled MMDVMHost, DMR first, cross-mode in the core plan, a mode switch by radio, D-Star as late milestones. Leaning yes but not decided: dual slot on a duplex hat (E.1). Still to decide: section K.
 
 ### M1: RF endpoint in the router, with a fake modem (no hardware)
 
@@ -600,106 +658,186 @@ Decided so far (2026-11-24): two products in one repo, the two-mode routing mode
 - Tests: package build and install checks without ASL3, UI build for both products, the shared engine tests run once.
 - Pages are mostly empty here; the point is that both products build and install, and each can run alone.
 
-### M3: Go modem driver, YSF, receive only
+### M3: Go modem driver, DMR receive only
 
 - `internal/dv/modem`: the serial protocol (frame parse and build, version, status, config, per-mode data, flow control, duplex handling) in pure Go, with a serial layer that keeps `CGO_ENABLED=0` (a pure-Go termios implementation, to verify the choice).
 - Helper ops `dv-rf-prepare`, `dv-rf-device-check`, `dv-rf-config` (F.4). The unit drop-in for the serial device. The Pi 3B+ UART and Bluetooth steps (F.1).
-- YSF receive: RF frames to the tuned reflector (hotspot mode) and through the vocoder to AllStar (AllStar mode). TX is not coded yet, or is hard-disabled.
-- Tests: a fake modem on a pty speaking the protocol, captured byte traces from a real modem, fuzz on the frame parser, helper ops with a fake root.
-- **Owner on hardware:** the modem check (and the firmware version), then calls from a YSF radio showing in Last heard "via RF". No transmit.
+- DMR receive on both timeslots of the duplex hat: RF bursts to the tuned network (hotspot mode) and through the vocoder to AllStar (AllStar mode). TX is not coded yet, or is hard-disabled.
+- Tests: a fake modem on a pty speaking the protocol, captured byte traces from a real modem, fuzz on the frame parser, helper ops with a fake root. Captured network traffic through the fake modem (J.4).
+- **Owner on hardware:** the modem check (and the firmware version), then calls from the DMR radio showing in Last heard "via RF". No transmit.
 
-### M4: YSF transmit
+### M4: DMR transmit
 
-- Transmit path, the transmit switch, TX timeout, watchdog, keep-alive (H).
-- Tests: router and modem tests for timeouts, stall and exit paths (the carrier is dropped on every one); loop and contention tests.
-- **Owner on hardware:** a dummy load or very low power first; then one YSF call to a reflector and back. Compare with the old hotspot image on the same radio.
+- Transmit path on both slots, the transmit switch, TX timeout, watchdog, keep-alive (H). Colour code, the repeater ID rules (G.1), DMRD pass-through in hotspot mode, slot timing.
+- Tests: router and modem tests for timeouts, stall and exit paths (the carrier is dropped on every one); loop and contention tests; slot timing tests against the fake modem.
+- **Owner on hardware:** a dummy load or very low power first; then one DMR call to the tuned network and back (hotspot mode). Compare with the old hotspot image on the same radio.
 
-### M5: DMR (both timeslots on the duplex hat)
-
-- DMR on RF through the existing burst coder (internal/dv/dmr): duplex slot handling, colour code, the repeater ID rules (G.1), DMRD pass-through in hotspot mode.
-- Tests: captured DMR frames from the existing testdata, and new captured RF traces; slot timing tests against the fake modem.
-- **Owner on hardware:** a DMR call with a real radio to the tuned network and back (hotspot mode); then AllStar mode with a call to AllStar and back.
-
-### M6: panel, CLI, API for RF, and the AllStar radio control
+### M5: panel, CLI and API for RF
 
 - The RF card or page, the mode switch, dashboard badges, `dv rf ...`, API, audit, backup and restore (G.6). The rendered-config view and the `advanced` passthrough (C.1).
-- Radio control of AllStar in AllStar mode: DMR private call to a node number links, a reserved number unlinks, a status number (E.3). YSF, P25, NXDN and M17 equivalents once designed. Mode scan if the design allows (E.8).
-- Tests: Go handler tests, Svelte component checks, a backup round trip that forces `transmit` off, control call tests (allowed and refused IDs).
+- Tests: Go handler tests, Svelte component checks, a backup round trip that forces `transmit` off.
 
-### M7: NXDN
+### M6: AllStar mode and radio control (DMR)
+
+- AllStar mode on RF with DMR: DMR to PCM to USRP and back (E.2). Dual slot on a duplex hat if the owner confirms it (E.1).
+- Radio control of AllStar: a DMR private call to a node number links, a reserved number unlinks, a status number (E.3).
+- Mode switch by radio with the reserved DMR talkgroup (E.10).
+- Tests: control call tests (allowed and refused IDs), slot tests (AllStar on one slot, network on the other), mode switch tests.
+- **Owner on hardware:** a DMR call to AllStar and back; link and unlink by private call; switch mode by keying the reserved talkgroup and a network talkgroup. All of this needs only the DMR radio.
+
+### M7: Cross-mode, same codec (repack)
+
+- AMBE+2 repack between DMR, YSF DN and NXDN (E.9): copy the 49-bit frames, rebuild the framing and map the header fields. No vocoder, no quality loss. A "cross-mode" switch, default off.
+- Tests: table tests with captured DMR and YSF frames; a repack round trip.
+- **Owner on hardware:** the DMR radio talking on a YSF reflector, and back. No YSF radio needed. NXDN works the same way on an NXDN reflector.
+
+### M8: Cross-mode, transcoded pairs
+
+- Pairs with a different codec go through PCM: P25 and YSF Voice FR (IMBE), M17 (Codec2) against DMR (AMBE+2) and each other (E.9). It reuses the AllStar audio path (E.2). The UI labels such a link "transcoded".
+- Tests: PCM round trips per codec pair, level and timing checks, a call from a network client in one mode heard in another.
+- **Owner on hardware:** the DMR radio on a P25 or M17 reflector. Quality loss is expected and noted.
+
+### M9: YSF on RF, receive
+
+- YSF receive: RF frames to the tuned reflector (hotspot mode) and through the vocoder to AllStar (AllStar mode). The YSF fake reflector for the mode switch (E.10).
+- Tests: captured YSF frames through the fake modem; the test-radio hotspot (J.2) and the SDR check (J.3).
+
+### M10: YSF on RF, transmit
+
+- Transmit path for YSF, using the switches from M4.
+- Tests: the same timeout and stall paths for YSF.
+- Checked with the test-radio hotspot and the SDR (J.2, J.3), or by a field tester with a YSF radio (J.6). Marked "untested on RF" until a radio confirms it.
+
+### M11: NXDN on RF
 
 - NXDN on RF. The 72-bit AMBE+2 FEC is not implemented in the repo (internal/dv/nxdn/doc.go) and is needed here.
 - Tests: the existing NXDN vectors plus new FEC vectors from captured frames.
-- **Owner on hardware:** one call, if the owner has an NXDN radio.
+- Checked with the test-radio hotspot and the SDR, or by a field tester. Marked "untested on RF" until confirmed.
 
-### M8: M17 (if the firmware supports it)
+### M12: M17 on RF (if the firmware supports it)
 
 - M17 on RF using internal/dv/m17. Gated on the firmware reporting M17 (F.3; firmware 1.6.1 to verify). If the firmware does not, the milestone waits for a firmware change.
-- Tests: the existing M17 vectors plus captured modem traces.
+- Tests: the existing M17 vectors plus captured modem traces. A radio with OpenRTX firmware may be a test radio (J.5).
 
-### M9: P25 RF framing
+### M13: P25 RF framing
 
-- The air framing the engine does not have: LDU1/LDU2, NID, FEC, link control (D.2), on top of the IMBE FEC code in internal/dv/imbe/fec.go. Last of the modes because it is the largest gap.
+- The air framing the engine does not have: LDU1/LDU2, NID, FEC, link control (D.2), on top of the IMBE FEC code in internal/dv/imbe/fec.go. Last of the main modes because it is the largest gap.
 - Tests: synthetic and captured vectors; a self-check that framing and parsing round-trip.
-- Fallback if it slips and the owner needs P25 sooner: an optional, user-installed MMDVMHost for P25 only (D.5, question 2).
+- Checked with the test-radio hotspot and the SDR, or by a field tester with a P25 radio. Marked "untested on RF" until confirmed.
+- MMDVMHost is not a fallback (D.5). If P25 slips, it slips.
 
-### M10: Pi-Star backup importer and BrandMeister static talkgroups
+### M14: Pi-Star backup importer and BrandMeister static talkgroups
 
 - The importer (C.3) with synthetic fixtures. A preview, and no apply without a click.
 - A static-talkgroup editor through the BrandMeister API (to verify the API and the key handling).
 
-### M11: DMRGateway-style rules and several DMR networks at once
+### M15: DMRGateway-style rules and several DMR networks at once
 
 - A rules layer in the router: talkgroup and slot maps, per-network prefixes, one network per timeslot on a duplex hat.
 - Importer support for DMRGateway rewrite rules.
 - Tests: table tests for the rule engine; router tests with several fake networks.
 
-### M12: Cross-mode
+### M16: D-Star hotspot mode
 
-- AMBE+2 repack for DMR, YSF DN and NXDN (E.9), then PCM transcode for P25 and Voice FR. A "cross-mode" switch, default off.
+- D-Star on RF and the D-Star reflector protocols (E.11): frame pass-through, callsign routing, slow data. No codec needed.
+- Tests: captured D-Star frames and reflector traffic through the fake modem.
+- Checked with the test-radio hotspot on a D-Star reflector and the SDR (J.2, J.3), or by a field tester with a D-Star radio.
 
-### M13: POCSAG / DAPNET paging
+### M17: D-Star codec research
+
+- A pure-Go AMBE 3600x2400 decoder, then an encoder if the tables hold up (E.11). The patent check comes before anything ships.
+- It unlocks D-Star in AllStar mode and in cross-mode. A USB AMBE dongle is the fallback.
+- Tests: decoder output against mbelib and recordings; listening checks.
+
+### M18: POCSAG / DAPNET paging
 
 - A DAPNET client and the modem's pager frames (to verify). Panel settings and a send test.
 
-### M14: Nextion and OLED displays
+### M19: Nextion and OLED displays
 
 - Display drivers fed from the engine state. Serial for Nextion, I2C for OLED (to verify). Needs the UART or GPIO access to be sorted in the unit profile (F.4).
 
 ---
 
-## J. Open questions for the owner
+## J. Test plan
+
+The owner has only a DMR radio. The plan makes the most of it and covers the other modes with cheap extra gear.
+
+### J.1 DMR first
+
+- The modem driver, duplex slots, AllStar mode, radio control, the mode switch by radio and the DMR to YSF or NXDN repack are all testable with the owner's DMR radio (M3 to M7).
+- Other modes follow, once DMR has proven the driver (section I).
+
+### J.2 A second hotspot as a test radio
+
+- A second hat (a cheap clone) running a stock Pi-Star image, on its own frequency pair (examples only, not recommendations).
+- Linked to a quiet YSF, P25, NXDN or D-Star reflector, it transmits that mode on RF for our hat to receive.
+- In reverse, it receives our hat's transmission and forwards it to the reflector, where it can be checked.
+- This covers RX and TX for every mode without a radio of that mode. It still needs a licensed operator and a dummy load or low power (H).
+
+### J.3 An RTL-SDR dongle with dsd-fme
+
+- dsd-fme decodes DMR, YSF, P25, NXDN, M17 and D-Star (the exact mode list: to verify).
+- Receive only. It checks that our transmit is valid in every mode, without a radio.
+
+### J.4 Tests without RF
+
+- Most logic needs no RF. Captured network traffic goes through a fake modem in unit tests, since the hat's frames closely match network payloads (D.2).
+- This covers the router, the rules, pass-through, repack, loop prevention and timers.
+
+### J.5 M17 with OpenRTX
+
+- If the owner's DMR radio is a model OpenRTX supports (for example TYT MD-380, MD-390 or MD-UV380: to verify), it can be flashed to speak M17 and act as an M17 test radio. Which radio the owner has is an open question (K).
+
+### J.6 Field testers
+
+- Testers with Fusion, P25 or D-Star radios run `try/*` builds.
+- Modes nobody has tested ship marked "untested on RF" until a radio confirms them.
+
+### J.7 Safety steps (unchanged)
+
+- TX off by default, receive first, a dummy load for the first TX, low power (H).
+
+---
+
+## K. Open questions for the owner
 
 1. **Product name.** `hscp` is a working name. What should it be called, and what should the setup Wi-Fi hotspot, the unit names and the package be called?
-2. **Recommendation OK?** The native Go driver (b) as the product, no bundled MMDVMHost (D.5)? If P25 on RF turns out to matter earlier than M9, is an optional, user-installed MMDVMHost for P25 acceptable?
-3. **Engine name.** Rename the engine to a product-neutral name (B.5), and accept the upgrade work for existing ASLCP installs? Or keep `aslcp-dv` for now?
-4. **Web UI shape.** One Svelte codebase with a product build flag, or two app shells over a shared component library (B.3)?
-5. **Both products on one Pi.** Allow it, with a shared engine package and two panels (two ports, shared or separate users)? Or make them conflict, with ASLCP on a Pi with ASL3 and hscp otherwise (B.6)?
-6. **Release shape.** One shared version and tag, or product-prefixed tags? One CHANGELOG or two? One apt repo with two components, or separate suites or channels (B.7)?
-7. **Hat and firmware.** Confirm the exact hat model and firmware version (the modem check will report it), and the reset pin if you want a reset button (F.2).
+2. **Engine name.** Rename the engine to a product-neutral name (B.5), and accept the upgrade work for existing ASLCP installs? Or keep `aslcp-dv` for now?
+3. **Web UI shape.** One Svelte codebase with a product build flag, or two app shells over a shared component library (B.3)?
+4. **Both products on one Pi.** Allow it, with a shared engine package and two panels (two ports, shared or separate users)? Or make them conflict, with ASLCP on a Pi with ASL3 and hscp otherwise (B.6)?
+5. **Release shape.** One shared version and tag, or product-prefixed tags? One CHANGELOG or two? One apt repo with two components, or separate suites or channels (B.7)?
+6. **Hat and firmware.** Confirm the exact hat model and firmware version (the modem check will report it), and the reset pin if you want a reset button (F.2).
+7. **Your radio.** Which DMR radio model do you have? It decides whether it can run M17 through OpenRTX (J.5).
 8. **Radio control details.** Which reserved numbers for unlink, status and parrot? Does any talkgroup count as voice for AllStar, or one chosen talkgroup? What are the YSF, P25, NXDN and M17 equivalents (E.3)? Who may control (only your own ID)?
-9. **Duplex and AllStar mode.** Does AllStar mode use one DMR timeslot (and which), and is the other slot free or refused (E.2)?
-10. **Mode switch by radio.** Should a radio also be able to switch between AllStar mode and hotspot mode, or only the panel and CLI (E.5)?
+9. **Duplex and AllStar mode.** Leaning yes (E.1): AllStar on one slot, the other slot in hotspot mode. Which slot is AllStar by default? What happens when both slots want the one transmitter (E.6)? Is it a setting, so a simplex-style "one or the other" stays available?
+10. **Mode switch by radio.** Yes (E.10), method open. Is the default reserved talkgroup 8 safe on the networks you use? Is a fake YSF reflector the right way? What are the P25, NXDN and M17 equivalents? Is the switch also allowed only for your own ID? Is there a short voice or text confirmation?
 11. **Priority and timers.** Is "RF talker first" right in both modes (E.6)? Hang time and TX timeout defaults (suggested 2 s and 3 min)?
 12. **Frequency check.** Which bands and countries should the built-in table allow, and should the owner have to confirm a country (H)?
 13. **Repeater ID.** Should the hotspot be a *DMR repeater ID / ESSID* of its own, or share the main identity's ID with a fixed ESSID (G.1)?
 14. **Mode scan.** Scan several RF modes at once with a mode hang, or one RF mode at a time through the dashboard (E.8)?
 15. **Calibration.** Do you want a "calibration" helper in the panel, or is calibration done with other tools first?
-16. **Test plan.** Is it acceptable that you do the on-hardware checks, with a dummy load for first TX, and compare against your old hotspot image?
+16. **Test plan.** Is it acceptable that you do the on-hardware checks, with a dummy load for first TX, and compare against your old hotspot image? Will you buy a second hat for a Pi-Star test radio and an RTL-SDR dongle (J.2, J.3)?
+17. **D-Star patents.** The older AMBE patents look expired, but you must check the specific US patent numbers and expiry dates before D-Star audio ships (E.11). Who checks, and when?
+18. **D-Star fallback.** If the pure-Go decoder is not good enough, is a USB AMBE dongle (for example ThumbDV: to verify) acceptable as the way into AllStar and cross-mode for D-Star?
 
 ---
 
-## K. To verify (summary)
+## L. To verify (summary)
 
 All of these come from outside the repo and must be checked upstream before use:
 
-- MMDVMHost: license version ("GPL-2.0 or later"), Debian availability, exact network peer behaviour per mode (DMR master login, YSF/P25/NXDN gateway endpoints and ports), and its timers.
-- Modem firmware and serial protocol: frame format, commands, buffer flow control, supported modes, **M17 support in firmware 1.6.1**, whether firmware 1.6.1 is the version on the owner's hat (the owner says "I think"), duplex build behaviour and timing, frequency/offset/deviation commands, version query, status contents (RSSI, BER), own TX timeouts, pager frames.
-- Air-interface frame sizes versus network payloads per mode (D.2): DMR 33-byte bursts and DMRD, YSF 120-byte frames with FICH and YSFD, NXDN, and P25's difference.
+- MMDVMHost (reference only, not shipped): license version ("GPL-2.0 or later"), exact network peer behaviour per mode, and its timers, for comparison on the bench.
+- Modem firmware and serial protocol: frame format, commands, buffer flow control, supported modes, **M17 support in firmware 1.6.1**, whether firmware 1.6.1 is the version on the owner's hat (the owner says "I think"), duplex build behaviour and timing, frequency/offset/deviation commands, version query, status contents (RSSI, BER), own TX timeouts, pager frames, D-Star support.
+- Air-interface frame sizes versus network payloads per mode (D.2): DMR 33-byte bursts and DMRD, YSF 120-byte frames with FICH and YSFD, NXDN, P25's difference, D-Star.
 - UART names, `config.txt` and `cmdline.txt` options, and Bluetooth overlay per Pi model and OS release: **the exact overlay name on the Pi 3B+** (`disable-bt` and `miniuart-bt` are from memory); Pi 5 differences; device group name; 64-bit OS image for the Pi 3B+.
 - Reset and boot GPIO pins of each hat.
 - A pure-Go serial library choice that keeps `CGO_ENABLED=0`.
 - Hotspot band allocations per country.
 - Pi-Star backup file names and formats (C.3), what each Pi-Star feature does (C.1), the BrandMeister API for static talkgroups, and ASL3 package sizes (C.2).
 - Header fields per mode (YSF DG-ID, P25 and NXDN talkgroup range, M17 destination) for the radio control mapping (E.3).
+- Mode switch by radio (E.10): whether talkgroup 8 collides with a talkgroup the networks use (on BrandMeister it is a regional talkgroup; here it would never leave the hotspot), how a radio shows a locally defined YSF reflector, the P25, NXDN and M17 equivalents.
+- Duplex dual slot (E.1): how the firmware handles one slot transmitting while the other receives.
+- Test gear (J): the dsd-fme mode list, OpenRTX-supported radio models (TYT MD-380, MD-390, MD-UV380), Pi-Star reflector linking per mode.
+- D-Star (E.11): DPlus, DExtra and DCS protocol details, slow data, the AMBE 3600x2400 frame layout and quantization tables, mbelib and "AMBE Exposed" as references, the patent numbers and expiry dates, the AMBE dongle model (ThumbDV).
 - Display interfaces (Nextion serial, OLED I2C) and the DAPNET protocol.
