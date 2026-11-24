@@ -51,7 +51,7 @@ Availability comes from the engine (which modes the running build implements); w
 
 The Echo test is a local test with no network and no account: the engine records one transmission, waits about a second and plays it back through the bridge node as a received call from the pseudo callsign "ECHO TEST" (no talkgroup, no DMR ID). It proves the audio path of the node, USRP, the engine and the md380 vocoder in both directions. Its engine mode id is `LOOP`; it is always enabled while digital modes are enabled, so it has no Enable card, and a `LOOP` entry in an older `networks.json` is ignored. Not to be confused with the **BrandMeister Parrot** (TG 9990 on BrandMeister), a service of the real network that is called from the BrandMeister mode on the dashboard.
 
-**Using it.** Digital modes setup, *Test audio*: press *Start echo test*, key up, talk, unkey, and you hear yourself back a second later. While it runs the dashboard card says "Echo test running" (it has no mode button there) and *Now calling* and *Last heard* show the playback as "Echo test". *Stop* switches back to the mode that was in effect before you started (the page remembers it; failing that, the last mode from `GET /api/dv/resume`, then the first enabled mode), and that mode's remembered talkgroup or reflector is tuned again, as when you switch modes on the dashboard. The Echo test is never remembered as the last mode, so a restart does not come back in it. Starting and stopping use `POST /api/dv/mode` (operator or admin).
+**Using it.** Digital modes setup, the *Audio* card: press *Start echo test*, key up, talk, unkey, and you hear yourself back a second later. While it runs the dashboard card says "Echo test running" (it has no mode button there) and *Now calling* and *Last heard* show the playback as "Echo test". *Stop* switches back to the mode that was in effect before you started (the page remembers it; failing that, the last mode from `GET /api/dv/resume`, then the first enabled mode), and that mode's remembered talkgroup or reflector is tuned again, as when you switch modes on the dashboard. The Echo test is never remembered as the last mode, so a restart does not come back in it. Starting and stopping use `POST /api/dv/mode` (operator or admin).
 
 ## BrandMeister
 
@@ -177,7 +177,7 @@ On the dashboard, choose P25, pick a talkgroup from the list (or type up to five
 
 ## Audio level and AGC
 
-The bridge sees the audio of both directions: from your node to the network ("Node audio") and from the network to your node ("Network audio"). Under Audio, Show advanced audio settings:
+The bridge sees the audio of both directions: from your node to the network ("Node audio") and from the network to your node ("Network audio"). In the Audio card of Digital modes setup, under the echo test, press Show advanced audio settings:
 
 - **Node audio AGC (to network)** and **Network audio AGC (to node)**: automatic gain control, off by default. It evens out the level of speech toward the target and never boosts silence or noise. It has no delay, and a limiter keeps loud audio from clipping.
 - **AGC target level (dBFS)**: the speech level the AGC aims for, -40 to -6, default -22.

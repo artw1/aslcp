@@ -38,7 +38,7 @@
     busy = true;
     try { resume = await api.dvSetResume(on); now = Date.now(); toast(resumeToast(on), 'info'); } catch (e) { toastError(e); await loadResume(); } finally { busy = false; }
   }
-  // Test audio: the echo test is the engine's LOOP mode, switched with POST /api/dv/mode like any mode.
+  // Audio card: the echo test is the engine's LOOP mode, switched with POST /api/dv/mode like any mode.
   // Stop switches back to the mode in effect before Start (the server re-tunes that mode's remembered tune).
   const echoOn = $derived(echoRunning(app.dv));
   const echoReady = $derived(!!app.dv?.running && cardState(modes, 'LOOP').available);
@@ -73,9 +73,9 @@
       {/if}
     </section>
 
-    <section class="card space-y-2 p-4 lg:col-span-2" aria-label="Test audio" data-testid="dv-echo">
+    <section class="card space-y-2 p-4 lg:col-span-2" aria-label="Audio" data-testid="dv-echo">
       <div class="flex flex-wrap items-center gap-2">
-        <h2 class="text-base font-semibold">Test audio</h2>
+        <h2 class="text-base font-semibold">Audio</h2>
         {#if echoOn}<span class="badge border-ok text-ok" role="status" data-testid="dv-echo-state">{ECHO_RUNNING}</span>{/if}
         <span class="ml-auto"></span>
         {#if echoOn}
@@ -85,6 +85,7 @@
         {/if}
       </div>
       <p class="text-xs text-muted" data-testid="dv-echo-hint">{ECHO_HINT}{#if !echoReady && !echoOn} The digital modes engine is not running.{/if}</p>
+      {#if audio}<DvAudio {audio} onsaved={(a) => { audio = a; loadNets(); }} />{/if}
     </section>
 
     {#if identity}<DvIdentity {identity} onsaved={(i) => { identity = i; loadNets(); }} />{/if}
@@ -104,8 +105,6 @@
         {:else if netOf(id)}<DvNet v={netOf(id)!} {identity} onsaved={netSaved} />{/if}
       </section>
     {/each}
-
-    {#if audio}<DvAudio {audio} onsaved={(a) => { audio = a; loadNets(); }} />{/if}
 
     <div class="lg:col-span-2"><DvBridge b={v.bridgeNode} base={base()} onsaved={load} /></div>
   </div>

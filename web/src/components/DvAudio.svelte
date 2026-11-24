@@ -1,5 +1,6 @@
 <script lang="ts">
   // Audio settings shared by all digital modes: the AGC of each direction and the static gains (docs/DV.md "Audio level and AGC").
+  // Renders inside the Audio card of Digital modes setup, under the echo test (DvSetup.svelte).
   // Advanced: collapsed until asked for. Saved at once to the engine (hot reload, no restart).
   import { untrack } from 'svelte';
   import { api } from '../lib/api';
@@ -24,10 +25,8 @@
     } catch (e) { toastError(e); } finally { busy = false; }
   }
 </script>
-<section class="card space-y-3 p-4 lg:col-span-2" aria-label="Audio" data-testid="dv-audio">
-  <div class="flex flex-wrap items-center gap-2">
-    <h2 class="text-base font-semibold">Audio</h2>
-    <span class="ml-auto"></span>
+<div class="space-y-3 border-t border-line pt-3" data-testid="dv-audio">
+  <div>
     <button type="button" class="btn btn-sm" aria-expanded={show} onclick={() => (show = !show)}>{show ? 'Hide' : 'Show'} advanced audio settings</button>
   </div>
   {#if show}
@@ -53,4 +52,4 @@
     {#if err && dirty}<p class="text-sm text-danger" role="alert">{err}</p>{/if}
     <button type="button" class="btn btn-primary" disabled={busy || !!err || !dirty} onclick={save} data-testid="dv-audio-save">Save audio settings</button>
   {/if}
-</section>
+</div>
