@@ -61,6 +61,7 @@ const (
 	ModeYSF  = "YSF"
 	ModeP25  = "P25"
 	ModeNXDN = "NXDN"
+	ModeM17  = "M17"
 )
 
 // TGIFAddress and TGIFPort are the built-in TGIF master, used when the DMR

@@ -3,6 +3,61 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [2.2.1] - 2026-11-24
+
+### Changed
+- The M17 callsign suffix (for example `N0CALL H`) is now in the main M17 settings; the channel access number moved to Advanced.
+
+## [2.2.0] - 2026-11-24
+
+### Added
+- M17 reflector support (test build). A pure-Go Codec2 3200 port (also in the bridge and the bench), M17 packets and callsign encoding, and an M17 reflector client in the digital modes engine.
+- M17 in the panel: configuration, tuning to a reflector and module, the reflector host list and the API.
+- M17 in the web UI, including M17 calls in the Now calling strip.
+- The DVRef credit for the reflector lists is in docs/DV.md.
+- A manual "Codec2 reference check" workflow (Actions tab, Run workflow) compares the Go Codec2 3200 encoder and decoder with libcodec2's `c2enc` and `c2dec` on standard speech samples. It is not part of normal CI.
+
+### Changed
+- The M17 Codec2 3200 decoder now follows libcodec2 1.2's arithmetic (postfilter, synthesis, LSP/Wo decoding) instead of the faster approximations of the fork it was ported from. Its output now tracks the reference decoder closely, 41-48 dB SNR on the standard test samples. The encoder is unchanged.
+- The public install page and README say up front that the installer installs ASL3 (`asl3` and `asl3-menu`) first when it is missing, and that a freshly flashed ASL3 card must finish its first-boot setup and reboot before installing.
+
+### Fixed
+- P25 and NXDN calls in the Now calling strip were labelled "DMR · TG n"; they now show P25 or NXDN.
+- Docs implied ASLCP installs qemu-user-static to run the md380 emulator. It is present only because the md380-emu package depends on it; on arm64 that package ships its own `/opt/md380-emu/qemu-arm-static` and its service runs that directly.
+
+## [2.1.3] - 2026-11-24
+
+### Fixed
+- A fresh install with ASL3 now makes an already connected USB radio interface work without a reboot: the installer also applies ASL3's `usb` device rule (2.1.1 only covered `sound` and `hidraw`) and reloads the USB sound driver when ASL3's `lowlatency` setting differs from the running one. If either step fails, the summary still asks for a reboot.
+- Fixed a data race between the digital-modes status stream and the dashboard snapshot (a login change could be read while it was being written).
+
+## [2.1.2] - 2026-11-24
+
+### Changed
+- `ASLCP_ASL_TELEMETRY` is documented as `0`/`1` like the other install options (`0` turns ASL3 telemetry off, `1` back on). `off` and `on` still work. The install page now writes `ASLCP_ASL_TELEMETRY=0`.
+
+## [2.1.1] - 2026-11-24
+
+### Fixed
+- After `install.sh` installed ASL3 on a running system, a USB radio interface that was already plugged in stayed unusable (no audio, Audio Tuning showed "USB device string … was not found") until the Pi was rebooted. The installer now applies ASL3's device rules right away.
+- Audio Tuning explains a missing or not yet usable USB audio interface in plain words instead of "unexpected reply".
+
+## [2.1.0] - 2026-11-24
+
+### Added
+- `install.sh` installs ASL3 and asl3-menu from the AllStarLink repository when they are missing. The repository key is checked against a pinned fingerprint first, and gpg is installed if it is missing. `ASLCP_ASL3=0` skips this, `ASLCP_ASL3=1` makes an unsupported release an error instead of a panel-only install.
+- `ASLCP_ASL_TELEMETRY=off` (opt-in) turns ASL3 telemetry off at install, `ASLCP_ASL_TELEMETRY=on` turns it back on. Left unset, nothing changes. The install page has a checkbox for it.
+
+### Removed
+- 32-bit (armhf) builds: ASL3 only ships arm64 and amd64. Existing armhf installs keep working but get no further updates; reinstall with Raspberry Pi OS Lite (64-bit). `install.sh` refuses on a 32-bit system before changing anything, and the Updates and Digital modes pages tell armhf users to reinstall.
+
+### Fixed
+- DMR networks using the Homebrew protocol: retuning right after the network logged in could send two link bursts at once with mixed-up packet sequence numbers. They are now sent one at a time.
+- The setup link printed by the installer could carry a stale code when the installer restarted ASLCP (port change, `ASLCP_TAKEOVER`, digital modes), so setup said "Wrong setup code". The setup code now stays the same across restarts until an administrator exists.
+- `aslcp dv enable` (and the installer with `ASLCP_DV=1`) kept waiting for up to an hour after digital modes were enabled, then reported a failure, because it did not recognise the helper's "succeeded" job state.
+- If the md380-emu package repository is unreachable or gone, checking for and installing OS updates (and re-running the installer) no longer fails; a warning says the digital modes repository could not be refreshed.
+- After a restore, the digital modes engine kept its old settings: the Settings page showed the restored networks as enabled while the dashboard card did not offer them. A restore now applies the digital modes settings to the engine.
+
 ## [2.0.5] - 2026-11-23
 
 ### Added
@@ -49,7 +104,7 @@ Release notes are taken from the section of the tag being released
 
 ### Changed
 - Digital modes now run on the built-in ASLCP engine; the previous third-party digital voice stack is no longer used, and it is removed when you upgrade (see the note above), except md380-emu.
-- "Enable digital modes" installs only the md380-emu vocoder (plus qemu-user-static on 64-bit and x86 systems). ARMv6 boards are not supported.
+- "Enable digital modes" installs only the md380-emu vocoder (its package depends on qemu-user-static, which apt installs along with it). ARMv6 boards are not supported.
 - `aslcp dv enable`, `disable` and `status` manage digital modes from the shell; the installer accepts `ASLCP_DV=1`. The old install command and installer variable are gone.
 - The digital modes API moved to /api/dv.
 - The setup page shows the bridge node and the state of `rpt.conf` and `modules.conf`, and holds the identity and the settings of the networks that are available.

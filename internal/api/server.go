@@ -56,7 +56,7 @@ type Deps struct {
 	DVEngine DVEngine
 	// DVCtl is the engine's control socket (nil: 503 dv_unavailable).
 	DVCtl DVCtl
-	// HostLists serves the DMR, YSF, P25 and NXDN pickers and resolves the
+	// HostLists serves the DMR, YSF, P25, NXDN and M17 pickers and resolves the
 	// targets of a tune (nil: no lists).
 	HostLists *hostlists.Manager
 	// DVResume holds the last tune per mode and the resume setting (nil: 503

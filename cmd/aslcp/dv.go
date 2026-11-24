@@ -17,7 +17,7 @@ import (
 
 const dvUsage = `Usage: aslcp dv <command> [options]
 
-Manage the digital modes (DMR, YSF, P25, NXDN) engine through the ASLCP
+Manage the digital modes (DMR, YSF, P25, NXDN, M17) engine through the ASLCP
 helper. enable and disable must run as root (sudo).
 
 Commands:
@@ -145,7 +145,7 @@ func printDVStatus(w io.Writer, st helper.DVStatus) {
 	}
 	fmt.Fprintf(w, "supported:  %s", yn(st.Supported))
 	if st.Reason != "" {
-		fmt.Fprintf(w, " (%s)", st.Reason)
+		fmt.Fprintf(w, " (%s)", helper.DVReasonText(st.Reason))
 	}
 	fmt.Fprintf(w, "\nenabled:    %s\nactive:     %s\nmd380:      installed %s, active %s\n",
 		yn(st.Enabled), yn(st.Active), yn(st.MD380Installed), yn(st.MD380Active))
@@ -168,7 +168,7 @@ func dvEnable(ctx context.Context, c dvClient, env dvEnv) error {
 	var baseAt int64
 	if !seenRunning {
 		if !st.Supported {
-			return fmt.Errorf("this host is not supported: %s", st.Reason)
+			return fmt.Errorf("this host is not supported: %s", helper.DVReasonText(st.Reason))
 		}
 		fmt.Fprintln(env.out, "Enabling digital modes (this takes a few minutes)...")
 		if _, err := c.DVEnable(ctx); err != nil {
@@ -204,11 +204,11 @@ func dvFollow(ctx context.Context, c dvClient, env dvEnv, seenRunning bool, base
 			}
 			printed = lines
 			switch j.Job {
-			case "running":
+			case helper.JobRunning:
 				seenRunning = true
-			case "done", "failed":
+			case helper.JobSucceeded, "done", helper.JobFailed: // "done" is DVStatus's name for succeeded
 				if seenRunning || j.At > baseAt || time.Since(began) > 15*time.Second {
-					if j.Job == "done" {
+					if j.Job == helper.JobSucceeded || j.Job == "done" {
 						fmt.Fprintln(env.out, "Digital modes enabled.")
 						return nil
 					}

@@ -45,6 +45,10 @@ test('labels read name, id, address:port', () => {
   assert.equal(optionLabel('dmr', items[1]), 'XLX_000 — 192.0.2.11:62030');
 });
 
+test('M17 labels read the designator and address:port', () => {
+  assert.equal(optionLabel('m17', { value: 'M17-XXX', name: 'M17-XXX', address: 'm17-xxx.example.net', port: 17000 }), 'M17-XXX — m17-xxx.example.net:17000');
+});
+
 test('findByValue only matches a listed value', () => {
   assert.equal(findByValue(items, ' 00002 ')?.name, 'XX-Europe');
   assert.equal(findByValue(items, 'my own value'), undefined);

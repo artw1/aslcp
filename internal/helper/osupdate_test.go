@@ -3,10 +3,14 @@ package helper
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/artw1/aslcp/internal/legacy"
 )
 
 const simUpgrade = `NOTE: This is only a simulation!
@@ -209,17 +213,25 @@ func TestOSCheckRefusedWhileJobRuns(t *testing.T) {
 func TestOSApply(t *testing.T) {
 	r := map[string]resp{"systemd-run": {}}
 	o, f := osOps(t, r)
+	o.SelfPath = "/usr/libexec/aslcp/aslcp-helper"
 	st, err := o.OSApply(context.Background())
 	if err != nil || st.Job != JobRunning {
 		t.Fatalf("%+v %v", st, err)
 	}
 	want := "systemd-run --no-block --unit=aslcp-osupgrade --collect --property=Type=oneshot --setenv=DEBIAN_FRONTEND=noninteractive --setenv=APT_LISTCHANGES_FRONTEND=none /bin/sh -c " +
-		"apt-get update -q -o DPkg::Lock::Timeout=600 && apt-get upgrade -y -q -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0"
+		o.osUpgradeScript()
 	if f.called(want) != 1 {
 		t.Fatalf("calls: %v", f.calls)
 	}
-	if strings.Contains(osUpgradeScript, "full-upgrade") || strings.Contains(osUpgradeScript, "dist-upgrade") {
+	script := o.osUpgradeScript()
+	if strings.Contains(script, "full-upgrade") || strings.Contains(script, "dist-upgrade") {
 		t.Fatal("must be a plain upgrade")
+	}
+	for _, w := range []string{"LC_ALL=C apt-get update -q -o DPkg::Lock::Timeout=600 > '" + osUpdateOutFile + "'",
+		"'/usr/libexec/aslcp/aslcp-helper' dv-step " + StepAptUpdateCheck + " '" + osUpdateOutFile + "' || exit \"$rc\"", "\napt-get upgrade -y -q"} {
+		if !strings.Contains(script, w) {
+			t.Fatalf("script lacks %q:\n%s", w, script)
+		}
 	}
 	// not while the aslcp upgrade runs, and not while a check runs
 	r["systemctl show aslcp-upgrade"] = resp{out: "ActiveState=active\nResult=success\n"}
@@ -295,5 +307,121 @@ func TestAslcpRestart(t *testing.T) {
 	o, _ = osOps(t, map[string]resp{"systemctl --no-block restart": {code: 1, out: "Failed"}})
 	if _, err := o.AslcpRestart(context.Background()); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+const testRepo = "http://apt.example.net/Repo"
+
+func TestAptUpdateOnlyRepoFailed(t *testing.T) {
+	debian := "Hit:1 http://deb.debian.org/debian bookworm InRelease\n"
+	cases := []struct {
+		name, out string
+		want      bool
+	}{
+		{"release file missing", debian +
+			"Ign:2 http://apt.example.net/Repo bookworm InRelease\n" +
+			"Err:3 http://apt.example.net/Repo bookworm Release\n  404  Not Found [IP: 192.0.2.10 80]\n" +
+			"Reading package lists...\n" +
+			"E: The repository 'http://apt.example.net/Repo bookworm Release' does not have a Release file.\n" +
+			"N: Updating from such a repository can't be done securely, and is therefore disabled by default.\n", true},
+		{"no pubkey", debian +
+			"Err:2 http://apt.example.net/Repo bookworm InRelease\n  The following signatures couldn't be verified because the public key is not available: NO_PUBKEY 0123456789ABCDEF\n" +
+			"W: GPG error: http://apt.example.net/Repo bookworm InRelease: The following signatures couldn't be verified because the public key is not available: NO_PUBKEY 0123456789ABCDEF\n" +
+			"E: The repository 'http://apt.example.net/Repo bookworm InRelease' is not signed.\n", true},
+		{"expired key", debian +
+			"Err:2 http://apt.example.net/Repo bookworm InRelease\n  The following signatures were invalid: EXPKEYSIG 0123456789ABCDEF Example\n" +
+			"E: Failed to fetch http://apt.example.net/Repo/dists/bookworm/InRelease  The following signatures were invalid: EXPKEYSIG 0123456789ABCDEF Example\n" +
+			"E: Some index files failed to download. They have been ignored, or old ones used instead.\n", true},
+		{"dns failure with Err line", debian +
+			"Err:2 http://apt.example.net/Repo bookworm InRelease\n  Temporary failure resolving 'apt.example.net'\n", true},
+		{"dns failure, warnings only", debian +
+			"Ign:2 http://apt.example.net/Repo bookworm InRelease\n" +
+			"W: Failed to fetch http://apt.example.net/Repo/dists/bookworm/InRelease  Temporary failure resolving 'apt.example.net'\n" +
+			"W: Some index files failed to download. They have been ignored, or old ones used instead.\n", false},
+		{"mixed", debian +
+			"Err:2 http://apt.example.net/Repo bookworm InRelease\n  404  Not Found\n" +
+			"Err:3 http://deb.debian.org/debian bookworm-updates InRelease\n  Connection failed\n" +
+			"E: The repository 'http://apt.example.net/Repo bookworm InRelease' is not signed.\n" +
+			"E: Failed to fetch http://deb.debian.org/debian/dists/bookworm-updates/InRelease  Connection failed\n", false},
+		{"debian only", "Err:1 http://deb.debian.org/debian bookworm InRelease\n  403  Forbidden\nE: The repository 'http://deb.debian.org/debian bookworm InRelease' is no longer signed.\n", false},
+		{"lock", "E: Could not get lock /var/lib/apt/lists/lock. It is held by process 812 (apt-get)\nE: Unable to lock directory /var/lib/apt/lists/\n", false},
+		{"no error lines", debian + "Reading package lists...\n", false},
+		{"empty", "", false},
+	}
+	for _, c := range cases {
+		if got := aptUpdateOnlyRepoFailed(c.out, testRepo); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+	if aptUpdateOnlyRepoFailed("E: x apt.example.net\n", "") {
+		t.Error("empty repo URL must never match")
+	}
+}
+
+func TestAptUpdateRepoWarned(t *testing.T) {
+	w := "W: Failed to fetch http://apt.example.net/Repo/dists/bookworm/InRelease  Temporary failure resolving 'apt.example.net'\n"
+	if !aptUpdateRepoWarned(w, testRepo) || aptUpdateRepoWarned("Hit:1 http://deb.debian.org/debian bookworm InRelease\n", testRepo) ||
+		aptUpdateRepoWarned("W: Failed to fetch http://deb.debian.org/x\n", testRepo) {
+		t.Fatal("wrong classification")
+	}
+}
+
+func TestOSCheckRepoDown(t *testing.T) {
+	bad := "Err:2 " + legacy.AptRepoURL + " bookworm InRelease\n  404  Not Found\nE: The repository '" + legacy.AptRepoURL + " bookworm InRelease' is not signed.\n"
+	o, f := osOps(t, map[string]resp{cmdUpdate: {out: bad, code: 100}, cmdSim: {out: simUpgrade}})
+	st, err := o.OSCheck(context.Background())
+	if err != nil || len(st.Packages) != 4 || len(st.Warnings) != 1 || st.Warnings[0] != OSWarnRepo || f.called(cmdSim) != 1 {
+		t.Fatalf("%+v %v", st, err)
+	}
+	// another repository failing too is still an error
+	mixed := bad + "E: Failed to fetch http://deb.debian.org/debian/dists/bookworm/InRelease  403  Forbidden\n"
+	o, f = osOps(t, map[string]resp{cmdUpdate: {out: mixed, code: 100}, cmdSim: {out: simUpgrade}})
+	if _, err := o.OSCheck(context.Background()); err == nil || f.called(cmdSim) != 0 {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestAptUpdateCheckStep(t *testing.T) {
+	o := &Ops{}
+	file := filepath.Join(t.TempDir(), "out")
+	os.WriteFile(file, []byte("E: The repository '"+legacy.AptRepoURL+" bookworm Release' does not have a Release file.\n"), 0o644)
+	var w strings.Builder
+	if err := o.AptUpdateCheck(file, &w); err != nil || !strings.Contains(w.String(), "warning:") {
+		t.Fatalf("%v %q", err, w.String())
+	}
+	os.WriteFile(file, []byte("Err:1 http://deb.debian.org/debian bookworm InRelease\nE: Failed to fetch http://deb.debian.org/debian\n"), 0o644)
+	if err := o.AptUpdateCheck(file, &w); err == nil {
+		t.Fatal("other failure must fail")
+	}
+	if err := o.AptUpdateCheck(file+".missing", &w); err == nil {
+		t.Fatal("missing file must fail")
+	}
+}
+
+// The script, run by a real shell with a fake apt-get, continues after a
+// repo-only failure and stops otherwise.
+func TestOSUpgradeScriptShell(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
+	}
+	for _, c := range []struct {
+		name     string
+		checkRC  int
+		wantUpgr bool
+	}{{"repo only", 0, true}, {"other failure", 1, false}} {
+		dir := t.TempDir()
+		log := filepath.Join(dir, "log")
+		os.WriteFile(filepath.Join(dir, "apt-get"), []byte("#!/bin/sh\necho \"$1\" >> "+log+"\n[ \"$1\" = update ] && { echo 'E: boom'; exit 100; }\nexit 0\n"), 0o755)
+		os.WriteFile(filepath.Join(dir, "self"), []byte(fmt.Sprintf("#!/bin/sh\nexit %d\n", c.checkRC)), 0o755)
+		o := &Ops{SelfPath: filepath.Join(dir, "self")}
+		script := strings.ReplaceAll(o.osUpgradeScript(), osUpdateOutFile, filepath.Join(dir, "out"))
+		cmd := exec.Command(sh, "-c", script)
+		cmd.Env = []string{"PATH=" + dir + ":/usr/bin:/bin"}
+		err := cmd.Run()
+		b, _ := os.ReadFile(log)
+		if got := strings.Contains(string(b), "upgrade"); got != c.wantUpgr || (err == nil) != c.wantUpgr {
+			t.Errorf("%s: upgrade ran=%v err=%v log=%q", c.name, got, err, b)
+		}
 	}
 }

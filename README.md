@@ -39,8 +39,9 @@ ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly w
 
 ## Requirements
 
-- AllStarLink 3 (ASL3) on Debian 12 (bookworm) or Debian 13 (trixie), or Raspberry Pi OS based on either.
-- A 64-bit or 32-bit ARM board (arm64, armhf) or a PC (amd64). A Raspberry Pi Zero 2 W or newer is plenty.
+- Debian 12 (bookworm) or Debian 13 (trixie), or Raspberry Pi OS 64-bit based on either. A fresh Raspberry Pi OS Lite 64-bit works.
+- AllStarLink 3 (ASL3) is installed for you if it is missing (see below).
+- A 64-bit system: an ARM board (arm64) or a PC (amd64). A Raspberry Pi Zero 2 W or newer running Raspberry Pi OS Lite (64-bit) is plenty. 32-bit (armhf) is not supported, because ASL3 has no armhf packages; on a 32-bit system the installer refuses before changing anything, so reinstall with the 64-bit OS.
 - Root access (sudo) for the installation.
 
 ## Install
@@ -51,9 +52,56 @@ On the node:
 curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo sh
 ```
 
-The script adds the signed ASLCP apt repository, installs the `aslcp` package and prints a one-time setup link. Then open `http://<your-node>:8080` (8080 is the default port; see [Web port](#web-port)).
+The script adds the signed ASLCP apt repository, installs the `aslcp` package and prints a one-time setup link. If ASL3 is not installed, the installer installs it first (see [ASL3 at install](#asl3-at-install)). Then open `http://<your-node>:8080` (8080 is the default port; see [Web port](#web-port)).
 
 On a freshly flashed ASL3 card, wait for the first-boot setup and its reboot (20-30 minutes) before installing: ASL3 installs updates and may reboot the node. The installer checks this (first-boot services, another running apt/dpkg or a held dpkg lock) and refuses to change anything until it is done; just run it again later. `ASLCP_SKIP_PREFLIGHT=1` skips the check. A pending reboot only produces a warning. Package operations started from the web UI wait up to 10 minutes for the apt lock instead of failing.
+
+### Raspberry Pi (no screen needed)
+
+You can set up a Raspberry Pi from another computer, without a monitor or keyboard.
+
+1. Install [Raspberry Pi Imager](https://www.raspberrypi.com/software/), version 2.0 or later.
+2. Choose your Pi model, then the operating system: **Raspberry Pi OS (other)**, then **Raspberry Pi OS Lite (64-bit)**. Then choose your microSD card.
+3. On the customisation pages, set a host name (for example `node1997`) and a user name and password. If you will not use Ethernet, also set the Wi-Fi network name, password and country. Turn on SSH; password authentication is fine. Then write the card.
+4. Put the card in the Pi and power it up. Wait a few minutes, then check that it is on the network:
+
+```sh
+ping node1997.local
+```
+
+Or find its address in your router.
+
+5. Log in:
+
+```sh
+ssh <user>@node1997.local
+```
+
+6. Run the installer. Wait for the first boot to finish first (see above). If ASL3 is not installed, the installer installs it first (see [ASL3 at install](#asl3-at-install)).
+
+```sh
+curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo sh
+```
+
+7. Open the one-time setup link that the installer prints, from any device on the same network. If you lose it, show it again:
+
+```sh
+sudo aslcp admin setup-code
+```
+
+Any Raspberry Pi that runs 64-bit Raspberry Pi OS works. 32-bit Raspberry Pi OS does not.
+
+### ASL3 at install
+
+If the `asl3` package is not installed, the installer adds the AllStarLink apt repository (the `asl-apt-repos` package from `https://repo.allstarlink.org/public/`, whose signing key is checked against a pinned fingerprint) and installs `asl3` and `asl3-menu` before it installs ASLCP. If only `asl3-menu` is missing, it installs that. This can take several minutes and downloads many packages. It does not install Allmon3 or the Pi appliance package.
+
+ASL3 is only available for Debian 12 or 13. On any other release the installer says so and installs the panel only. To skip ASL3 on purpose, set `ASLCP_ASL3=0` (`no` and `false` work too):
+
+```sh
+curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL3=0 sh
+```
+
+`ASLCP_ASL3=1` (`yes`, `true`) does the same as the default but fails instead of continuing when ASL3 is not available. Any other value is refused. Afterwards, configure the node with `sudo asl-menu`.
 
 Prefer to do it by hand? See the manual steps on <https://w1jar.github.io/aslcp/>.
 
@@ -123,6 +171,21 @@ curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_TAKEOVER=undo s
 
 ASLCP moves back to the port it had before (8080 unless you set another), then exactly the recorded units are enabled and started again. Apache and Allmon3 are also recorded in the list of the System tab (ASL services), so `apt purge aslcp` turns them back on; the other units are only restored by the undo command.
 
+#### ASL3 telemetry at install (`ASLCP_ASL_TELEMETRY`)
+
+ASL3 sends AllStarLink an anonymous usage report once a day (`asl-telemetry.timer`, which starts `asl-telemetry.service`). ASLCP leaves it on by default, as ASL3 ships it. To turn it off when installing, set `ASLCP_ASL_TELEMETRY=0` (`off`, `no` and `false` work too); the installer then runs `systemctl disable --now asl-telemetry.timer` and masks the timer and the service, so an ASL3 update does not turn it back on:
+
+```sh
+curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL_TELEMETRY=0 sh
+```
+
+`ASLCP_ASL_TELEMETRY=1` (`on`, `yes`, `true`) unmasks and enables it again. Unset, the installer changes nothing. Any other value is refused, and so is a combination with `ASLCP_TAKEOVER=undo`. If the units are not there, the installer says there is nothing to turn off. By hand, on any node:
+
+```sh
+sudo systemctl disable --now asl-telemetry.timer
+sudo systemctl mask asl-telemetry.timer asl-telemetry.service
+```
+
 ### ASL services (Cockpit, Apache, Allmon3)
 
 **System, ASL services** has one switch each for Cockpit, Apache and Allmon3. A switch only stops and disables the service (`systemctl disable --now`); nothing is uninstalled, so the ASL3 Pi appliance package keeps working, and turning it on again is one click. ASLCP asks first and says what you lose (Cockpit is a fallback terminal and WiFi settings if ASLCP ever breaks: keep it until you are sure SSH works). Turning Apache off offers to turn Allmon3 off too, because Allmon3 answers on ports 16080 and 16700+ on every address even without Apache. The page lists which of ports 80, 443, 9090, 16080 and 16700+ are really listening, and can close or reopen the matching firewalld services. ASLCP never touches these services during an install or update, unless you ask for it with `ASLCP_TAKEOVER=1` (above). `apt purge aslcp` turns back on the services ASLCP itself had turned off (and no others); `apt remove` leaves everything as it is.
@@ -139,7 +202,7 @@ ASLCP 2.0 has its own digital voice engine, `aslcp-dv`, so a node can talk on di
 - **YSF** (System Fusion) reflectors, **P25** and **NXDN** talkgroups. P25 and NXDN are tested against recorded traffic but not yet on air.
 - **Echo test**: a local test with no network and no account. You hear yourself back a second after you unkey, which proves the audio path.
 
-Enable digital modes on the **Digital modes** page (or `sudo aslcp dv enable`, or `ASLCP_DV=1` at install). Enter your callsign and DMR ID, then turn on and set up the networks you want. `sudo aslcp dv status` shows the state and `sudo aslcp dv disable` stops the engine and keeps your settings. Enabling installs only the md380 vocoder. ARMv6 boards (Pi Zero, Pi 1) are not supported.
+Enable digital modes on the **Digital modes** page (or `sudo aslcp dv enable`, or `ASLCP_DV=1` at install). Enter your callsign and DMR ID, then turn on and set up the networks you want. `sudo aslcp dv status` shows the state and `sudo aslcp dv disable` stops the engine and keeps your settings. Enabling installs only the md380 vocoder. It needs a 64-bit OS (32-bit armhf is not supported).
 
 On the dashboard, the **Digital modes** card shows the bridge node, switches mode, tunes a talkgroup or reflector, unlinks, has a Parrot button for BrandMeister and keeps favorites. **Now calling** (a red strip on every page) shows who is talking, with callsign, name, place, network, talkgroup and timeslot, and **Last heard** lists recent calls. The engine resumes in the last mode after a restart. More in [docs/DV.md](docs/DV.md).
 
@@ -236,7 +299,7 @@ make web         # build the web UI into internal/webui/dist
 make build       # bin/aslcp for this machine
 make test        # go test -race ./...
 make demo        # simulated node, no Asterisk needed; login demo / demo
-make debs        # dist/aslcp_<version>_{arm64,armhf,amd64}.deb
+make debs        # dist/aslcp_<version>_{arm64,amd64}.deb
 make print-version
 cd web && npm run dev:mock   # UI dev server with a mock API
 ```

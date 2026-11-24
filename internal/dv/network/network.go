@@ -16,6 +16,7 @@ type Codec int
 const (
 	CodecAMBE Codec = iota
 	CodecIMBE
+	CodecC2 // Codec2 3200, 8 bytes per frame (M17)
 )
 
 // VoiceFrame is one 20 ms codec frame.
@@ -27,7 +28,7 @@ type VoiceFrame struct {
 	// frame to frame (YSF carries DN as AMBE and Voice FR as IMBE); on TX
 	// the bridge sets it to the network's Codec().
 	Codec Codec
-	Data  []byte // 7 (AMBE) or 11 (IMBE) bytes, as Codec says
+	Data  []byte // 7 (AMBE), 11 (IMBE) or 8 (Codec2) bytes, as Codec says
 }
 
 // CallHeader starts a call.

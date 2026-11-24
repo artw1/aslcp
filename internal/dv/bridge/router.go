@@ -50,8 +50,10 @@ type Options struct {
 	// NewIMBE builds one IMBE codec (stateful, single goroutine); the
 	// router makes one per direction and call. nil: imbe.NewCodec.
 	NewIMBE func() vocoder.IMBE
-	Config  ctl.Config
-	Version string
+	// NewCodec2 builds one Codec2 3200 codec, like NewIMBE. nil: vocoder.NewCodec2.
+	NewCodec2 func() vocoder.Codec2
+	Config    ctl.Config
+	Version   string
 	// VocoderStats reports the md380 client counters (optional).
 	VocoderStats func() vocoder.Stats
 	// Emit receives every event (optional). It must not block.
@@ -88,17 +90,21 @@ type netEvent struct {
 type job struct {
 	call  uint64
 	seq   uint32
-	codec network.Codec // which of ambe / imbe is valid
+	codec network.Codec // which of ambe / imbe / c2 is valid
 	pcm   [vocoder.PCMSamples]int16
 	ambe  [vocoder.AMBEBytes]byte
 	imbe  [vocoder.IMBEBytes]byte
+	c2    [vocoder.C2Bytes]byte
 	end   bool
 }
 
 // codecLen is the frame length of codec c.
 func codecLen(c network.Codec) int {
-	if c == network.CodecIMBE {
+	switch c {
+	case network.CodecIMBE:
 		return vocoder.IMBEBytes
+	case network.CodecC2:
+		return vocoder.C2Bytes
 	}
 	return vocoder.AMBEBytes
 }
@@ -144,6 +150,46 @@ func (s *imbeState) decode(call uint64, f *[vocoder.IMBEBytes]byte) (out [vocode
 var silenceIMBE = func() [vocoder.IMBEBytes]byte {
 	var pcm [vocoder.PCMSamples]int16
 	return imbe.NewCodec().Encode(&pcm)
+}()
+
+// c2State is imbeState for Codec2.
+type c2State struct {
+	newf func() vocoder.Codec2
+	call uint64
+	c    vocoder.Codec2
+}
+
+func (s *c2State) get(call uint64) vocoder.Codec2 {
+	if s.c == nil || s.call != call {
+		s.c, s.call = s.newf(), call
+	}
+	return s.c
+}
+
+func (s *c2State) encode(call uint64, pcm *[vocoder.PCMSamples]int16) (out [vocoder.C2Bytes]byte) {
+	defer func() {
+		if recover() != nil {
+			s.c = nil
+			out = silenceC2
+		}
+	}()
+	return s.get(call).Encode(pcm)
+}
+
+func (s *c2State) decode(call uint64, f *[vocoder.C2Bytes]byte) (out [vocoder.PCMSamples]int16) {
+	defer func() {
+		if recover() != nil {
+			s.c = nil
+			out = [vocoder.PCMSamples]int16{}
+		}
+	}()
+	return s.get(call).Decode(f)
+}
+
+// silenceC2 is the encoding of digital silence by a fresh encoder.
+var silenceC2 = func() [vocoder.C2Bytes]byte {
+	var pcm [vocoder.PCMSamples]int16
+	return vocoder.NewCodec2().Encode(&pcm)
 }()
 
 type call struct {
@@ -197,6 +243,9 @@ func New(o Options) *Router {
 	if o.NewIMBE == nil {
 		o.NewIMBE = func() vocoder.IMBE { return imbe.NewCodec() }
 	}
+	if o.NewCodec2 == nil {
+		o.NewCodec2 = func() vocoder.Codec2 { return vocoder.NewCodec2() }
+	}
 	return &Router{
 		o: o, log: o.Log, cfg: o.Config,
 		cmds: make(chan func(), cmdQueue), netq: make(chan netEvent, netEvQ),
@@ -226,19 +275,27 @@ func (r *Router) Run(ctx context.Context) error {
 	// Separate IMBE state per direction: each worker goroutine owns its own.
 	encIMBE := &imbeState{newf: r.o.NewIMBE}
 	decIMBE := &imbeState{newf: r.o.NewIMBE}
+	encC2 := &c2State{newf: r.o.NewCodec2}
+	decC2 := &c2State{newf: r.o.NewCodec2}
 	r.worker(ctx, r.enc, r.encO, func(j job) job {
 		pcm := j.pcm
-		if j.codec == network.CodecIMBE {
+		switch j.codec {
+		case network.CodecIMBE:
 			j.imbe = encIMBE.encode(j.call, &pcm)
-		} else {
+		case network.CodecC2:
+			j.c2 = encC2.encode(j.call, &pcm)
+		default:
 			j.ambe, _ = r.o.AMBE.Encode(ctx, &pcm)
 		}
 		return j
 	})
 	r.worker(ctx, r.dec, r.decO, func(j job) job {
-		if j.codec == network.CodecIMBE {
+		switch j.codec {
+		case network.CodecIMBE:
 			j.pcm = decIMBE.decode(j.call, &j.imbe)
-		} else {
+		case network.CodecC2:
+			j.pcm = decC2.decode(j.call, &j.c2)
+		default:
 			j.pcm, _ = r.o.AMBE.Decode(ctx, j.ambe)
 		}
 		return j
@@ -493,8 +550,11 @@ func (r *Router) onEncoded(j job) {
 		return
 	}
 	f := network.VoiceFrame{Call: j.call, Seq: j.seq, Codec: j.codec, Data: j.ambe[:]}
-	if j.codec == network.CodecIMBE {
+	switch j.codec {
+	case network.CodecIMBE:
 		f.Data = j.imbe[:]
+	case network.CodecC2:
+		f.Data = j.c2[:]
 	}
 	if err := r.tx.net.n.WriteVoice(f); err != nil {
 		r.log.Printf("write voice: %v", err)
@@ -555,16 +615,19 @@ func (r *Router) onNet(ev netEvent) {
 			return
 		}
 		fc := ev.frame.Codec
-		if (fc != network.CodecAMBE && fc != network.CodecIMBE) || len(ev.frame.Data) != codecLen(fc) {
+		if (fc != network.CodecAMBE && fc != network.CodecIMBE && fc != network.CodecC2) || len(ev.frame.Data) != codecLen(fc) {
 			// wrong length for its codec (or unknown codec): drop and count
 			r.dropped.Add(1)
 			return
 		}
 		c.last = now
 		j := job{call: c.talk.ID, seq: ev.frame.Seq, codec: fc}
-		if fc == network.CodecIMBE {
+		switch fc {
+		case network.CodecIMBE:
 			copy(j.imbe[:], ev.frame.Data)
-		} else {
+		case network.CodecC2:
+			copy(j.c2[:], ev.frame.Data)
+		default:
 			copy(j.ambe[:], ev.frame.Data)
 		}
 		select {

@@ -8,6 +8,7 @@ const (
 	PCMSamples = 160 // 20 ms at 8 kHz
 	AMBEBytes  = 7   // AMBE+2 49 bits
 	IMBEBytes  = 11  // IMBE 88 bits
+	C2Bytes    = 8   // Codec2 3200, 64 bits
 )
 
 // AMBE is the AMBE+2 vocoder (DMR, YSF, NXDN).
@@ -22,6 +23,14 @@ type AMBE interface {
 type IMBE interface {
 	Encode(pcm *[PCMSamples]int16) [IMBEBytes]byte
 	Decode(f *[IMBEBytes]byte) [PCMSamples]int16
+}
+
+// Codec2 is a Codec2 3200 coder (M17): 8 kHz, 160 samples in, 8 bytes out,
+// the same frame size the bridge uses, so no resampling. Stateful and not
+// safe for concurrent use: one instance per direction and call.
+type Codec2 interface {
+	Encode(pcm *[PCMSamples]int16) [C2Bytes]byte
+	Decode(f *[C2Bytes]byte) [PCMSamples]int16
 }
 
 // SilenceAMBE is the AMBE+2 frame that decodes to silence; it replaces a

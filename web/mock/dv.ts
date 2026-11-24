@@ -171,23 +171,28 @@ const LISTS: Record<string, { value: string; name: string; detail?: string; addr
     { value: '20', name: 'NXDN TG 20', address: '198.51.100.42', port: 41400 },
     { value: '65', name: 'NXDN TG 65', address: '203.0.113.43', port: 41400 },
   ],
+  m17: [
+    { value: 'M17-XXX', name: 'M17-XXX', address: 'm17-xxx.example.net', port: 17000 },
+    { value: 'M17-YYY', name: 'M17-YYY', address: '192.0.2.51', port: 17000 },
+    { value: 'M17-ZZ1', name: 'M17-ZZ1', address: '198.51.100.52', port: 17001 },
+  ],
 };
 
 // Dashboard panel (GET /dv/snapshot, /mode, /unlink, /tune, favourites). LOOP (the echo test, always on, shown as
 // "Echo test", started from Digital modes setup) and BM are available; the other modes answer 409 not_available, and BM answers 409
 // mode_disabled until it is set up (PUT /dv/networks/BM with the identity set).
-type PMode = 'LOOP' | 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN';
-const ALL: PMode[] = ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN'];
-const UNLINK: Record<PMode, string> = { LOOP: '', BM: '4000', TGIF: '4000', DMR: '4000', YSF: 'disconnect', P25: '9999', NXDN: '9999' };
+type PMode = 'LOOP' | 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN' | 'M17';
+const ALL: PMode[] = ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN', 'M17'];
+const UNLINK: Record<PMode, string> = { LOOP: '', BM: '4000', TGIF: '4000', DMR: '4000', YSF: 'disconnect', P25: '9999', NXDN: '9999', M17: 'disconnect' };
 const LABEL: Partial<Record<PMode, string>> = { LOOP: 'Echo test', BM: 'BrandMeister', TGIF: 'TGIF', DMR: 'DMR - Other' };
-const NATIVE: PMode[] = ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN'];
+const NATIVE: PMode[] = ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN', 'M17'];
 // BrandMeister settings and the node identity (GET/PUT /dv/networks, /dv/identity). The password is write-only.
 // Placeholder master 192.0.2.10. The login state follows the identity: no DMR ID -> the master refuses.
 interface MockNet { enabled: boolean; address: string; port: number; password: string; options: Record<string, string> }
 const bmNet: MockNet = { enabled: false, address: '', port: 0, password: '', options: {} };
-type NetId = 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN';
+type NetId = 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN' | 'M17';
 const blank = (): MockNet => ({ enabled: false, address: '', port: 0, password: '', options: {} });
-const otherNets: Record<'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN', MockNet> = { TGIF: blank(), DMR: blank(), YSF: blank(), P25: blank(), NXDN: blank() };
+const otherNets: Record<'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN' | 'M17', MockNet> = { TGIF: blank(), DMR: blank(), YSF: blank(), P25: blank(), NXDN: blank(), M17: blank() };
 let ident: { callsign: string; dmrId: number; repeaterId?: number } = { callsign: '', dmrId: 0 };
 const bmLogin = () => (ident.dmrId ? 'ok' : 'failed');
 const bmDetail = () => (ident.dmrId ? '' : 'the master refused the login: no DMR ID set');
@@ -233,6 +238,13 @@ const NXDN_OPTS = [
   intOpt('poll_interval_ms', 'Poll period (ms)', '5000', 1000, 60000, true),
   intOpt('missed_polls', 'Missed polls', '3', 1, 20, true),
 ];
+const M17_OPTS = [
+  intOpt('can', 'Channel access number', '0', 0, 15),
+  txtOpt('suffix', 'Callsign suffix', '', 3, true),
+  intOpt('ack_timeout_ms', 'Link retry delay (ms)', '2000', 500, 60000, true),
+  intOpt('timeout_ms', 'Link timeout (ms)', '30000', 5000, 120000, true),
+  intOpt('rx_timeout_ms', 'Call end timeout (ms)', '1500', 200, 10000, true),
+];
 const NETSPEC: Record<NetId, { label: string; fields: { address: boolean; port: boolean; password: boolean }; defaultPort?: number; defaultAddress?: string; defaultPassword?: string; help?: string; options: unknown[] }> = {
   BM: { label: 'BrandMeister', fields: { address: true, port: false, password: true }, help: BM_HELP, options: BM_OPTS },
   TGIF: { label: 'TGIF', fields: { address: false, port: false, password: true }, options: HB_OPTS(''),
@@ -245,6 +257,8 @@ const NETSPEC: Record<NetId, { label: string; fields: { address: boolean; port: 
     help: 'Enable it, then tune a talkgroup on the dashboard.' },
   NXDN: { label: 'NXDN', fields: { address: false, port: false, password: false }, options: NXDN_OPTS,
     help: 'NXDN has no login: tune a reflector talkgroup on the dashboard. The callsign of the identity is sent to the reflector; set your NXDN ID in Options (required to enable NXDN).' },
+  M17: { label: 'M17', fields: { address: false, port: false, password: false }, options: M17_OPTS,
+    help: 'M17 has no password: tune a reflector and module on the dashboard. Your callsign (with the optional suffix) is the node callsign on the reflector.' },
 };
 const netOf = (m: NetId) => (m === 'BM' ? bmNet : otherNets[m]);
 function netView(m: NetId) {
@@ -261,7 +275,7 @@ function netsHandler(c: DVCtx): boolean {
   if (!admin) return c.err(403, 'insufficient permissions', 'forbidden'), true;
   const body = (c.body ?? {}) as Record<string, unknown>;
   const invalid = (what: string) => (c.err(422, `invalid_field: ${what}`, 'invalid_field'), true);
-  if (c.p === '/dv/networks' && c.m === 'GET') { c.json(200, { identity: ident, modes: (['BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN'] as const).map(netView) }); return true; }
+  if (c.p === '/dv/networks' && c.m === 'GET') { c.json(200, { identity: ident, modes: (['BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN', 'M17'] as const).map(netView) }); return true; }
   if (c.p === '/dv/identity') {
     if (c.m === 'GET') { c.json(200, ident); return true; }
     if (c.m !== 'PUT') return false;
@@ -273,7 +287,7 @@ function netsHandler(c: DVCtx): boolean {
     c.push?.('dv', snapshot());
     return true;
   }
-  const m = /^\/dv\/networks\/(BM|TGIF|DMR|YSF|P25|NXDN)$/.exec(c.p);
+  const m = /^\/dv\/networks\/(BM|TGIF|DMR|YSF|P25|NXDN|M17)$/.exec(c.p);
   if (!m) return c.err(404, 'not_found: no settings for this mode', 'not_found'), true;
   const mode = m[1] as NetId, n = netOf(mode);
   if (c.m === 'GET') { c.json(200, netView(mode)); return true; }
@@ -291,12 +305,17 @@ function netsHandler(c: DVCtx): boolean {
     const keys = NETSPEC[mode].options.map((o) => (o as { key: string }).key);
     for (const k of Object.keys(body.options)) if (!keys.includes(k)) return invalid(`option ${k}`), true;
     next.options = Object.fromEntries(Object.entries(body.options as Record<string, string>).filter(([, v]) => String(v) !== ''));
+    if (mode === 'M17') {
+      const can = next.options.can;
+      if (can !== undefined && !(/^\d+$/.test(can) && Number(can) <= 15)) return invalid('option can'), true;
+      if ((next.options.suffix ?? '').length > 3) return invalid('option suffix'), true;
+    }
   }
   const sp = NETSPEC[mode];
   // erasing the NXDN ID of an enabled NXDN network turns it off; turning it on without one is refused below
   if (mode === 'NXDN' && next.enabled && !next.options.nxdn_id && body.enabled !== true) next.enabled = false;
   if (next.enabled) {
-    const why = sp.fields.address && !sp.defaultAddress && !next.address ? 'set the master address first' : sp.fields.password && !sp.defaultPassword && !next.password ? 'set the password first' : !ident.callsign ? 'set the callsign and DMR ID in the identity first' : mode === 'NXDN' && !next.options.nxdn_id ? 'set the NXDN ID first' : '';
+    const why = sp.fields.address && !sp.defaultAddress && !next.address ? 'set the master address first' : sp.fields.password && !sp.defaultPassword && !next.password ? 'set the password first' : !ident.callsign ? 'set the callsign and DMR ID in the identity first' : mode === 'NXDN' && !next.options.nxdn_id ? 'set the NXDN ID first' : mode === 'M17' && ident.callsign.length + (next.options.suffix ? next.options.suffix.length + 1 : 0) > 9 ? 'the callsign (with the suffix) cannot be used on M17' : '';
     if (why) return c.err(422, `incomplete: ${why}`, 'incomplete'), true;
   }
   Object.assign(n, next);
@@ -314,6 +333,8 @@ function callers() {
   const at = (k: number) => new Date(Date.now() - k * 30_000).toISOString().slice(0, 19).replace('T', ' ');
   const heard = bridge.mode === 'LOOP'
     ? [0, 1, 2].map((k) => ({ call: 'Echo test', at: at(k) }))
+    : bridge.mode === 'M17'
+    ? [0, 1, 2].map((k) => ({ call: 'N0CALL', ...(bridge.tune && bridge.tune !== 'disconnect' ? { dst: bridge.tune } : {}), at: at(k) }))
     : [0, 1, 2].map((k) => ({ ...TALKERS[(n - k + 3 * 100) % 3], dst: '91', slot: 2, at: at(k) }));
   return { caller: heard[0], heard };
 }
@@ -333,7 +354,7 @@ function snapshot() {
     ...(running ? callers() : { heard: [] }),
   };
 }
-const tuneRe: Record<PMode, RegExp> = { LOOP: /^$/, BM: /^[0-9]{1,8}#?$/, TGIF: /^[0-9]{1,8}#?$/, DMR: /^[0-9]{1,8}#?$/, YSF: /^(disconnect|[A-Za-z0-9._-]{1,32}|[A-Za-z0-9.-]{1,253}:[0-9]{1,5})$/, P25: /^[0-9]{1,5}$/, NXDN: /^[0-9]{1,5}$/ };
+const tuneRe: Record<PMode, RegExp> = { LOOP: /^$/, BM: /^[0-9]{1,8}#?$/, TGIF: /^[0-9]{1,8}#?$/, DMR: /^[0-9]{1,8}#?$/, YSF: /^(disconnect|[A-Za-z0-9._-]{1,32}|[A-Za-z0-9.-]{1,253}:[0-9]{1,5})$/, P25: /^[0-9]{1,5}$/, NXDN: /^[0-9]{1,5}$/, M17: /^(disconnect|M17-[A-Z0-9]{3} [A-Z])$/ };
 const favs: { id: number; mode: PMode; value: string; name: string; sort: number }[] = [];
 let favSeq = 0;
 const favView = (f: (typeof favs)[number]) => ({ id: f.id, mode: f.mode, value: f.value, name: f.name, sort: f.sort });
@@ -350,7 +371,7 @@ function panelHandler(c: DVCtx): boolean {
   const unavailable = (m: PMode) => c.err(409, `not_available: ${m} is not yet available in this build`, 'not_available');
   if (c.m === 'POST' && c.p === '/dv/mode') {
     const m = String(body.mode ?? '').toUpperCase() as PMode;
-    if (!ALL.includes(m)) return c.err(400, 'mode must be LOOP, BM, TGIF, DMR, YSF, P25 or NXDN', 'bad_request'), true;
+    if (!ALL.includes(m)) return c.err(400, 'mode must be LOOP, BM, TGIF, DMR, YSF, P25, NXDN or M17', 'bad_request'), true;
     if (!running()) return c.err(409, 'not_enabled: digital modes are not enabled', 'not_enabled'), true;
     if (!NATIVE.includes(m)) return unavailable(m), true;
     if (modeOff(m)) return true;
@@ -373,6 +394,7 @@ function panelHandler(c: DVCtx): boolean {
     if (!running()) return c.err(409, 'not_enabled: digital modes are not enabled', 'not_enabled'), true;
     if (!NATIVE.includes(mode)) return unavailable(mode), true;
     if (modeOff(mode)) return true;
+    if (mode === 'M17' && tune !== 'disconnect' && !LISTS.m17.some((i) => i.value === tune.slice(0, 7))) return c.err(422, 'unknown_target: that reflector is not in the host list', 'unknown_target'), true;
     const switched = bridge.mode !== mode;
     bridge.mode = mode; bridge.tune = mode === 'LOOP' ? '' : tune.replace(/#$/, ''); if (mode !== 'LOOP') lastMode = mode;
     reply(mode, switched);

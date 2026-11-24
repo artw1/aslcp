@@ -18,10 +18,11 @@ const (
 	ModeYSF  = "YSF"
 	ModeP25  = "P25"
 	ModeNXDN = "NXDN"
+	ModeM17  = "M17"
 )
 
 // PanelModes are the modes the panel handles, in display order.
-var PanelModes = []string{ModeLoop, ModeBM, ModeTGIF, ModeDMR, ModeYSF, ModeP25, ModeNXDN}
+var PanelModes = []string{ModeLoop, ModeBM, ModeTGIF, ModeDMR, ModeYSF, ModeP25, ModeNXDN, ModeM17}
 
 // PrivateMark is the suffix a DMR ID takes for a private call ("9990#").
 // Only a DMR tune may carry it.
@@ -36,6 +37,8 @@ var (
 	reRefl  = regexp.MustCompile(`^[0-9]{1,5}$`)
 	reHost  = regexp.MustCompile(`^[A-Za-z0-9.-]{1,253}$`)
 	reYSFID = regexp.MustCompile(`^[0-9]{5}$`)
+	// an M17 tune: reflector designator, a space and the module
+	reM17 = regexp.MustCompile(`^M17-[A-Z0-9]{3} [A-Z]$`)
 
 	// a value of this shape is a host:port and must pass hostPort, never a name
 	reHostPortLike = regexp.MustCompile(`^[A-Za-z0-9.-]{1,253}:[0-9]{1,5}$`)
@@ -57,13 +60,13 @@ func DMRFamily(mode string) bool {
 }
 
 // UnlinkTune is the tune value that disconnects a mode: 4000 for the DMR
-// networks, "disconnect" for YSF and LOOP, 9999 for P25 and NXDN. "" for an
+// networks, "disconnect" for YSF, M17 and LOOP, 9999 for P25 and NXDN. "" for an
 // unknown mode.
 func UnlinkTune(mode string) string {
 	switch {
 	case DMRFamily(mode):
 		return "4000"
-	case mode == ModeYSF || mode == ModeLoop:
+	case mode == ModeYSF || mode == ModeM17 || mode == ModeLoop:
 		return "disconnect"
 	case mode == ModeP25 || mode == ModeNXDN:
 		return "9999"
@@ -122,7 +125,7 @@ func hostPort(s string) bool {
 // ValidTune reports whether tune is allowed for the mode: a talkgroup number
 // for the DMR networks (with a trailing "#" for a private call), a number of
 // up to five digits for P25 and NXDN, for YSF a reflector id, a name or
-// host:port, and the parrot ID for LOOP. The unlink value of the mode is
+// host:port, for M17 "M17-XXX C" (reflector and module), and the parrot ID for LOOP. The unlink value of the mode is
 // valid too. Nothing starts with "-" or holds "=", so a value can neither
 // look like an option nor smuggle a second key.
 func ValidTune(mode, tune string) bool {
@@ -136,6 +139,8 @@ func ValidTune(mode, tune string) bool {
 		return reTG.MatchString(strings.TrimSuffix(tune, PrivateMark))
 	case mode == ModeP25 || mode == ModeNXDN:
 		return reRefl.MatchString(tune)
+	case mode == ModeM17:
+		return tune == UnlinkTune(mode) || reM17.MatchString(tune)
 	case mode == ModeYSF:
 		if reHostPortLike.MatchString(tune) {
 			return hostPort(tune)

@@ -13,7 +13,7 @@ import (
 )
 
 // Max is the most items one list carries (the real lists hold roughly 1,300
-// DMR, 1,700 YSF, 500 P25 and 450 NXDN entries).
+// DMR, 1,700 YSF, 500 P25, 450 NXDN and 170 M17 entries).
 const Max = 5000
 
 var (
@@ -21,6 +21,7 @@ var (
 	rePass  = regexp.MustCompile(`^[\x21-\x7e]{1,64}$`)
 	reYSFID = regexp.MustCompile(`^[0-9]{5}$`)
 	reRefl  = regexp.MustCompile(`^[0-9]{1,5}$`)
+	reM17   = regexp.MustCompile(`^M17-[A-Z0-9]{3}$`)
 )
 
 // Item is one selectable entry. Value is what gets written: the master
@@ -151,6 +152,25 @@ func ParseTG(data []byte, label string) []Item {
 	return out
 }
 
+// ParseM17 reads M17_Hosts.txt: designator, address, port, tab or space
+// separated, with a designator of the form M17-XXX (three letters or digits).
+// The file lists no modules; the picker adds one at tune time.
+func ParseM17(data []byte) []Item {
+	var out []Item
+	eachLine(data, func(l string) {
+		f := strings.Fields(l)
+		if len(f) < 3 {
+			return
+		}
+		p, ok := listPort(f[2])
+		if !ok || !reM17.MatchString(f[0]) || !reHost.MatchString(f[1]) {
+			return
+		}
+		out = append(out, Item{Value: f[0], Name: f[0], Address: f[1], Port: p})
+	})
+	return out
+}
+
 func parse(mode string, data []byte) []Item {
 	switch mode {
 	case "dmr":
@@ -159,6 +179,8 @@ func parse(mode string, data []byte) []Item {
 		return ParseYSF(data)
 	case "p25":
 		return ParseTG(data, "P25")
+	case "m17":
+		return ParseM17(data)
 	default:
 		return ParseTG(data, "NXDN")
 	}

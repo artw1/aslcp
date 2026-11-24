@@ -17,6 +17,7 @@ import (
 	_ "github.com/artw1/aslcp/internal/dv/network/bm"       // registers BM
 	_ "github.com/artw1/aslcp/internal/dv/network/homebrew" // registers TGIF and DMR
 	_ "github.com/artw1/aslcp/internal/dv/network/loopback" // registers LOOP
+	_ "github.com/artw1/aslcp/internal/dv/network/m17"      // registers M17
 	_ "github.com/artw1/aslcp/internal/dv/network/nxdn"     // registers NXDN
 	_ "github.com/artw1/aslcp/internal/dv/network/p25"      // registers P25
 	_ "github.com/artw1/aslcp/internal/dv/network/ysf"      // registers YSF

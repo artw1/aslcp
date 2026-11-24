@@ -89,9 +89,45 @@ func FramesToMs(frames int) int { return frames * Frame }
 type Error struct {
 	Code string
 	Msg  string
+	// Device and DevStr are set for ErrDeviceNotFound errors: the device
+	// stanza and the USB device string the driver could not find.
+	Device string `json:"-"`
+	DevStr string `json:"-"`
 }
 
 func (e *Error) Error() string { return e.Msg }
+
+// Is makes errors.Is(err, ErrDeviceNotFound) true for every "USB device string
+// not found" error, whatever device it names.
+func (e *Error) Is(target error) bool {
+	return target == ErrDeviceNotFound && e.Code == CodeDeviceMissing && e.DevStr != ""
+}
+
+// ErrDeviceNotFound matches (errors.Is) the driver reply "Device <name> is
+// selected, the associated USB device string <devstr> was not found": the USB
+// audio interface is unplugged, or Asterisk cannot open it yet (typically
+// right after ASL3 was installed, before its device rules were applied).
+var ErrDeviceNotFound = &Error{Code: CodeDeviceMissing, Msg: "the USB audio interface was not found"}
+
+var reDevNotFound = regexp.MustCompile(`Device (\S+) is selected, the associated USB device string (\S+) was not found`)
+
+// deviceNotFound returns the ErrDeviceNotFound error for a reply line that
+// carries the driver's message, or nil.
+func deviceNotFound(lines []string) *Error {
+	for _, l := range lines {
+		if m := reDevNotFound.FindStringSubmatch(l); m != nil {
+			port, _, _ := strings.Cut(m[2], ":")
+			return &Error{
+				Code:   CodeDeviceMissing,
+				Device: m[1],
+				DevStr: m[2],
+				Msg: fmt.Sprintf("the USB audio interface of %s (USB port %s) was not found: it is unplugged, or Asterisk cannot use it yet. If ASL3 was installed recently, reboot the Pi.",
+					m[1], port),
+			}
+		}
+	}
+	return nil
+}
 
 // Error codes.
 const (
@@ -140,6 +176,9 @@ func first(lines []string) string {
 }
 
 func unexpected(what string, lines []string) *Error {
+	if e := deviceNotFound(lines); e != nil {
+		return e
+	}
 	return errf(CodeUnexpected, "unexpected reply to %s: %s", what, first(lines))
 }
 
@@ -189,6 +228,9 @@ func ParseParams(lines []string) (Params, error) {
 		}
 	}
 	if line == "" {
+		if e := deviceNotFound(lines); e != nil {
+			return Params{}, e
+		}
 		if len(lines) > 0 && reNotFound.MatchString(lines[0]) {
 			return Params{}, errf(CodeDeviceMissing, "the radio interface was not found: %s", first(lines))
 		}
@@ -317,6 +359,9 @@ func ParseIdentity(dev string, lines []string) (Identity, error) {
 	lines = clean(lines)
 	id := Identity{Card: -1}
 	seen := false
+	if e := deviceNotFound(lines); e != nil {
+		return id, e
+	}
 	for _, l := range lines {
 		if reNotFound.MatchString(l) && !strings.HasPrefix(l, "Device String is") {
 			return id, errf(CodeDeviceMissing, "the USB interface of %s was not found: %s", dev, first([]string{l}))

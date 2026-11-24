@@ -1,0 +1,62 @@
+name: Codec2 reference check
+
+# Manual comparison of the pure-Go Codec2 3200 port against libcodec2.
+# Not part of normal CI: it runs only on dispatch, or when this file changes.
+# The report includes per-second SNR and per-frame spectral diagnostics of the decoder.
+# Bit files are headerless (.bin): c2enc is run without a header, matching our encoder.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/codec2-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  codec2-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install libcodec2 tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y codec2
+          which c2enc c2dec
+          dpkg -s codec2 | grep -i '^version' || true
+          c2enc 2>&1 | head -20 || true
+      - name: Download reference samples
+        run: |
+          mkdir -p work
+          for n in hts1a hts2a ve9qrp_10s; do
+            curl -fsSL --retry 3 -o "work/$n.raw" \
+              "https://raw.githubusercontent.com/drowe67/codec2/master/raw/$n.raw" \
+              || { echo "::error::download of $n.raw failed"; exit 1; }
+            test -s "work/$n.raw" || { echo "::error::$n.raw is empty"; exit 1; }
+          done
+          ls -l work
+      - name: Build Go side
+        run: CGO_ENABLED=0 go build -o c2check ./cmd/c2check
+      - name: Reference encode and decode
+        run: |
+          for n in hts1a hts2a ve9qrp_10s; do
+            c2enc 3200 "work/$n.raw" "work/$n.ref.bin"
+            c2dec 3200 "work/$n.ref.bin" "work/$n.refdec.raw"
+          done
+      - name: Go encode and decode
+        run: ./c2check gen work hts1a hts2a ve9qrp_10s
+      - name: Cross decode (our bits through libcodec2)
+        run: |
+          for n in hts1a hts2a ve9qrp_10s; do
+            c2dec 3200 "work/$n.go.bin" "work/$n.xdec.raw"
+          done
+      - name: Compare
+        run: |
+          set +e
+          ./c2check report work hts1a hts2a ve9qrp_10s | tee report.md
+          rc=${PIPESTATUS[0]}
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          exit $rc

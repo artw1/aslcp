@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/artw1/aslcp/internal/dv/ctl"
+	"github.com/artw1/aslcp/internal/dv/m17"
 )
 
 // Per-network settings of the digital modes (docs/DV.md): which modes this
@@ -22,7 +23,7 @@ import (
 // NativeModes are the modes this build implements, in display order. It is the
 // static fallback of the snapshot's availability when the engine is down; the
 // engine's own Status.Networks[].Available wins whenever it answers.
-var NativeModes = []string{ModeLoop, ModeBM, ModeTGIF, ModeDMR, ModeYSF, ModeP25, ModeNXDN}
+var NativeModes = []string{ModeLoop, ModeBM, ModeTGIF, ModeDMR, ModeYSF, ModeP25, ModeNXDN, ModeM17}
 
 // NativeMode reports whether mode is in NativeModes.
 func NativeMode(mode string) bool {
@@ -126,6 +127,18 @@ var NetOptions = map[string][]OptSpec{
 		{Key: "rx_timeout_ms", Label: "Call end timeout (ms)", Kind: KindInt, Default: "1500", Min: 200, Max: 10000, Advanced: true,
 			Help: "End a received call that has no terminator after this silence."},
 	},
+	ModeM17: {
+		{Key: "suffix", Label: "Callsign suffix", Kind: KindText, MaxLen: 3,
+			Help: "A letter after your callsign that marks this station, for example H (hotspot) or R (repeater). Leave empty to send your plain callsign."},
+		{Key: "can", Label: "Channel access number", Kind: KindInt, Default: "0", Min: 0, Max: 15, Advanced: true,
+			Help: "Leave at 0 unless your reflector asks for another value."},
+		{Key: "ack_timeout_ms", Label: "Link retry delay (ms)", Kind: KindInt, Default: "2000", Min: 500, Max: 60000, Advanced: true,
+			Help: "How long to wait for the reflector to accept the link before asking again."},
+		{Key: "timeout_ms", Label: "Link timeout (ms)", Kind: KindInt, Default: "30000", Min: 5000, Max: 120000, Advanced: true,
+			Help: "The link is considered lost after this silence from the reflector."},
+		{Key: "rx_timeout_ms", Label: "Call end timeout (ms)", Kind: KindInt, Default: "1500", Min: 200, Max: 10000, Advanced: true,
+			Help: "End a received call that has no terminator after this silence."},
+	},
 }
 
 // RetiredAddress lists the modes that stored a reflector address (and port)
@@ -190,6 +203,8 @@ var NetSpecs = []NetSpec{
 		Help: "Enable it, then tune a talkgroup on the dashboard."},
 	{Mode: ModeNXDN, Label: "NXDN", NeedsIdentity: true,
 		Help: "NXDN has no login: tune a reflector talkgroup on the dashboard. The callsign of the identity is sent to the reflector; set your NXDN ID in Options (required to enable NXDN)."},
+	{Mode: ModeM17, Label: "M17", NeedsIdentity: true,
+		Help: "M17 has no login: tune a reflector and module (for example M17-XXX C) on the dashboard. Your callsign (plus the optional suffix) identifies the node on the reflector."},
 }
 
 // NetSpecFor finds the spec of mode.
@@ -389,6 +404,10 @@ func EnableBlock(sp NetSpec, st NetState, id IdentityState) string {
 		return "set the callsign and DMR ID in the identity first"
 	case sp.Mode == ModeNXDN && strings.TrimSpace(st.Options["nxdn_id"]) == "":
 		return "set the NXDN ID first"
+	case sp.Mode == ModeM17:
+		if _, err := m17.NodeCallsign(id.Callsign, st.Options["suffix"]); err != nil {
+			return "the callsign (with the suffix) cannot be used on M17"
+		}
 	}
 	return ""
 }
@@ -444,6 +463,12 @@ func CheckUpdate(mode string, u NetUpdate) (NetUpdate, error) {
 		o, err := CleanOptions(mode, u.Options)
 		if err != nil {
 			return u, err
+		}
+		if mode == ModeM17 {
+			// the suffix must encode next to the longest callsign
+			if _, err := m17.NodeCallsign("N0CALL", o["suffix"]); err != nil {
+				return u, fieldErr("options.suffix", "not valid on M17 (up to 3 letters, digits, - / or .)")
+			}
 		}
 		u.Options = o
 	}

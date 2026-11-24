@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIRM_MS, dashboardModes, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, masterLine, MASTER_MAX, quietHint, QUIET_MS, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, pendingOutcome, rxCaller, reflectorSilent, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate } from './dvpanel.ts';
+import { CONFIRM_MS, dashboardModes, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, masterLine, MASTER_MAX, quietHint, QUIET_MS, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, isTargetLinked, pendingOutcome, rxCaller, reflectorSilent, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate, m17Tune, m17Split, m17Display, M17_MODULES } from './dvpanel.ts';
 import type { DVFavorite, DVSnapshot } from './types';
 
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
@@ -49,6 +49,9 @@ test('tune values follow the server rules', () => {
   assert.ok(validTune('NXDN', '65') && !validTune('NXDN', '-1'));
   assert.ok(validTune('YSF', '00001') && validTune('YSF', 'US-Example') && validTune('YSF', '192.0.2.10:42000') && validTune('YSF', 'disconnect'));
   assert.ok(!validTune('YSF', '192.0.2.10:70000') && !validTune('YSF', 'a=b') && !validTune('YSF', '-x') && !validTune('YSF', 'a;b') && !validTune('YSF', 'x'.repeat(33)));
+  assert.ok(validTune('M17', 'M17-XXX C') && validTune('M17', 'M17-0A9 Z'));
+  assert.ok(!validTune('M17', 'disconnect')); // never a favourite or a Go value; Unlink sends it
+  assert.ok(!validTune('M17', 'M17-XXX') && !validTune('M17', 'M17-XXX c') && !validTune('M17', 'M17-XX C') && !validTune('M17', 'M17-XXXX C') && !validTune('M17', 'M17-XXX CC'));
   assert.ok(!validTune('DSTAR', '1'));
   assert.ok(validTune('DMR', ' 91 '));
 });
@@ -135,6 +138,13 @@ test('bridge node name and label', () => {
   assert.equal(validNodeName('bad\u0007name'), null);
   assert.equal(nodeLinkClass('connect'), 'btn-ok');
   assert.equal(nodeLinkClass('disconnect'), 'btn-bad');
+});
+
+test('unlink target is linked only when set and not the unlink value', () => {
+  assert.equal(isTargetLinked('', ''), false);
+  assert.equal(isTargetLinked('91', '91'), false);
+  assert.equal(isTargetLinked('91', '9999'), true);
+  assert.equal(isTargetLinked('91', ''), true);
 });
 
 test('RX line shows the mode and target while the bridge node is keyed', () => {
@@ -256,7 +266,7 @@ test('[Info] text, URL and coordinates', () => {
 
 test('the DMR networks: all DMR on the air, each its own mode with its own label', () => {
   assert.ok(isDMRFamily('BM') && isDMRFamily('TGIF') && isDMRFamily('DMR') && !isDMRFamily('YSF') && !isDMRFamily(''));
-  assert.deepEqual(PANEL_MODES, ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN']);
+  assert.deepEqual(PANEL_MODES, ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN', 'M17']);
   assert.equal(modeLabel('BM'), 'BrandMeister');
   assert.equal(modeLabel('TGIF'), 'TGIF');
   assert.equal(modeLabel('DMR'), 'DMR - Other');
@@ -346,4 +356,29 @@ test('masterLine: the master of BM and DMR - Other, shortened, empty for the res
   assert.equal(masterLine(snap({ modes: [net('BM', '  ', 'ok')] }), 'BM'), '');
   const long = masterLine(snap({ modes: [net('DMR', 'x'.repeat(100), 'ok')] }), 'DMR');
   assert.equal(long, `Logged in to ${'x'.repeat(MASTER_MAX - 1)}…`);
+});
+
+test('M17: tune value, split and display', () => {
+  assert.equal(M17_MODULES.length, 26);
+  assert.equal(M17_MODULES[0], 'A');
+  assert.equal(M17_MODULES[25], 'Z');
+  assert.equal(m17Tune('M17-XXX', 'C'), 'M17-XXX C');
+  assert.equal(m17Tune(' m17-yyy ', 'b'), 'M17-YYY B');
+  assert.equal(m17Tune('M17-XXX D', 'C'), 'M17-XXX D');
+  assert.equal(m17Tune('M17-XX', 'C'), '');
+  assert.equal(m17Tune('', 'C'), '');
+  assert.deepEqual(m17Split('M17-XXX C'), { reflector: 'M17-XXX', module: 'C' });
+  assert.equal(m17Split('M17-XXX'), null);
+  assert.equal(m17Display('M17-XXX C'), 'M17-XXX module C');
+  assert.equal(m17Display('disconnect'), 'disconnect');
+  const b = { mode: 'M17', tune: 'M17-XXX C', targetName: 'M17-XXX', slot: 0, muted: false, source: 'abinfo' as const, updated: '' };
+  assert.equal(stateLine(b), 'Mode M17, tuned to M17-XXX module C');
+  assert.equal(stateLine(b, true), 'Mode M17, tuned to M17-XXX module C, Reflector not answering');
+  assert.equal(bridgeRxTarget(snap({ bridge: b })), 'M17 M17-XXX module C');
+  assert.equal(heardLine({ call: 'N0CALL', dst: 'M17-XXX C' }), 'N0CALL · M17-XXX module C');
+  assert.equal(modeLabel('M17'), 'M17');
+  assert.ok(PANEL_MODES.includes('M17'));
+  assert.equal(favoriteBlock([], 'M17', 'M17-XXX C'), null);
+  assert.equal(favoriteBlock([fav(1, 'M17', 'M17-XXX C')], 'M17', 'M17-XXX C'), 'Already a favourite');
+  assert.match(favoriteBlock([], 'M17', 'M17-XXX') ?? '', /no valid target/);
 });
