@@ -1,5 +1,5 @@
 {
   "version": "2.2.1",
-  "notes": "2.2.1: M17 callsign suffix in the main settings, CAN to Advanced (#31)\n\n2.2.1: M17 callsign suffix in the main settings, CAN to Advanced",
+  "notes": "### Changed\n- The M17 callsign suffix (for example `N0CALL H`) is now in the main M17 settings; the channel access number moved to Advanced.",
   "date": "2026-11-24"
 }

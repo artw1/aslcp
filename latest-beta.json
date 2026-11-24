@@ -1,5 +1,5 @@
 {
-  "version": "2.2.1",
-  "notes": "2.2.1: M17 callsign suffix in the main settings, CAN to Advanced (#31)\n\n2.2.1: M17 callsign suffix in the main settings, CAN to Advanced",
+  "version": "2.3.0",
+  "notes": "Merge pull request #32 from w1jar/try/dv-redesign\n\nRelease 2.3.0: DV audio AGC, level meters and a redesigned Digital modes page",
   "date": "2026-11-24"
 }
