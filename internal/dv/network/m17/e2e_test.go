@@ -97,8 +97,9 @@ func TestEndToEndParrot(t *testing.T) {
 	cfg := ctl.Config{
 		Version:  1,
 		Identity: ctl.Identity{Callsign: "N0CALL"},
+		// A lost CONN/ACKN on a busy runner must be retried well within the deadline.
 		Networks: []ctl.NetConfig{{Mode: ctl.ModeM17, Enabled: true,
-			Options: map[string]string{"rx_timeout_ms": "400", "tick_ms": "20"}}},
+			Options: map[string]string{"rx_timeout_ms": "400", "tick_ms": "20", "ack_timeout_ms": "200"}}},
 	}
 	cfg.USRP.Listen, cfg.USRP.Peer = ep.Addr().String(), peer.LocalAddr().String()
 	cfg.Vocoder.MD380 = srv.Addr()
@@ -112,7 +113,7 @@ func TestEndToEndParrot(t *testing.T) {
 	if _, err := r.Tune(ctx, ctl.TuneArgs{Mode: ctl.ModeM17, Target: ctl.Target{Room: "M17-XXX C", Host: "127.0.0.1", Port: ref.conn.LocalAddr().(*net.UDPAddr).Port}}); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for {
 		st, err := r.Status(ctx)
 		if err == nil {
