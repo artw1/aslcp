@@ -17,6 +17,7 @@ Release notes are taken from the section of the tag being released
 - The setup link printed by the installer could carry a stale code when the installer restarted ASLCP (port change, `ASLCP_TAKEOVER`, digital modes), so setup said "Wrong setup code". The setup code now stays the same across restarts until an administrator exists.
 - `aslcp dv enable` (and the installer with `ASLCP_DV=1`) kept waiting for up to an hour after digital modes were enabled, then reported a failure, because it did not recognise the helper's "succeeded" job state.
 - If the md380-emu package repository is unreachable or gone, checking for and installing OS updates (and re-running the installer) no longer fails; a warning says the digital modes repository could not be refreshed.
+- After a restore, the digital modes engine kept its old settings: the Settings page showed the restored networks as enabled while the dashboard card did not offer them. A restore now applies the digital modes settings to the engine.
 
 ## [2.0.5] - 2026-11-23
 

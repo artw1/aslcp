@@ -806,13 +806,15 @@ func (o *Ops) BackupRestore(ctx context.Context, req *RestoreRequest, in io.Read
 		}
 		okStep("Replace custom sounds", d)
 	}
+	dvRendered, dvStep := false, 0
 	if m.Parts.DV {
-		d, err := o.restoreDV(sp, m)
+		d, rendered, err := o.restoreDV(sp, m)
 		if err != nil {
 			return fail(dvStepName, err)
 		}
 		if d != "" {
 			okStep(dvStepName, d)
+			dvRendered, dvStep = rendered, len(res.Steps)-1
 		}
 	}
 	if m.Parts.SA818 {
@@ -846,6 +848,13 @@ func (o *Ops) BackupRestore(ctx context.Context, req *RestoreRequest, in io.Read
 		return fail("Start Asterisk", fmt.Errorf("%s", strings.TrimSpace(LastLines(out, 2)+" "+errOr(err))))
 	}
 	okStep("Start Asterisk", "")
+	if dvRendered {
+		// the engine reads config.json at start; Asterisk is back, so its
+		// USRP peer is there again
+		if note := o.dvRestartRestored(ctx); note != "" {
+			res.Steps[dvStep].Detail = joinNote(res.Steps[dvStep].Detail, note)
+		}
+	}
 	res.OK = true
 	return res, nil
 }
