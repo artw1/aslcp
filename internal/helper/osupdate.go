@@ -5,11 +5,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/url"
 	"os"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/artw1/aslcp/internal/legacy"
 )
 
 // Operating system updates. Everything here runs fixed command lines: no
@@ -29,6 +33,19 @@ const (
 	osCallTimeout  = osCheckTimeout + time.Minute
 
 	maxOSPackages = 2000
+
+	// osUpdateOutFile is where the OS upgrade script keeps the output of its
+	// apt-get update for the apt-update-check step.
+	osUpdateOutFile = "/run/aslcp-osupdate-apt.out"
+	osUpdateOutMax  = 1 << 20
+
+	// StepAptUpdateCheck is the dv-step the OS upgrade script calls, with the
+	// output file, after a failed apt-get update.
+	StepAptUpdateCheck = "apt-update-check"
+
+	// OSWarnRepo is the warning shown when only the md380-emu repository
+	// could not be refreshed.
+	OSWarnRepo = "The digital modes package repository (md380-emu) could not be refreshed; other updates were checked normally."
 )
 
 // ErrAptBusy is returned by os-check when another apt or dpkg process holds
@@ -38,15 +55,27 @@ var ErrAptBusy = errors.New("apt is busy, try again later")
 // osUpgradeScript is the fixed script of the OS upgrade unit: a plain
 // "upgrade" (never full-upgrade or dist-upgrade: nothing is removed and no
 // new package is pulled in; packages that would need that stay "kept back"),
-// keeping the local version of changed conffiles.
-const osUpgradeScript = "apt-get update -q -o DPkg::Lock::Timeout=600 && " +
-	"apt-get upgrade -y -q -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0"
+// keeping the local version of changed conffiles. A failed apt-get update
+// does not stop it when only the md380-emu repository failed (the helper's
+// apt-update-check step decides); any other failure ends it with the exit
+// code of apt-get update. Nothing in it comes from a client.
+func (o *Ops) osUpgradeScript() string {
+	out := shQuote(osUpdateOutFile)
+	return strings.Join([]string{
+		"rm -f " + out,
+		"rc=0",
+		"LC_ALL=C apt-get update -q -o DPkg::Lock::Timeout=600 > " + out + " 2>&1 || rc=$?",
+		"cat " + out,
+		"if [ \"$rc\" -ne 0 ]; then " + shQuote(o.selfPath()) + " dv-step " + StepAptUpdateCheck + " " + out + " || exit \"$rc\"; fi",
+		"apt-get upgrade -y -q -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0",
+	}, "\n")
+}
 
 // osUpgradeArgv is the systemd-run command line of os-apply.
-func osUpgradeArgv() []string {
+func (o *Ops) osUpgradeArgv() []string {
 	return []string{"systemd-run", "--no-block", "--unit=" + osUpgradeUnit, "--collect", "--property=Type=oneshot",
 		"--setenv=DEBIAN_FRONTEND=noninteractive", "--setenv=APT_LISTCHANGES_FRONTEND=none",
-		"/bin/sh", "-c", osUpgradeScript}
+		"/bin/sh", "-c", o.osUpgradeScript()}
 }
 
 // aptJobRunning reports whether an upgrade, OS upgrade or digital modes enable
@@ -124,8 +153,14 @@ func (o *Ops) OSCheck(ctx context.Context) (OSStatus, error) {
 	if err != nil {
 		return OSStatus{}, fmt.Errorf("apt-get update: %w", err)
 	}
+	var warnings []string
 	if code != 0 {
-		return OSStatus{}, aptFailure("apt-get update", out)
+		if !aptUpdateOnlyRepoFailed(out, legacy.AptRepoURL) {
+			return OSStatus{}, aptFailure("apt-get update", out)
+		}
+		warnings = append(warnings, OSWarnRepo)
+	} else if aptUpdateRepoWarned(out, legacy.AptRepoURL) {
+		warnings = append(warnings, OSWarnRepo)
 	}
 	out, code, err = o.Run.Run(ctx, "env", "LC_ALL=C", "DEBIAN_FRONTEND=noninteractive",
 		"apt-get", "-q", "-s", "-o", "Debug::NoLocking=1", "upgrade")
@@ -136,7 +171,7 @@ func (o *Ops) OSCheck(ctx context.Context) (OSStatus, error) {
 		return OSStatus{}, aptFailure("apt-get upgrade -s", out)
 	}
 	pkgs, kept := ParseUpgradeSim(out)
-	st := OSStatus{Packages: pkgs, KeptBack: kept}
+	st := OSStatus{Packages: pkgs, KeptBack: kept, Warnings: warnings}
 	st.Job, st.JobLog = o.jobUnit(ctx, osUpgradeUnit)
 	st.RebootRequired, st.RebootPkgs = ReadReboot(o.rebootFiles())
 	return st, nil
@@ -151,6 +186,80 @@ func aptFailure(what, out string) error {
 		return ErrAptBusy
 	}
 	return fmt.Errorf("%s failed: %s", what, LastLines(out, 4))
+}
+
+// repoHost returns the host of the repository URL ("" when it has none).
+func repoHost(repoURL string) string {
+	u, err := url.Parse(repoURL)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
+}
+
+// aptUpdateOnlyRepoFailed reports whether a failed `apt-get update` failed
+// only because of the repository at repoURL: it has at least one error line
+// (starting with "E:" or "Err:") and every one of them mentions the
+// repository's host. Lock errors, other repositories and a failure without
+// any error line are not "only the repository". apt's generic "Some index
+// files failed to download" line names no host and is ignored, since the
+// failures behind it have error lines of their own.
+func aptUpdateOnlyRepoFailed(out, repoURL string) bool {
+	host := repoHost(repoURL)
+	if host == "" {
+		return false
+	}
+	n := 0
+	for _, line := range strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n") {
+		if !strings.HasPrefix(line, "E:") && !strings.HasPrefix(line, "Err:") {
+			continue
+		}
+		if strings.HasPrefix(line, "E: Some index files failed to download") {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(line), host) {
+			return false
+		}
+		n++
+	}
+	return n > 0
+}
+
+// aptUpdateRepoWarned reports whether a successful `apt-get update` still
+// warned (W: lines, e.g. a DNS failure) about fetching from the repository.
+func aptUpdateRepoWarned(out, repoURL string) bool {
+	host := repoHost(repoURL)
+	if host == "" {
+		return false
+	}
+	for _, line := range strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n") {
+		l := strings.ToLower(line)
+		if strings.HasPrefix(line, "W:") && strings.Contains(l, host) &&
+			(strings.Contains(l, "failed to fetch") || strings.Contains(l, "gpg error")) {
+			return true
+		}
+	}
+	return false
+}
+
+// AptUpdateCheck is the apt-update-check step of the OS upgrade script: it
+// reads the saved output of the failed apt-get update and returns nil (after
+// printing a warning) when only the md380-emu repository failed.
+func (o *Ops) AptUpdateCheck(file string, w io.Writer) error {
+	f, err := os.Open(file)
+	if err != nil {
+		return fmt.Errorf("cannot read the apt-get update output: %w", err)
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, osUpdateOutMax))
+	if err != nil {
+		return fmt.Errorf("cannot read the apt-get update output: %w", err)
+	}
+	if !aptUpdateOnlyRepoFailed(string(b), legacy.AptRepoURL) {
+		return errors.New("apt-get update failed")
+	}
+	fmt.Fprintln(w, "warning: "+OSWarnRepo+" Continuing with the upgrade.")
+	return nil
 }
 
 // instRe matches "Inst name [current] (new origin [arch])" and, on some
@@ -207,7 +316,7 @@ func (o *Ops) OSApply(ctx context.Context) (OSStatus, error) {
 		return OSStatus{}, ErrBusy
 	}
 	o.osCheckMu.Unlock()
-	out, code, err := o.Run.Run(ctx, osUpgradeArgv()...)
+	out, code, err := o.Run.Run(ctx, o.osUpgradeArgv()...)
 	o.resetJobUnit(osUpgradeUnit)
 	if err != nil {
 		return OSStatus{}, fmt.Errorf("systemd-run: %w", err)

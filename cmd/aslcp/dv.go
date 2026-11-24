@@ -204,11 +204,11 @@ func dvFollow(ctx context.Context, c dvClient, env dvEnv, seenRunning bool, base
 			}
 			printed = lines
 			switch j.Job {
-			case "running":
+			case helper.JobRunning:
 				seenRunning = true
-			case "done", "failed":
+			case helper.JobSucceeded, "done", helper.JobFailed: // "done" is DVStatus's name for succeeded
 				if seenRunning || j.At > baseAt || time.Since(began) > 15*time.Second {
-					if j.Job == "done" {
+					if j.Job == helper.JobSucceeded || j.Job == "done" {
 						fmt.Fprintln(env.out, "Digital modes enabled.")
 						return nil
 					}

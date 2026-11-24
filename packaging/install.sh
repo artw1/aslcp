@@ -258,6 +258,25 @@ if [ "$TAKEOVER_UNDO" -eq 0 ]; then
 	ASL_KEYRING="${ASLCP_ASL_KEYRING:-/etc/apt/keyrings/allstarlink.gpg}"
 	ASL_REPO_URL=https://repo.allstarlink.org/public
 
+	# apt_update_full MESSAGE: a full apt-get update. When it fails only because
+	# the md380-emu package repository (a third-party source that may be dead) could
+	# not be refreshed, that is a warning and the installer carries on. The
+	# installed helper decides (its apt-update-check step knows the repository);
+	# without it, or for any other failure, the installer stops with MESSAGE.
+	APT_HELPER="${ASLCP_HELPER:-/usr/libexec/aslcp/aslcp-helper}"
+	apt_update_full() {
+		apt_out="$tmp/apt-update.out"
+		apt_rc=0
+		LC_ALL=C apt-get update -o DPkg::Lock::Timeout=600 >"$apt_out" 2>&1 || apt_rc=$?
+		cat "$apt_out"
+		[ "$apt_rc" -ne 0 ] || return 0
+		if [ -x "$APT_HELPER" ] && "$APT_HELPER" dv-step apt-update-check "$apt_out" >/dev/null 2>&1; then
+			say "warning: the digital modes package repository (md380-emu) could not be refreshed; continuing without it"
+			return 0
+		fi
+		die "$1"
+	}
+
 	# pkg_installed PKG: succeeds when dpkg says PKG is fully installed.
 	pkg_installed() {
 		st=$(dpkg-query -W -f='${Status}' "$1" 2>/dev/null || true)
@@ -301,7 +320,7 @@ if [ "$TAKEOVER_UNDO" -eq 0 ]; then
 				# gpgv) but is required to check the repository key. Get it first so a
 				# failure leaves nothing half-installed.
 				say "gpg is not installed; installing it to verify the AllStarLink repository key"
-				apt-get update -o DPkg::Lock::Timeout=600 || die "apt-get update failed (needed to install gpg)"
+				apt_update_full "apt-get update failed (needed to install gpg)"
 				DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=600 gpg || die "could not install gpg, which is needed to verify the AllStarLink repository key"
 				command -v gpg >/dev/null 2>&1 || die "gpg is still not available after installing it"
 			fi
@@ -318,7 +337,7 @@ if [ "$TAKEOVER_UNDO" -eq 0 ]; then
 			say "repository key verified ($ASL_KEY_FPR)"
 		fi
 		say "updating package lists"
-		apt-get update -o DPkg::Lock::Timeout=600 || die "apt-get update failed"
+		apt_update_full "apt-get update failed"
 		# shellcheck disable=SC2086
 		DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 $missing || die "could not install $missing"
 		say "installed $missing"

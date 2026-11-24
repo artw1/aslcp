@@ -63,7 +63,7 @@ func TestDVEnableSuccess(t *testing.T) {
 		jobs: []helper.DVJob{
 			{Job: "running", Log: "step one\nstep two"},
 			{Job: "running", Log: "step one\nstep two\nstep three"},
-			{Job: "done", Log: "step two\nstep three\nfinished"},
+			{Job: helper.JobSucceeded, Log: "step two\nstep three\nfinished"},
 		},
 	}
 	for _, cmd := range []string{"enable", "install"} {
@@ -107,7 +107,7 @@ func TestDVEnableRefusals(t *testing.T) {
 }
 
 func TestDVEnableJoinsRunningJob(t *testing.T) {
-	f := &fakeDVClient{status: helper.DVStatus{Supported: true, Job: "running"}, jobs: []helper.DVJob{{Job: "done", Log: "ok"}}}
+	f := &fakeDVClient{status: helper.DVStatus{Supported: true, Job: "running"}, jobs: []helper.DVJob{{Job: helper.JobSucceeded, Log: "ok"}}}
 	code, out, _ := dvRun(t, f, true, "enable")
 	if code != 0 || f.enables != 0 || !strings.Contains(out, "already running") {
 		t.Fatalf("code %d enables %d: %s", code, f.enables, out)
@@ -167,6 +167,33 @@ func TestNewLines(t *testing.T) {
 		}
 		if !reflect.DeepEqual(got, c.want) {
 			t.Errorf("case %d: %v want %v", i, got, c.want)
+		}
+	}
+}
+
+// The helper's DVJob reports the raw job constants (JobSucceeded is
+// "succeeded"; only DVStatus.Job says "done"). dvFollow must end on them
+// quickly instead of waiting for the timeout. "done" stays accepted as an
+// alias.
+func TestDVFollowSeesHelperJobStates(t *testing.T) {
+	for _, tc := range []struct {
+		job  string
+		code int
+	}{{helper.JobSucceeded, 0}, {"done", 0}, {helper.JobFailed, 1}} {
+		f := &fakeDVClient{status: helper.DVStatus{Supported: true}, jobs: []helper.DVJob{{Job: helper.JobRunning}, {Job: tc.job, Log: "end"}}}
+		conf := filepath.Join(t.TempDir(), "aslcp.conf")
+		if err := os.WriteFile(conf, []byte("[server]\ndatadir = "+t.TempDir()+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var out, errb bytes.Buffer
+		start := time.Now()
+		code := runDV([]string{"enable", "--config", conf}, dvEnv{
+			out: &out, errw: &errb, isRoot: func() bool { return true },
+			client: func(string) dvClient { return f }, sleep: func(time.Duration) { time.Sleep(time.Millisecond) },
+			poll: time.Millisecond, timeout: 2 * time.Second,
+		})
+		if code != tc.code || time.Since(start) > time.Second || strings.Contains(errb.String(), "did not finish") {
+			t.Errorf("%s: code %d after %v: %s %s", tc.job, code, time.Since(start), out.String(), errb.String())
 		}
 	}
 }

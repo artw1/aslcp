@@ -31,6 +31,7 @@ export interface OSUpdates {
   available: boolean; reason: string | null; checkedAt: string | null; checking: boolean; error: string | null;
   packages: OSPackage[]; keptBack: string[]; rebootRequired: boolean; rebootPkgs: string[];
   job: 'idle' | 'running' | 'succeeded' | 'failed' | 'noop'; jobLog: string;
+  /** Non-fatal notes of the last check (e.g. a package repository could not be refreshed). */ warnings?: string[];
 }
 /** Admin-only SSE event "updates": counts only. */
 export interface UpdatesBadge { aslcp: boolean; aslcpVersion: string; os: number; security: number; reboot: boolean }

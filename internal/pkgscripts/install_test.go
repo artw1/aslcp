@@ -420,6 +420,9 @@ cat `+d+`/debpkg 2>/dev/null || echo asl-apt-repos
 	e.writeExec("bin/apt-get", `#!/bin/sh
 echo "apt-get $*" >>`+d+`/calls
 case " $* " in
+*" update "*) if [ -f `+d+`/fail-update ]; then cat `+d+`/update-out; exit 100; fi ;;
+esac
+case " $* " in
 *" install "*) for a; do case "$a" in
 	asl3 | asl3-menu) : >`+d+`/inst-$a ;;
 	gpg) [ ! -f `+d+`/fail-gpg ] || exit 100; cp `+d+`/gpg-src `+filepath.Join(e.dir, "bin")+`/gpg ;;
@@ -462,6 +465,12 @@ func (e *asl3Env) withoutGPG(t *testing.T) {
 // ensure runs asl3_ensure with the given mode, codename and architecture.
 func (e *asl3Env) ensure(t *testing.T, mode, codename, arch string) (string, error) {
 	t.Helper()
+	return e.ensureEnv(t, nil, mode, codename, arch)
+}
+
+// ensureEnv is ensure with extra environment variables.
+func (e *asl3Env) ensureEnv(t *testing.T, extra []string, mode, codename, arch string) (string, error) {
+	t.Helper()
 	s := installScript(t)
 	i := strings.Index(s, "# ---8<--- asl3-install")
 	j := strings.Index(s, "# --->8--- asl3-install")
@@ -487,6 +496,7 @@ ARCH=` + arch + `
 		"ASLCP_T=" + filepath.Join(e.dir, "tmp"),
 		"ASLCP_ASL_KEYRING=" + filepath.Join(e.dir, "keyring.gpg"),
 	}
+	cmd.Env = append(cmd.Env, extra...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -954,5 +964,42 @@ func TestInstallArchCheckBeforeChanges(t *testing.T) {
 	}
 	if k := strings.Index(s, "\n\tasl3_ensure\n"); k < call {
 		t.Errorf("asl3_ensure (%d) must run after check_arch (%d)", k, call)
+	}
+}
+
+// A failed apt-get update ends the installer unless the helper says that only
+// the md380-emu repository failed.
+func TestASL3UpdateFailureTolerance(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		helper string // body of the fake helper; empty: none installed
+		ok     bool
+	}{
+		{"no helper", "", false},
+		{"helper says other failure", "exit 1", false},
+		{"helper says only the repository", "exit 0", true},
+	} {
+		e := newASL3Env(t)
+		e.write("fake/fail-update", "")
+		e.write("fake/update-out", "Err:3 http://apt.example.net/Repo bookworm Release\n  404  Not Found [IP: 192.0.2.10 80]\nE: The repository 'http://apt.example.net/Repo bookworm Release' does not have a Release file.\n")
+		env := []string{}
+		if tc.helper != "" {
+			e.writeExec("bin/fake-helper", "#!/bin/sh\necho \"helper $*\" >>"+filepath.Join(e.dir, "fake", "calls")+"\n"+tc.helper+"\n")
+			env = append(env, "ASLCP_HELPER="+filepath.Join(e.bin, "fake-helper"))
+		}
+		out, err := e.ensureEnv(t, env, "auto", "trixie", "arm64")
+		if tc.ok != (err == nil) {
+			t.Errorf("%s: err=%v out=%s", tc.name, err, out)
+		}
+		if tc.ok {
+			if !strings.Contains(out, "warning: the digital modes package repository (md380-emu)") || len(e.installs()) != 1 {
+				t.Errorf("%s: want a warning and the install: %s %q", tc.name, out, e.installs())
+			}
+			if !strings.Contains(e.calls(), "helper dv-step apt-update-check ") {
+				t.Errorf("%s: helper not asked:\n%s", tc.name, e.calls())
+			}
+		} else if !strings.Contains(out, "apt-get update failed") || len(e.installs()) != 0 {
+			t.Errorf("%s: want a fatal error before the install: %s", tc.name, out)
+		}
 	}
 }

@@ -202,6 +202,7 @@
         <span class="text-muted" title={os.checkedAt ? new Date(os.checkedAt).toLocaleString() : ''}>Last checked: {osChecked}.</span>
       </p>
       {#if os.error}<p class="text-sm text-danger" role="alert">{os.error}</p>{/if}
+      {#each os.warnings ?? [] as w}<p class="text-sm text-warn" role="status">{w}</p>{/each}
       {#if os.rebootRequired}
         <div class="flex flex-wrap items-center gap-3 rounded border border-warn/60 p-3 text-sm" role="status">
           <ShieldAlert size={16} class="text-warn" />

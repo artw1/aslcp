@@ -15,6 +15,8 @@ Release notes are taken from the section of the tag being released
 ### Fixed
 - DMR networks using the Homebrew protocol: retuning right after the network logged in could send two link bursts at once with mixed-up packet sequence numbers. They are now sent one at a time.
 - The setup link printed by the installer could carry a stale code when the installer restarted ASLCP (port change, `ASLCP_TAKEOVER`, digital modes), so setup said "Wrong setup code". The setup code now stays the same across restarts until an administrator exists.
+- `aslcp dv enable` (and the installer with `ASLCP_DV=1`) kept waiting for up to an hour after digital modes were enabled, then reported a failure, because it did not recognise the helper's "succeeded" job state.
+- If the md380-emu package repository is unreachable or gone, checking for and installing OS updates (and re-running the installer) no longer fails; a warning says the digital modes repository could not be refreshed.
 
 ## [2.0.5] - 2026-11-23
 
