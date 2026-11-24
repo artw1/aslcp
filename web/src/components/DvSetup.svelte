@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Digital modes setup, in the order of the setup flow: bridge node, identity (with the radioid.net user list), the networks list and audio.
+  // Digital modes setup, in the order of the setup flow: bridge node, identity, the networks list and audio.
   // The modes the engine does not carry show "Not yet available in this build" with disabled controls.
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
@@ -11,7 +11,6 @@
   import { dvErrorMessage } from '../lib/dvmsg';
   import DvBridge from './DvBridge.svelte';
   import DvNetworks from './DvNetworks.svelte';
-  import UserListCard from './UserListCard.svelte';
   import DvIdentity from './DvIdentity.svelte';
   import DvAudio from './DvAudio.svelte';
 
@@ -58,9 +57,7 @@
     <DvBridge b={v.bridgeNode} base={base()} onsaved={load} />
 
     {#if identity}
-      <DvIdentity {identity} onsaved={(i) => { identity = i; loadNets(); }}><UserListCard embedded /></DvIdentity>
-    {:else}
-      <UserListCard />
+      <DvIdentity {identity} onsaved={(i) => { identity = i; loadNets(); }} />
     {/if}
 
     <DvNetworks {nets} {identity} {modes} onsaved={netSaved} />

@@ -6,10 +6,13 @@
   import Toggle from './Toggle.svelte';
   import Download from '@lucide/svelte/icons/download';
 
-  // `embedded`: no card of its own (it sits under a divider inside another card, e.g. Identity).
-  let { embedded = false }: { embedded?: boolean } = $props();
+  // `compact`: one row for the Engine card (switch, label, summary, Download now, hint). Otherwise a card of its own.
+  let { compact = false }: { compact?: boolean } = $props();
   let st = $state<UserListStatus | null>(null), err = $state(''), busy = $state(false);
   const fmt = (iso?: string) => (iso ? new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'never');
+  const fmtShort = (iso: string) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const summary = $derived(!st ? '' : !st.enabled ? 'Off' : st.busy ? 'Downloading…' : st.updated ? `${st.entries.toLocaleString()} ${st.entries === 1 ? 'entry' : 'entries'} · updated ${fmtShort(st.updated)}` : 'Not downloaded yet');
+  const HINT = 'Looks up the name and place of a talker for the Now Calling strip. Downloaded from radioid.net and checked daily.';
 
   async function load() { try { st = await api.userList(); err = ''; } catch (e) { err = e instanceof Error ? e.message : String(e); } }
   onMount(load);
@@ -30,15 +33,29 @@
   }
 </script>
 
-{#snippet body()}
+{#if compact}
+  <div class="space-y-1 border-t border-line pt-3" role="group" aria-label="radioid.net user list" data-testid="dv-userlist">
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+      {#if st}<span class="inline-flex items-center gap-2 text-sm"><Toggle tap checked={st.enabled} disabled={busy} label={st.enabled ? 'Turn the user list off' : 'Turn the user list on'} onchange={toggle} />radioid.net user list</span>
+      {:else}<span class="text-sm">radioid.net user list</span>{/if}
+      {#if st}
+        <span class="text-xs text-muted" data-testid="dv-userlist-summary">{summary}</span>
+        <button class="btn btn-sm sm:ml-auto" disabled={busy || st.busy || !st.enabled} onclick={download}><Download size={14} />Download now</button>
+      {:else}<span class="text-xs text-muted">{err || 'Loading…'}</span>{/if}
+    </div>
+    {#if st?.error}<p class="break-words text-xs text-danger" role="alert">Last error: {st.error}</p>{/if}
+    <p class="text-xs text-muted">{HINT}</p>
+  </div>
+{:else}
+<section class="card space-y-3 p-4" aria-label="radioid.net user list">
   <div class="flex items-center justify-between gap-2">
-    {#if embedded}<h3 class="text-sm font-semibold">radioid.net user list</h3>{:else}<h2 class="text-base font-semibold">radioid.net user list</h2>{/if}
+    <h2 class="text-base font-semibold">radioid.net user list</h2>
     {#if st}<Toggle tap checked={st.enabled} disabled={busy} label={st.enabled ? 'Turn the user list off' : 'Turn the user list on'} onchange={toggle} />{/if}
   </div>
   {#if !st}
     <p class="text-sm text-muted">{err || 'Loading…'}</p>
   {:else}
-    <p class="text-xs text-muted">Looks up the name and place of a talker for the Now Calling strip. The list is downloaded from radioid.net and checked daily for updates.</p>
+    <p class="text-xs text-muted">{HINT}</p>
     <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
       <dt class="text-muted">Status</dt><dd>{st.enabled ? (st.busy ? 'Downloading…' : 'On') : 'Off'}</dd>
       <dt class="text-muted">Entries</dt><dd class="tabular-nums">{st.entries.toLocaleString()}</dd>
@@ -47,9 +64,5 @@
     </dl>
     <button class="btn min-h-8" disabled={busy || st.busy || !st.enabled} onclick={download}><Download size={15} />Download now</button>
   {/if}
-{/snippet}
-{#if embedded}
-<div class="space-y-3 border-t border-line pt-3" role="group" aria-label="radioid.net user list">{@render body()}</div>
-{:else}
-<section class="card space-y-3 p-4" aria-label="radioid.net user list">{@render body()}</section>
+</section>
 {/if}

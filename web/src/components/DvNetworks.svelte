@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The Networks card of the digital modes setup: one divided list of all networks. Each row has the name, the
+  // The Networks card of the digital modes setup: a stack of cards, one per network. Each card has the name, the
   // state badge, a one-line summary, the Enable switch (saved at once) and a chevron that opens the settings (DvNet).
   // Only one row is open at a time.
   import { api } from '../lib/api';
@@ -36,21 +36,21 @@
   }
 </script>
 
-<section class="card p-4" aria-label="Networks" data-testid="dv-networks">
+<section aria-label="Networks" data-testid="dv-networks">
   <h2 class="text-base font-semibold">Networks</h2>
-  <p class="mt-0.5 text-xs text-muted">Switch a network on here. Open a row for its settings.</p>
-  <div class="mt-2 space-y-3">
+  <p class="mt-0.5 text-xs text-muted">Switch a network on here. Open a network for its settings.</p>
+  <div class="mt-3 space-y-4">
     {#each NETWORK_GROUPS as g, gi (gi)}
       <div>
-        {#if g.title}<h3 class="mb-0.5 text-xs font-semibold uppercase tracking-wide text-muted">{g.title}</h3>{/if}
-        <ul class="divide-y divide-line border-y border-line">
+        {#if g.title}<h3 class="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">{g.title}</h3>{/if}
+        <ul class="space-y-2">
           {#each g.ids as id (id)}
             {@const c = cardState(modes, id)}
             {@const v = netOf(id)}
             {@const sum = netSummary(v, c.available, c.enabled)}
             {@const isOpen = open === id}
-            <li data-testid="dv-row-{id.toLowerCase()}">
-              <div class="flex items-center gap-2 py-1.5">
+            <li class="card p-3 {isOpen ? 'border-accent' : ''}" data-testid="dv-row-{id.toLowerCase()}">
+              <div class="flex items-center gap-2">
                 <div class="min-w-0 flex-1">
                   <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                     <span class="text-sm font-medium">{MODE_NAME[id]}</span>
@@ -64,7 +64,7 @@
                 </button>
               </div>
               {#if isOpen}
-                <div id="dv-row-{id.toLowerCase()}-body" class="pb-3 pt-1">
+                <div id="dv-row-{id.toLowerCase()}-body" class="mt-3 border-t border-line pt-3">
                   {#if !c.available}
                     <p class="text-xs text-muted" data-testid="dv-{id.toLowerCase()}-unavailable">{UNAVAILABLE_TEXT}</p>
                   {:else if v}

@@ -12,7 +12,7 @@ Release notes are taken from the section of the tag being released
 - `GET /api/dv/audio`, `PUT /api/dv/audio` and `GET /api/dv/meter`.
 
 ### Changed
-- The Digital modes page is shorter and follows the setup flow, in one column: Engine (status, services, resume switch and the enable log), Bridge node (a summary with Edit), Identity (with the radioid.net user list), a single Networks list (one row per mode with its state, a summary, an Enable switch that saves at once, and settings that open on demand) and Audio.
+- The Digital modes page is shorter and follows the setup flow, in one column: Engine (status, services, resume switch, the radioid.net user list and the enable log), Bridge node (a summary with Edit), Identity, Networks (one card per mode with its state, a summary, an Enable switch that saves at once, and settings that open on demand) and Audio.
 
 ## [2.2.1] - 2026-11-24
 

@@ -49,7 +49,7 @@ Availability comes from the engine (which modes the running build implements); w
 
 ## The setup page
 
-Digital modes (`#/digital`) is one column, in the order of the setup: the *Engine* card (status, services, Refresh, Disable, the *Resume after restart* switch and the last enable job with a *Show log* toggle), *Bridge node* (a summary line with *Edit* once a node exists), *Identity* (with the radioid.net user list under it), *Networks* and *Audio* (the echo test and the AGC and gain settings). In *Networks* each mode is a row with its state, a one-line summary, an Enable switch and a chevron that opens its settings; one row is open at a time. The switch saves the enabled state at once; if something is missing (the password, the NXDN ID, the identity) the row opens, says what, and the switch stays off. Fields are saved with the row's *Save*. Below, "the card" of a network means its row.
+Digital modes (`#/digital`) is one column, in the order of the setup: the *Engine* card (status, services, Refresh, Disable, the *Resume after restart* switch, the *radioid.net user list* row with its switch, a one-line summary and *Download now*, and the last enable job with a *Show log* toggle), *Bridge node* (a summary line with *Edit* once a node exists), *Identity*, *Networks* and *Audio* (the echo test and the AGC and gain settings). In *Networks* each mode is its own card with its state, a one-line summary, an Enable switch and a chevron that opens its settings below a divider; one card is open at a time. The switch saves the enabled state at once; if something is missing (the password, the NXDN ID, the identity) the card opens, says what, and the switch stays off. Fields are saved with the card's *Save*.
 
 ## Echo test
 

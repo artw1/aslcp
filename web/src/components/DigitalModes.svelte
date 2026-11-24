@@ -118,6 +118,8 @@
       </div>
     {/if}
 
+    {#if st.enabled && !running}<UserListCard compact />{/if}
+
     {#if running || job.state === 'failed' || (job.state === 'succeeded' && (!dismissed || logOpen))}
       <div class="space-y-2 border-t border-line pt-3" aria-label="Job">
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -143,7 +145,7 @@
   </section>
   {#if st.enabled && !running}
     <DvSetup {resume} reloadResume={loadResume} />
-  {:else}
+  {:else if !(st.enabled && !running)}
     <UserListCard />
   {/if}
   {/if}
