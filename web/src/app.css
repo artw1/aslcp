@@ -52,6 +52,8 @@ body { background: var(--bg); color: var(--fg); font-family: var(--font-sans); -
   .btn-bad { @apply border-transparent bg-danger text-accent-fg hover:bg-danger hover:opacity-90; }
   .btn-danger { @apply text-danger hover:bg-danger/10; }
   .btn-sm { @apply px-2 py-0.5 text-xs; min-height: 1.6rem; }
+  .btn-xs { @apply px-1.5 py-0 text-[11px]; min-height: 1.35rem; }
+  .btn-off { @apply border-transparent bg-neutral-600 text-neutral-200 hover:bg-neutral-600 disabled:opacity-100; }
   .btn-icon { @apply px-1.5; }
   .input { @apply w-full rounded border border-line bg-surface px-2.5 py-1 text-sm text-fg placeholder:text-muted; min-height: 1.9rem; }
   .card { @apply rounded-md border border-line bg-surface; }

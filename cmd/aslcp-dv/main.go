@@ -18,7 +18,7 @@ const usage = `usage: aslcp-dv <command> [flags]
 
 commands:
   run       run the engine (systemd service)
-  bench     measure md380-emu throughput and latency
+  bench     measure vocoder throughput and latency (md380-emu, or -codec codec2)
   version   print the version
 `
 

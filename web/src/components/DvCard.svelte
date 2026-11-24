@@ -4,9 +4,10 @@
   import { api } from '../lib/api';
   import { app, canOperate, isAdmin } from '../lib/store.svelte';
   import { toast, toastError } from '../lib/toast.svelte';
+  import { dvErrorMessage } from '../lib/dvmsg';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-    import { CONFIRM_MS, allOk, bridgeLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, masterLine, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes, quietHint, QUIET_TICK_MS } from '../lib/dvpanel';
+    import { CONFIRM_MS, allOk, bridgeLinked, isTargetLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, masterLine, M17_MODULES, m17Tune, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes, quietHint, QUIET_TICK_MS } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import { exclusiveHint, linkButton, linkExclusiveOnClick, linkLine, pausedHint } from '../lib/dvbridge';
   import type { DVCmdReply, DVFavorite, DVListItem, DVListMode, DVTuneMode } from '../lib/types';
@@ -58,7 +59,7 @@
     finally { busy = false; }
   }
 
-  // Tune: a list picker for YSF, P25 and NXDN, a plain number for BM and DMR (the DMR list holds masters, not talkgroups).
+  // Tune: a list picker for YSF, P25, NXDN and M17, a plain number for BM and DMR (the DMR list holds masters, not talkgroups).
   let lists = $state<Partial<Record<DVTuneMode, { items: DVListItem[]; index: DVIndexed[] }>>>({});
   const tried = new Set<string>();
   let tuneValue = $state('');
@@ -74,7 +75,9 @@
   });
   // DMR private call: the toggle, or a trailing # typed in the field. Never offered for the other modes.
   let priv = $state(false);
-  const sendValue = $derived(isDMRFamily(mode) ? withPrivate(mode, tuneValue, priv || tuneValue.trim().endsWith(PRIVATE_MARK)) : tuneValue.trim());
+  // M17: the reflector comes from the picker, the module from the dropdown ("M17-XXX" + " " + "C").
+  let module = $state('A');
+  const sendValue = $derived(isDMRFamily(mode) ? withPrivate(mode, tuneValue, priv || tuneValue.trim().endsWith(PRIVATE_MARK)) : mode === 'M17' ? m17Tune(tuneValue, module) : tuneValue.trim());
   const tuneOk = $derived(!!mode && validTune(mode, sendValue));
   async function tune(value: string) {
     if (locked || !mode) return;
@@ -84,7 +87,7 @@
       apply(r);
       toast(r.confirmed ? 'Tuned' : 'Sent, not confirmed yet', r.confirmed ? 'ok' : 'info');
       return true;
-    } catch (e) { toastError(e); } finally { busy = false; }
+    } catch (e) { toast(dvErrorMessage(e), 'error'); } finally { busy = false; }
   }
   // The DMR - Other "no traffic" hint: the server sends when the talkgroup was last used, the clock decides when it is 15 minutes old.
   let nowMs = $state(Date.now());
@@ -133,6 +136,7 @@
   $effect(() => { if (snap?.installed && !favsLoaded) { favsLoaded = true; void loadFavs(); } });
   const chips = $derived(mode ? favoritesFor(favs, mode) : []);
   const target = $derived(b?.tune ?? '');
+  const targetLinked = $derived(isTargetLinked(target, unlinkValue));
   // A private call is saved with its #, so the chip calls it privately again.
   const favValue = $derived(target && isDMRFamily(mode) && b?.private ? target + PRIVATE_MARK : target);
   const starred = $derived(mode ? findFavorite(favs, mode, favValue) : undefined);
@@ -165,6 +169,7 @@
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
       <span class="inline-flex items-center gap-1.5 font-medium"><RadioTower size={15} class="text-accent" aria-hidden="true" />Digital modes</span>
       <span class={tone === 'warn' ? 'text-warn' : tone === 'ok' ? 'text-ok' : ''} title={stateTitle(snap)} data-tone={tone}>{stateLine(b, reflectorSilent(snap))}</span>
+      {#if op && live && mode !== 'LOOP'}<button type="button" class="btn btn-xs {targetLinked ? 'btn-bad' : 'btn-off'}" disabled={locked || !mode || !unlinkValue || !targetLinked} title={!targetLinked ? 'Nothing is linked' : mode ? `Unlink the ${modeLabel(mode)} talkgroup or reflector: send ${unlinkValue} to ${modeLabel(mode)}. The bridge node link is not changed.` : 'Mode unknown'} onclick={unlink}><Unlink size={11} aria-hidden="true" />Unlink {mode ? modeLabel(mode) + ' target' : ''}</button>{/if}
       {#if master}<span class="min-w-0 max-w-full truncate text-xs text-muted" title={masterTitle} data-testid="dv-master">{master}</span>{/if}
       {#if mode === 'LOOP'}<a href="#/digital" class="text-xs text-accent underline hover:no-underline" data-testid="dv-echo-link">{admin ? 'Stop it in Digital modes setup' : 'Pick a mode to stop it'}</a>{/if}
       <span class="sr-only">{ok ? 'All services running' : 'A service is down or the state is unknown'}</span>
@@ -204,7 +209,6 @@
             title={m.enabled ? undefined : `${modeButtonLabel(m)} is disabled${admin ? ' (Digital modes tab)' : ''}`}
             onclick={() => setMode(m.id)}>{modeButtonLabel(m)}{#if pending?.mode === m.id && outcome === 'waiting'}…{/if}</button>
         {/each}
-        {#if mode !== 'LOOP'}<button type="button" class="btn btn-sm ml-auto" disabled={locked || !mode || !unlinkValue} title={mode ? `Unlink the ${modeLabel(mode)} talkgroup or reflector: send ${unlinkValue} to ${modeLabel(mode)}. The bridge node link is not changed.` : 'Mode unknown'} onclick={unlink}><Unlink size={13} aria-hidden="true" />Unlink {mode ? modeLabel(mode) + ' target' : ''}</button>{/if}
       </div>
 
 
@@ -217,6 +221,11 @@
               <input id="dvtune" class="input font-mono" bind:value={tuneValue} placeholder={isDMRFamily(mode) ? 'Talkgroup number' : 'Target'} inputmode={isDMRFamily(mode) ? 'numeric' : 'text'} autocomplete="off" aria-label="Tune target" />
             {/if}
           </div>
+          {#if mode === 'M17'}
+            <select class="input w-auto" bind:value={module} disabled={locked} aria-label="Module" title="The module (room) of the reflector" data-testid="dv-m17-module">
+              {#each M17_MODULES as x (x)}<option value={x}>Module {x}</option>{/each}
+            </select>
+          {/if}
           {#if isDMRFamily(mode)}
             <label class="inline-flex cursor-pointer items-center gap-1.5 text-xs" title="Call the number as a private call (a trailing # on the ID)" data-testid="dv-private">
               <input type="checkbox" class="size-4 accent-[var(--accent)]" bind:checked={priv} disabled={locked} />Private call</label>

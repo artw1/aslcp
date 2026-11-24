@@ -89,3 +89,28 @@ func TestEchoTestAlwaysOn(t *testing.T) {
 		}
 	}
 }
+
+func TestM17Config(t *testing.T) {
+	ok := `{"version":1,"identity":{"callsign":"N0CALL"},"networks":[{"mode":"M17","enabled":true,"address":"192.0.2.10","port":17000,"options":{"module":"C","can":"2","reflector":"M17-XXX","suffix":"B"}}]}`
+	if _, err := Parse([]byte(ok)); err != nil {
+		t.Fatal(err)
+	}
+	for name, doc := range map[string]string{
+		"module":   `"options":{"module":"c"}`,
+		"can":      `"options":{"can":"16"}`,
+		"reflect":  `"options":{"reflector":"XXX"}`,
+		"callsign": `"options":{"suffix":"TOOLONGSUF"}`,
+	} {
+		b := `{"version":1,"identity":{"callsign":"N0CALL"},"networks":[{"mode":"M17","enabled":true,` + doc + `}]}`
+		if _, err := Parse([]byte(b)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	// a disabled M17 needs no callsign
+	if _, err := Parse([]byte(`{"version":1,"networks":[{"mode":"M17"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse([]byte(`{"version":1,"networks":[{"mode":"M17","enabled":true}]}`)); err == nil {
+		t.Fatal("enabled M17 without callsign accepted")
+	}
+}

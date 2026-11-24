@@ -52,7 +52,7 @@ On the node:
 curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo sh
 ```
 
-The script adds the signed ASLCP apt repository, installs the `aslcp` package and prints a one-time setup link. Then open `http://<your-node>:8080` (8080 is the default port; see [Web port](#web-port)).
+The script adds the signed ASLCP apt repository, installs the `aslcp` package and prints a one-time setup link. If ASL3 is not installed, the installer installs it first (see [ASL3 at install](#asl3-at-install)). Then open `http://<your-node>:8080` (8080 is the default port; see [Web port](#web-port)).
 
 On a freshly flashed ASL3 card, wait for the first-boot setup and its reboot (20-30 minutes) before installing: ASL3 installs updates and may reboot the node. The installer checks this (first-boot services, another running apt/dpkg or a held dpkg lock) and refuses to change anything until it is done; just run it again later. `ASLCP_SKIP_PREFLIGHT=1` skips the check. A pending reboot only produces a warning. Package operations started from the web UI wait up to 10 minutes for the apt lock instead of failing.
 
@@ -77,7 +77,7 @@ Or find its address in your router.
 ssh <user>@node1997.local
 ```
 
-6. Run the installer. Wait for the first boot to finish first (see above).
+6. Run the installer. Wait for the first boot to finish first (see above). If ASL3 is not installed, the installer installs it first (see [ASL3 at install](#asl3-at-install)).
 
 ```sh
 curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo sh

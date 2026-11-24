@@ -2,6 +2,7 @@
 // (docs/DV.md). Pure helpers so node --test can cover them.
 import { DV_NETWORKS, ECHO_LABEL, isDVNetwork } from './dvnetworks.ts';
 import { modeAvailable } from './dvnetform.ts';
+import { m17Display } from './dvpanel.ts';
 import type { DVResume, DVSnapshot, DVTuneMode } from './types';
 
 /** The notice card above the mode cards. */
@@ -23,7 +24,7 @@ export function resumeToast(on: boolean): string {
 export const MODE_NAME: Record<DVTuneMode, string> = {
   LOOP: ECHO_LABEL,
   ...(Object.fromEntries(DV_NETWORKS.map((n) => [n.id, n.label])) as Record<'BM' | 'TGIF' | 'DMR', string>),
-  YSF: 'System Fusion (YSF)', P25: 'P25', NXDN: 'NXDN',
+  YSF: 'System Fusion (YSF)', P25: 'P25', NXDN: 'NXDN', M17: 'M17',
 };
 
 /** "just now", "5 min ago", "3 h ago", "2 d ago". */
@@ -43,7 +44,7 @@ export function lastUsed(r: DVResume | null, now: number): string {
   if (!r || !m || !Object.hasOwn(MODE_NAME, m)) return '';
   const t = r.perMode?.[m];
   if (!t || !t.tune) return `Last used: ${MODE_NAME[m]}`;
-  const what = isDVNetwork(m) ? `TG ${t.tune}${t.ts ? ` TS ${t.ts}` : ''}` : t.tune;
+  const what = isDVNetwork(m) ? `TG ${t.tune}${t.ts ? ` TS ${t.ts}` : ''}` : m === 'M17' ? m17Display(t.tune) : t.tune;
   const ago = timeAgo(t.at, now);
   return `Last used: ${MODE_NAME[m]} ${what}${ago ? ` (${ago})` : ''}`;
 }

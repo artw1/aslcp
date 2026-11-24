@@ -3,6 +3,23 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [2.2.0] - 2026-11-24
+
+### Added
+- M17 reflector support (test build). A pure-Go Codec2 3200 port (also in the bridge and the bench), M17 packets and callsign encoding, and an M17 reflector client in the digital modes engine.
+- M17 in the panel: configuration, tuning to a reflector and module, the reflector host list and the API.
+- M17 in the web UI, including M17 calls in the Now calling strip.
+- The DVRef credit for the reflector lists is in docs/DV.md.
+- A manual "Codec2 reference check" workflow (Actions tab, Run workflow) compares the Go Codec2 3200 encoder and decoder with libcodec2's `c2enc` and `c2dec` on standard speech samples. It is not part of normal CI.
+
+### Changed
+- The M17 Codec2 3200 decoder now follows libcodec2 1.2's arithmetic (postfilter, synthesis, LSP/Wo decoding) instead of the faster approximations of the fork it was ported from. Its output now tracks the reference decoder closely, 41-48 dB SNR on the standard test samples. The encoder is unchanged.
+- The public install page and README say up front that the installer installs ASL3 (`asl3` and `asl3-menu`) first when it is missing, and that a freshly flashed ASL3 card must finish its first-boot setup and reboot before installing.
+
+### Fixed
+- P25 and NXDN calls in the Now calling strip were labelled "DMR · TG n"; they now show P25 or NXDN.
+- Docs implied ASLCP installs qemu-user-static to run the md380 emulator. It is present only because the md380-emu package depends on it; on arm64 that package ships its own `/opt/md380-emu/qemu-arm-static` and its service runs that directly.
+
 ## [2.1.3] - 2026-11-24
 
 ### Fixed
@@ -82,7 +99,7 @@ Release notes are taken from the section of the tag being released
 
 ### Changed
 - Digital modes now run on the built-in ASLCP engine; the previous third-party digital voice stack is no longer used, and it is removed when you upgrade (see the note above), except md380-emu.
-- "Enable digital modes" installs only the md380-emu vocoder (plus qemu-user-static on 64-bit and x86 systems). ARMv6 boards are not supported.
+- "Enable digital modes" installs only the md380-emu vocoder (its package depends on qemu-user-static, which apt installs along with it). ARMv6 boards are not supported.
 - `aslcp dv enable`, `disable` and `status` manage digital modes from the shell; the installer accepts `ASLCP_DV=1`. The old install command and installer variable are gone.
 - The digital modes API moved to /api/dv.
 - The setup page shows the bridge node and the state of `rpt.conf` and `modules.conf`, and holds the identity and the settings of the networks that are available.

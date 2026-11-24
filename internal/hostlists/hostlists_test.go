@@ -37,6 +37,9 @@ func TestParse(t *testing.T) {
 	if n := ParseTG(fixture(t, "NXDN_Hosts.txt"), "NXDN"); len(n) != 1 || n[0].Name != "NXDN TG 65000" {
 		t.Fatalf("nxdn: %+v", n)
 	}
+	if m := ParseM17(fixture(t, "M17_Hosts.txt")); len(m) != 2 || m[0].Value != "M17-XXX" || m[0].Address != "m17-xxx.example.net" || m[0].Port != 17000 || m[1].Value != "M17-A1B" || m[1].Port != 17001 {
+		t.Fatalf("m17: %+v", m)
+	}
 	if got := parse("dmr", []byte("\xef\xbb\xbf")); len(got) != 0 {
 		t.Fatal(got)
 	}
@@ -115,6 +118,14 @@ func TestRefreshResolveAndKeep(t *testing.T) {
 	if tg, ok := m.Resolve("nxdn", "65000"); !ok || tg.Port != 41400 {
 		t.Fatalf("%+v", tg)
 	}
+	if tg, ok := m.Resolve("m17", "M17-A1B C"); !ok || tg.Room != "M17-A1B C" || tg.Host != "192.0.2.30" || tg.Port != 17001 {
+		t.Fatalf("%+v", tg)
+	}
+	for _, v := range []string{"M17-A1B", "M17-QQQ C", "M17-A1B c", "M17-A1B CC"} {
+		if _, ok := m.Resolve("M17", v); ok {
+			t.Fatalf("m17 %q resolved", v)
+		}
+	}
 	if _, ok := m.Resolve("dmr", "192.0.2.10"); ok {
 		t.Fatal("dmr is not resolved here")
 	}
@@ -173,7 +184,7 @@ func TestLoadAndConditional(t *testing.T) {
 	if err := m2.refresh(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
-	if atomic.LoadInt32(&s.cond) != 4 {
+	if atomic.LoadInt32(&s.cond) != 5 {
 		t.Fatalf("conditional hits: %d", s.cond)
 	}
 	if _, err := m2.Get("bogus"); err == nil {

@@ -30,12 +30,17 @@ test('last used: the last mode and its tune', () => {
   assert.equal(lastUsed(null, now), '');
 });
 
+test('last used shows an M17 reflector and module', () => {
+  const perMode = { M17: { tune: 'M17-XXX C', at: '2026-11-17T11:55:00Z' } };
+  assert.equal(lastUsed({ resume: true, lastMode: 'M17', perMode }, now), 'Last used: M17 M17-XXX module C (5 min ago)');
+});
+
 test('last used names the actual DMR network', () => {
   const perMode = { TGIF: { tune: '31665', ts: '2', at: '2026-11-17T11:55:00Z' }, DMR: { tune: '1', at: '2026-11-17T09:00:00Z' } };
   assert.equal(lastUsed({ resume: true, lastMode: 'TGIF', perMode }, now), 'Last used: TGIF TG 31665 TS 2 (5 min ago)');
   assert.equal(lastUsed({ resume: true, lastMode: 'DMR', perMode }, now), 'Last used: DMR - Other TG 1 (3 h ago)');
   assert.equal(lastUsed({ resume: true, lastMode: 'BM', perMode }, now), 'Last used: BrandMeister');
-  assert.deepEqual(Object.keys(MODE_NAME), ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN']);
+  assert.deepEqual(Object.keys(MODE_NAME), ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN', 'M17']);
   assert.equal(MODE_NAME.LOOP, 'Echo test');
   assert.equal(lastUsed({ resume: true, lastMode: 'toString', perMode }, now), '');
 });

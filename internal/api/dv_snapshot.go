@@ -78,7 +78,7 @@ type DVModeView struct {
 	// Login and Detail are the engine's login state of an enabled mode.
 	Login  string `json:"login,omitempty"`
 	Detail string `json:"detail,omitempty"`
-	// Silent: the YSF, P25 or NXDN reflector of the tuned target does not answer
+	// Silent: the YSF, P25, NXDN or M17 reflector of the tuned target does not answer
 	// (the engine's lost state, ctl.NotAnswering); the dashboard says so.
 	Silent bool `json:"silent,omitempty"`
 	// QuietSince (DMR - Other only, RFC 3339) is the later of the tune of the
@@ -616,7 +616,7 @@ func (d *dvSnapper) getBridgeNode(ctx context.Context) DVBridgeNode {
 }
 
 // targetName names the target: the engine's own name, the host list entry
-// (YSF, P25, NXDN) or a favourite. "" when unknown.
+// (YSF, P25, NXDN, M17) or a favourite. "" when unknown.
 func (d *dvSnapper) targetName(st ctl.Status, mode, tune string) string {
 	if st.Target != nil && st.Target.Name != "" {
 		return st.Target.Name
@@ -699,6 +699,9 @@ func dvNowTalks(talks []ctl.Talk) []nowcalling.Talk {
 		k := nowcalling.Talk{Kind: nowcalling.KindDMR, Via: nowcalling.ViaEngine, Call: dvCallsign(t), Slot: t.Slot, Private: t.Private, Start: t.Start, End: t.End, Network: dvNetworkName(t.Mode)}
 		if t.Mode == ctl.ModeYSF {
 			k.Kind = nowcalling.KindYSF
+		}
+		if t.Mode == ctl.ModeM17 {
+			k.Kind = nowcalling.KindM17
 		}
 		if ctl.IsEchoTest(t) {
 			k.Call = ctl.EchoTestName

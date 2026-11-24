@@ -376,3 +376,15 @@ func TestSTFULostEndLine(t *testing.T) {
 		t.Fatalf("stuck: %+v", s)
 	}
 }
+
+func TestM17CallShowsReflectorAsRoom(t *testing.T) {
+	c := &clk{t0}
+	tr, _ := newT(c)
+	tr.UpdateAllStar("1998", nil, true, false, false)
+	c.add(time.Second)
+	tr.UpdateDV([]Talk{{Kind: KindM17, Via: ViaEngine, Network: "M17", Call: "N0CALL", Dst: "M17-XXX C", Slot: 2, Start: t0.Add(time.Second)}})
+	cur := tr.Snapshot().Current
+	if cur == nil || cur.Kind != KindM17 || cur.Room != "M17-XXX C" || cur.TG != "" || cur.Slot != 0 || cur.Network != "M17" {
+		t.Fatalf("current = %+v", cur)
+	}
+}

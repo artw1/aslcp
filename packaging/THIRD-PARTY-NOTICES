@@ -3,8 +3,10 @@ Third-party software in the ASLCP packages
 
 ASLCP itself is licensed under the GNU GPL v3 or later (see
 /usr/share/doc/aslcp/copyright). The binaries and the web UI bundled in them
-contain the components below; their licence texts follow. All of them are
+contain the components below; their licence texts or notices follow. Most are
 permissive licences (BSD-3-Clause, MIT, ISC) that are compatible with GPL-3.0.
+The exception is the Codec2 vocoder (LGPL-2.1), which is used under section 3
+of that licence as GPL-3.0-or-later; see its entry below.
 
 ----------------------------------------------------------------------
 Go module golang.org/x/crypto v0.40.0 (LICENSE)
@@ -444,6 +446,55 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+----------------------------------------------------------------------
+Codec2 3200 bit/s vocoder, ported to Go (internal/dv/codec2)
+----------------------------------------------------------------------
+
+Derived from Codec2-mod, https://github.com/M17-Project/Codec2-mod, commit
+7c334283794fa6304dc014f12df70afc8393143a, the 3200 bit/s extraction of Codec2
+by David Rowe and the other Codec2 contributors.
+
+Codec2 and Codec2-mod are licensed under the GNU Lesser General Public License,
+version 2.1 (the text is in /usr/share/common-licenses/LGPL-2.1 on Debian
+systems, and at https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt).
+Section 3 of that licence allows a copy of the library to be distributed under
+the terms of the ordinary GNU General Public License instead, naming a newer
+version of the GPL if desired. ASLCP uses the Codec2-mod code in this way: the
+Go port is distributed under the GNU General Public License, version 3 or
+later, together with the rest of ASLCP (see /usr/share/doc/aslcp/copyright).
+Each ported source file states this in its header. The corresponding source is
+the ASLCP source code.
+
+----------------------------------------------------------------------
+KISS FFT (bundled in Codec2-mod; ported in internal/dv/codec2/fft.go)
+----------------------------------------------------------------------
+
+Copyright (c) 2003-2010, Mark Borgerding. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+   * Redistributions of source code must retain the above copyright notice,
+     this list of conditions and the following disclaimer.
+   * Redistributions in binary form must reproduce the above copyright
+     notice, this list of conditions and the following disclaimer in the
+     documentation and/or other materials provided with the distribution.
+   * Neither the author nor the names of any contributors may be used to
+     endorse or promote products derived from this software without
+     specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
 
 ----------------------------------------------------------------------
 npm package @codemirror/commands 6.11.1 (web UI bundle)

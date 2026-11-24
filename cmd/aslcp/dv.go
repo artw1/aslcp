@@ -17,7 +17,7 @@ import (
 
 const dvUsage = `Usage: aslcp dv <command> [options]
 
-Manage the digital modes (DMR, YSF, P25, NXDN) engine through the ASLCP
+Manage the digital modes (DMR, YSF, P25, NXDN, M17) engine through the ASLCP
 helper. enable and disable must run as root (sudo).
 
 Commands:

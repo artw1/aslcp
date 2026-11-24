@@ -122,7 +122,7 @@ func TestDVNetworkIncomplete(t *testing.T) {
 }
 
 func TestDVNetworksTGIFDMRNXDN(t *testing.T) {
-	e, _, _ := dvEnv(t, ctl.ModeLoop, ctl.ModeBM, ctl.ModeTGIF, ctl.ModeDMR, ctl.ModeNXDN)
+	e, _, _ := dvEnv(t, ctl.ModeLoop, ctl.ModeBM, ctl.ModeTGIF, ctl.ModeDMR, ctl.ModeNXDN, ctl.ModeM17)
 	waitDV(t, e, func(s dvSnap) bool { return s.Running })
 	var list struct {
 		Modes []struct {
@@ -148,13 +148,17 @@ func TestDVNetworksTGIFDMRNXDN(t *testing.T) {
 			if !m.Available || !m.Fields.Address || !m.Fields.Password || len(m.Options) == 0 {
 				t.Fatalf("%+v", m)
 			}
+		case "M17":
+			if !m.Available || m.Fields.Address || m.Fields.Port || m.Fields.Password || !m.NeedsIdentity || len(m.Options) == 0 {
+				t.Fatalf("%+v", m)
+			}
 		case "NXDN":
 			if !m.Available || m.Fields.Address || m.Fields.Password || !m.NeedsIdentity || len(m.Options) == 0 {
 				t.Fatalf("%+v", m)
 			}
 		}
 	}
-	if got["TGIF"] != 1 || got["DMR"] != 1 || got["NXDN"] != 1 {
+	if got["TGIF"] != 1 || got["DMR"] != 1 || got["NXDN"] != 1 || got["M17"] != 1 {
 		t.Fatalf("%v", got)
 	}
 	// validation
@@ -163,6 +167,8 @@ func TestDVNetworksTGIFDMRNXDN(t *testing.T) {
 	expectErr(t, e, "admin", "PUT", "/api/dv/networks/DMR", map[string]any{"options": map[string]string{"nxdn_id": "1"}}, 422, "invalid_field")
 	expectErr(t, e, "admin", "PUT", "/api/dv/networks/NXDN", map[string]any{"password": "example-pass"}, 422, "invalid_field")
 	expectErr(t, e, "admin", "PUT", "/api/dv/networks/NXDN", map[string]any{"options": map[string]string{"nxdn_id": "0"}}, 422, "invalid_field")
+	expectErr(t, e, "admin", "PUT", "/api/dv/networks/M17", map[string]any{"options": map[string]string{"can": "16"}}, 422, "invalid_field")
+	expectErr(t, e, "admin", "PUT", "/api/dv/networks/M17", map[string]any{"address": "192.0.2.10"}, 422, "invalid_field")
 	var v netView
 	if c := e.do("admin", "PUT", "/api/dv/networks/DMR", map[string]any{"address": "192.0.2.10", "port": 62031, "password": "example-pass",
 		"options": map[string]string{"options": "TS2=1997;"}}, &v); c != 200 || !v.PasswordSet || v.Values["options"] != "TS2=1997;" {

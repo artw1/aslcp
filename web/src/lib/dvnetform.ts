@@ -3,7 +3,7 @@
 import type { DVIdentity, DVListItem, DVLogin, DVNetPut, DVNetView, DVOptSpec, DVSnapshot, DVTuneMode } from './types';
 
 /** The modes the build implements natively. Only the fallback when the snapshot does not list a mode; the engine's `available` wins. */
-export const NATIVE_MODES: readonly string[] = ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN'];
+export const NATIVE_MODES: readonly string[] = ['LOOP', 'BM', 'TGIF', 'DMR', 'YSF', 'P25', 'NXDN', 'M17'];
 
 /** Whether a mode is available: the snapshot's (engine's) answer, else the static native list. */
 export function modeAvailable(modes: DVSnapshot['modes'] | undefined, id: DVTuneMode): boolean {
@@ -87,7 +87,16 @@ export function enableBlock(v: DVNetView, f: NetForm, identity: DVIdentity | nul
   if (v.fields.password && !v.defaultPassword && !v.passwordSet && f.password === '') return 'Set the password first';
   if (v.needsIdentity && (!identity || !identity.callsign || !identity.dmrId)) return 'Set the callsign and DMR ID in the identity first';
   if (v.mode === 'NXDN' && !v.enabled && (f.options.nxdn_id ?? '').trim() === '') return 'Set the NXDN ID first';
+  if (v.mode === 'M17' && !m17NodeFits(identity?.callsign ?? '', f.options.suffix ?? '')) return 'The callsign (with the suffix) cannot be used on M17';
   return '';
+}
+
+/** The node callsign of M17 is the callsign plus the suffix (a space between them unless the suffix starts with - / or .): at most 9 characters. The server makes the full check. */
+export function m17NodeFits(callsign: string, suffix: string): boolean {
+  const c = callsign.trim(), s = suffix.trim();
+  if (c === '') return true; // the identity check says that
+  const n = c.length + (s === '' ? 0 : s.length + ('-/.'.includes(s[0]) ? 0 : 1));
+  return n <= 9;
 }
 
 /** Saving an enabled NXDN network with its NXDN ID erased turns NXDN off (the server does it); the note says so, or ''. */

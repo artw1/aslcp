@@ -24,7 +24,7 @@ aslcp-dv <-- UDP 127.0.0.1:2470 --> md380-emu (the vocoder)
 
 `aslcp dv enable` (as root) or the Enable button of the digital modes page runs one job, `aslcp-dv-enable`:
 
-1. apt installs the md380-emu vocoder, plus qemu-user-static (the vocoder is an ARM binary). Nothing else is installed.
+1. apt installs the md380-emu vocoder. Nothing else is installed on purpose; qemu-user-static comes along only because the md380-emu package depends on it (the vocoder is an ARM binary). On arm64 that package ships its own `/opt/md380-emu/qemu-arm-static` and its service runs that directly.
 2. The previous stack that ASLCP installed is removed (see "Upgrading from 1.x"); this step is also the retry if the removal after the upgrade failed.
 3. The engine config is rendered and `aslcp-dv` is enabled and started.
 
@@ -88,7 +88,9 @@ ASLCP keeps a record of what it changed (`privatenode.json`, root only), so Remo
 
 ## Host lists
 
-ASLCP downloads the DMR, YSF, P25 and NXDN host lists itself (the lists the pickers show), once a day with a random jitter, only while digital modes are enabled, with conditional requests. They are kept in `<datadir>/hostlists`. `GET /api/dv/lists?mode=ysf` returns them with an `ETag`; `POST /api/dv/lists/refresh` forces a check (at most once a minute). A YSF, P25 or NXDN tune is resolved against these lists on the server; a value that is not in the list is `422 unknown_target`.
+ASLCP downloads the DMR, YSF, P25, NXDN and M17 host lists itself (the lists the pickers show), once a day with a random jitter, only while digital modes are enabled, with conditional requests. They are kept in `<datadir>/hostlists`. `GET /api/dv/lists?mode=ysf` returns them with an `ETag`; `POST /api/dv/lists/refresh` forces a check (at most once a minute). A YSF, P25, NXDN or M17 tune is resolved against these lists on the server; a value that is not in the list is `422 unknown_target`. The M17 list (`M17_Hosts.txt`, tab separated `M17-XXX`, host, port) has no modules: the tune is the reflector and a module, `M17-XXX C`.
+
+The YSF, P25, NXDN and M17 lists are reflector data provided by DVRef (https://dvref.com/) under CC BY 4.0. ASLCP downloads and caches them as above, does not change them, and is not affiliated with or endorsed by DVRef. The DMR list is not DVRef data.
 
 The DMR user list (`DMRIds.dat`) is **not** downloaded: ASLCP shows names and callsigns from the radioid.net list it already keeps for Now Calling.
 
@@ -141,6 +143,16 @@ DMR - Other connects to any Homebrew (MMDVM) master, for example a FreeDMR, DMR+
 
 NXDN is a native reflector client. It has no password and no login: the engine registers with the reflector by sending polls, using the callsign of the identity. Set your *NXDN ID* (1-65535) in Options; it is required to enable NXDN, and erasing it turns NXDN off. Under "advanced" are the RAN, the local listen address and the poll and back-off timers. *Enable* needs the identity and the NXDN ID. Clearing a field and saving clears it (an empty option is dropped and its default applies). On the dashboard, tune a reflector talkgroup; unlink is `9999`.
 
+## M17 (reflector client)
+
+M17 is a native client for M17 reflectors (mrefd, urfd style) over UDP, default port 17000, carrying Codec2 3200 voice. The engine encodes and decodes Codec2 itself in pure Go (no extra service). Config (`NetConfig`): the node callsign comes from the identity; `address`/`port` (optional, a tune can give them), and the options `module` (A-Z), `reflector` (`M17-XXX`, used as the destination of your transmissions), `can` (0..15, default 0) and `suffix` (appended to the callsign, for example `N0CALL B`). A tune target is `M17-XXX C` (reflector, space, module).
+
+- Link: CONN, wait for ACKN, resent with growing delays; a NACK (module missing or callsign refused) or a kick by the reflector (DISC) shows as a failed login and is not retried until the next tune. A new module or reflector sends DISC to the old link first. Every PING is answered with a PONG; 30 s without a PING or PONG relinks.
+- RX: stream packets, two Codec2 frames each, grouped by stream id; the call ends at the last-frame flag or after 1.5 s of silence. Packets with a bad CRC are counted and still played. Encrypted streams are ignored.
+- TX: a new random stream id per call, destination `M17-XXX C`, source your callsign, no META, no encryption or signature.
+
+Tested against an in-process fake reflector and an echo reflector through the bridge; the protocol layer is checked against the mrefd sources. Not verified without a live reflector: acceptance of your callsign, suffix and destination form by real mrefd/urfd builds, the TYPE/CAN bits against live traffic, voice level and quality of the Go Codec2, behaviour behind NAT and on busy modules. The dashboard panel, the host list and the settings card for M17 are not part of this stage.
+
 ## YSF (System Fusion)
 
 YSF is a native reflector client for System Fusion reflectors (YSFReflector style). It has no password and no login: the engine polls the reflector to keep the link up and uses the callsign of the identity as the node callsign, so *Enable* needs the identity.
@@ -166,3 +178,7 @@ On the dashboard, choose P25, pick a talkgroup from the list (or type up to five
 ## Voice codecs
 
 DMR, NXDN and YSF DN use AMBE+2 through the md380-emu vocoder; P25 and YSF Voice FR use IMBE, which the engine encodes and decodes itself in pure Go (no extra service). Every frame a network hands the bridge carries its codec, so one YSF call may be DN and the next VW. The bridge encodes your transmissions with the codec of the active network (P25: IMBE; everything else AMBE). A frame of the wrong length for its codec is dropped. IMBE is computed on the CPU of the node: a 20 ms frame (encode plus decode) takes well under a millisecond on a current x86 core. Measured on a Raspberry Pi 3B+ (arm64, Go build): encode plus decode about 2.4 ms per 20 ms frame (about 12% of one core), encode alone about 3.0 ms, decode alone about 0.85 ms, and barely changed (+3%) while also receiving DMR. The engine runs at most one IMBE encoder and one IMBE decoder at a time.
+
+Codec2 3200 (used by M17) is also built in, in pure Go with no extra service. It works on the same 8 kHz, 20 ms frames as the USRP side (8 bytes per frame), so the bridge needs no resampling. A network that carries Codec2 reports `CodecC2`; the bridge encodes your transmissions to it and decodes what it receives to the node's audio, one encoder and one decoder at a time. Frames pass through PCM, so a Codec2 network works with the same node audio as any other. Measured on a Raspberry Pi 3B+ (arm64, Go build): encode about 314 microseconds and decode about 394 microseconds per 20 ms frame, that is about 1.6% plus 2.0% of one core per stream. `aslcp-dv bench -codec codec2` measures it on your machine (the default `-codec ambe` measures md380-emu).
+
+Reference check: the Go Codec2 has a manual comparison against libcodec2 (c2enc/c2dec, speech samples from the Codec2 project). It is not part of normal CI. To run it, open the Actions tab, pick "Codec2 reference check" and use Run workflow. It reports bit-exact frames, differing parameter fields, decode SNR and a cross decode, to the job summary, and fails below 30 dB decode SNR or under 90% bit-exact frames (thresholds at the top of `cmd/c2check/main.go`).

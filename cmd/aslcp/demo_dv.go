@@ -35,7 +35,7 @@ func newDemoDV() *demoDV {
 		USRP:    ctl.USRPStatus{Listen: "127.0.0.1:34001", Peer: "127.0.0.1:32001"},
 		Vocoder: ctl.VocoderStatus{OK: true, Addr: "127.0.0.1:2470"},
 	}
-	for _, m := range []string{ctl.ModeLoop, ctl.ModeBM, ctl.ModeTGIF, ctl.ModeDMR, ctl.ModeYSF, ctl.ModeP25, ctl.ModeNXDN} {
+	for _, m := range []string{ctl.ModeLoop, ctl.ModeBM, ctl.ModeTGIF, ctl.ModeDMR, ctl.ModeYSF, ctl.ModeP25, ctl.ModeNXDN, ctl.ModeM17} {
 		d.status.Networks = append(d.status.Networks, ctl.NetStatus{
 			Mode: m, Available: dvpanel.NativeMode(m), Enabled: m == ctl.ModeLoop, Login: ctl.LoginOff})
 	}
@@ -173,7 +173,7 @@ func (d *demoDV) DVNetworkGet(context.Context) (helper.DVNetworkReply, error) {
 
 func (d *demoDV) netReply(changed bool) helper.DVNetworkReply {
 	r := helper.DVNetworkReply{Identity: d.ident, Rendered: true, Changed: changed}
-	for _, m := range []string{ctl.ModeBM, ctl.ModeTGIF, ctl.ModeDMR, ctl.ModeYSF, ctl.ModeP25, ctl.ModeNXDN} {
+	for _, m := range []string{ctl.ModeBM, ctl.ModeTGIF, ctl.ModeDMR, ctl.ModeYSF, ctl.ModeP25, ctl.ModeNXDN, ctl.ModeM17} {
 		if v, ok := d.nets[m]; ok {
 			r.Networks = append(r.Networks, v)
 		}

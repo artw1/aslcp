@@ -12,6 +12,7 @@ import (
 	"strconv"
 
 	"github.com/artw1/aslcp/internal/dv/ctl"
+	"github.com/artw1/aslcp/internal/dv/m17"
 )
 
 const maxSize = 1 << 20
@@ -27,6 +28,7 @@ const (
 var knownModes = map[string]bool{
 	ctl.ModeLoop: true, ctl.ModeBM: true, ctl.ModeTGIF: true, ctl.ModeDMR: true,
 	ctl.ModeYSF: true, ctl.ModeP25: true, ctl.ModeNXDN: true,
+	ctl.ModeM17: true,
 }
 
 // Default is the config used when no file exists: the standard USRP ports,
@@ -126,6 +128,11 @@ func Validate(c *ctl.Config) error {
 		if n.Port < 0 || n.Port > 65535 {
 			return fmt.Errorf("config: networks[%d]: bad port %d", i, n.Port)
 		}
+		if n.Mode == ctl.ModeM17 {
+			if err := validateM17(n, c.Identity.Callsign); err != nil {
+				return fmt.Errorf("config: networks[%d]: %w", i, err)
+			}
+		}
 	}
 	ensureEchoTest(c)
 	for _, u := range c.Ctl.AllowUIDs {
@@ -160,6 +167,35 @@ func hostPort(s string) error {
 	n, err := strconv.Atoi(p)
 	if err != nil || n < 1 || n > 65535 {
 		return fmt.Errorf("bad port %q", p)
+	}
+	return nil
+}
+
+// validateM17 checks the M17 network: the node callsign (identity, plus the
+// optional "suffix" option) must be encodable, "module" is A-Z, "can" is
+// 0..15 (default 0), "reflector" is an M17-XXX designator. The reflector
+// host and port (address, port; default port 17000) are optional here: a
+// tune supplies them too.
+func validateM17(n ctl.NetConfig, callsign string) error {
+	o := n.Options
+	if n.Enabled {
+		if _, err := m17.NodeCallsign(callsign, o["suffix"]); err != nil {
+			return fmt.Errorf("m17 callsign: %w", err)
+		}
+	}
+	if v := o["module"]; v != "" && (len(v) != 1 || !m17.ValidModule(v[0])) {
+		return fmt.Errorf("m17 module %q must be A-Z", v)
+	}
+	if v := o["can"]; v != "" {
+		c, err := strconv.Atoi(v)
+		if err != nil || c < 0 || c > 15 {
+			return fmt.Errorf("m17 can %q out of range 0..15", v)
+		}
+	}
+	if v := o["reflector"]; v != "" {
+		if _, _, err := m17.ParseTarget(v + " A"); err != nil {
+			return fmt.Errorf("m17 reflector %q must be M17-XXX", v)
+		}
 	}
 	return nil
 }
