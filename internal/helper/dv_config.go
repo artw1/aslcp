@@ -73,6 +73,12 @@ func renderDVConfig(listen, peer int, nets dvNetworksState, tgifHost string, tgi
 			{Mode: dvctl.ModeLoop, Enabled: true},
 		},
 	}
+	a := dvpanel.DefaultAudio()
+	if nets.Audio != nil {
+		a = *nets.Audio
+	}
+	cfg.USRP.GainRx, cfg.USRP.GainTx = a.GainRxDb, a.GainTxDb
+	cfg.USRP.AGCTx, cfg.USRP.AGCRx, cfg.USRP.AGCTarget, cfg.USRP.AGCMax = a.AGCTx, a.AGCRx, a.AGCTargetDb, a.AGCMaxGainDb
 	if id := nets.Identity; id != nil {
 		cfg.Identity = dvctl.Identity{Callsign: id.Callsign, DMRID: id.DMRID, RepeaterID: id.RepeaterID}
 	}

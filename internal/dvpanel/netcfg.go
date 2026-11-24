@@ -1,6 +1,8 @@
 package dvpanel
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net"
 	"regexp"
@@ -390,6 +392,58 @@ func ValidateIdentity(id IdentityState) (IdentityState, error) {
 		return id, fieldErr("repeaterId", "0 or a DMR ID with up to 9 digits")
 	}
 	return id, nil
+}
+
+// AudioState is the audio settings shared by all modes (docs/DV.md "Audio
+// level and AGC"). The names are the engine's: "Rx" is the audio the engine
+// receives from the node (to the network), "Tx" the audio it sends to the node
+// (from the network). The zero value is not the default: use DefaultAudio.
+type AudioState struct {
+	AGCTx        bool `json:"agcTx"`        // AGC on the node's audio, going to the network
+	AGCRx        bool `json:"agcRx"`        // AGC on the network's audio, going to the node
+	AGCTargetDb  int  `json:"agcTargetDb"`  // -40..-6
+	AGCMaxGainDb int  `json:"agcMaxGainDb"` // 0..30
+	GainRxDb     int  `json:"gainRxDb"`     // -20..20, node audio (to the network)
+	GainTxDb     int  `json:"gainTxDb"`     // -20..20, network audio (to the node)
+}
+
+// DefaultAudio is the network audio AGC (to the node) on and the rest off.
+// The audio block is stored only when it differs from this, so an explicit
+// agcRx false is always written.
+func DefaultAudio() AudioState {
+	return AudioState{AGCRx: ctl.DefaultAGCRx, AGCTargetDb: ctl.DefaultAGCTarget, AGCMaxGainDb: ctl.DefaultAGCMax}
+}
+
+// UnmarshalJSON starts from the defaults, so a field that is absent (an older
+// networks.json block, a PUT without agcRx) keeps its default: agcRx on. An
+// explicit false is read as false.
+func (a *AudioState) UnmarshalJSON(b []byte) error {
+	type plain AudioState
+	v := plain(DefaultAudio())
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&v); err != nil {
+		return err
+	}
+	*a = AudioState(v)
+	return nil
+}
+
+// ValidateAudio checks the ranges.
+func ValidateAudio(a AudioState) error {
+	if a.AGCTargetDb < ctl.MinAGCTarget || a.AGCTargetDb > ctl.MaxAGCTarget {
+		return fieldErr("agcTargetDb", "%d to %d dBFS", ctl.MinAGCTarget, ctl.MaxAGCTarget)
+	}
+	if a.AGCMaxGainDb < 0 || a.AGCMaxGainDb > ctl.MaxAGCMaxGain {
+		return fieldErr("agcMaxGainDb", "0 to %d dB", ctl.MaxAGCMaxGain)
+	}
+	if a.GainRxDb < -ctl.MaxGainDb || a.GainRxDb > ctl.MaxGainDb {
+		return fieldErr("gainRxDb", "-%d to %d dB", ctl.MaxGainDb, ctl.MaxGainDb)
+	}
+	if a.GainTxDb < -ctl.MaxGainDb || a.GainTxDb > ctl.MaxGainDb {
+		return fieldErr("gainTxDb", "-%d to %d dB", ctl.MaxGainDb, ctl.MaxGainDb)
+	}
+	return nil
 }
 
 // EnableBlock says why a network cannot be enabled with these settings ("" when

@@ -1,13 +1,11 @@
 <script lang="ts">
-  // The settings of one available network, built from the server's option specs (lib/dvnetform.ts):
-  // Enable switch, master address (BrandMeister and DMR - Other: picked from the master list), port, password (write-only: "Set" or "Change"), options, login state.
+  // The settings of one available network (its Enable switch is in the row of DvNetworks), built from the server's option specs (lib/dvnetform.ts):
+  // master address (BrandMeister and DMR - Other: picked from the master list), port, password (write-only: "Set" or "Change"), options, login state.
   import { untrack } from 'svelte';
   import { api } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
   import type { DVIdentity, DVListItem, DVNetView } from '../lib/types';
-  import { buildPut, enableBlock, formError, formOf, hasChanges, loginText, loginTone, MASTER_OTHER, applyMaster, masterChoice, masterListMode, passwordUx, liveLogin, savedMessage, nxdnOffNote } from '../lib/dvnetform';
-  import { app } from '../lib/store.svelte';
-  import Toggle from './Toggle.svelte';
+  import { buildPut, enableBlock, formError, formOf, hasChanges, MASTER_OTHER, applyMaster, masterChoice, masterListMode, passwordUx, savedMessage, nxdnOffNote } from '../lib/dvnetform';
 
   let { v, identity, onsaved }: { v: DVNetView; identity: DVIdentity | null; onsaved: (n: DVNetView) => void } = $props();
   let f = $state(untrack(() => formOf(v))), busy = $state(false), editPw = $state(false), showAdv = $state(false);
@@ -39,8 +37,6 @@
   const block = $derived(f.enabled ? enableBlock(v, f, identity) : '');
   const offNote = $derived(nxdnOffNote(v, f));
   const put = $derived(buildPut(v, f));
-  const live = $derived(liveLogin(v, app.dv?.modes));
-  const login = $derived(v.enabled ? loginText(live.login, live.detail) : '');
   const basic = $derived(v.options.filter((o) => !o.advanced));
   const adv = $derived(v.options.filter((o) => o.advanced));
 
@@ -68,10 +64,6 @@
   </div>
 {/snippet}
 <div class="space-y-3" data-testid="{id}-form">
-  <div class="flex flex-wrap items-center gap-2">
-    <span class="inline-flex items-center gap-2 text-sm"><Toggle checked={f.enabled} disabled={busy} label="Enable {v.label}" onchange={(on) => (f.enabled = on)} />Enable</span>
-    {#if login}<span class="badge {loginTone(live.login) === 'ok' ? 'border-ok text-ok' : loginTone(live.login) === 'err' ? 'border-danger text-danger' : ''}" role="status" data-testid="{id}-login">{login}</span>{/if}
-  </div>
   {#if v.help}<p class="text-xs text-muted" data-testid="{id}-help">{v.help}</p>{/if}
   <div class="grid grid-cols-2 gap-3">
     {#if v.fields.address && hasPicker}
@@ -118,9 +110,9 @@
     {#each basic as o (o.key)}<div class="col-span-2 sm:col-span-1">{@render opt(o)}</div>{/each}
   </div>
   {#if adv.length}
-    <button type="button" class="btn btn-sm" aria-expanded={showAdv} onclick={() => (showAdv = !showAdv)}>{showAdv ? 'Hide' : 'Show'} advanced options</button>
+    <button type="button" class="btn btn-sm min-h-8" aria-expanded={showAdv} onclick={() => (showAdv = !showAdv)}>{showAdv ? 'Hide' : 'Show'} advanced options</button>
     {#if showAdv}<div class="grid grid-cols-2 gap-3">{#each adv as o (o.key)}<div class="col-span-2 sm:col-span-1">{@render opt(o)}</div>{/each}</div>{/if}
   {/if}
   {#if err}<p class="text-sm text-danger" role="alert">{err}</p>{:else if block}<p class="text-sm text-warn" data-testid="{id}-block">{block}</p>{:else if offNote}<p class="text-sm text-warn" data-testid="{id}-offnote">{offNote}</p>{/if}
-  <button type="button" class="btn btn-primary" disabled={busy || !!err || !!block || !hasChanges(put)} onclick={save} data-testid="{id}-save">Save</button>
+  <button type="button" class="btn btn-primary min-h-8" disabled={busy || !!err || !!block || !hasChanges(put)} onclick={save} data-testid="{id}-save">Save</button>
 </div>

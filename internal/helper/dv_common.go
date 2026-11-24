@@ -363,6 +363,7 @@ type dvNetworksState struct {
 	Version  int                   `json:"version"`
 	STFUStay bool                  `json:"stfuStay,omitempty"` // 1.x, kept so the file round-trips
 	Identity *dvIdentity           `json:"identity,omitempty"`
+	Audio    *dvpanel.AudioState   `json:"audio,omitempty"` // absent: the defaults
 	Networks map[string]dvNetState `json:"networks"`
 }
 
@@ -388,6 +389,14 @@ func parseDVNetworks(data []byte) (dvNetworksState, error) {
 	}
 	out := dvEmptyNetworks()
 	out.STFUStay = st.STFUStay
+	if a := st.Audio; a != nil {
+		if dvpanel.ValidateAudio(*a) != nil {
+			return dvNetworksState{}, bad
+		}
+		if *a != dvpanel.DefaultAudio() {
+			out.Audio = a
+		}
+	}
 	if id := st.Identity; id != nil {
 		v, err := dvpanel.ValidateIdentity(dvpanel.IdentityState{Callsign: id.Callsign, DMRID: id.DMRID, RepeaterID: id.RepeaterID})
 		if err != nil {

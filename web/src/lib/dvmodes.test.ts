@@ -1,7 +1,7 @@
 // Run with `npm test`.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cardState, lastUsed, MODE_NAME, RESUME_NOTICE, resumeHint, resumeToast, timeAgo } from './dvmodes.ts';
+import { cardState, lastUsed, MODE_NAME, RESUME_NOTICE, resumeHint, resumeShort, resumeToast, timeAgo } from './dvmodes.ts';
 
 const now = Date.parse('2026-11-17T12:00:00Z');
 
@@ -61,4 +61,9 @@ test('removed setup endpoints are gone from the client', async () => {
   const { readFileSync } = await import('node:fs');
   const src = ['./api.ts', './dvmodes.ts', './types.ts', '../components/DvSetup.svelte', '../components/DvCard.svelte'].map((f) => readFileSync(new URL(f, import.meta.url), 'utf8')).join('\n');
   assert.ok(!/\/dv\/(install|uninstall|credentials|modes|brandmeister|stfu|restart|rollback|dmr-status)/.test(src));
+});
+
+test('the short resume hint says what happens with the switch on and off', () => {
+  assert.match(resumeShort(true), /re-tunes/);
+  assert.match(resumeShort(false), /nothing is re-tuned/);
 });

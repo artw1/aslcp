@@ -24,7 +24,7 @@
     } catch (e) { toastError(e); } finally { busy = false; }
   }
 </script>
-<section class="card space-y-3 p-4 lg:col-span-2" aria-label="Identity" data-testid="dv-identity">
+<section class="card space-y-3 p-4" aria-label="Identity" data-testid="dv-identity">
   <h2 class="text-base font-semibold">Identity</h2>
   <p class="text-xs text-muted">Your callsign and DMR ID, used when logging in to a DMR network.</p>
   <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -33,5 +33,5 @@
     <div><label class="label" for="dvi-rid">ESSID (optional)</label><input id="dvi-rid" class="input font-mono" bind:value={f.essid} inputmode="numeric" maxlength="2" placeholder="e.g. 01" /></div>
   </div>
   {#if err && dirty}<p class="text-sm text-danger" role="alert">{err}</p>{/if}
-  <button type="button" class="btn btn-primary" disabled={busy || !!err || !dirty} onclick={save} data-testid="dv-identity-save">Save identity</button>
+  <button type="button" class="btn btn-primary min-h-8" disabled={busy || !!err || !dirty} onclick={save} data-testid="dv-identity-save">Save identity</button>
 </section>

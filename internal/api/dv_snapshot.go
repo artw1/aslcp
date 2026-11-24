@@ -155,6 +155,7 @@ type dvSnapper struct {
 	hstatus dvCache[helper.DVStatus]
 	node    dvCache[DVBridgeNode]
 	masters dvCache[map[string]string] // mode -> master label
+	meter   dvCache[*ctl.AudioStatus]  // the engine's level meter, shared by the pollers
 	// masterMemo keeps the label of each mode for its address and list tag, so
 	// the list is searched again only when one of them changes.
 	masterMemo map[string]masterMemo

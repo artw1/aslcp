@@ -47,11 +47,15 @@ Supported: Debian bookworm and trixie on amd64 and arm64. **32-bit (armhf) syste
 
 Availability comes from the engine (which modes the running build implements); while the engine is down the page falls back to a fixed list (Echo test, BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN). A mode that is not available answers `409 not_available` to mode and tune; an available one that is not set up answers `409 mode_disabled`. The Echo test is described below.
 
+## The setup page
+
+Digital modes (`#/digital`) is one column, in the order of the setup: the *Engine* card (status, services, Refresh, Disable, the *Resume after restart* switch, the *radioid.net user list* row with its switch, a one-line summary and *Download now*, and the last enable job with a *Show log* toggle), *Bridge node* (a summary line with *Edit* once a node exists), *Identity*, *Networks* and *Audio* (the echo test and the AGC and gain settings). In *Networks* each mode is its own card with its state, a one-line summary, an Enable switch and a chevron that opens its settings below a divider; one card is open at a time. The switch saves the enabled state at once; if something is missing (the password, the NXDN ID, the identity) the card opens, says what, and the switch stays off. Fields are saved with the card's *Save*.
+
 ## Echo test
 
 The Echo test is a local test with no network and no account: the engine records one transmission, waits about a second and plays it back through the bridge node as a received call from the pseudo callsign "ECHO TEST" (no talkgroup, no DMR ID). It proves the audio path of the node, USRP, the engine and the md380 vocoder in both directions. Its engine mode id is `LOOP`; it is always enabled while digital modes are enabled, so it has no Enable card, and a `LOOP` entry in an older `networks.json` is ignored. Not to be confused with the **BrandMeister Parrot** (TG 9990 on BrandMeister), a service of the real network that is called from the BrandMeister mode on the dashboard.
 
-**Using it.** Digital modes setup, *Test audio*: press *Start echo test*, key up, talk, unkey, and you hear yourself back a second later. While it runs the dashboard card says "Echo test running" (it has no mode button there) and *Now calling* and *Last heard* show the playback as "Echo test". *Stop* switches back to the mode that was in effect before you started (the page remembers it; failing that, the last mode from `GET /api/dv/resume`, then the first enabled mode), and that mode's remembered talkgroup or reflector is tuned again, as when you switch modes on the dashboard. The Echo test is never remembered as the last mode, so a restart does not come back in it. Starting and stopping use `POST /api/dv/mode` (operator or admin).
+**Using it.** Digital modes setup, the *Audio* card (last on the page): press *Start echo test*, key up, talk, unkey, and you hear yourself back a second later. While it runs the dashboard card says "Echo test running" (it has no mode button there) and *Now calling* and *Last heard* show the playback as "Echo test". *Stop* switches back to the mode that was in effect before you started (the page remembers it; failing that, the last mode from `GET /api/dv/resume`, then the first enabled mode), and that mode's remembered talkgroup or reflector is tuned again, as when you switch modes on the dashboard. The Echo test is never remembered as the last mode, so a restart does not come back in it. Starting and stopping use `POST /api/dv/mode` (operator or admin).
 
 ## BrandMeister
 
@@ -174,6 +178,26 @@ P25 is a native reflector client for P25Reflector style reflectors (UDP, the lin
 - Voice is IMBE (full-rate Phase 1), carried in both directions. The source callsign is not sent on P25, so a received call shows the unit ID.
 
 On the dashboard, choose P25, pick a talkgroup from the list (or type up to five digits) and press Tune; unlink is `9999`. The card shows "Reflector not answering" in the same way.
+
+## Audio level and AGC
+
+The bridge sees the audio of both directions: from your node to the network ("Node audio") and from the network to your node ("Network audio"). In the Audio card of Digital modes setup, under the echo test:
+
+- **Node audio AGC (to network)** and **Network audio AGC (to node)** are always shown: automatic gain control. The network audio AGC (to node) is on by default and the node audio AGC (to network) is off. It evens out the level of speech toward the target and never boosts silence or noise. It has no delay, and a limiter keeps loud audio from clipping.
+
+Press Show advanced audio settings for the levels and fixed gains:
+
+- **AGC target level (dBFS)**: the speech level the AGC aims for, -40 to -6, default -22.
+- **AGC maximum gain (dB)**: the most it may raise a quiet voice, 0 to 30, default 18.
+- **Node audio gain (dB)** and **Network audio gain (dB)**: a fixed gain of -20 to 20 dB, default 0. It is applied before the AGC.
+
+With the defaults the audio from your node is not changed, and the audio from the network is levelled by the AGC; switch Network audio AGC (to node) off to pass it through unchanged. Changes apply at once, without a restart.
+
+The Digital modes card shows two small level meters, "To network" and "From network", and a summary of the last transmission in each direction: the speech level, the peak, and a verdict. The verdict is Low when the speech is more than 10 dB under the target, High when it is more than 8 dB over it, and Clipping when any frame clipped; otherwise OK. The verdict uses the configured target even with the AGC off. With the AGC on, the summary also shows the level after it.
+
+This is not the Tune page meter: that one reads the radio receive level of the sound card on the node, while these meters read the audio inside the bridge, after the gain and the codec path of the digital modes.
+
+To check your own level, tune the echo test (LOOP), transmit a few words, and read "To network" when it ends: a speech level near the target is right. The echo test plays your audio back, so you hear what others hear.
 
 ## Voice codecs
 

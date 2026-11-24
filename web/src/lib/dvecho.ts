@@ -1,5 +1,5 @@
 // The echo test of the digital modes (docs/DV.md "Echo test"): the engine's local test network (mode LOOP).
-// It starts and stops from the "Test audio" control of Digital modes setup; Stop returns to the mode that was
+// It starts and stops from the echo test of the Audio card of Digital modes setup; Stop returns to the mode that was
 // in effect before. Pure helpers so node --test can cover them.
 import type { DVResume, DVSnapshot } from './types';
 

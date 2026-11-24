@@ -227,6 +227,8 @@ type Router struct {
 	tx, rx  *call
 	vocDown bool
 	dropped atomic.Uint64
+	// audio: the AGC and the level meter of each direction (docs/DV.md "Audio level and AGC")
+	audTx, audRx *audioPath
 }
 
 // New builds a Router; call Run to start it.
@@ -252,6 +254,7 @@ func New(o Options) *Router {
 		enc: make(chan job, workQ), dec: make(chan job, workQ),
 		encO: make(chan job, workQ), decO: make(chan job, workQ),
 		stopped: make(chan struct{}),
+		audTx:   newAudioPath(), audRx: newAudioPath(),
 	}
 }
 
@@ -495,6 +498,7 @@ func (r *Router) onUSRP(p usrp.Packet) {
 	r.tx.seq++
 	j.pcm = *p.PCM
 	applyGain(&j.pcm, r.cfg.USRP.GainRx)
+	r.audTx.process(now, &j.pcm, r.cfg.USRP.AGCTx, r.agcParams())
 	select {
 	case r.enc <- j:
 	default:
@@ -525,6 +529,7 @@ func (r *Router) startTX(now time.Time) bool {
 		return false
 	}
 	r.tx = &call{talk: t, net: e, last: now}
+	r.audTx.begin()
 	r.updated = now
 	r.emitTalk(ctl.EvTalkStart, t)
 	r.emitStatus()
@@ -567,6 +572,7 @@ func (r *Router) finishTX() {
 	c.talk.End = time.Now()
 	c.talk.Duration = c.talk.End.Sub(c.talk.Start)
 	r.updated = c.talk.End
+	r.audTx.end(c.talk.End, c.talk.Duration, r.agcTarget())
 	r.emitTalk(ctl.EvTalkEnd, c.talk)
 	if err := c.net.n.EndTX(c.talk.ID); err != nil {
 		r.log.Printf("end tx: %v", err)
@@ -597,6 +603,7 @@ func (r *Router) onNet(ev netEvent) {
 		t := ctl.Talk{ID: r.nextID, Dir: "rx", Mode: e.cfg.Mode, Call: h.Src, DMRID: h.SrcID,
 			TG: h.TG, Room: h.Room, Slot: h.Slot, Private: h.Private, Start: now}
 		r.rx = &call{talk: t, net: e, netCall: h.Call, last: now}
+		r.audRx.begin()
 		r.updated = now
 		r.emitTalk(ctl.EvTalkStart, t)
 		r.emitStatus()
@@ -660,6 +667,7 @@ func (r *Router) onDecoded(j job) {
 		return
 	}
 	applyGain(&j.pcm, r.cfg.USRP.GainTx)
+	r.audRx.process(time.Now(), &j.pcm, r.cfg.USRP.AGCRx, r.agcParams())
 	r.o.USRP.SendVoice(j.pcm)
 }
 
@@ -670,6 +678,7 @@ func (r *Router) finishRX() {
 	c.talk.Duration = c.talk.End.Sub(c.talk.Start)
 	r.updated = c.talk.End
 	r.o.USRP.EndTX()
+	r.audRx.end(c.talk.End, c.talk.Duration, r.agcTarget())
 	r.emitTalk(ctl.EvTalkEnd, c.talk)
 	r.emitStatus()
 }
@@ -731,6 +740,9 @@ func (r *Router) status() ctl.Status {
 		}
 		st.Networks = append(st.Networks, ns)
 	}
+	now := time.Now()
+	st.Audio = &ctl.AudioStatus{TargetDb: r.agcTarget(),
+		Tx: r.audTx.m.snapshot(now, r.cfg.USRP.AGCTx), Rx: r.audRx.m.snapshot(now, r.cfg.USRP.AGCRx)}
 	if c := r.tx; c != nil {
 		t := c.talk
 		st.Talk = &t
@@ -950,6 +962,19 @@ func (r *Router) apply(cfg ctl.Config) {
 	}
 	r.updated = time.Now()
 	r.emitStatus()
+}
+
+// agcTarget is the configured target level (dBFS); 0, which no valid file
+// has, reads as the default.
+func (r *Router) agcTarget() int {
+	if t := r.cfg.USRP.AGCTarget; t != 0 {
+		return t
+	}
+	return ctl.DefaultAGCTarget
+}
+
+func (r *Router) agcParams() AGCParams {
+	return AGCParams{TargetDb: float64(r.agcTarget()), MaxGainDb: float64(r.cfg.USRP.AGCMax)}
 }
 
 func applyGain(p *[vocoder.PCMSamples]int16, db int) {

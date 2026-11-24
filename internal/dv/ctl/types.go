@@ -160,6 +160,48 @@ type Status struct {
 	Vocoder  VocoderStatus `json:"vocoder"`
 	Networks []NetStatus   `json:"networks"`
 	Talk     *Talk         `json:"talk,omitempty"` // call in progress
+	Audio    *AudioStatus  `json:"audio,omitempty"`
+}
+
+// Audio verdicts (AudioSummary.Verdict).
+const (
+	VerdictLow  = "low"
+	VerdictOK   = "ok"
+	VerdictHigh = "high"
+)
+
+// AudioStatus is the level meter of the two audio directions, measured in the
+// bridge after the static gain and before and after the AGC. Levels are dBFS;
+// silence reads -90.
+type AudioStatus struct {
+	TargetDb int      `json:"targetDb"` // the configured AGC target (the verdict uses it even with the AGC off)
+	Tx       AudioDir `json:"tx"`       // node -> network
+	Rx       AudioDir `json:"rx"`       // network -> node
+}
+
+// AudioDir is one direction. The levels are live (they fall away when audio
+// stops, like a meter); Last is the summary of the previous transmission.
+type AudioDir struct {
+	AGC       bool          `json:"agc"`    // the AGC is on for this direction
+	Active    bool          `json:"active"` // audio is flowing now
+	PeakDb    float64       `json:"peakDb"`
+	RmsDb     float64       `json:"rmsDb"`
+	OutPeakDb float64       `json:"outPeakDb"` // after the AGC (the same as PeakDb when it is off)
+	OutRmsDb  float64       `json:"outRmsDb"`
+	Last      *AudioSummary `json:"last,omitempty"`
+}
+
+// AudioSummary is one finished transmission (or received call).
+type AudioSummary struct {
+	SpeechDb    float64   `json:"speechDb"`    // mean level of the speech frames, before the AGC
+	OutSpeechDb float64   `json:"outSpeechDb"` // the same after the AGC
+	PeakDb      float64   `json:"peakDb"`      // highest peak, before the AGC
+	OutPeakDb   float64   `json:"outPeakDb"`
+	Clipped     int       `json:"clipped"`    // frames with samples at or near full scale, before the AGC
+	DurationMs  int64     `json:"durationMs"` // of the audio
+	Verdict     string    `json:"verdict"`    // VerdictLow, VerdictOK or VerdictHigh
+	AGC         bool      `json:"agc"`        // the AGC was on
+	At          time.Time `json:"at"`
 }
 
 type USRPStatus struct {
@@ -228,7 +270,28 @@ type USRPConfig struct {
 	Peer   string `json:"peer"`               // "127.0.0.1:32001"
 	GainRx int    `json:"gainRxDb,omitempty"` // -20..20
 	GainTx int    `json:"gainTxDb,omitempty"`
+	// The AGC, shared by all modes (docs/DV.md "Audio level and AGC"). AGCTx
+	// works on the node's audio going to the network, AGCRx on the network's
+	// audio going to the node. AGCRx is on by default and AGCTx off. A file
+	// without agcRx, agcTargetDb and agcMaxGainDb gets the defaults
+	// (config.Parse). agcRx is always written, so that an explicit false
+	// survives a round trip instead of falling back to on.
+	AGCTx     bool `json:"agcTx,omitempty"`
+	AGCRx     bool `json:"agcRx"`
+	AGCTarget int  `json:"agcTargetDb,omitempty"` // -40..-6, default -22
+	AGCMax    int  `json:"agcMaxGainDb"`          // 0..30, default 18
 }
+
+// AGC defaults and limits.
+const (
+	DefaultAGCTarget = -22
+	DefaultAGCMax    = 18
+	DefaultAGCRx     = true // network audio AGC (to the node) is on by default, the node audio AGC (to the network) off
+	MinAGCTarget     = -40
+	MaxAGCTarget     = -6
+	MaxAGCMaxGain    = 30
+	MaxGainDb        = 20 // the static gains are -20..20
+)
 
 type VocoderConfig struct {
 	MD380     string `json:"md380"`     // "127.0.0.1:2470"

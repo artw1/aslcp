@@ -261,7 +261,14 @@ export interface DVNetView {
   applied?: boolean; applyError?: string;
 }
 export interface DVIdentity { callsign: string; dmrId: number; repeaterId?: number; applied?: boolean; applyError?: string }
-export interface DVNetworks { identity: DVIdentity; modes: DVNetView[] }
+/** The audio settings shared by all modes (GET and PUT /api/dv/audio). `agcTx`: the node's audio going to the network, `agcRx`: the network's audio going to the node; `gainRxDb` is the node audio gain, `gainTxDb` the network audio gain. */
+export interface DVAudio { agcTx: boolean; agcRx: boolean; agcTargetDb: number; agcMaxGainDb: number; gainRxDb: number; gainTxDb: number; applied?: boolean; applyError?: string }
+export interface DVNetworks { identity: DVIdentity; audio: DVAudio; modes: DVNetView[] }
+/** One transmission or received call, levels in dBFS before and after the AGC (-90 is silence). */
+export interface DVAudioSummary { speechDb: number; outSpeechDb: number; peakDb: number; outPeakDb: number; clipped: number; durationMs: number; verdict: 'low' | 'ok' | 'high' | string; agc: boolean; at: string }
+export interface DVAudioDir { agc: boolean; active: boolean; peakDb: number; rmsDb: number; outPeakDb: number; outRmsDb: number; last?: DVAudioSummary }
+/** GET /api/dv/meter: `tx` is the node's audio to the network, `rx` the network's audio to the node. */
+export interface DVMeter { running: boolean; audio?: { targetDb: number; tx: DVAudioDir; rx: DVAudioDir } }
 /** PUT /api/dv/networks/{mode}: only the fields that change. `password` sets, `clearPassword` removes. */
 export interface DVNetPut { enabled?: boolean; address?: string; port?: number; password?: string; clearPassword?: boolean; options?: Record<string, string> }
 export type DVLinkMode = 'ondemand' | 'permanent';

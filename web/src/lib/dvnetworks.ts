@@ -32,5 +32,5 @@ export const networkLabel = (mode: string): string => (mode === 'LOOP' ? ECHO_LA
 /** The modes of the API (and the engine): the echo test, the DMR networks in registry order, then YSF, P25, NXDN and M17. */
 export const PANEL_MODES: DVTuneMode[] = ['LOOP', ...DV_NETWORKS.map((n) => n.id), 'YSF', 'P25', 'NXDN', 'M17'];
 
-/** The modes with a button on the dashboard card and a card in setup: all but the echo test, which is the "Test audio" control of setup. */
+/** The modes with a button on the dashboard card and a card in setup: all but the echo test, which sits in the Audio card of setup. */
 export const NETWORK_MODES: DVTuneMode[] = PANEL_MODES.filter((m) => m !== 'LOOP');
