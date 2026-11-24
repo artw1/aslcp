@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DVREF_TEXT, DVREF_URL, hasDVRefCredit, findByValue, indexList, optionLabel, searchList } from './dvlist.ts';
+import { findByValue, indexList, optionLabel, searchList } from './dvlist.ts';
 import type { DVList, DVListItem } from './types';
 
 const items: DVListItem[] = [
@@ -58,11 +58,4 @@ test('findByValue only matches a listed value', () => {
 test('the list reply type', () => {
   const l: DVList = { mode: 'dmr', items, etag: 'x' };
   assert.equal(l.items[0].port, 62031);
-});
-
-test('the DVRef credit goes with the YSF, P25, NXDN and M17 lists, not the DMR ones', () => {
-  for (const m of ['ysf', 'p25', 'nxdn', 'm17', 'YSF', 'M17']) assert.equal(hasDVRefCredit(m), true, m);
-  for (const m of ['dmr', 'bm', 'dmr-other', 'BM', 'TGIF', 'DMR', 'LOOP']) assert.equal(hasDVRefCredit(m), false, m);
-  assert.equal(DVREF_URL, 'https://dvref.com/');
-  assert.equal(DVREF_TEXT, 'Reflector data provided by');
 });

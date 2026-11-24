@@ -9,7 +9,7 @@ Release notes are taken from the section of the tag being released
 - M17 reflector support (test build). A pure-Go Codec2 3200 port (also in the bridge and the bench), M17 packets and callsign encoding, and an M17 reflector client in the digital modes engine.
 - M17 in the panel: configuration, tuning to a reflector and module, the reflector host list and the API.
 - M17 in the web UI, including M17 calls in the Now calling strip.
-- Reflector lists are credited to DVRef.
+- The DVRef credit for the reflector lists is in docs/DV.md.
 
 ### Changed
 - The public install page and README say up front that the installer installs ASL3 (`asl3` and `asl3-menu`) first when it is missing, and that a freshly flashed ASL3 card must finish its first-boot setup and reboot before installing.
