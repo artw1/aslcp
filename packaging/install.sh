@@ -55,15 +55,15 @@
 #   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL3=0 sh
 # ASL3 telemetry: ASL3 ships asl-telemetry.timer, which once a day sends
 # AllStarLink an anonymous usage report (asl-telemetry.service). ASLCP leaves
-# it as it is by default. ASLCP_ASL_TELEMETRY=off (also 0, no, false) turns it
+# it as it is by default. ASLCP_ASL_TELEMETRY=0 (also off, no, false) turns it
 # off: "systemctl disable --now asl-telemetry.timer" and "systemctl mask" of the
 # timer and the service, if they exist (otherwise it says there is nothing to
-# turn off). ASLCP_ASL_TELEMETRY=on (also 1, yes, true) undoes that (unmask and
+# turn off). ASLCP_ASL_TELEMETRY=1 (also on, yes, true) undoes that (unmask and
 # "enable --now" of the timer). Unset or empty changes nothing. It runs right
 # after the ASL3 step, so it also works when ASL3 was just installed. A failure
 # only produces a warning. Any other value is refused, and so is a combination
 # with ASLCP_TAKEOVER=undo (which does no package work and stops before this).
-#   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL_TELEMETRY=off sh
+#   curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL_TELEMETRY=0 sh
 # Pre-flight: before anything is changed the installer refuses to run while
 # ASL3 is still finishing its first-boot setup (systemd still starting, or
 # asl3-boot-oneshot.service / resize2fs_once.service running) or while another
@@ -157,7 +157,7 @@ case "${ASLCP_ASL_TELEMETRY:-}" in
 "") ;;
 [Oo][Ff][Ff] | 0 | [Nn][Oo] | [Ff][Aa][Ll][Ss][Ee]) TELEM_MODE=off ;;
 [Oo][Nn] | 1 | [Yy][Ee][Ss] | [Tt][Rr][Uu][Ee]) TELEM_MODE=on ;;
-*) die "ASLCP_ASL_TELEMETRY must be off, 0, no, false, on, 1, yes or true (got '${ASLCP_ASL_TELEMETRY}')" ;;
+*) die "ASLCP_ASL_TELEMETRY must be 0 or 1 (also off, no, false, on, yes, true) (got '${ASLCP_ASL_TELEMETRY}')" ;;
 esac
 [ "$TAKEOVER_UNDO" -eq 0 ] || [ -z "$TELEM_MODE" ] || die "ASLCP_TAKEOVER=undo cannot be combined with ASLCP_ASL_TELEMETRY"
 

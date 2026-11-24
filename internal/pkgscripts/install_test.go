@@ -754,7 +754,7 @@ func TestInstallTelemetryOptionParsing(t *testing.T) {
 	if got, err := installTelemHead(t, "ASLCP_ASL_TELEMETRY=off", "ASLCP_TAKEOVER=undo"); err == nil {
 		t.Errorf("telemetry with takeover undo accepted: %q", got)
 	}
-	if got, err := installTelemHead(t, "ASLCP_ASL_TELEMETRY=off", "ASLCP_TAKEOVER=1", "ASLCP_DV=1"); err != nil || got != "telem=off" {
+	if got, err := installTelemHead(t, "ASLCP_ASL_TELEMETRY=0", "ASLCP_TAKEOVER=1", "ASLCP_DV=1"); err != nil || got != "telem=off" {
 		t.Errorf("combined: %q (%v)", got, err)
 	}
 }

@@ -3,6 +3,11 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [2.1.2] - 2026-11-24
+
+### Changed
+- `ASLCP_ASL_TELEMETRY` is documented as `0`/`1` like the other install options (`0` turns ASL3 telemetry off, `1` back on). `off` and `on` still work. The install page now writes `ASLCP_ASL_TELEMETRY=0`.
+
 ## [2.1.1] - 2026-11-24
 
 ### Fixed

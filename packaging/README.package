@@ -61,8 +61,8 @@ ASL3
       curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL3=0 sh
   ASL3 sends AllStarLink an anonymous usage report every day
   (asl-telemetry.timer). ASLCP leaves it on. To turn it off and mask it:
-      curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL_TELEMETRY=off sh
-  (ASLCP_ASL_TELEMETRY=on restores it.) By hand:
+      curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL_TELEMETRY=0 sh
+  (ASLCP_ASL_TELEMETRY=1 restores it.) By hand:
       sudo systemctl disable --now asl-telemetry.timer
       sudo systemctl mask asl-telemetry.timer asl-telemetry.service
 
