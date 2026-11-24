@@ -142,7 +142,6 @@
   // A private call is saved with its #, so the chip calls it privately again.
   const favValue = $derived(target && isDMRFamily(mode) && b?.private ? target + PRIVATE_MARK : target);
   const starred = $derived(mode ? findFavorite(favs, mode, favValue) : undefined);
-  const sortedChips = $derived([...chips].sort((a, b2) => Number(b2.value === favValue) - Number(a.value === favValue)));
   const nodeRow = $derived(!!(bn?.present && bn.node && link));
   const showNodeBox = $derived(nodeRow);
   const showTargetBox = $derived(!!mode);
@@ -296,7 +295,7 @@
 
     {#if mode && chips.length}
       <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Favourites for {mode}">
-        {#each sortedChips as f (f.id)}
+        {#each chips as f (f.id)}
           {@const tuned = f.value === favValue}
           <span class="inline-flex items-center rounded border {tuned ? 'border-accent bg-accent/10' : 'border-line'}" data-tuned={tuned}>
             {#if tuned}<span class="ml-1.5 inline-block size-1.5 rounded-full bg-ok" aria-hidden="true"></span><span class="sr-only">on air</span>{/if}
