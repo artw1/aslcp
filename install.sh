@@ -341,10 +341,41 @@ if [ "$TAKEOVER_UNDO" -eq 0 ]; then
 		# shellcheck disable=SC2086
 		DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 $missing || die "could not install $missing"
 		say "installed $missing"
+		ASL3_FRESH=1
 	}
 	# --->8--- asl3-install
 
+	ASL3_FRESH=0
 	asl3_ensure
+
+	# ---8<--- asl3-udev (exercised by the Go tests in internal/pkgscripts; keep self-contained)
+	# asl3_udev_apply: the udev rules the ASL3 packages install only apply to
+	# devices plugged in later, so a USB radio interface that was already
+	# connected stays unusable (Asterisk: "USB device string ... was not found")
+	# until a reboot. Re-apply them to the connected devices, only when this run
+	# installed ASL3. Never fatal: a failure sets UDEV_REBOOT=1 (the summary then
+	# asks for a reboot). Skipped without udevadm or systemd.
+	UDEV_REBOOT=0
+	asl3_udev_apply() {
+		[ "${ASL3_FRESH:-0}" -eq 1 ] || return 0
+		command -v udevadm >/dev/null 2>&1 || return 0
+		[ -d "${ASLCP_SYSTEMD_RUN:-/run/systemd/system}" ] || return 0
+		say "applying the ASL3 device rules to devices that are already connected"
+		if udevadm control --reload-rules &&
+			udevadm trigger --action=add --subsystem-match=sound --subsystem-match=hidraw &&
+			udevadm settle --timeout=30; then
+			if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet asterisk; then
+				systemctl restart asterisk || say "warning: could not restart asterisk (see: journalctl -u asterisk)"
+			fi
+		else
+			say "warning: could not apply the device rules"
+			UDEV_REBOOT=1
+		fi
+		return 0
+	}
+	# --->8--- asl3-udev
+
+	asl3_udev_apply
 
 	# ---8<--- asl-telemetry (exercised by a local test harness; keep self-contained)
 	# asl_telemetry_apply: acts on TELEM_MODE (off, on or empty). Never fatal.
@@ -876,6 +907,10 @@ PORT_FAIL=0
 setup_admin
 if [ -n "$DV_RESULT" ]; then
 	printf '\nDigital modes: %s\n' "$DV_RESULT"
+fi
+
+if [ "${UDEV_REBOOT:-0}" -eq 1 ]; then
+	printf '\n%s\n' "aslcp-install: Reboot the Pi before using a USB radio interface (its device permissions were not applied yet)."
 fi
 
 cat <<EOM
