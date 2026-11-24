@@ -14,6 +14,7 @@ Release notes are taken from the section of the tag being released
 
 ### Fixed
 - DMR networks using the Homebrew protocol: retuning right after the network logged in could send two link bursts at once with mixed-up packet sequence numbers. They are now sent one at a time.
+- The setup link printed by the installer could carry a stale code when the installer restarted ASLCP (port change, `ASLCP_TAKEOVER`, digital modes), so setup said "Wrong setup code". The setup code now stays the same across restarts until an administrator exists.
 
 ## [2.0.5] - 2026-11-23
 
