@@ -9,7 +9,8 @@
   import LastHeardTable from '../LastHeardTable.svelte';
   import PublicNetwork from './PublicNetwork.svelte';
   import PublicNowCalling from './PublicNowCalling.svelte';
-  import { pubBanner, pubTile } from '../../lib/tiles';
+  import { pubTile } from '../../lib/tiles';
+  import { pubNow } from '../../lib/pubnow';
   import { pubHeardItems } from '../../lib/lastheard';
   import Radio from '@lucide/svelte/icons/radio-tower';
   import Sun from '@lucide/svelte/icons/sun';
@@ -32,7 +33,7 @@
   const nextTheme = $derived(theme.value === 'dark' ? 'light' : theme.value === 'light' ? 'system' : 'dark');
   const themeLabel = $derived(`Theme: ${theme.value}. Switch to ${nextTheme}.`);
   const updatedAt = $derived(pub.updated ? new Date(pub.updated).toLocaleTimeString() : '');
-  const banner = $derived(pubBanner(snap, pub.skew, pub.nodeAt));
+  const banner = $derived(pubNow(snap, pub.skew, pub.nodeAt));
   const heard = $derived(pubHeardItems(snap));
   // `clock` ticks once a second so the age of the data is current.
   const staleData = $derived(pub.updated > 0 && clock.now - pub.updated > 45000);
@@ -57,6 +58,7 @@
         <button class="btn btn-sm shrink-0" onclick={() => navigate('/')}>Back</button>
       {/if}
     </div>
+    {#if snap && snap.nodes.length > 0 && banner}<PublicNowCalling call={banner} />{/if}
   </header>
 
   <main class="mx-auto w-full max-w-[1100px] flex-1 space-y-3 px-3 py-2 sm:px-4">
@@ -65,7 +67,6 @@
     {:else if snap.nodes.length === 0}
       <p class="py-10 text-center text-sm text-muted" role="status">No node data yet.</p>
     {:else}
-      {#if banner}<PublicNowCalling call={banner} />{/if}
       <section class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" aria-label="Nodes" data-testid="tiles">
         {#each snap.nodes as n, i (n.node + '/' + i)}<NodeTile tile={pubTile(n, snap.showDV ? snap.dv?.now : null)} />{/each}
       </section>

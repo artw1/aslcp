@@ -55,7 +55,7 @@ export function pubTile(n: PubNode, dvNow: PubDVCall | null | undefined, max = 3
 }
 
 /** The Now Calling banner of the public page. */
-export interface PubBanner { source: string; main: string; sub: string; qrz: string; /** When the call started, in the page's clock (ms, browser time); 0 when not known. */ startMs: number }
+export interface PubBanner { source: string; main: string; sub: string; qrz: string; /** The parts, for the details sheet. */ call: string; name: string; place: string; target: string; /** When the call started, in the page's clock (ms, browser time); 0 when not known. */ startMs: number }
 
 /** The call in progress: the DV call when the setting is on and there is one, else a keyed AllStar link (its callsign when callsigns are shown, else its node number). */
 export function pubBanner(snap: Pick<PubSnapshot, 'nodes' | 'dv' | 'showDV'> | null | undefined, skewMs: number, nodeAt: Record<string, number>): PubBanner | null {
@@ -66,6 +66,7 @@ export function pubBanner(snap: Pick<PubSnapshot, 'nodes' | 'dv' | 'showDV'> | n
       source: d.mode, main: d.callsign || `${d.mode} caller`,
       sub: [d.name, d.location, d.target, d.slot ? `TS${d.slot}` : ''].filter(Boolean).join(' · '),
       qrz: qrzUrl(d.callsign), startMs: d.at * 1000 - skewMs,
+      call: d.callsign ?? '', name: d.name ?? '', place: d.location ?? '', target: [d.target, d.slot ? `TS${d.slot}` : ''].filter(Boolean).join(' · '),
     };
   }
   for (const n of snap.nodes) {
@@ -76,6 +77,7 @@ export function pubBanner(snap: Pick<PubSnapshot, 'nodes' | 'dv' | 'showDV'> | n
       source: 'ASL', main: call || who({ node: l.node }),
       sub: [l.info?.description, l.info?.location, `Node ${l.node}`].filter(Boolean).join(' · '),
       qrz: qrzUrl(call), startMs: (nodeAt[n.node] ?? 0) - (l.sinceKey ?? 0) * 1000,
+      call, name: l.info?.description ?? '', place: l.info?.location ?? '', target: `Node ${l.node}`,
     };
   }
   return null;
