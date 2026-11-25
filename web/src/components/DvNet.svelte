@@ -52,12 +52,16 @@
 </script>
 {#snippet opt(o: import('../lib/types').DVOptSpec)}
   <div>
-    <label class="label" for="{id}-{o.key}">{o.label}</label>
-    {#if o.kind === 'bool'}
+    {#if o.kind === 'bool' && o.default === 'false'}
+      <!-- off by default: a checkbox (checked sends "true", unchecked clears the key) -->
+      <label class="flex cursor-pointer items-start gap-2 text-sm" for="{id}-{o.key}"><input id="{id}-{o.key}" type="checkbox" class="mt-0.5 size-4" checked={f.options[o.key] === 'true'} onchange={(e) => (f.options[o.key] = e.currentTarget.checked ? 'true' : '')} data-testid="{id}-{o.key}" /><span class="font-medium">{o.label}</span></label>
+    {:else if o.kind === 'bool'}
+      <label class="label" for="{id}-{o.key}">{o.label}</label>
       <select id="{id}-{o.key}" class="input" bind:value={f.options[o.key]}>
         <option value="">Default ({o.default === 'true' ? 'on' : 'off'})</option><option value="true">On</option><option value="false">Off</option>
       </select>
     {:else}
+      <label class="label" for="{id}-{o.key}">{o.label}</label>
       <input id="{id}-{o.key}" class="input font-mono" bind:value={f.options[o.key]} placeholder={o.default} inputmode={o.kind === 'int' ? 'numeric' : undefined} maxlength={o.kind === 'text' ? (o.maxLen ?? 32) : undefined} autocomplete="off" />
     {/if}
     {#if o.help}<p class="mt-0.5 text-xs text-muted">{o.help}</p>{/if}
@@ -107,7 +111,7 @@
         </div>
       </div>
     {/if}
-    {#each basic as o (o.key)}<div class="col-span-2 sm:col-span-1">{@render opt(o)}</div>{/each}
+    {#each basic as o (o.key)}<div class={o.kind === 'bool' && o.default === 'false' ? 'col-span-2' : 'col-span-2 sm:col-span-1'}>{@render opt(o)}</div>{/each}
   </div>
   {#if adv.length}
     <button type="button" class="btn btn-sm min-h-8" aria-expanded={showAdv} onclick={() => (showAdv = !showAdv)}>{showAdv ? 'Hide' : 'Show'} advanced options</button>

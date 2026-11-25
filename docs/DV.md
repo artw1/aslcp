@@ -66,10 +66,21 @@ BrandMeister is a native client of the Rewind protocol: the engine logs in to a 
 - *Identity*: callsign, DMR ID and an optional ESSID (2 digits, 01–99; the repeater ID is your DMR ID followed by it). The DMR networks log in with it. Clearing it disables them.
 - *Master*: picked from a dropdown of the BrandMeister masters (entries named `BM_<id>_<Country>` in the DMR host list the node downloads daily, shown as "3104 – United States", sorted by id); pick the one closest to you. There is no port setting: the engine always uses 54006 (the port in the host list is the Homebrew port and is not used), and a port stored by an earlier version is ignored. If the list has not been downloaded yet, the card says so and shows an *Other address* field instead; *Other…* in the dropdown does the same for a master that is not in the list.
 - *Password*: the password set in your BrandMeister SelfCare (hotspot security). It is write-only; the page shows only "Password set" and a Change button, and the password is never logged or returned.
-- *Options*: all under "advanced": the client version and the keep-alive, timeout and back-off timers. A blank option uses the engine default.
+- *Stay logged in when not in BrandMeister mode* (checkbox, off by default; the option `stay_logged_in` in the network's options): see "Login only while BrandMeister is the active mode" below.
+- *Options*: the rest are under "advanced": the client version and the keep-alive, timeout and back-off timers. A blank option uses the engine default.
 - *Enable* needs the address, the password and the identity; the page says which one is missing. Saving renders the engine config and reloads the engine, so a login attempt starts at once; the card shows the login state (pending, logged in, or refused with the master's reason).
 
 **Login.** The engine logs in to BrandMeister as an Open DMR Terminal with your DMR ID and your BrandMeister password; no application ID is needed. A refusal (wrong password) shows on the card as "Login failed".
+
+**Login only while BrandMeister is the active mode.** BrandMeister allows one Open DMR Terminal session per DMR ID, so a session that stays up locks your ID out of every other BrandMeister terminal app (a phone app, say). The engine therefore keeps the session only while BrandMeister is the active mode:
+
+- Entering BrandMeister (a mode switch, a tune, a pin, or a resume after a restart that lands in it) starts the session and waits for the login, up to 12 seconds, before it tunes. If the master refuses the login or does not answer in time, the request fails with `502 login_failed` and the master's reason (engine error code `login_failed`), the session is stopped again and the engine is in no mode. The dashboard shows the message and the card shows the login state.
+- Leaving it (switching to another mode, or tuning another mode) tunes TG 4000 (unlink), then ends the session with the Rewind close packet, so the master sees the terminal go away and the ID is free. While another mode is active BrandMeister never reconnects by itself.
+- Until it is entered, the card and the status strip say "Not in use" (engine login state `idle`, grey). That is not a failure: the overview raises no alert for it.
+- After a restart, "Resume after restart" follows the resumed mode: BrandMeister is logged in only if it is the mode that comes back (the tracker's mode switch or tune logs in like any other).
+- The mode switch into BrandMeister takes as long as the login (normally a second or two) instead of being instant.
+
+Turn on *Stay logged in when not in BrandMeister mode* to keep the old behaviour (a session from the start of the engine, in every mode); it costs you the free ID. TGIF and DMR - Other always stay logged in. Changing the option re-renders the engine config and reloads the engine, like any other setting. In the engine config (`/var/lib/aslcp-dv/config.json`) this is the per-network flag `onDemand`; when it is absent it defaults to true for `BM` unless the option `stay_logged_in` is `"true"`, and to false for the other networks.
 
 **Using it.** On the dashboard, choose BrandMeister, type a talkgroup and press Tune, or pick a favourite. The *Private call* switch (or a trailing `#`) calls the number as a private call. The dashboard's **Parrot** button (BrandMeister's Parrot, not the Echo test) calls 9990 as a private call: key up, release, and the master plays your transmission back as a private call from 9990 to you. That tests the whole path over the real network without disturbing a talkgroup. **Unlink** tunes TG 4000, BrandMeister's disconnect talkgroup.
 
@@ -102,7 +113,7 @@ The DMR user list (`DMRIds.dat`) is **not** downloaded: ASLCP shows names and ca
 
 With "Resume after restart" on, a tracker re-sends the last mode and tune after the engine restarts. It reads the engine over the control socket, not from a file. The "boot mode" hook of 1.x is gone: there is no file to write, the engine keeps its own state.
 
-The tracker remembers the last tune of each mode and the last mode used. A disconnect (an unlink value, or the Unlink button) erases the tune of that mode but keeps the mode: after a restart the engine comes back in that mode with nothing linked (the log says "dv resume: YSF selected, nothing linked"). This is a plain mode switch, nothing is sent to the network, and a disconnected target is never linked again. A mode that is switched off is skipped, and nothing is resumed more than a few minutes after the engine started.
+The tracker remembers the last tune of each mode and the last mode used. A disconnect (an unlink value, or the Unlink button) erases the tune of that mode but keeps the mode: after a restart the engine comes back in that mode with nothing linked (the log says "dv resume: YSF selected, nothing linked"). This is a plain mode switch, nothing is linked on the network (BrandMeister still logs in, since it is the active mode), and a disconnected target is never linked again. A mode that is switched off is skipped, and nothing is resumed more than a few minutes after the engine started.
 
 A tune, a mode switch or an unlink made on the dashboard is remembered at once; changes made elsewhere are picked up by the tracker's next poll.
 

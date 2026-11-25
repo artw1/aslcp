@@ -84,6 +84,8 @@ type NetSpec struct {
 // NetOptions is the allowlist of option keys per mode.
 var NetOptions = map[string][]OptSpec{
 	ModeBM: {
+		{Key: ctl.OptStayLoggedIn, Label: "Stay logged in when not in BrandMeister mode", Kind: KindBool, Default: "false",
+			Help: "Off: BrandMeister logs in only while it is the active mode, so your DMR ID is free for other BrandMeister terminal apps in between (the master allows one session per ID). On: the session stays open in every mode."},
 		{Key: "client_version", Label: "Software description", Kind: KindText, Default: "aslcp-dv", Advanced: true,
 			Help: "Sent to the master with every keep-alive."},
 		{Key: "keepalive_ms", Label: "Keep-alive period (ms)", Kind: KindInt, Default: "5000", Min: 500, Max: 60000, Advanced: true},

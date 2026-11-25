@@ -17,6 +17,10 @@ import (
 // caller's context has no earlier deadline.
 const dialTimeout = 2 * time.Second
 
+// enterTimeout bounds mode and tune: entering an on-demand network waits for
+// its login (the engine gives up after bridge.DefaultLoginWait, 12 s).
+const enterTimeout = 20 * time.Second
+
 // Error is returned for a response with ok:false.
 type Error struct{ Code, Msg string }
 
@@ -115,6 +119,12 @@ func (c *Client) do(ctx context.Context, op string, args any) (Status, error) {
 	dl := time.Now().Add(dialTimeout)
 	if d, ok := ctx.Deadline(); ok && d.Before(dl) {
 		dl = d
+	}
+	if op == OpMode || op == OpTune {
+		dl = time.Now().Add(enterTimeout)
+		if d, ok := ctx.Deadline(); ok && d.Before(dl) {
+			dl = d
+		}
 	}
 	conn.SetDeadline(dl)
 	stop := context.AfterFunc(ctx, func() { conn.SetDeadline(time.Unix(1, 0)) })

@@ -194,11 +194,14 @@ type NetId = 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN' | 'M17';
 const blank = (): MockNet => ({ enabled: false, address: '', port: 0, password: '', options: {} });
 const otherNets: Record<'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN' | 'M17', MockNet> = { TGIF: blank(), DMR: blank(), YSF: blank(), P25: blank(), NXDN: blank(), M17: blank() };
 let ident: { callsign: string; dmrId: number; repeaterId?: number } = { callsign: '', dmrId: 0 };
-const bmLogin = () => (ident.dmrId ? 'ok' : 'failed');
-const bmDetail = () => (ident.dmrId ? '' : 'the master refused the login: no DMR ID set');
+// BrandMeister logs in only while it is the active mode (or with the stay_logged_in option): otherwise the engine reports `idle`.
+const bmInUse = () => bridge.mode === 'BM' || bmNet.options.stay_logged_in === 'true';
+const bmLogin = () => (!bmInUse() ? 'idle' : ident.dmrId ? 'ok' : 'failed');
+const bmDetail = () => (bmInUse() && !ident.dmrId ? 'the master refused the login: no DMR ID set' : '');
 const BM_HELP = 'Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security). Pick the master closest to you.';
 const intOpt = (key: string, label: string, def: string, min: number, max: number, advanced = false) => ({ key, label, kind: 'int', default: def, min, max, ...(advanced ? { advanced } : {}) });
 const BM_OPTS = [
+  { key: 'stay_logged_in', label: 'Stay logged in when not in BrandMeister mode', kind: 'bool', default: 'false', help: 'Off: BrandMeister logs in only while it is the active mode, so your DMR ID is free for other BrandMeister terminal apps in between (the master allows one session per ID). On: the session stays open in every mode.' },
   { key: 'client_version', label: 'Client version', kind: 'text', default: 'ASLCP', advanced: true },
   intOpt('keepalive_ms', 'Keep-alive (ms)', '5000', 100, 60000, true),
   intOpt('timeout_ms', 'Timeout (ms)', '15000', 500, 120000, true),

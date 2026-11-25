@@ -27,6 +27,15 @@ const (
 	// without a terminator.
 	DefaultRxSilence = 1500 * time.Millisecond
 
+	// DefaultLoginWait is how long entering an on-demand network waits for
+	// its login. The BrandMeister client tries every 5 s and backs off 1 s
+	// between attempts, so this covers two attempts.
+	DefaultLoginWait = 12 * time.Second
+
+	// stopWait bounds the wait for a network's goroutine to end after its
+	// session was cancelled (the close packet goes out first).
+	stopWait = 2 * time.Second
+
 	tick     = 100 * time.Millisecond
 	workQ    = 64
 	netEvQ   = 1024
@@ -65,7 +74,10 @@ type Options struct {
 	InitialMode string
 	TxTimeout   time.Duration
 	RxSilence   time.Duration
-	Log         *log.Logger
+	// LoginWait bounds the wait for the login of an on-demand network when
+	// it is entered. 0: DefaultLoginWait.
+	LoginWait time.Duration
+	Log       *log.Logger
 }
 
 type netEntry struct {
@@ -74,10 +86,25 @@ type netEntry struct {
 	cancel context.CancelFunc
 	login  ctl.LoginState
 	detail string
+
+	// On demand (ctl.NetConfig.OnDemand): the session runs only while the
+	// network is the active mode. running tells whether one is up; used,
+	// that n has run before (a new session gets a new network, so nothing
+	// of the old one, such as its subscription, carries over). gen numbers
+	// the sessions: events of an older one are dropped. done closes when
+	// the network's goroutine ended. waiters are entries waiting for the
+	// login.
+	onDemand bool
+	running  bool
+	used     bool
+	gen      uint64
+	done     chan struct{}
+	waiters  []chan error
 }
 
 type netEvent struct {
 	e      *netEntry
+	gen    uint64
 	hdr    *network.CallHeader
 	frame  *network.VoiceFrame
 	end    uint64
@@ -239,6 +266,9 @@ func New(o Options) *Router {
 	if o.RxSilence <= 0 {
 		o.RxSilence = DefaultRxSilence
 	}
+	if o.LoginWait <= 0 {
+		o.LoginWait = DefaultLoginWait
+	}
 	if o.Log == nil {
 		o.Log = log.New(discard{}, "", 0)
 	}
@@ -273,6 +303,7 @@ func (r *Router) Run(ctx context.Context) error {
 	if m := r.o.InitialMode; m != "" {
 		if e := r.find(m); e != nil && e.n != nil && e.cfg.Enabled {
 			r.mode = m
+			r.startSession(e) // an on-demand network logs in now; the others already run
 		}
 	}
 	// Separate IMBE state per direction: each worker goroutine owns its own.
@@ -395,12 +426,13 @@ func (r *Router) find(mode string) *netEntry {
 }
 
 type sink struct {
-	r *Router
-	e *netEntry
+	r   *Router
+	e   *netEntry
+	gen uint64
 }
 
 func (s sink) push(ev netEvent) {
-	ev.e = s.e
+	ev.e, ev.gen = s.e, s.gen
 	select {
 	case s.r.netq <- ev:
 	default:
@@ -418,7 +450,7 @@ func (s sink) Login(st ctl.LoginState, d string) {
 }
 
 func (r *Router) newEntry(c ctl.NetConfig) *netEntry {
-	e := &netEntry{cfg: c, login: ctl.LoginOff}
+	e := &netEntry{cfg: c, login: ctl.LoginOff, onDemand: c.OnDemand != nil && *c.OnDemand}
 	if !network.Available(c.Mode) {
 		return e
 	}
@@ -432,18 +464,155 @@ func (r *Router) newEntry(c ctl.NetConfig) *netEntry {
 		return e
 	}
 	e.n = n
-	if c.Enabled {
-		ctx, cancel := context.WithCancel(r.runCtx)
-		e.cancel = cancel
-		r.wg.Add(1)
-		go func() {
-			defer r.wg.Done()
-			if err := n.Run(ctx, sink{r, e}); err != nil && ctx.Err() == nil {
-				r.log.Printf("network %s stopped: %v", c.Mode, err)
-			}
-		}()
+	switch {
+	case !c.Enabled:
+	case e.onDemand:
+		e.login = ctl.LoginIdle
+	default:
+		r.startSession(e)
 	}
 	return e
+}
+
+// startSession starts the network's session (its Run goroutine) unless one is
+// up. An on-demand network gets a new network value for every session. It
+// runs on the router goroutine.
+func (r *Router) startSession(e *netEntry) {
+	if e.running || e.n == nil || !e.cfg.Enabled {
+		return
+	}
+	if e.used {
+		n, err := network.New(e.cfg, r.cfg.Identity)
+		if err != nil {
+			r.log.Printf("network %s: %v", e.cfg.Mode, err)
+			e.detail = err.Error()
+			return
+		}
+		e.n = n
+	}
+	e.used, e.running = true, true
+	e.gen++
+	e.login, e.detail = ctl.LoginPending, ""
+	ctx, cancel := context.WithCancel(r.runCtx)
+	done := make(chan struct{})
+	e.cancel, e.done = cancel, done
+	n, sk := e.n, sink{r, e, e.gen}
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		defer close(done)
+		if err := n.Run(ctx, sk); err != nil && ctx.Err() == nil {
+			r.log.Printf("network %s stopped: %v", e.cfg.Mode, err)
+		}
+	}()
+}
+
+// stopSession ends the network's session: the context is cancelled (BM sends
+// its close packet first) and the goroutine given stopWait to finish. Late
+// events of the old session are dropped. An on-demand network reads "idle"
+// afterwards. It runs on the router goroutine.
+func (r *Router) stopSession(e *netEntry) {
+	if !e.running {
+		return
+	}
+	e.cancel()
+	select {
+	case <-e.done:
+	case <-time.After(stopWait):
+		r.log.Printf("network %s: session did not end in %v", e.cfg.Mode, stopWait)
+	}
+	e.running, e.cancel = false, nil
+	e.gen++
+	e.login, e.detail = ctl.LoginIdle, ""
+	r.emit(ctl.Event{Type: ctl.EvLogin, Login: &ctl.LoginEvent{Mode: e.cfg.Mode, State: ctl.LoginIdle}})
+}
+
+// leave ends the use of e as the active network: it is unlinked, and an
+// on-demand one then logs out.
+func (r *Router) leave(e *netEntry) {
+	e.n.Unlink(r.runCtx)
+	if e.onDemand {
+		r.stopSession(e)
+	}
+}
+
+// loginWait registers a wait for the login of e and returns its channel; nil
+// when nothing is to be waited for (e is not on demand, or logged in).
+func (r *Router) loginWait(e *netEntry) <-chan error {
+	if e == nil || !e.onDemand || e.login == ctl.LoginOK || !e.running {
+		return nil
+	}
+	ch := make(chan error, 1)
+	e.waiters = append(e.waiters, ch)
+	return ch
+}
+
+func (e *netEntry) dropWaiter(ch <-chan error) {
+	for i, w := range e.waiters {
+		if (<-chan error)(w) == ch {
+			e.waiters = append(e.waiters[:i], e.waiters[i+1:]...)
+			return
+		}
+	}
+}
+
+// netName is how an error message names a mode.
+func netName(mode string) string {
+	if mode == ctl.ModeBM {
+		return "BrandMeister"
+	}
+	return mode
+}
+
+// awaitLogin waits, off the router goroutine so the router keeps serving
+// audio, events and status, for the login of e. When the master refuses it,
+// does not answer within LoginWait or the caller gives up, the mode is left
+// again (the session is stopped) and the error says why.
+func (r *Router) awaitLogin(ctx context.Context, e *netEntry, ch <-chan error) error {
+	wait := r.o.LoginWait
+	t := time.NewTimer(wait)
+	defer t.Stop()
+	var err error
+	timedOut := false
+	select {
+	case err = <-ch:
+	case <-t.C:
+		timedOut = true
+	case <-ctx.Done():
+		err = ctx.Err()
+	case <-r.stopped:
+		return cerr(ctl.CodeInternal, "engine stopping")
+	}
+	if err == nil && !timedOut {
+		return nil
+	}
+	var out error
+	actx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if xerr := r.exec(actx, func() {
+		e.dropWaiter(ch)
+		if e.login == ctl.LoginOK && timedOut {
+			return // logged in just now
+		}
+		if timedOut {
+			d := ""
+			if e.detail != "" {
+				d = " (" + e.detail + ")"
+			}
+			err = cerr(ctl.CodeLoginFailed, "%s did not answer the login within %s%s", netName(e.cfg.Mode), wait.Round(time.Second), d)
+		}
+		out = err
+		if r.active() == e {
+			r.cutCalls()
+			r.mode, r.target = ctl.ModeNone, nil
+			r.updated = time.Now()
+		}
+		r.stopSession(e)
+		r.emitStatus()
+	}); xerr != nil {
+		return xerr
+	}
+	return out
 }
 
 func (r *Router) startNets() {
@@ -584,8 +753,21 @@ func (r *Router) finishTX() {
 
 func (r *Router) onNet(ev netEvent) {
 	e := ev.e
+	if ev.gen != e.gen {
+		return // of a session that was stopped
+	}
 	if ev.isLog {
 		e.login, e.detail = ev.login, ev.detail
+		switch ev.login {
+		case ctl.LoginOK:
+			r.wake(e, nil)
+		case ctl.LoginFailed:
+			d := ""
+			if ev.detail != "" {
+				d = ": " + ev.detail
+			}
+			r.wake(e, cerr(ctl.CodeLoginFailed, "%s refused the login%s", netName(e.cfg.Mode), d))
+		}
 		r.emit(ctl.Event{Type: ctl.EvLogin, Login: &ctl.LoginEvent{Mode: e.cfg.Mode, State: ev.login, Detail: ev.detail}})
 		return
 	}
@@ -647,6 +829,14 @@ func (r *Router) onNet(ev netEvent) {
 			r.endRX()
 		}
 	}
+}
+
+// wake answers the entries waiting for the login of e.
+func (r *Router) wake(e *netEntry, err error) {
+	for _, w := range e.waiters {
+		w <- err // buffered 1, one answer per waiter
+	}
+	e.waiters = nil
 }
 
 func (r *Router) endRX() {
@@ -733,7 +923,7 @@ func (r *Router) status() ctl.Status {
 		// Available: this build implements the mode, whether or not its
 		// settings are complete (a misconfigured network reports why in Detail).
 		ns := ctl.NetStatus{Mode: e.cfg.Mode, Available: network.Available(e.cfg.Mode), Enabled: e.cfg.Enabled, Login: e.login, Detail: e.detail}
-		if e.n != nil {
+		if e.n != nil && (e.running || !e.onDemand) {
 			if s := e.n.Status(); s.Detail != "" && ns.Detail == "" {
 				ns.Detail = s.Detail
 			}
@@ -832,6 +1022,9 @@ func (r *Router) switchMode(mode string, force bool) (*netEntry, error) {
 		}
 	}
 	if mode == r.mode {
+		if e != nil && e.onDemand {
+			r.startSession(e)
+		}
 		return e, nil
 	}
 	if r.callActive() {
@@ -841,43 +1034,88 @@ func (r *Router) switchMode(mode string, force bool) (*netEntry, error) {
 		r.cutCalls()
 	}
 	if old := r.active(); old != nil {
-		old.n.Unlink(r.runCtx)
+		r.leave(old)
 	}
 	r.mode, r.target = mode, nil
 	r.updated = time.Now()
+	if e != nil && e.onDemand {
+		r.startSession(e)
+	}
 	return e, nil
 }
 
-// Mode switches the active network.
+// Mode switches the active network. Entering an on-demand network starts its
+// session and waits for the login (LoginWait); a refused or unanswered login
+// leaves the mode again and returns CodeLoginFailed.
 func (r *Router) Mode(ctx context.Context, a ctl.ModeArgs) (ctl.Status, error) {
-	return r.do(ctx, func() error {
-		if _, err := r.switchMode(a.Mode, a.Force); err != nil {
-			return err
-		}
-		r.emitStatus()
-		return nil
-	})
-}
-
-// Tune points the network at a target (switching mode if needed).
-func (r *Router) Tune(ctx context.Context, a ctl.TuneArgs) (ctl.Status, error) {
-	return r.do(ctx, func() error {
-		if a.Mode == ctl.ModeNone {
-			return cerr(ctl.CodeBadRequest, "tune needs a mode")
-		}
-		e, err := r.switchMode(a.Mode, a.Force)
+	var (
+		e    *netEntry
+		wait <-chan error
+	)
+	st, err := r.do(ctx, func() error {
+		ent, err := r.switchMode(a.Mode, a.Force)
 		if err != nil {
 			return err
 		}
-		if err := e.n.Tune(ctx, a.Target); err != nil {
-			return cerr(ctl.CodeInternal, "tune: %v", err)
-		}
-		t := a.Target
-		r.target = &t
-		r.updated = time.Now()
+		e, wait = ent, r.loginWait(ent)
 		r.emitStatus()
 		return nil
 	})
+	if err != nil || wait == nil {
+		return st, err
+	}
+	if err := r.awaitLogin(ctx, e, wait); err != nil {
+		st, _ := r.Status(context.Background())
+		return st, err
+	}
+	return r.Status(ctx)
+}
+
+// Tune points the network at a target (switching mode if needed). Like Mode,
+// it waits for the login of an on-demand network before it tunes.
+func (r *Router) Tune(ctx context.Context, a ctl.TuneArgs) (ctl.Status, error) {
+	var (
+		e    *netEntry
+		wait <-chan error
+	)
+	st, err := r.do(ctx, func() error {
+		if a.Mode == ctl.ModeNone {
+			return cerr(ctl.CodeBadRequest, "tune needs a mode")
+		}
+		ent, err := r.switchMode(a.Mode, a.Force)
+		if err != nil {
+			return err
+		}
+		e = ent
+		if wait = r.loginWait(e); wait != nil {
+			r.emitStatus() // the mode is in; the card shows "Logging in"
+			return nil
+		}
+		return r.tuneActive(ctx, e, a.Target)
+	})
+	if err != nil || wait == nil {
+		return st, err
+	}
+	if err := r.awaitLogin(ctx, e, wait); err != nil {
+		st, _ := r.Status(context.Background())
+		return st, err
+	}
+	return r.do(ctx, func() error {
+		if r.active() != e {
+			return cerr(ctl.CodeBusy, "the mode changed while %s was logging in", netName(a.Mode))
+		}
+		return r.tuneActive(ctx, e, a.Target)
+	})
+}
+
+func (r *Router) tuneActive(ctx context.Context, e *netEntry, t ctl.Target) error {
+	if err := e.n.Tune(ctx, t); err != nil {
+		return cerr(ctl.CodeInternal, "tune: %v", err)
+	}
+	r.target = &t
+	r.updated = time.Now()
+	r.emitStatus()
+	return nil
 }
 
 // Unlink disconnects the target of the current network.
@@ -948,6 +1186,7 @@ func (r *Router) apply(cfg ctl.Config) {
 				r.mode, r.target = ctl.ModeNone, nil
 			}
 			e.cancel()
+			r.wake(e, cerr(ctl.CodeInternal, "the configuration changed"))
 		}
 	}
 	for i, n := range nets {

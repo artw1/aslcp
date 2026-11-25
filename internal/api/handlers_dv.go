@@ -329,6 +329,8 @@ func (s *Server) dvCtlError(w http.ResponseWriter, e *ctl.Error) {
 		writeErr(w, http.StatusConflict, "not_enabled", "this mode is not enabled")
 	case ctl.CodeBusy:
 		writeErr(w, http.StatusConflict, "busy", "a call is in progress")
+	case ctl.CodeLoginFailed:
+		writeErr(w, http.StatusBadGateway, "login_failed", e.Msg)
 	case ctl.CodeBadRequest, ctl.CodeForbidden:
 		writeErr(w, http.StatusBadRequest, "bad_request", e.Msg)
 	case ctl.CodeBadConfig:

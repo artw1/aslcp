@@ -34,6 +34,7 @@ const (
 	CodeNotAvailable = "not_available" // network not implemented in this build
 	CodeNotEnabled   = "not_enabled"   // network disabled in config
 	CodeBusy         = "busy"          // a call is in progress and the op would cut it
+	CodeLoginFailed  = "login_failed"  // an on-demand network refused the login or did not answer in time
 	CodeInternal     = "internal"
 )
 
@@ -122,6 +123,9 @@ const (
 	LoginPending LoginState = "pending"
 	LoginOK      LoginState = "ok"
 	LoginFailed  LoginState = "failed"
+	// LoginIdle: an on-demand network (NetConfig.OnDemand) that is not the
+	// active mode. It has no session on purpose, so it is not a failure.
+	LoginIdle LoginState = "idle"
 )
 
 // DetailNoReply starts the Detail of a pending or failed network login whose
@@ -312,6 +316,21 @@ type NetConfig struct {
 	Port     int               `json:"port,omitempty"`
 	Password string            `json:"password,omitempty"`
 	Options  map[string]string `json:"options,omitempty"`
+	// OnDemand: the network's session runs only while it is the active mode
+	// (entering the mode logs in and waits for it, leaving unlinks and ends
+	// the session), so the account is free for other clients in between.
+	// nil: the mode's default (config.Validate fills it: on for BM, unless
+	// the option stay_logged_in is "true"; off for the others).
+	OnDemand *bool `json:"onDemand,omitempty"`
+}
+
+// OptStayLoggedIn is the BM option that keeps its session open outside BM mode.
+const OptStayLoggedIn = "stay_logged_in"
+
+// WantsOnDemand is the default of NetConfig.OnDemand for a network: only
+// BrandMeister is on demand, because it allows one session per DMR ID.
+func WantsOnDemand(c NetConfig) bool {
+	return c.Mode == ModeBM && c.Options[OptStayLoggedIn] != "true"
 }
 
 type CtlConfig struct {

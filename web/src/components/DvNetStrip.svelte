@@ -1,6 +1,6 @@
 <script lang="ts">
   // The DV tab's network status strip: one chip per network with a dot (green logged in, red login failed,
-  // amber logging in, grey disabled). An admin taps a chip to open that network in Digital modes setup;
+  // amber logging in, grey disabled or "Not in use"). An admin taps a chip to open that network in Digital modes setup;
   // for everyone else the chips are plain status.
   import { isAdmin } from '../lib/store.svelte';
   import { modeButtonLabel, netChip, netSettingsHref, stripModes } from '../lib/dvpanel';

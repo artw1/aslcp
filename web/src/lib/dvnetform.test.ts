@@ -1,7 +1,7 @@
 // Run with `npm test`. The generic network form and the availability helpers.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { m17NodeFits, nxdnOffNote, BM_HELP, MASTER_OTHER, applyMaster, masterChoice, masterListMode, buildPut, enableBlock, essidToRepeaterId, formError, formOf, hasChanges, identityError, loginText, liveLogin, savedMessage, modeAvailable, passwordUx, repeaterIdToEssid, validAddress } from './dvnetform.ts';
+import { m17NodeFits, nxdnOffNote, BM_HELP, MASTER_OTHER, applyMaster, masterChoice, masterListMode, buildPut, enableBlock, essidToRepeaterId, formError, formOf, hasChanges, identityError, loginText, loginTone, liveLogin, savedMessage, modeAvailable, passwordUx, repeaterIdToEssid, validAddress } from './dvnetform.ts';
 import { cardState } from './dvmodes.ts';
 import type { DVListItem, DVNetView } from './types';
 
@@ -81,6 +81,8 @@ test('login text and identity checks', () => {
   assert.equal(loginText('pending', ''), 'Logging in...');
   assert.equal(loginText('pending', 'no answer from the master'), 'Logging in... (no answer from the master)');
   assert.equal(loginText('failed', 'bad password'), 'Login failed: bad password');
+  assert.equal(loginText('idle', ''), 'Not in use');
+  assert.equal(loginTone('idle'), 'off');
   assert.equal(loginText('off', ''), '');
   assert.equal(identityError('N0CALL', '1234567', ''), '');
   assert.match(identityError('N0', '1234567', ''), /^Callsign/);
@@ -274,4 +276,16 @@ test('save toast says when a password was stored or removed', () => {
   assert.equal(savedMessage('DMR - Other', { password: 'example-pass' }), 'DMR - Other settings saved, password saved');
   assert.equal(savedMessage('DMR - Other', { clearPassword: true }), 'DMR - Other settings saved, password removed');
   assert.equal(savedMessage('DMR - Other', { port: 1 }, 'engine down'), 'DMR - Other settings saved. engine down');
+});
+
+test('the stay-logged-in checkbox sends "true" and clears the key when unchecked', () => {
+  const v: DVNetView = { ...bm, options: [...bm.options, { key: 'stay_logged_in', label: 'Stay logged in when not in BrandMeister mode', kind: 'bool', default: 'false' }] };
+  const f = formOf(v);
+  assert.deepEqual(buildPut(v, f), {});
+  f.options.stay_logged_in = 'true';
+  assert.deepEqual(buildPut(v, f), { options: { stay_logged_in: 'true' } });
+  const on = { ...v, values: { stay_logged_in: 'true' } };
+  const g = formOf(on);
+  g.options.stay_logged_in = '';
+  assert.deepEqual(buildPut(on, g), { options: {} });
 });

@@ -104,12 +104,13 @@ export function nxdnOffNote(v: DVNetView, f: NetForm): string {
   return v.mode === 'NXDN' && v.enabled && f.enabled && (f.options.nxdn_id ?? '').trim() === '' ? 'Saving without an NXDN ID turns NXDN off.' : '';
 }
 
-/** The login line of a network card: "Logged in", "Logging in...", "Login refused: detail"; '' when it is off. */
+/** The login line of a network card: "Logged in", "Logging in...", "Login refused: detail", "Not in use" (an on-demand network outside its mode); '' when it is off. */
 export function loginText(login: DVLogin | undefined, detail: string | undefined): string {
   switch (login) {
     case 'ok': return 'Logged in';
     case 'pending': return detail ? `Logging in... (${detail})` : 'Logging in...';
     case 'failed': return detail ? `Login failed: ${detail}` : 'Login failed';
+    case 'idle': return 'Not in use';
     default: return '';
   }
 }

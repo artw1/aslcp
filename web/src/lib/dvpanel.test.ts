@@ -395,6 +395,9 @@ test('network status chips', () => {
   assert.deepEqual(netChip({ enabled: true, login: 'failed' }), { tone: 'err', text: 'Login failed' });
   assert.deepEqual(netChip({ enabled: true, login: 'pending' }), { tone: 'warn', text: 'Logging in' });
   assert.deepEqual(netChip({ enabled: true }), { tone: 'off', text: 'Enabled' });
+  // an on-demand network outside its mode (BrandMeister): grey, and a disabled one still reads Disabled
+  assert.deepEqual(netChip({ enabled: true, login: 'idle' }), { tone: 'off', text: 'Not in use' });
+  assert.deepEqual(netChip({ enabled: false, login: 'idle' }), { tone: 'off', text: 'Disabled' });
   assert.deepEqual(stripModes([{ id: 'LOOP', available: true }, { id: 'BM', available: true }, { id: 'TGIF', available: false }]).map((m) => m.id), ['BM']);
   assert.equal(netSettingsHref('YSF'), '#/digital?net=ysf');
 });

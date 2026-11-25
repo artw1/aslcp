@@ -60,6 +60,9 @@ test('alerts', () => {
   assert.equal(buildAlerts([], true, null)[0].key, 'nonodes');
   const modes = [{ id: 'BM' as const, enabled: true, available: true, unlink: '4000', login: 'failed' as const, detail: 'bad password' }];
   assert.ok(buildAlerts([node('2001')], true, snap({ modes })).some((a) => a.key === 'login:BM'));
+  // BrandMeister outside its mode (idle, "Not in use") is not a failed login
+  const idle = [{ id: 'BM' as const, enabled: true, available: true, unlink: '4000', login: 'idle' as const }];
+  assert.deepEqual(buildAlerts([node('2001')], true, snap({ modes: idle })), []);
   const down = buildAlerts([node('2001')], true, snap({ link: { mode: 'ondemand', localNode: '2001', linked: false, paused: false, exclusive: true } }));
   assert.deepEqual(down.map((a) => a.key), ['bridge']);
   assert.equal(buildAlerts([node('2001')], true, snap({ running: false }))[0].key, 'dvdown');
