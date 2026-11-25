@@ -15,7 +15,6 @@
   import NodePicker from './NodePicker.svelte';
   import Dialog from './Dialog.svelte';
   import DvMeter from './DvMeter.svelte';
-  import DvNetStrip from './DvNetStrip.svelte';
   import Menu from './Menu.svelte';
   import RadioTower from '@lucide/svelte/icons/radio-tower';
   import Star from '@lucide/svelte/icons/star';
@@ -327,9 +326,7 @@
 
     <DvMeter running={snap.running} />
 
-    {#if page}
-      <DvNetStrip modes={snap.modes} />
-    {:else if snap.heard?.length}
+    {#if !page && snap.heard?.length}
       <details class="text-xs" data-testid="dv-heard">
         <summary class="cursor-pointer text-muted">Last heard <span class="ml-1 font-mono">{heardLine(snap.heard[0])}</span></summary>
         <ul class="mt-1 space-y-0.5 font-mono">

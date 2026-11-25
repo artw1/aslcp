@@ -12,20 +12,6 @@ export const isDMRFamily = (mode: string): boolean => isDVNetwork(mode);
 export const modeLabel = (mode: string): string => networkLabel(mode);
 /** The name of a panel mode button: the snapshot's label when it has one, else modeLabel. */
 export const modeButtonLabel = (m: { id: string; label?: string }): string => m.label || modeLabel(m.id);
-/** One chip of the DV tab's network status strip: dot tone (ok green, err red, warn amber, off grey) and the short state. `idle` (BrandMeister outside its mode, no session on purpose) is a grey "Not in use". A network the engine reports no login for (YSF, P25, NXDN, M17) shows "Enabled". */
-export function netChip(m: { enabled: boolean; login?: string }): { tone: 'ok' | 'err' | 'warn' | 'off'; text: string } {
-  if (!m.enabled) return { tone: 'off', text: 'Disabled' };
-  if (m.login === 'ok') return { tone: 'ok', text: 'Logged in' };
-  if (m.login === 'failed') return { tone: 'err', text: 'Login failed' };
-  if (m.login === 'pending') return { tone: 'warn', text: 'Logging in' };
-  if (m.login === 'idle') return { tone: 'off', text: 'Not in use' };
-  return { tone: 'off', text: 'Enabled' };
-}
-/** The networks of the status strip: every available network except the echo test. */
-export const stripModes = <M extends { id: string; available: boolean }>(modes: M[]): M[] => modes.filter((m) => m.available && m.id !== 'LOOP');
-/** The Digital modes setup address of a network's settings (admin only); the Networks card opens that network. */
-export const netSettingsHref = (id: string): string => `#/digital?net=${id.toLowerCase()}`;
-
 /** The mode buttons of the dashboard card: the echo test has none (it starts in Digital modes setup), and a disabled DMR network has none. */
 export const dashboardModes = <M extends { id: string; enabled: boolean }>(modes: M[]): M[] => modes.filter((m) => m.id !== 'LOOP' && (!isDMRFamily(m.id) || m.enabled));
 /** How long a mode switch may stay unconfirmed before the card says so. */

@@ -1,11 +1,25 @@
 <script lang="ts">
-  // The DV tab: the digital modes card with the level meter, the network status strip, and Last heard as a card of its own.
+  // The DV tab: the digital modes card with the level meter, the Networks card (the setup's component: state and Enable switch
+  // for everyone viewing, settings opening in place for an admin) and Last heard as a card of its own.
+  import { onMount } from 'svelte';
+  import { api } from '../lib/api';
+  import type { DVIdentity, DVNetView } from '../lib/types';
   import { app, clock, isAdmin } from '../lib/store.svelte';
   import DvCard from './DvCard.svelte';
   import { agoText } from '../lib/nowcalling';
   import { dvAt } from '../lib/pins';
   import { heardLine } from '../lib/dvpanel';
+  import DvNetworks from './DvNetworks.svelte';
   import Footer from './Footer.svelte';
+
+  // The network settings and identity are admin only (an operator gets 403): a viewer gets the state rows from the snapshot.
+  let nets = $state<DVNetView[]>([]), identity = $state<DVIdentity | null>(null);
+  async function loadNets() {
+    if (!isAdmin()) return;
+    try { const r = await api.dvNetworks(); nets = r.modes; identity = r.identity; } catch { nets = []; identity = null; }
+  }
+  onMount(loadNets);
+  function netSaved(n: DVNetView) { nets = nets.map((x) => (x.mode === n.mode ? n : x)); void loadNets(); }
 </script>
 
 <div class="space-y-3">
@@ -17,6 +31,7 @@
     </p>
   {:else}
     <DvCard page />
+    <DvNetworks card deepLink={false} readonly={!isAdmin()} {nets} {identity} modes={app.dv.modes} onsaved={netSaved} />
     <section class="card space-y-1 p-4" aria-label="Last heard" data-testid="dv-heard">
       <h2 class="text-base font-semibold">Last heard</h2>
       {#if app.dv.heard?.length}
