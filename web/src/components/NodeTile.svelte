@@ -26,7 +26,7 @@
 
 <div class="flex flex-col justify-start rounded-md border bg-surface {tileBorder(tile)} {selected ? 'ring-1 ring-accent' : ''}" data-testid="tile-{tile.node}">
   {#if onopen}
-    <button type="button" class="w-full rounded-t-md px-3 pb-1 pt-2 text-left hover:bg-surface-2" onclick={onopen} aria-label="Node {tile.node}, open the AllStarLink tab" data-testid="tile-open-{tile.node}">{@render head()}</button>
+    <button type="button" class="w-full rounded-t-md px-3 pb-1 pt-2 text-left hover:bg-surface-2" onclick={onopen} aria-label="Node {tile.node}, open the ASL tab" data-testid="tile-open-{tile.node}">{@render head()}</button>
   {:else}
     <div class="px-3 pb-1 pt-2">{@render head()}</div>
   {/if}

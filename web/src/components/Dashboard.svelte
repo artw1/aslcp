@@ -1,6 +1,6 @@
 <script lang="ts">
   // Overview: node tiles, the digital modes tile, alerts, pinned favorites and one activity feed.
-  // The full controls live on the AllStarLink (/allstar) and DV (/dv) tabs.
+  // The full controls live on the ASL (/allstar) and DV (/dv) tabs.
   import { api } from '../lib/api';
   import { app, canOperate, clock } from '../lib/store.svelte';
   import { navigate } from '../lib/router.svelte';
@@ -124,7 +124,7 @@
           {/each}
         </div>
       {:else}
-        <p class="rounded-md border border-line bg-surface px-3 py-3 text-sm text-muted">Nothing pinned yet. Use the <Pin size={13} class="inline" aria-hidden="true" /> button on a favorite (AllStarLink and DV tabs) to put a one-tap button here.</p>
+        <p class="rounded-md border border-line bg-surface px-3 py-3 text-sm text-muted">Nothing pinned yet. Use the <Pin size={13} class="inline" aria-hidden="true" /> button on a favorite (ASL and DV tabs) to put a one-tap button here.</p>
       {/if}
     </section>
 
