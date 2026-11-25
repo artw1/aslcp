@@ -305,7 +305,7 @@
           <span class="inline-flex items-stretch" data-tuned={tuned}>
             {#if op && live}
               <button type="button" class="btn btn-pin border-accent/50 {tuned ? 'bg-accent/10' : ''} rounded-r-none" disabled={locked} title="Tune to {f.value}" onclick={() => tune(f.value)}>
-                <PinFace active={tuned} label={f.name} sub={f.value} dotId="fav-active" /></button>
+                <PinFace active={tuned} label={f.name} sub={mode === 'YSF' ? '' : f.value} dotId="fav-active" /></button>
               <button type="button" class="btn btn-pin !px-2 -ml-px rounded-none border-accent/50" aria-pressed={f.pinned} aria-label="{f.pinned ? 'Unpin' : 'Pin'} {f.name} on the dashboard" title="Pin to the dashboard" onclick={() => togglePin(f)}>
                 <Pin size={14} class={f.pinned ? 'fill-accent text-accent' : 'text-muted'} aria-hidden="true" /></button>
               <Menu label="Favourite {f.name}" btnClass="btn btn-pin !px-2 -ml-px rounded-l-none border-accent/50 text-muted" items={menu}>
@@ -316,7 +316,7 @@
                 <button type="button" role="menuitem" class="block w-full rounded px-2 py-1 text-left text-sm text-danger hover:bg-danger/10" onclick={() => { close(); void delFav(f); }}>Delete</button>
               {/snippet}
             {:else}
-              <span class="btn btn-pin cursor-default border-accent/50 hover:bg-surface" title={f.value}><PinFace active={tuned} label={f.name} sub={f.value} dotId="fav-active" /></span>
+              <span class="btn btn-pin cursor-default border-accent/50 hover:bg-surface" title={f.value}><PinFace active={tuned} label={f.name} sub={mode === 'YSF' ? '' : f.value} dotId="fav-active" /></span>
             {/if}
           </span>
         {/each}
