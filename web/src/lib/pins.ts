@@ -109,3 +109,8 @@ export function dvPinActive(snap: Pick<DVSnapshot, 'bridge'> | null | undefined,
 export function pinActive(p: PinItem, nodes: Pick<NodeStatus, 'links'>[], snap: Pick<DVSnapshot, 'bridge'> | null | undefined): boolean {
   return p.kind === 'asl' ? aslPinActive(p.node, nodes) : dvPinActive(snap, p.fav);
 }
+
+/** True when `target` is already one of the links of local node `local`. */
+export function isLinked(nodes: NodeStatus[], local: string, target: string): boolean {
+  return !!nodes.find((n) => n.node === local)?.links.some((l) => l.node === target);
+}

@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { aslPinActive, buildAlerts, buildPins, bridgeNodeNumber, dvLastCaller, dvPinActive, dvPinPlan, pinActive, pinLocalNode, tileLinks, tileNodes, tileTalker } from './pins.ts';
+import { aslPinActive, buildAlerts, buildPins, bridgeNodeNumber, dvLastCaller, dvPinActive, dvPinPlan, isLinked, pinActive, pinLocalNode, tileLinks, tileNodes, tileTalker } from './pins.ts';
 import type { DVFavorite, DVSnapshot, Favorite, NodeStatus, NowCall } from './types';
 
 const snap = (over: Partial<DVSnapshot> = {}): DVSnapshot => ({
@@ -125,4 +125,12 @@ test('DV pin is active when mode and target match what is tuned', () => {
   assert.equal(dvPinActive(null, dvFav(1, 'YSF', '00001', 'x')), false);
   assert.equal(pinActive({ key: 'a', kind: 'asl', label: '', sub: '', node: '1998' }, [node('2001', { links: [link('1998')] })], null), true);
   assert.equal(pinActive({ key: 'd', kind: 'dv', label: '', sub: '', fav: dvFav(1, 'YSF', '00001', 'x') }, [], snap()), true);
+});
+
+test('isLinked: true only when the target is a link of that local node', () => {
+  const nodes = [node('2001', { links: [{ node: '1997' } as NodeStatus['links'][number]] }), node('2002')];
+  assert.equal(isLinked(nodes, '2001', '1997'), true);
+  assert.equal(isLinked(nodes, '2002', '1997'), false);
+  assert.equal(isLinked(nodes, '2001', '1998'), false);
+  assert.equal(isLinked(nodes, '2000', '1997'), false);
 });

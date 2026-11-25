@@ -1,6 +1,5 @@
 <script lang="ts">
   import { app } from '../lib/store.svelte';
-  import { reconcilePending } from '../lib/actions.svelte';
   import StatusTable from './StatusTable.svelte';
   import ConnectBar from './ConnectBar.svelte';
   import NetworkList from './NetworkList.svelte';
@@ -10,7 +9,6 @@
   import Footer from './Footer.svelte';
 
   const node = $derived(app.nodes.find((n) => n.node === app.selectedNode));
-  $effect(() => { app.nodes; reconcilePending(); });
 </script>
 
 <div class="space-y-3">

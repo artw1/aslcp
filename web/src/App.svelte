@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app, isAdmin } from './lib/store.svelte';
   import { router, navigate } from './lib/router.svelte';
+  import { reconcilePending } from './lib/actions.svelte';
   import { isSystemPath } from './lib/sysnav';
   import Header from './components/Header.svelte';
   import HotspotBanner from './components/HotspotBanner.svelte';
@@ -12,6 +13,9 @@
   import Lookup from './components/Lookup.svelte';
   import Settings from './components/Settings.svelte';
   import PublicView from './components/public/PublicView.svelte';
+
+  // Clear in-flight connects once their link shows, whichever page is open.
+  $effect(() => { app.nodes; reconcilePending(); });
 
   $effect(() => {
     if (!app.ready || app.embed) return;
