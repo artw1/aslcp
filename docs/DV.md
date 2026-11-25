@@ -119,6 +119,10 @@ The tracker remembers the last tune of each mode and the last mode used. A disco
 
 A tune, a mode switch or an unlink made on the dashboard is remembered at once; changes made elsewhere are picked up by the tracker's next poll.
 
+## When the bridge node is unlinked
+
+The engine reaches the radio through the bridge node. When no local node is linked to the bridge node any more, whoever unlinked it (the dashboard, the DV card, a schedule, DTMF or a remote node), the server waits 5 s, so that an Asterisk restart which brings a permanent link back does nothing, and then drops the DV target: the network is unlinked the way a mode switch leaves it, and BrandMeister logs out unless *Stay logged in* is on. The mode stays and the target is remembered. When the bridge node is linked again, the remembered tune is sent again, unless something is tuned by then. Pressing Unlink on the DV card is different: it forgets the target, so nothing comes back. Nothing happens when the bridge node was not seen linked since ASLCP started, when digital modes are off or when nothing is tuned. Each action is audited as `dv.bridge.released` and `dv.bridge.retuned` by the user `system`. The control request `unlink` takes `"release": true` for this; an engine older than the field refuses it, and the server then sends a plain unlink (the target is dropped, a BrandMeister session stays until the next mode switch).
+
 ## Upgrading from 1.x
 
 **You have to redo the digital-modes configuration in 2.0.** Settings of the previous stack (BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN, and the identity) are not carried over and nothing is imported from its ini files, or from the ini files in a 1.x backup. Whatever the 1.4.0 panel itself stored in its own `networks.json` (enable switches, TGIF and DMR - Other address, port and password) is still read, so cards may show it filled in: check every card.
@@ -135,7 +139,7 @@ Nothing is removed that ASLCP did not install, and md380-emu is never touched. A
 
 ## Audit
 
-Writes are audited as `dv.enable`, `dv.disable`, `dv.mode`, `dv.tune`, `dv.unlink`, `dv.favorite.*`, `dv.network`, `dv.identity`, `dv.private.*`, `dv.node_name`, `dv.link`, `dv.resume` and `dv.lists.refresh`. Audit lines never contain a password, key or token.
+Writes are audited as `dv.enable`, `dv.disable`, `dv.mode`, `dv.tune`, `dv.unlink`, `dv.favorite.*`, `dv.network`, `dv.identity`, `dv.private.*`, `dv.node_name`, `dv.link`, `dv.resume` and `dv.lists.refresh`; the automatic ones are `dv.bridge.released` and `dv.bridge.retuned` (user `system`). Audit lines never contain a password, key or token.
 
 REST paths, the SSE event name and the settings keys keep their 1.x names for now; see docs/API.md.
 

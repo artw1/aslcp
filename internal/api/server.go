@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/artw1/aslcp/internal/activity"
@@ -152,6 +153,10 @@ type Server struct {
 	platOnce  sync.Once
 	plat      diag.Platform
 
+	// dvTuning counts tunes in flight (dvSendTune); the bridge watcher does not
+	// re-tune while one is.
+	dvTuning atomic.Int32
+
 	monMu sync.RWMutex
 	mon   *rpt.Monitor
 
@@ -247,6 +252,9 @@ func (s *Server) Run(ctx context.Context) {
 	}
 	if s.d.DVLink != nil {
 		go s.d.DVLink.Run(ctx)
+	}
+	if s.dvs != nil && s.d.DVCtl != nil {
+		go s.dvBridgeLoop(ctx)
 	}
 	<-ctx.Done()
 	s.Shutdown()

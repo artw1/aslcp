@@ -114,6 +114,11 @@ type TuneArgs struct {
 
 type UnlinkArgs struct {
 	Mode string `json:"mode,omitempty"` // "" = current
+	// Release leaves the network the way a mode switch does: the target is
+	// unlinked and an on-demand session (BrandMeister) is stopped unless
+	// "Stay logged in" is on. The mode stays. An engine older than this field
+	// refuses the request as a bad one; callers then send it without Release.
+	Release bool `json:"release,omitempty"`
 }
 
 type LoginState string

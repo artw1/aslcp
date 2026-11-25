@@ -1131,13 +1131,18 @@ func (r *Router) tuneActive(ctx context.Context, e *netEntry, t ctl.Target) erro
 	return nil
 }
 
-// Unlink disconnects the target of the current network.
+// Unlink disconnects the target of the current network. With a.Release the
+// network is left like a mode switch leaves it (leave): an on-demand session
+// ends too, and a call in progress is cut. The mode stays.
 func (r *Router) Unlink(ctx context.Context, a ctl.UnlinkArgs) (ctl.Status, error) {
 	return r.do(ctx, func() error {
 		if a.Mode != ctl.ModeNone && a.Mode != r.mode {
 			return cerr(ctl.CodeBadRequest, "mode %s is not the current mode", a.Mode)
 		}
-		if e := r.active(); e != nil {
+		if e := r.active(); e != nil && a.Release {
+			r.cutCalls()
+			r.leave(e)
+		} else if e != nil {
 			if err := e.n.Unlink(ctx); err != nil {
 				return cerr(ctl.CodeInternal, "unlink: %v", err)
 			}
