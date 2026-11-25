@@ -1,38 +1,22 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAlerts, buildPins, bridgeNodeNumber, dvPinPlan, isPinned, mergeActivity, parsePins, pinLocalNode, tileNodes, togglePin } from './pins.ts';
+import { buildAlerts, buildPins, bridgeNodeNumber, dvPinPlan, mergeActivity, pinLocalNode, tileNodes } from './pins.ts';
 import type { DVFavorite, DVSnapshot, Favorite, NodeStatus, NowCall } from './types';
 
 const snap = (over: Partial<DVSnapshot> = {}): DVSnapshot => ({
   installed: true, running: true, configured: true,
   bridge: { mode: 'YSF', tune: '00001', slot: 2, muted: false, source: 'aslcp-dv', updated: '' },
-  modes: [], services: [], bridgeNode: { present: true, node: '1997' },
+  modes: [], services: [], bridgeNode: { present: true, node: '1999' },
   link: { mode: 'ondemand', localNode: '2001', linked: true, paused: false, exclusive: true }, heard: [], ...over,
 });
 const node = (n: string, over: Partial<NodeStatus> = {}): NodeStatus => ({ node: n, info: null, stale: false, rxKeyed: false, txKeyed: false, extTxKeyed: false, numLinks: 0, links: [], network: [], flags: {}, updated: '', ...over });
-const aslFav = (id: number, n: string, label = ''): Favorite => ({ id, node: n, label, group: '', position: id, info: null });
-const dvFav = (id: number, mode: DVFavorite['mode'], value: string, name: string): DVFavorite => ({ id, mode, value, name, sort: id });
-
-test('toggle and parse pins', () => {
-  let p = togglePin([], { kind: 'asl', id: 1 });
-  p = togglePin(p, { kind: 'dv', id: 1 });
-  assert.equal(p.length, 2);
-  assert.ok(isPinned(p, { kind: 'dv', id: 1 }));
-  assert.deepEqual(togglePin(p, { kind: 'asl', id: 1 }), [{ kind: 'dv', id: 1 }]);
-  assert.deepEqual(parsePins(JSON.stringify(p)), p);
-});
-
-test('parsePins ignores bad input', () => {
-  assert.deepEqual(parsePins(null), []);
-  assert.deepEqual(parsePins('not json'), []);
-  assert.deepEqual(parsePins('{"a":1}'), []);
-  assert.deepEqual(parsePins('[{"kind":"x","id":1},{"kind":"asl","id":"2"},{"kind":"asl","id":3},{"kind":"asl","id":3}]'), [{ kind: 'asl', id: 3 }]);
-});
+const aslFav = (id: number, n: string, label = ''): Favorite => ({ id, node: n, label, group: '', position: id, pinned: false, info: null });
+const dvFav = (id: number, mode: DVFavorite['mode'], value: string, name: string): DVFavorite => ({ id, mode, value, name, sort: id, pinned: false });
 
 test('the bridge node gets no tile', () => {
-  const nodes = [node('2001'), node('1997'), node('2002')];
-  assert.equal(bridgeNodeNumber(snap()), '1997');
+  const nodes = [node('2001'), node('1999'), node('2002')];
+  assert.equal(bridgeNodeNumber(snap()), '1999');
   assert.deepEqual(tileNodes(nodes, snap()).map((n) => n.node), ['2001', '2002']);
   assert.deepEqual(tileNodes(nodes, snap({ bridgeNode: { present: false } })).length, 3);
   assert.deepEqual(tileNodes(nodes, null).length, 3);
@@ -41,14 +25,18 @@ test('the bridge node gets no tile', () => {
 test('pin local node: selected, else first', () => {
   const nodes = [node('2001'), node('2002')];
   assert.equal(pinLocalNode('2002', nodes), '2002');
-  assert.equal(pinLocalNode('1997', nodes), '2001');
+  assert.equal(pinLocalNode('1999', nodes), '2001');
   assert.equal(pinLocalNode('', []), '');
 });
 
-test('buildPins keeps order and drops deleted favourites', () => {
-  const items = buildPins([{ kind: 'dv', id: 2 }, { kind: 'asl', id: 1 }, { kind: 'asl', id: 9 }], [aslFav(1, '2000', 'Example hub')], [dvFav(2, 'YSF', '00001', 'US-Example')]);
-  assert.deepEqual(items.map((i) => [i.kind, i.label]), [['dv', 'US-Example'], ['asl', 'Example hub']]);
-  assert.equal(items[1].node, '2000');
+test('buildPins lists the pinned favourites only: AllStar first, then DV', () => {
+  const items = buildPins(
+    [aslFav(1, '2000', 'Example hub'), { ...aslFav(2, '1000', 'Other'), pinned: true }, { ...aslFav(3, '1001', 'Third'), pinned: true }],
+    [{ ...dvFav(2, 'YSF', '00001', 'US-Example'), pinned: true }, dvFav(3, 'P25', '10100', 'Not pinned')]);
+  assert.deepEqual(items.map((i) => [i.key, i.label]), [['asl:2', 'Other'], ['asl:3', 'Third'], ['dv:2', 'US-Example']]);
+  assert.equal(items[0].node, '1000');
+  assert.equal(items[2].fav?.value, '00001');
+  assert.deepEqual(buildPins([], []), []);
 });
 
 test('dvPinPlan: switch mode, tune, link the bridge', () => {
@@ -56,7 +44,7 @@ test('dvPinPlan: switch mode, tune, link the bridge', () => {
   const p = dvPinPlan(snap({ link: { mode: 'ondemand', localNode: '2001', linked: false, paused: false, exclusive: true } }), f)!;
   assert.equal(p.mode, 'P25');
   assert.equal(p.tune, '10100');
-  assert.deepEqual(p.link, { local: '2001', node: '1997', exclusive: true });
+  assert.deepEqual(p.link, { local: '2001', node: '1999', exclusive: true });
   const same = dvPinPlan(snap(), dvFav(2, 'YSF', '00002', 'XX-Europe'))!;
   assert.equal(same.mode, null);
   assert.equal(same.link, null);

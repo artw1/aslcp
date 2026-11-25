@@ -16,6 +16,8 @@ type DVFavorite struct {
 	Value string `json:"value"`
 	Name  string `json:"name"`
 	Sort  int    `json:"sort"`
+	// Pinned favourites show on the overview page.
+	Pinned bool `json:"pinned"`
 }
 
 var (
@@ -30,7 +32,7 @@ const MaxDVFavoritesPerMode = 50
 
 // ListDVFavorites returns all favourites ordered by mode, sort, id.
 func (s *Store) ListDVFavorites() ([]DVFavorite, error) {
-	rows, err := s.db.Query(`SELECT id,mode,value,name,sort FROM dv_favorites ORDER BY mode, sort, id`)
+	rows, err := s.db.Query(`SELECT id,mode,value,name,sort,pinned FROM dv_favorites ORDER BY mode, sort, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +40,7 @@ func (s *Store) ListDVFavorites() ([]DVFavorite, error) {
 	out := []DVFavorite{}
 	for rows.Next() {
 		var f DVFavorite
-		if err := rows.Scan(&f.ID, &f.Mode, &f.Value, &f.Name, &f.Sort); err != nil {
+		if err := rows.Scan(&f.ID, &f.Mode, &f.Value, &f.Name, &f.Sort, &f.Pinned); err != nil {
 			return nil, err
 		}
 		out = append(out, f)
@@ -49,8 +51,8 @@ func (s *Store) ListDVFavorites() ([]DVFavorite, error) {
 // GetDVFavorite returns one favourite or ErrNotFound.
 func (s *Store) GetDVFavorite(id int64) (DVFavorite, error) {
 	var f DVFavorite
-	err := s.db.QueryRow(`SELECT id,mode,value,name,sort FROM dv_favorites WHERE id=?`, id).
-		Scan(&f.ID, &f.Mode, &f.Value, &f.Name, &f.Sort)
+	err := s.db.QueryRow(`SELECT id,mode,value,name,sort,pinned FROM dv_favorites WHERE id=?`, id).
+		Scan(&f.ID, &f.Mode, &f.Value, &f.Name, &f.Sort, &f.Pinned)
 	if errors.Is(err, sql.ErrNoRows) {
 		return DVFavorite{}, ErrNotFound
 	}
@@ -81,7 +83,7 @@ func (s *Store) AddDVFavorite(mode, value, name string) (DVFavorite, error) {
 }
 
 // UpdateDVFavorite changes the non-nil fields.
-func (s *Store) UpdateDVFavorite(id int64, name *string, sort *int) (DVFavorite, error) {
+func (s *Store) UpdateDVFavorite(id int64, name *string, sort *int, pinned *bool) (DVFavorite, error) {
 	f, err := s.GetDVFavorite(id)
 	if err != nil {
 		return DVFavorite{}, err
@@ -92,7 +94,10 @@ func (s *Store) UpdateDVFavorite(id int64, name *string, sort *int) (DVFavorite,
 	if sort != nil {
 		f.Sort = *sort
 	}
-	_, err = s.db.Exec(`UPDATE dv_favorites SET name=?, sort=? WHERE id=?`, f.Name, f.Sort, id)
+	if pinned != nil {
+		f.Pinned = *pinned
+	}
+	_, err = s.db.Exec(`UPDATE dv_favorites SET name=?, sort=?, pinned=? WHERE id=?`, f.Name, f.Sort, f.Pinned, id)
 	return f, err
 }
 

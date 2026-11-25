@@ -89,7 +89,10 @@ func (s *Server) handleFavUpdate(w http.ResponseWriter, r *http.Request, _ store
 	if !ok {
 		return
 	}
-	var in struct{ Node, Label, Group *string }
+	var in struct {
+		Node, Label, Group *string
+		Pinned             *bool
+	}
 	if !decode(w, r, &in, false) {
 		return
 	}
@@ -127,7 +130,7 @@ func (s *Server) handleFavUpdate(w http.ResponseWriter, r *http.Request, _ store
 		}
 		group = &g
 	}
-	f, err := s.d.Store.UpdateFavorite(id, node, label, group)
+	f, err := s.d.Store.UpdateFavorite(id, node, label, group, in.Pinned)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, 404, "not_found", "no such favorite")
 		return

@@ -148,7 +148,7 @@ func TestFavorites(t *testing.T) {
 		t.Fatal(l)
 	}
 	lbl := "Renamed"
-	f, err := s.UpdateFavorite(a.ID, nil, &lbl, nil)
+	f, err := s.UpdateFavorite(a.ID, nil, &lbl, nil, nil)
 	if err != nil || f.Label != "Renamed" || f.Node != "1000" {
 		t.Fatal(f, err)
 	}
@@ -334,6 +334,35 @@ func TestSchedules(t *testing.T) {
 	}
 }
 
+func TestFavoritePins(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	a, _ := st.AddFavorite("1000", "A", "")
+	d, _ := st.AddDVFavorite("YSF", "12345", "Room")
+	if a.Pinned || d.Pinned {
+		t.Fatal("new favourites are not pinned")
+	}
+	yes := true
+	if f, err := st.UpdateFavorite(a.ID, nil, nil, nil, &yes); err != nil || !f.Pinned {
+		t.Fatalf("%+v %v", f, err)
+	}
+	if f, err := st.UpdateDVFavorite(d.ID, nil, nil, &yes); err != nil || !f.Pinned {
+		t.Fatalf("%+v %v", f, err)
+	}
+	lbl := "B"
+	if f, _ := st.UpdateFavorite(a.ID, nil, &lbl, nil, nil); !f.Pinned {
+		t.Fatal("an edit without pinned keeps the pin")
+	}
+	fl, _ := st.ListFavorites()
+	dl, _ := st.ListDVFavorites()
+	if !fl[0].Pinned || !dl[0].Pinned {
+		t.Fatalf("lists: %+v %+v", fl, dl)
+	}
+}
+
 func TestDVFavorites(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "a.db"))
 	if err != nil {
@@ -356,7 +385,7 @@ func TestDVFavorites(t *testing.T) {
 	}
 	n := "Renamed"
 	s0 := 5
-	if f, err := st.UpdateDVFavorite(a.ID, &n, &s0); err != nil || f.Name != n || f.Sort != 5 {
+	if f, err := st.UpdateDVFavorite(a.ID, &n, &s0, nil); err != nil || f.Name != n || f.Sort != 5 {
 		t.Fatalf("update: %+v %v", f, err)
 	}
 	l, _ := st.ListDVFavorites()
@@ -388,7 +417,9 @@ func TestMigrateOldDVNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Turn the fresh database back into a 1.x one.
-	_, err = s.db.Exec(`ALTER TABLE dv_favorites RENAME TO ` + legacy.OldFavoritesTable + `;
+	_, err = s.db.Exec(`ALTER TABLE dv_favorites DROP COLUMN pinned;
+		ALTER TABLE favorites DROP COLUMN pinned;
+		ALTER TABLE dv_favorites RENAME TO ` + legacy.OldFavoritesTable + `;
 		DELETE FROM schema_version WHERE version>5;
 		INSERT INTO settings(k,v) VALUES ('` + legacy.OldSettingsPrefix + `node','1999'), ('` + legacy.OldSettingsPrefix + `resume','{"a":1}'), ('dv.resume','new'), ('other','x');
 		INSERT INTO ` + legacy.OldFavoritesTable + `(mode,value,name,sort,created) VALUES ('YSF','00001','Test',0,1)`)

@@ -398,8 +398,9 @@ func (s *Server) handleDVFavUpdate(w http.ResponseWriter, r *http.Request, u sto
 		return
 	}
 	var in struct {
-		Name *string `json:"name"`
-		Sort *int    `json:"sort"`
+		Name   *string `json:"name"`
+		Sort   *int    `json:"sort"`
+		Pinned *bool   `json:"pinned"`
 	}
 	if !decode(w, r, &in, false) {
 		return
@@ -417,7 +418,7 @@ func (s *Server) handleDVFavUpdate(w http.ResponseWriter, r *http.Request, u sto
 		writeErr(w, http.StatusBadRequest, "bad_request", "sort is out of range")
 		return
 	}
-	f, err := s.d.Store.UpdateDVFavorite(id, name, in.Sort)
+	f, err := s.d.Store.UpdateDVFavorite(id, name, in.Sort, in.Pinned)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "not_found", "no such favourite")
 		return

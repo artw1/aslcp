@@ -10,8 +10,8 @@ const SCRIPT: { at: number; len: number; c: MockCall }[] = [
 ];
 const CYCLE = 50;
 // The single shared timeline: the one link that is keyed right now, or null. The DMR and YSF talkers come in through
-// the digital modes bridge link (node 1900) and the AllStar talker is the hub link 1998, all on local node 2001.
-export const BRIDGE_NODE = '1900';
+// the digital modes bridge link (node 1999) and the AllStar talker is the hub link 1998, all on local node 2001.
+export const BRIDGE_NODE = '1999';
 export function talkerLink(now = Date.now()): { local: string; node: string; len: number } | null {
   const c = (nowCalling(now).current as MockCall | null);
   if (!c) return null;

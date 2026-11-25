@@ -12,8 +12,7 @@
   import { agoText } from '../lib/nowcalling';
   import { buildAlerts, buildPins, dvPinPlan, mergeActivity, pinLocalNode, tileNodes } from '../lib/pins';
   import type { PinItem } from '../lib/pins';
-  import { pinned } from '../lib/pinstore.svelte';
-  import type { DVFavorite } from '../lib/types';
+    import type { DVFavorite } from '../lib/types';
   import Footer from './Footer.svelte';
   import RadioTower from '@lucide/svelte/icons/radio-tower';
   import Pin from '@lucide/svelte/icons/pin';
@@ -34,7 +33,7 @@
     loaded = true;
     api.dvFavorites().then((f) => { dvFavs = f; }).catch(() => { loaded = false; });
   });
-  const pins = $derived(buildPins(pinned.list, app.favorites, dvFavs));
+  const pins = $derived(buildPins(app.favorites, dvFavs));
 
   function open(node: string) { app.selectedNode = node; navigate('/allstar'); }
   const tileState = (n: (typeof app.nodes)[number]) => (n.stale ? 'Stale' : n.txKeyed ? 'TX keyed' : n.rxKeyed ? 'RX keyed' : 'Idle');

@@ -56,7 +56,7 @@ test('tune values follow the server rules', () => {
   assert.ok(validTune('DMR', ' 91 '));
 });
 
-const fav = (id: number, mode: DVFavorite['mode'], value: string, sort = id): DVFavorite => ({ id, mode, value, name: `f${id}`, sort });
+const fav = (id: number, mode: DVFavorite['mode'], value: string, sort = id): DVFavorite => ({ id, mode, value, name: `f${id}`, sort, pinned: false });
 
 test('favourites per mode, ordered, and why a save is blocked', () => {
   const favs = [fav(1, 'YSF', '00001', 5), fav(2, 'DMR', '91'), fav(3, 'YSF', '00002', 1)];
@@ -196,7 +196,7 @@ test('DMR private call: a trailing # is accepted for DMR only', () => {
 });
 
 test('a private call is a favourite with its #, apart from the plain talkgroup', () => {
-  const favs: DVFavorite[] = [{ id: 1, mode: 'DMR', value: '9990', name: 'x', sort: 0 }];
+  const favs: DVFavorite[] = [{ id: 1, mode: 'DMR', value: '9990', name: 'x', sort: 0, pinned: false }];
   assert.equal(favoriteBlock(favs, 'DMR', '9990#'), null);
   assert.equal(favoriteBlock(favs, 'DMR', '9990'), 'Already a favourite');
 });

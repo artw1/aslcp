@@ -21,8 +21,6 @@
   import Ellipsis from '@lucide/svelte/icons/ellipsis';
   import Unlink from '@lucide/svelte/icons/unlink';
   import Pin from '@lucide/svelte/icons/pin';
-  import { pinned, togglePinned } from '../lib/pinstore.svelte';
-  import { isPinned } from '../lib/pins';
 
   // `page`: the DV tab shows the whole Last heard list and a login row per network.
   let { page = false }: { page?: boolean } = $props();
@@ -164,6 +162,9 @@
 
   let dlg = $state({ open: false, id: 0, name: '' });
   function addFav() { if (!block && b) dlg = { open: true, id: 0, name: defaultFavName(b) }; }
+  async function togglePin(f: DVFavorite) {
+    try { await api.dvUpdateFavorite(f.id, { pinned: !f.pinned }); await loadFavs(); } catch (e) { toastError(e); }
+  }
   function renameFav(f: DVFavorite) { dlg = { open: true, id: f.id, name: f.name }; }
   async function saveFav(e: Event) {
     e.preventDefault();
@@ -306,8 +307,8 @@
             {#if tuned}<span class="ml-1.5 inline-block size-1.5 rounded-full bg-ok" aria-hidden="true"></span><span class="sr-only">on air</span>{/if}
             {#if op && live}
               <button type="button" class="px-2 py-0.5 text-xs hover:bg-surface-2 disabled:opacity-45" disabled={locked} title="Tune to {f.value}" onclick={() => tune(f.value)}>{f.name}</button>
-              <button type="button" class="px-1 py-0.5 hover:bg-surface-2" aria-pressed={isPinned(pinned.list, { kind: 'dv', id: f.id })} aria-label="{isPinned(pinned.list, { kind: 'dv', id: f.id }) ? 'Unpin' : 'Pin'} {f.name} on the dashboard" title="Pin to the dashboard" onclick={() => togglePinned({ kind: 'dv', id: f.id })}>
-                <Pin size={12} class={isPinned(pinned.list, { kind: 'dv', id: f.id }) ? 'fill-accent text-accent' : 'text-muted'} aria-hidden="true" /></button>
+              <button type="button" class="px-1 py-0.5 hover:bg-surface-2" aria-pressed={f.pinned} aria-label="{f.pinned ? 'Unpin' : 'Pin'} {f.name} on the dashboard" title="Pin to the dashboard" onclick={() => togglePin(f)}>
+                <Pin size={12} class={f.pinned ? 'fill-accent text-accent' : 'text-muted'} aria-hidden="true" /></button>
               <Menu label="Favourite {f.name}" btnClass="px-1 py-0.5 text-muted hover:bg-surface-2" items={menu}>
                 {#snippet trigger()}<Ellipsis size={13} aria-hidden="true" />{/snippet}
               </Menu>

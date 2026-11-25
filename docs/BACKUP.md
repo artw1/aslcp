@@ -8,7 +8,7 @@ Goal: download one file from a working node, re-image the SD card with a fresh A
 |---|---|---|---|
 | Asterisk configuration | all of `/etc/asterisk` (every file and subdirectory, not only `*.conf`: `allmon.ini.php`, `extensions.ael`, `custom/`, `broadcastify/`, ...) | always | Owner, group and mode are kept as names plus mode. Each file is also classified as stock or changed (see "Restoring onto a newer ASL3"). |
 | AstDB | `/var/lib/asterisk/astdb.sqlite3` (confirmed on ASL3, asterisk:asterisk 0644, ~12 KB) | always | Allow/deny lists and other state `app_rpt` keeps in AstDB. Copied consistently (SQLite backup API, read-only) while Asterisk runs. |
-| ASLCP database | `/var/lib/aslcp/aslcp.db` | always | Users (password hashes), roles, favorites, schedules, settings, public page, audit log. Snapshot with `VACUUM INTO`. Sessions are not restored (everyone logs in again). |
+| ASLCP database | `/var/lib/aslcp/aslcp.db` | always | Users (password hashes), roles, favorites (with their pins), schedules, settings, public page, audit log. Snapshot with `VACUUM INTO`. Sessions are not restored (everyone logs in again). |
 | ASLCP config file | `/etc/aslcp/aslcp.conf` | always | AMI settings, update URL. The web port (`listen` in `[server]`) is not restored: the node keeps its own. |
 | Config history | `/var/lib/aslcp-config-history` | on | The git history of config changes, so history and Restore keep working after the re-image. Can be unticked to make the file smaller. |
 | Other AMI clients | `/etc/allmon3/` if present | on when present | Allmon3 config (it shares the AMI login). |

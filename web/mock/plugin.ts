@@ -29,10 +29,10 @@ function addLink(local: string, node: string, mode: string, dir: 'IN' | 'OUT', a
 locals['2001'] = { links: [], rx: 0, tx: 0 };
 locals['1997'] = { links: [], rx: 0, tx: 0 };
 // Nodes with a SimpleUSB device in the mock (Audio Tuning); placeholder numbers.
-NODES.push({ node: '1999', callsign: 'TUNE1', description: 'Tuning test node', location: 'Exampleton, ST' }, { node: '1998', callsign: 'TUNE2', description: 'Second tuning node', location: 'Exampleton, ST' });
-byNode.set('1999', NODES[NODES.length - 2]); byNode.set('1998', NODES[NODES.length - 1]);
-locals['1999'] = { links: [], rx: 0, tx: 0 };
-locals['1998'] = { links: [], rx: 0, tx: 0 };
+NODES.push({ node: '2000', callsign: 'TUNE1', description: 'Tuning test node', location: 'Exampleton, ST' }, { node: '2002', callsign: 'TUNE2', description: 'Second tuning node', location: 'Exampleton, ST' });
+byNode.set('2000', NODES[NODES.length - 2]); byNode.set('2002', NODES[NODES.length - 1]);
+locals['2000'] = { links: [], rx: 0, tx: 0 };
+locals['2002'] = { links: [], rx: 0, tx: 0 };
 addLink('2001', '1000', 'transceive', 'OUT', 5400);
 addLink('2001', '1037', 'monitor', 'OUT', 1200);
 addLink('2001', '1074', 'transceive', 'IN', 300);
@@ -40,14 +40,14 @@ addLink('2001', '1111', 'transceive', 'IN', 61);
 addLink('2001', BRIDGE_NODE, 'transceive', 'OUT', 3600);
 addLink('2001', '1998', 'transceive', 'OUT', 3000);
 addLink('1997', '1148', 'transceive', 'OUT', 800);
-addLink('1999', '1000', 'transceive', 'OUT', 900);
+addLink('2000', '1000', 'transceive', 'OUT', 900);
 
-let favs: { id: number; node: string; label: string; group: string; position: number }[] = [
-  { id: 1, node: '1000', label: 'Main hub', group: 'Hubs', position: 0 },
-  { id: 2, node: '1037', label: 'Club repeater', group: 'Hubs', position: 1 },
-  { id: 3, node: '1185', label: 'Evening net', group: 'Nets', position: 0 },
-  { id: 4, node: '1222', label: 'Simplex friends', group: 'Nets', position: 1 },
-  { id: 5, node: '1259', label: 'Test node', group: '', position: 0 },
+let favs: { id: number; node: string; label: string; group: string; position: number; pinned: boolean }[] = [
+  { id: 1, node: '1000', label: 'Main hub', group: 'Hubs', position: 0, pinned: true },
+  { id: 2, node: '1037', label: 'Club repeater', group: 'Hubs', position: 1, pinned: false },
+  { id: 3, node: '1185', label: 'Evening net', group: 'Nets', position: 0, pinned: false },
+  { id: 4, node: '1222', label: 'Simplex friends', group: 'Nets', position: 1, pinned: false },
+  { id: 5, node: '1259', label: 'Test node', group: '', position: 0, pinned: false },
 ];
 let nextFav = 6;
 const sortedFavs = () => [...favs].sort((a, b) => a.group.localeCompare(b.group) || a.position - b.position).map((f) => ({ ...f, info: info(f.node) }));
@@ -384,7 +384,7 @@ export function mockApi(): Plugin {
           if (!canOp) return forbid();
           let imported = 0, skipped = 0;
           for (const it of [{ node: '1000', label: 'Main hub' }, { node: '1296', label: 'Imported net' }, { node: '1333', label: 'Imported repeater' }]) {
-            if (favs.some((f) => f.node === it.node)) skipped++; else { favs.push({ id: nextFav++, node: it.node, label: it.label, group: '', position: 99 }); imported++; }
+            if (favs.some((f) => f.node === it.node)) skipped++; else { favs.push({ id: nextFav++, node: it.node, label: it.label, group: '', position: 99, pinned: false }); imported++; }
           }
           broadcast('favorites', sortedFavs); return json(res, 200, { imported, skipped });
         }
@@ -400,14 +400,14 @@ export function mockApi(): Plugin {
           if (m === 'POST') {
             if (!/^\d{3,}$/.test(body.node ?? '')) return err(res, 400, 'invalid node', 'bad_target');
             const i = info(body.node);
-            const f = { id: nextFav++, node: body.node, label: body.label || (i ? `${i.callsign} ${i.description}` : body.node), group: body.group || '', position: 99 };
+            const f = { id: nextFav++, node: body.node, label: body.label || (i ? `${i.callsign} ${i.description}` : body.node), group: body.group || '', position: 99, pinned: false };
             favs.push(f); broadcast('favorites', sortedFavs); return json(res, 201, { ...f, info: i });
           }
         }
         if ((mm = /^\/favorites\/(\d+)$/.exec(p))) {
           if (!canOp) return forbid();
           const f = favs.find((x) => x.id === +mm![1]); if (!f) return err(res, 404, 'not found', 'not_found');
-          if (m === 'PUT') { Object.assign(f, Object.fromEntries(Object.entries(body).filter(([k, v]) => ['node', 'label', 'group'].includes(k) && v !== undefined))); broadcast('favorites', sortedFavs); return json(res, 200, { ...f, info: info(f.node) }); }
+          if (m === 'PUT') { Object.assign(f, Object.fromEntries(Object.entries(body).filter(([k, v]) => ['node', 'label', 'group'].includes(k) || (k === 'pinned' && typeof v === 'boolean') && v !== undefined))); broadcast('favorites', sortedFavs); return json(res, 200, { ...f, info: info(f.node) }); }
           if (m === 'DELETE') { favs = favs.filter((x) => x !== f); broadcast('favorites', sortedFavs); return json(res, 204); }
         }
         if (p === '/lookup' && m === 'GET') {

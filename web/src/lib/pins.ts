@@ -3,30 +3,7 @@
 import { bridgeLinked, heardLine, modeLabel } from './dvpanel.ts';
 import type { DVCaller, DVFavorite, DVSnapshot, DVTuneMode, Favorite, NodeStatus, NowCall } from './types';
 
-/** A pin points at a favourite by id: an AllStar favourite (`asl`) or a digital modes favourite (`dv`). */
-export interface PinRef { kind: 'asl' | 'dv'; id: number }
-export const PIN_KEY = 'aslcp.pins';
-
-export const samePin = (a: PinRef, b: PinRef): boolean => a.kind === b.kind && a.id === b.id;
-export const isPinned = (pins: PinRef[], ref: PinRef): boolean => pins.some((p) => samePin(p, ref));
-export function togglePin(pins: PinRef[], ref: PinRef): PinRef[] {
-  return isPinned(pins, ref) ? pins.filter((p) => !samePin(p, ref)) : [...pins, ref];
-}
-
-/** Reads the stored text; anything that is not a list of valid pins gives an empty list. */
-export function parsePins(text: string | null | undefined): PinRef[] {
-  if (!text) return [];
-  try {
-    const v: unknown = JSON.parse(text);
-    if (!Array.isArray(v)) return [];
-    const out: PinRef[] = [];
-    for (const x of v) {
-      const o = x as Partial<PinRef> | null;
-      if (o && (o.kind === 'asl' || o.kind === 'dv') && Number.isInteger(o.id) && !out.some((p) => samePin(p, o as PinRef))) out.push({ kind: o.kind, id: o.id as number });
-    }
-    return out;
-  } catch { return []; }
-}
+// A pin is the `pinned` flag of a favourite, stored on the server (GET/PUT /api/favorites, /api/dv/favorites).
 
 /** The local node that shows as a tile: every node except the digital modes bridge node (it only links DV in). */
 export function bridgeNodeNumber(dv: Pick<DVSnapshot, 'bridgeNode'> | null | undefined): string {
@@ -47,18 +24,11 @@ export interface PinItem {
   /** asl: the node to connect to. dv: the mode and value to tune. */
   node?: string; fav?: DVFavorite;
 }
-/** The pinned favourites that still exist, in the order they were pinned. */
-export function buildPins(pins: PinRef[], asl: Favorite[], dv: DVFavorite[]): PinItem[] {
+/** The pinned favourites: AllStar ones first, then digital modes ones, each in the order of its list. A deleted favourite takes its pin with it. */
+export function buildPins(asl: Favorite[], dv: DVFavorite[]): PinItem[] {
   const out: PinItem[] = [];
-  for (const p of pins) {
-    if (p.kind === 'asl') {
-      const f = asl.find((x) => x.id === p.id);
-      if (f) out.push({ key: `asl:${f.id}`, kind: 'asl', label: f.label || f.info?.callsign || f.node, sub: f.node, node: f.node });
-    } else {
-      const f = dv.find((x) => x.id === p.id);
-      if (f) out.push({ key: `dv:${f.id}`, kind: 'dv', label: f.name, sub: modeLabel(f.mode), fav: f });
-    }
-  }
+  for (const f of asl) if (f.pinned) out.push({ key: `asl:${f.id}`, kind: 'asl', label: f.label || f.info?.callsign || f.node, sub: f.node, node: f.node });
+  for (const f of dv) if (f.pinned) out.push({ key: `dv:${f.id}`, kind: 'dv', label: f.name, sub: modeLabel(f.mode), fav: f });
   return out;
 }
 

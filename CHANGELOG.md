@@ -8,7 +8,8 @@ Release notes are taken from the section of the tag being released
 ### Added
 - The AllStarLink tab (`#/allstar`) holds what the dashboard had: schedules, the status table of each node, the connect bar, Favorites and the network list.
 - The DV tab (`#/dv`, shown when the digital modes engine is enabled) holds the Digital modes card with the level meter, the full Last heard list and a login row per network.
-- Pinned favorites: a pin button on each AllStar favorite and each DV favorite puts a one-tap button on the dashboard. An AllStar pin connects the selected local node to the favorite; a DV pin switches the mode, tunes the target and links the bridge node if it is not linked. Pins are kept in this browser.
+- Pinned favorites: a pin button on each AllStar favorite and each DV favorite puts a one-tap button on the dashboard. An AllStar pin connects the selected local node to the favorite; a DV pin switches the mode, tunes the target and links the bridge node if it is not linked. Pins are saved on the server with the favorite, so they are shared across browsers and survive a reload; viewers see the pins but only operators and admins can pin or unpin. Deleting a favorite removes its pin.
+- `pinned` field on `GET /api/favorites` and `GET /api/dv/favorites`, set with `PUT /api/favorites/{id}` and `PUT /api/dv/favorites/{id}` (`{"pinned": true}`). Database schema 7 adds the column; backups carry the pins with the favorites.
 
 ### Changed
 - The dashboard is now an overview: a tile for each local node (click one to open it on the AllStarLink tab), a DV tile, an alerts strip when something is wrong, the pinned favorites and one Last heard list for AllStar and DV together, newest first.

@@ -14,7 +14,7 @@ export interface NodeStatus {
   rxKeyed: boolean; txKeyed: boolean; extTxKeyed: boolean; numLinks: number;
   links: Link[]; network: NetworkEntry[]; flags: Record<string, boolean>; updated: string;
 }
-export interface Favorite { id: number; node: string; label: string; group: string; position: number; info: NodeInfo | null }
+export interface Favorite { id: number; node: string; label: string; group: string; position: number; pinned: boolean; info: NodeInfo | null }
 export interface SystemInfo {
   hostname: string; cpuTemp: number | null; load: number[]; memTotal: number; memAvailable: number;
   uptime: number; asterisk: { connected: boolean; version: string; uptime: number; error: string | null }; version: string;
@@ -277,7 +277,7 @@ export interface DVLink { mode: DVLinkMode; localNode: string; linked: boolean; 
 /** The reply of POST /api/dv/mode, /unlink and /tune. */
 /** `left`: the mode a switch unlinked before leaving it (it reconnects when switched back). */
 export interface DVCmdReply { mode: string; switched: boolean; confirmed: boolean; left?: string; snapshot: DVSnapshot }
-export interface DVFavorite { id: number; mode: DVTuneMode; value: string; name: string; sort: number }
+export interface DVFavorite { id: number; mode: DVTuneMode; value: string; name: string; sort: number; pinned: boolean }
 
 // System tab (docs/API.md "System"); all admin-only.
 export interface HostStatus { hostname: string; prettyHostname: string; os: string; hostnameAvailable: boolean; hostnamectlAvailable: boolean; hostnamectlMissing: boolean; timezone: string; ntp: boolean; ntpSynchronized: boolean; canNtp: boolean; localRtc: boolean; timeAvailable: boolean; now: string; clock: string }

@@ -18,10 +18,11 @@
   import Dots from '@lucide/svelte/icons/ellipsis';
   import Link2 from '@lucide/svelte/icons/link-2';
   import Pin from '@lucide/svelte/icons/pin';
-  import { pinned, togglePinned } from '../lib/pinstore.svelte';
-  import { isPinned } from '../lib/pins';
 
   const op = $derived(canOperate());
+  async function togglePin(f: Favorite) {
+    try { await api.updateFavorite(f.id, { pinned: !f.pinned }); await refreshFavorites(); } catch (e) { toastError(e); }
+  }
   let manage = $state(false);
   let editing = $state<Favorite | null>(null), dlg = $state(false), imp = $state(false);
   let delFav = $state<Favorite | null>(null), delOpen = $state(false);
@@ -229,9 +230,11 @@
                     <div class="truncate font-medium">{name(f)}</div>
                     <div class="truncate text-xs text-muted {scan ? 'lg:hidden' : 'sm:hidden'}">{[f.info?.description, f.info?.location].filter(Boolean).join(' · ')}</div>
                   </div>
-                  <button type="button" class="rowbtn shrink-0" aria-pressed={isPinned(pinned.list, { kind: 'asl', id: f.id })} aria-label="{isPinned(pinned.list, { kind: 'asl', id: f.id }) ? 'Unpin' : 'Pin'} {name(f)} on the dashboard" title="Pin to the dashboard" onclick={(e) => { e.stopPropagation(); togglePinned({ kind: 'asl', id: f.id }); }}>
-                    <Pin size={13} class={isPinned(pinned.list, { kind: 'asl', id: f.id }) ? 'fill-accent text-accent' : 'text-muted'} />
-                  </button>
+                  {#if op || f.pinned}
+                    <button type="button" class="rowbtn shrink-0" disabled={!op} aria-pressed={f.pinned} aria-label="{f.pinned ? 'Unpin' : 'Pin'} {name(f)} on the dashboard" title={op ? 'Pin to the dashboard' : 'Pinned to the dashboard'} onclick={(e) => { e.stopPropagation(); void togglePin(f); }}>
+                      <Pin size={13} class={f.pinned ? 'fill-accent text-accent' : 'text-muted'} />
+                    </button>
+                  {/if}
                 </div>
               </td>
               <td class="hidden max-w-0 truncate {descBp}" title={f.info?.description}>{f.info?.description ?? ''}</td>

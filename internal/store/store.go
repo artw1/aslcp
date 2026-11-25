@@ -60,6 +60,7 @@ type Favorite struct {
 	Label    string
 	Group    string
 	Position int
+	Pinned   bool
 }
 
 var migrations = []string{
@@ -139,6 +140,9 @@ var migrations = []string{
 	);`,
 	// 6: settings keys of 1.x installs carry the previous stack's prefix.
 	migrationOldKeys(),
+	// 7: pinned favourites (shown on the overview), shared node-wide like the favourites.
+	`ALTER TABLE favorites ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE dv_favorites ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;`,
 }
 
 // migrationOldKeys is migration 6: it moves the settings keys of a 1.x
@@ -201,6 +205,11 @@ func (s *Store) migrate() error {
 	cur, err := s.Version()
 	if err != nil {
 		return err
+	}
+	if cur >= 5 { // a 1.x database holds the DV favourites under the old name; migration 7 needs the new one
+		if err := s.renameOldFavorites(); err != nil {
+			return err
+		}
 	}
 	if cur > len(migrations) {
 		return fmt.Errorf("store: database schema %d is newer than this build (%d)", cur, len(migrations))
@@ -404,7 +413,7 @@ func (s *Store) DeleteExpiredSessions(now time.Time) (int64, error) {
 
 // ListFavorites returns favorites ordered by group, position, id.
 func (s *Store) ListFavorites() ([]Favorite, error) {
-	rows, err := s.db.Query(`SELECT id,node,label,grp,position FROM favorites ORDER BY grp, position, id`)
+	rows, err := s.db.Query(`SELECT id,node,label,grp,position,pinned FROM favorites ORDER BY grp, position, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -412,7 +421,7 @@ func (s *Store) ListFavorites() ([]Favorite, error) {
 	out := []Favorite{}
 	for rows.Next() {
 		var f Favorite
-		if err := rows.Scan(&f.ID, &f.Node, &f.Label, &f.Group, &f.Position); err != nil {
+		if err := rows.Scan(&f.ID, &f.Node, &f.Label, &f.Group, &f.Position, &f.Pinned); err != nil {
 			return nil, err
 		}
 		out = append(out, f)
@@ -423,8 +432,8 @@ func (s *Store) ListFavorites() ([]Favorite, error) {
 // GetFavorite returns one favorite.
 func (s *Store) GetFavorite(id int64) (Favorite, error) {
 	var f Favorite
-	err := s.db.QueryRow(`SELECT id,node,label,grp,position FROM favorites WHERE id=?`, id).
-		Scan(&f.ID, &f.Node, &f.Label, &f.Group, &f.Position)
+	err := s.db.QueryRow(`SELECT id,node,label,grp,position,pinned FROM favorites WHERE id=?`, id).
+		Scan(&f.ID, &f.Node, &f.Label, &f.Group, &f.Position, &f.Pinned)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Favorite{}, ErrNotFound
 	}
@@ -443,7 +452,7 @@ func (s *Store) AddFavorite(node, label, group string) (Favorite, error) {
 }
 
 // UpdateFavorite changes the non-nil fields.
-func (s *Store) UpdateFavorite(id int64, node, label, group *string) (Favorite, error) {
+func (s *Store) UpdateFavorite(id int64, node, label, group *string, pinned *bool) (Favorite, error) {
 	f, err := s.GetFavorite(id)
 	if err != nil {
 		return Favorite{}, err
@@ -457,7 +466,10 @@ func (s *Store) UpdateFavorite(id int64, node, label, group *string) (Favorite, 
 	if group != nil {
 		f.Group = *group
 	}
-	_, err = s.db.Exec(`UPDATE favorites SET node=?, label=?, grp=? WHERE id=?`, f.Node, f.Label, f.Group, id)
+	if pinned != nil {
+		f.Pinned = *pinned
+	}
+	_, err = s.db.Exec(`UPDATE favorites SET node=?, label=?, grp=?, pinned=? WHERE id=?`, f.Node, f.Label, f.Group, f.Pinned, id)
 	return f, err
 }
 

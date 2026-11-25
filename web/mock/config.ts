@@ -8,10 +8,11 @@ const RPT = `; rpt.conf (anonymized sample)
 [general]
 
 [nodes]
+2001 = radio@127.0.0.1/2001,NONE
 1999 = radio@127.0.0.1/1999,NONE
 1000 = radio@192.0.2.20:4569/1000,192.0.2.20
 
-[1999](node-main)
+[2001](node-main)
 rxchannel = SimpleUSB/usb
 duplex = 1            ; half duplex
 idrecording = |iN0CALL
@@ -24,6 +25,11 @@ functions = functions
 macro = macro
 tailmessagetime = 600000
 hangtime = 5000
+
+[1999](node-main)
+rxchannel = USRP/127.0.0.1:34001:32001   ; digital modes bridge node
+duplex = 0
+hangtime = 0
 
 [node-main](!)
 context = radio
@@ -39,7 +45,7 @@ allow = ulaw
 allow = adpcm
 jitterbuffer = no
 tos = ef
-register => 1999:hunter2secret@register.example.invalid
+register => 2001:hunter2secret@register.example.invalid
 
 [radio](!)
 type = user
@@ -77,6 +83,7 @@ static = yes
 writeprotect = no
 
 [radio]
+exten => 2001,1,Rpt(2001)
 exten => 1999,1,Rpt(1999)
 `,
   'asl-local.conf': '; local scratch file (not part of the standard layout)\n',
@@ -208,7 +215,7 @@ function runReload(paths: string[], doReload: boolean) {
   return {
     files: paths, restart,
     reload: cmds.map((c) => ({ command: c, ok: true, output: c.startsWith('module reload') ? `Module '${c.split(' ')[2]}' reloaded successfully.` : 'Reloaded.' })),
-    health: { ok, checks: [{ name: 'AMI connected', ok: true, detail: 'Asterisk 22.10.1' }, { name: 'Node 1999 answers rpt status', ok, detail: ok ? 'answered in 0.2 s' : 'no answer after 15 s' }, { name: 'Node 2000 answers rpt status', ok: true, detail: 'answered in 0.2 s' }] },
+    health: { ok, checks: [{ name: 'AMI connected', ok: true, detail: 'Asterisk 22.10.1' }, { name: 'Node 2001 answers rpt status', ok, detail: ok ? 'answered in 0.2 s' : 'no answer after 15 s' }, { name: 'Node 2000 answers rpt status', ok: true, detail: 'answered in 0.2 s' }] },
   };
 }
 

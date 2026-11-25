@@ -1,5 +1,5 @@
 // In-memory /api/dv/* for `npm run dev:mock` (plan 2.0 M1: the native engine aslcp-dv with md380-emu). Dev only.
-// Placeholders only: callsign N0CALL, nodes 2001 and 1997, DMR ID 1234567, RFC 5737 addresses.
+// Placeholders only: callsign N0CALL, nodes 2001 (local) and 1999 (bridge), DMR ID 1234567, RFC 5737 addresses.
 type Body = Record<string, unknown>;
 const ENABLE_MS = 6000;
 const ENABLE_LOG = ['Hit:1 http://deb.debian.org/debian bookworm InRelease', 'Get:2 https://packages.example.invalid/aslcp bookworm InRelease', 'key fingerprint matches the pinned one', 'Setting up md380-emu ...', 'Setting up aslcp-dv ...', 'previous digital voice services stopped and disabled', 'aslcp-dv started', 'enable finished'];
@@ -37,23 +37,23 @@ function setup() {
 const bad = (c: DVCtx, what: string) => c.err(400, `invalid_field: a value is not allowed (${what})`, 'invalid_field');
 
 // Private bridge node (PUT /dv/private-node). Starts without one so "No bridge node yet" and the
-// suggestion can be seen. Local nodes of the mock: 2001. Nothing here touches a real Asterisk.
-const LOCALS = ['2001'];
+// suggestion can be seen. Local nodes of the mock: 2001, 1997 and the tuning nodes 2000 and 2002. Nothing here touches a real Asterisk.
+const LOCALS = ['2001', '1997', '2000', '2002'];
 const pb = { name: '', node: '', owned: false, rxPort: 34001, txPort: 32001, mode: 'ondemand', local: '', paused: false, linked: false, exclusive: true, adopt: false };
 // the stock [USRP] ports that a removal puts back (the mock never recorded others)
 const STOCK = { rx: 31001, tx: 31001 };
 let pbUndo: { node: string; owned: boolean; rxPort: number; txPort: number; mode: string; local: string } | null = null;
 const NODE_NAME = 'Digital modes linked node';
-// The first install of a mock session finds a bridge node 1997 in rpt.conf that has no ASLCP record, like a
+// The first install of a mock session finds a bridge node 1999 in rpt.conf that has no ASLCP record, like a
 // restore of a backup from before 1.2.4: "Manage this bridge node with ASLCP" is offered. Later installs start clean.
 let foundOnce = true;
 function foundAfterRestore() {
   if (!foundOnce || pb.node) return;
   foundOnce = false;
-  Object.assign(pb, { node: '1997', owned: false, adopt: true, rxPort: 34001, txPort: 32001 });
+  Object.assign(pb, { node: '1999', owned: false, adopt: true, rxPort: 34001, txPort: 32001 });
 }
 const bridgeSetup = () => ({
-  node: pb.node, owned: pb.owned, adoptable: !!pb.node && !pb.owned && pb.adopt, suggested: pb.node ? '' : '1997', used: [...LOCALS, ...(pb.node ? [pb.node] : [])], localNodes: LOCALS,
+  node: pb.node, owned: pb.owned, adoptable: !!pb.node && !pb.owned && pb.adopt, suggested: pb.node ? '' : '1900', used: [...LOCALS, ...(pb.node ? [pb.node] : [])], localNodes: LOCALS,
   rxPort: pb.rxPort, txPort: pb.txPort, link: { mode: pb.mode, localNode: pb.local, bridge: pb.node, exclusive: pb.exclusive }, paused: pb.paused, name: pb.name || NODE_NAME,
 });
 const linkView = () => ({ mode: pb.mode, localNode: pb.local, linked: !!pb.node && (pb.mode === 'permanent' ? !pb.paused : pb.linked), paused: pb.paused, exclusive: pb.exclusive });
@@ -355,9 +355,9 @@ function snapshot() {
   };
 }
 const tuneRe: Record<PMode, RegExp> = { LOOP: /^$/, BM: /^[0-9]{1,8}#?$/, TGIF: /^[0-9]{1,8}#?$/, DMR: /^[0-9]{1,8}#?$/, YSF: /^(disconnect|[A-Za-z0-9._-]{1,32}|[A-Za-z0-9.-]{1,253}:[0-9]{1,5})$/, P25: /^[0-9]{1,5}$/, NXDN: /^[0-9]{1,5}$/, M17: /^(disconnect|M17-[A-Z0-9]{3} [A-Z])$/ };
-const favs: { id: number; mode: PMode; value: string; name: string; sort: number }[] = [];
+const favs: { id: number; mode: PMode; value: string; name: string; sort: number; pinned: boolean }[] = [];
 let favSeq = 0;
-const favView = (f: (typeof favs)[number]) => ({ id: f.id, mode: f.mode, value: f.value, name: f.name, sort: f.sort });
+const favView = (f: (typeof favs)[number]) => ({ id: f.id, mode: f.mode, value: f.value, name: f.name, sort: f.sort, pinned: f.pinned });
 function panelHandler(c: DVCtx): boolean {
   const op = c.user!.role !== 'viewer';
   const forbid = () => (c.err(403, 'insufficient permissions', 'forbidden'), true);
@@ -405,7 +405,7 @@ function panelHandler(c: DVCtx): boolean {
     const mode = String(body.mode ?? '').toUpperCase() as PMode, value = typeof body.value === 'string' ? body.value : '', name = typeof body.name === 'string' ? body.name.trim() : '';
     if (!(mode in tuneRe) || !tuneRe[mode].test(value) || [...name].length < 1 || [...name].length > 40) return c.err(400, 'bad_request: check the mode, the value and the name (1 to 40 characters)', 'bad_request'), true;
     if (favs.some((f) => f.mode === mode && f.value === value)) return c.err(409, 'duplicate: this target is already a favourite', 'duplicate'), true;
-    const f = { id: ++favSeq, mode, value, name, sort: favs.filter((x) => x.mode === mode).length };
+    const f = { id: ++favSeq, mode, value, name, sort: favs.filter((x) => x.mode === mode).length, pinned: false };
     favs.push(f);
     c.json(201, favView(f));
     return true;
@@ -414,10 +414,12 @@ function panelHandler(c: DVCtx): boolean {
   if (m) {
     const i = favs.findIndex((f) => f.id === Number(m[1]));
     if (i < 0) return c.err(404, 'not_found: no such favourite', 'not_found'), true;
+    if (!op) return forbid();
     if (c.m === 'DELETE') { favs.splice(i, 1); c.json(204); return true; }
     if (c.m === 'PUT') {
       if (body.name !== undefined) { const n = typeof body.name === 'string' ? body.name.trim() : ''; if ([...n].length < 1 || [...n].length > 40) return c.err(400, 'bad_request: the name must be 1 to 40 characters', 'bad_request'), true; favs[i].name = n; }
       if (typeof body.sort === 'number') favs[i].sort = body.sort;
+      if (typeof body.pinned === 'boolean') favs[i].pinned = body.pinned;
       c.json(200, favView(favs[i]));
       return true;
     }

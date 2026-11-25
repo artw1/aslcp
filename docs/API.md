@@ -103,13 +103,13 @@ NodeInfo = {"node": "50241", "callsign": "N0CALL", "description": "Hub name", "l
 
 ## Favorites (read: all roles; write: operator)
 
-`Favorite = {"id": int, "node": "2000", "label": "My hub", "group": "Hubs" | "", "position": int, "info": NodeInfo|null}`
+`Favorite = {"id": int, "node": "2000", "label": "My hub", "group": "Hubs" | "", "position": int, "pinned": bool, "info": NodeInfo|null}` (`pinned` favorites show as one-tap buttons on the dashboard overview; it is stored with the favorite on the server, so every browser sees the same pins, and it goes away with the favorite. New favorites are not pinned)
 
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/api/favorites` | | `[Favorite]` ordered by group then position |
 | POST | `/api/favorites` | `{"node", "label"?, "group"?}` | `201` `Favorite` (label defaults to the node-list callsign/description) |
-| PUT | `/api/favorites/{id}` | `{"node"?, "label"?, "group"?}` | `200` `Favorite` |
+| PUT | `/api/favorites/{id}` | `{"node"?, "label"?, "group"?, "pinned"?}` | `200` `Favorite` (`pinned` is changed with the same permission as the other fields: operator or admin; viewers can read it) |
 | DELETE | `/api/favorites/{id}` | | `204` |
 | GET | `/api/favorites/stats` | | `200` `FavStats` snapshot (login required, all roles; never part of the public page) |
 | PUT | `/api/favorites/scan` | `{"enabled": bool}` | `200` `FavStats` (operator or admin). `400` without `enabled`. Stored as setting `favstats.enabled`, default off |
@@ -415,9 +415,9 @@ DVStatus = {
 | POST | `/api/dv/mode` | operator, admin | `{"mode":"LOOP\|BM\|TGIF\|DMR\|YSF\|P25\|NXDN\|M17","force"?}` | `200` `{mode, switched, confirmed, left?, snapshot}`. Switches the mode; the remembered tune of that mode is sent again, if there is one |
 | POST | `/api/dv/tune` | operator, admin | `{"mode":"LOOP","tune":"9990","force"?}` | `200` as mode. DMR networks take a talkgroup, YSF a reflector id (or `host:port`), P25 and NXDN a talkgroup, M17 a reflector and module as `M17-XXX C` (designator `M17-` plus three upper-case letters or digits, one space, a module `A`-`Z`; the reflector is looked up in the M17 host list, `422 unknown_target` when it is not there). `LOOP` (the Echo test) has no tune: switch to it with `/api/dv/mode`; the old `9990` value is still accepted |
 | POST | `/api/dv/unlink` | operator, admin | `{}` | `200` as mode. YSF and M17 `disconnect`, DMR networks `4000`, P25 and NXDN `9999` |
-| GET | `/api/dv/favorites` | viewer and up | | `200` `[{id,mode,value,name,sort}]` |
+| GET | `/api/dv/favorites` | viewer and up | | `200` `[{id,mode,value,name,sort,pinned}]` |
 | POST | `/api/dv/favorites` | operator, admin | `{mode,value,name}` | `201` favourite; `400 bad_request` |
-| PUT | `/api/dv/favorites/{id}` | operator, admin | `{name?,sort?}` | `200` favourite; `404 not_found` |
+| PUT | `/api/dv/favorites/{id}` | operator, admin | `{name?,sort?,pinned?}` | `200` favourite (`pinned` puts it on the dashboard overview, like the AllStar `pinned`; new favourites are not pinned); `404 not_found` |
 | DELETE | `/api/dv/favorites/{id}` | operator, admin | | `204`; `404 not_found` |
 | GET | `/api/dv/resume` | operator, admin | | `200` `{"resume":false,"lastMode":"BM","perMode":{...}}` |
 | PUT | `/api/dv/resume` | admin | `{"resume":true}` | `200` as GET; `400 bad_request` |
