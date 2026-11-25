@@ -44,6 +44,8 @@
     {:else if isSystemPath(router.path) && isAdmin()}{#await import('./components/system/System.svelte') then m}<m.default />{/await}
     {:else if router.path === '/digital' && isAdmin()}{#await import('./components/DigitalModes.svelte') then m}<m.default />{/await}
     {:else if router.path === '/tune' && isAdmin()}{#await import('./components/Tune.svelte') then m}<m.default />{/await}
+    {:else if router.path === '/allstar'}{#await import('./components/AllStarPage.svelte') then m}<m.default />{/await}
+    {:else if router.path === '/dv'}{#await import('./components/DvPage.svelte') then m}<m.default />{/await}
     {:else}<Dashboard />{/if}
   </main>
 {/if}

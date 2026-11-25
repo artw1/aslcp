@@ -17,6 +17,9 @@
   import Settings2 from '@lucide/svelte/icons/settings-2';
   import Dots from '@lucide/svelte/icons/ellipsis';
   import Link2 from '@lucide/svelte/icons/link-2';
+  import Pin from '@lucide/svelte/icons/pin';
+  import { pinned, togglePinned } from '../lib/pinstore.svelte';
+  import { isPinned } from '../lib/pins';
 
   const op = $derived(canOperate());
   let manage = $state(false);
@@ -221,8 +224,15 @@
                 {#if l}<Link2 size={12} class="mr-0.5 inline" aria-hidden="true" /><span class="sr-only">linked</span>{/if}<button type="button" class="font-mono font-semibold text-accent hover:underline" onclick={(e) => { e.stopPropagation(); if (!manage) openNode(f.node); }} aria-label="Connect options for node {f.node}{l ? ' (linked)' : ''}">{f.node}</button>
               </td>
               <td class="max-w-0">
-                <div class="truncate font-medium">{name(f)}</div>
-                <div class="truncate text-xs text-muted {scan ? 'lg:hidden' : 'sm:hidden'}">{[f.info?.description, f.info?.location].filter(Boolean).join(' · ')}</div>
+                <div class="flex items-center gap-1">
+                  <div class="min-w-0 flex-1">
+                    <div class="truncate font-medium">{name(f)}</div>
+                    <div class="truncate text-xs text-muted {scan ? 'lg:hidden' : 'sm:hidden'}">{[f.info?.description, f.info?.location].filter(Boolean).join(' · ')}</div>
+                  </div>
+                  <button type="button" class="rowbtn shrink-0" aria-pressed={isPinned(pinned.list, { kind: 'asl', id: f.id })} aria-label="{isPinned(pinned.list, { kind: 'asl', id: f.id }) ? 'Unpin' : 'Pin'} {name(f)} on the dashboard" title="Pin to the dashboard" onclick={(e) => { e.stopPropagation(); togglePinned({ kind: 'asl', id: f.id }); }}>
+                    <Pin size={13} class={isPinned(pinned.list, { kind: 'asl', id: f.id }) ? 'fill-accent text-accent' : 'text-muted'} />
+                  </button>
+                </div>
               </td>
               <td class="hidden max-w-0 truncate {descBp}" title={f.info?.description}>{f.info?.description ?? ''}</td>
               <td class="hidden max-w-0 truncate {locBp}" title={f.info?.location}>{f.info?.location ?? ''}</td>
