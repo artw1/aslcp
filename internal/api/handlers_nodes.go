@@ -99,7 +99,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request, u store.U
 	// localmonitor never passes audio to other links, so it cannot cross-link
 	// and ignores the flag.
 	exclusive := in.Exclusive && exclusiveMode(mode)
-	if err := s.connectLink(ctx, node, in.Target, mode, in.Permanent, exclusive); err != nil {
+	if err := s.connectLink(ctx, u, node, in.Target, mode, in.Permanent, exclusive); err != nil {
 		s.commandError(w, err)
 		return
 	}
@@ -118,12 +118,12 @@ func exclusiveMode(mode rpt.ConnectMode) bool {
 // connectLink connects node to target, first dropping the other direct links
 // when exclusive is set (and the mode allows it). Both the HTTP handler and
 // the scheduler use it, so they share the command pacing and behaviour.
-func (s *Server) connectLink(ctx context.Context, node, target string, mode rpt.ConnectMode, permanent, exclusive bool) error {
+func (s *Server) connectLink(ctx context.Context, actor store.User, node, target string, mode rpt.ConnectMode, permanent, exclusive bool) error {
 	if !s.amiUp() {
 		return ami.ErrNotConnected
 	}
 	if exclusive && exclusiveMode(mode) {
-		if err := s.disconnectOthers(ctx, node, target); err != nil {
+		if err := s.disconnectOthers(ctx, actor, node, target); err != nil {
 			return err
 		}
 	}
@@ -131,11 +131,13 @@ func (s *Server) connectLink(ctx context.Context, node, target string, mode rpt.
 		return err
 	}
 	s.afterCommand(node)
+	s.dvLinkMade(actor, node, target)
 	return nil
 }
 
-// disconnectLink sends a (permanent or normal) disconnect of one link.
-func (s *Server) disconnectLink(ctx context.Context, node, target string, permanent bool) error {
+// disconnectLink sends a (permanent or normal) disconnect of one link. actor
+// is who asked, for the digital modes target of a dropped bridge node link.
+func (s *Server) disconnectLink(ctx context.Context, actor store.User, node, target string, permanent bool) error {
 	if !s.amiUp() {
 		return ami.ErrNotConnected
 	}
@@ -143,6 +145,7 @@ func (s *Server) disconnectLink(ctx context.Context, node, target string, perman
 		return err
 	}
 	s.afterCommand(node)
+	s.dvLinkDropped(ctx, actor, node, target)
 	return nil
 }
 
@@ -153,7 +156,7 @@ func (s *Server) disconnectLink(ctx context.Context, node, target string, perman
 // itself is never disconnected, so a mode change on an existing link works.
 // Links whose name the disconnect validator rejects are skipped. The first
 // command error aborts, so the caller does not connect.
-func (s *Server) disconnectOthers(ctx context.Context, node, keep string) error {
+func (s *Server) disconnectOthers(ctx context.Context, actor store.User, node, keep string) error {
 	m := s.monitor()
 	if m == nil {
 		return nil
@@ -179,6 +182,7 @@ func (s *Server) disconnectOthers(ctx context.Context, node, keep string) error 
 		// command: its single command slot is busy until then, and a
 		// command sent meanwhile is refused silently.
 		s.waitLinkGone(ctx, node, l.Node)
+		s.dvLinkDropped(ctx, actor, node, l.Node)
 	}
 	return nil
 }
@@ -237,7 +241,7 @@ func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request, u stor
 	}
 	ctx, cancel := s.cmdContext(r)
 	defer cancel()
-	if err := s.disconnectLink(ctx, node, in.Target, in.Permanent); err != nil {
+	if err := s.disconnectLink(ctx, u, node, in.Target, in.Permanent); err != nil {
 		s.commandError(w, err)
 		return
 	}
@@ -258,12 +262,23 @@ func (s *Server) handleDisconnectAll(w http.ResponseWriter, r *http.Request, u s
 	}
 	ctx, cancel := s.cmdContext(r)
 	defer cancel()
+	bridge := s.dvBridgeNumber(ctx)
+	wasLinked := false
+	if bridge != "" && node != bridge {
+		wasLinked, _ = (dvLinker{s}).Linked(node, bridge)
+	}
 	if err := s.rpt.DisconnectAll(ctx, node); err != nil {
 		s.commandError(w, err)
 		return
 	}
 	s.d.Logger.Printf("disconnect-all %s by %s", node, u.Username)
 	s.afterCommand(node)
+	switch {
+	case node == bridge:
+		s.dvLinkDropped(ctx, u, node, "")
+	case wasLinked:
+		s.dvLinkDropped(ctx, u, node, bridge)
+	}
 	s.manualSchedules(node, fmt.Sprintf("manual disconnect all on %s by %s", node, u.Username))
 	s.dvManualDisconnect(node, "")
 	w.WriteHeader(http.StatusAccepted)

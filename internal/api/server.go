@@ -153,9 +153,12 @@ type Server struct {
 	platOnce  sync.Once
 	plat      diag.Platform
 
-	// dvTuning counts tunes in flight (dvSendTune); the bridge watcher does not
-	// re-tune while one is.
-	dvTuning atomic.Int32
+	// dvTuning counts tunes in flight (dvSendTune); the re-tune after a bridge
+	// node link does not run while one is. dvBridgeMu serializes the release
+	// and the re-tune; dvRetuneDelay is the wait before the latter.
+	dvTuning      atomic.Int32
+	dvBridgeMu    sync.Mutex
+	dvRetuneDelay time.Duration
 
 	monMu sync.RWMutex
 	mon   *rpt.Monitor
@@ -191,7 +194,7 @@ func New(d Deps) *Server {
 		d:        d, rpt: rpt.New(d.AMI), mux: http.NewServeMux(),
 		FastInterval: time.Second, SlowInterval: 10 * time.Second,
 		PingInterval: 15 * time.Second, SystemInterval: 10 * time.Second,
-		LinkGoneWait:     3 * time.Second,
+		LinkGoneWait: 3 * time.Second, dvRetuneDelay: dvDefaultRetuneDelay,
 		AsteriskBackWait: 90 * time.Second, AsteriskBackPoll: time.Second,
 		stop: make(chan struct{}),
 	}
@@ -252,9 +255,6 @@ func (s *Server) Run(ctx context.Context) {
 	}
 	if s.d.DVLink != nil {
 		go s.d.DVLink.Run(ctx)
-	}
-	if s.dvs != nil && s.d.DVCtl != nil {
-		go s.dvBridgeLoop(ctx)
 	}
 	<-ctx.Done()
 	s.Shutdown()

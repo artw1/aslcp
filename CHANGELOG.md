@@ -6,7 +6,7 @@ Release notes are taken from the section of the tag being released
 ## [2.4.1] - 2026-11-25
 
 ### Fixed
-- When the digital modes bridge node is no longer linked to any local node (unlinked from the dashboard, the DV card, a schedule, DTMF or a remote node), the DV target no longer lingers. After 5 s the server unlinks the talkgroup or reflector and BrandMeister logs out unless "Stay logged in" is on; an Asterisk restart that relinks at once does nothing. The mode and its remembered tune stay, and the tune is sent again when the bridge node is linked again; Unlink on the DV card still forgets it. Both actions are audited as `dv.bridge.released` and `dv.bridge.retuned`. The control request `unlink` gained an optional `release` field (an older engine refuses it and the server falls back to a plain unlink).
+- When ASLCP itself unlinks the digital modes bridge node (Unlink on a tile or the ASL page, the DV card link panel, a schedule, an exclusive connect that drops it, Disconnect all, or a link settings change) and no other local node is linked to it, the DV target no longer lingers: the server unlinks the talkgroup or reflector at once, and BrandMeister logs out unless "Stay logged in" is on. The mode and its remembered tune stay, and the tune is sent again when ASLCP links the bridge node again (a request that tunes its own target, like a DV pin, wins); Unlink on the DV card still forgets it. Links made outside ASLCP (DTMF, other nodes, Allmon) leave the DV target alone. Both actions are audited as `dv.bridge.released` and `dv.bridge.retuned`. The control request `unlink` gained an optional `release` field (an older engine refuses it and the server falls back to a plain unlink).
 
 ## [2.4.0] - 2026-11-25
 

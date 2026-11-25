@@ -69,11 +69,11 @@ func connectMode(mode string) rpt.ConnectMode {
 }
 
 func (l schedLinker) Connect(ctx context.Context, node, target, mode string, permanent, exclusive bool) error {
-	return l.s.connectLink(ctx, node, target, connectMode(mode), permanent, exclusive)
+	return l.s.connectLink(ctx, dvScheduleUser, node, target, connectMode(mode), permanent, exclusive)
 }
 
 func (l schedLinker) Disconnect(ctx context.Context, node, target string, permanent bool) error {
-	return l.s.disconnectLink(ctx, node, target, permanent)
+	return l.s.disconnectLink(ctx, dvScheduleUser, node, target, permanent)
 }
 
 func (l schedLinker) LinkMode(node, target string) (string, bool, bool) {
