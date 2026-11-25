@@ -280,7 +280,7 @@
                 {#if pickable}
                   <NodePicker id="dvtune" bind:value={tuneValue} options={pickable.items} search={(t) => searchList(pickable.index, t)} label={(o) => optionLabel(mode.toLowerCase() as DVListMode, o)} placeholder={tunePlaceholder(mode)} inputmode="text" onenter={go} inputClass="!min-h-10 !pl-9 focus:!border-accent focus:outline-none focus:ring-1 focus:ring-accent/40" />
                 {:else}
-                  <input id="dvtune" class="input font-mono !min-h-10 !pl-9 focus:!border-accent focus:outline-none focus:ring-1 focus:ring-accent/40" bind:value={tuneValue} placeholder={tunePlaceholder(mode)} inputmode={isDMRFamily(mode) ? 'numeric' : 'text'} autocomplete="off" aria-label="Tune target" />
+                  <input id="dvtune" class="input font-mono !min-h-10 !pl-9 focus:!border-accent focus:outline-none focus:ring-1 focus:ring-accent/40" bind:value={tuneValue} placeholder={tunePlaceholder(mode)} inputmode={isDMRFamily(mode) ? 'tel' : 'text'} autocomplete="off" aria-label="Tune target" />
                 {/if}
               </div>
               {#if mode === 'M17'}
