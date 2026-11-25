@@ -9,6 +9,8 @@
   import { enableBlock, formOf, liveLogin, loginText, loginTone } from '../lib/dvnetform';
   import { enableToast, netSummary } from '../lib/dvsummary';
   import { NETWORK_MODES } from '../lib/dvnetworks';
+  import { router } from '../lib/router.svelte';
+  import { tick } from 'svelte';
   import Toggle from './Toggle.svelte';
   import DvNet from './DvNet.svelte';
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
@@ -16,6 +18,16 @@
   let { nets, identity, modes, onsaved }: { nets: DVNetView[]; identity: DVIdentity | null; modes: DVSnapshot['modes'] | undefined; onsaved: (n: DVNetView) => void } = $props();
   let open = $state<DVTuneMode | ''>(''), busy = $state<DVTuneMode | ''>(''), block = $state<{ id: DVTuneMode; text: string } | null>(null);
   const netOf = (id: DVTuneMode) => nets.find((n) => n.mode === id);
+
+  // `#/digital?net=ysf` (the chips of the DV tab) opens that network's settings and scrolls to it, once.
+  let deepLinked = '';
+  $effect(() => {
+    const id = NETWORK_MODES.find((m) => m.toLowerCase() === new URLSearchParams(router.query).get('net')?.toLowerCase());
+    if (!id || deepLinked === id) return;
+    deepLinked = id;
+    open = id;
+    void tick().then(() => document.getElementById(`dv-row-${id.toLowerCase()}`)?.scrollIntoView({ block: 'start' }));
+  });
 
   function toggleRow(id: DVTuneMode) { open = open === id ? '' : id; if (block?.id !== open) block = null; }
 
@@ -49,7 +61,7 @@
       {@const live = v ? liveLogin(v, modes) : null}
       {@const login = v?.enabled && live ? loginText(live.login, live.detail) : ''}
       {@const tone = loginTone(live?.login)}
-      <li class="card p-3 {isOpen ? 'border-accent' : ''}" data-testid="dv-row-{id.toLowerCase()}">
+      <li id="dv-row-{id.toLowerCase()}" class="card scroll-mt-16 p-3 {isOpen ? 'border-accent' : ''}" data-testid="dv-row-{id.toLowerCase()}">
         <div class="flex items-center gap-2">
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">

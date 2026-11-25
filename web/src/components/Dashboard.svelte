@@ -10,9 +10,9 @@
   import { dvErrorMessage } from '../lib/dvmsg';
   import { stateLine, reflectorSilent, stateTone, modeLabel } from '../lib/dvpanel';
   import { agoText } from '../lib/nowcalling';
-  import { buildAlerts, buildPins, dvPinPlan, mergeActivity, pinLocalNode, tileNodes } from '../lib/pins';
+  import { buildAlerts, buildPins, dvLastCaller, dvPinPlan, mergeActivity, pinActive, pinLocalNode, tileLinks, tileNodes, tileTalker } from '../lib/pins';
   import type { PinItem } from '../lib/pins';
-    import type { DVFavorite } from '../lib/types';
+  import type { DVFavorite } from '../lib/types';
   import Footer from './Footer.svelte';
   import RadioTower from '@lucide/svelte/icons/radio-tower';
   import Pin from '@lucide/svelte/icons/pin';
@@ -34,10 +34,11 @@
     api.dvFavorites().then((f) => { dvFavs = f; }).catch(() => { loaded = false; });
   });
   const pins = $derived(buildPins(app.favorites, dvFavs));
+  const dvLast = $derived(dvLastCaller(dv));
 
   function open(node: string) { app.selectedNode = node; navigate('/allstar'); }
   const tileState = (n: (typeof app.nodes)[number]) => (n.stale ? 'Stale' : n.txKeyed ? 'TX keyed' : n.rxKeyed ? 'RX keyed' : 'Idle');
-  const tileClass = (n: (typeof app.nodes)[number]) => (n.stale ? 'border-warn/50' : n.txKeyed ? 'border-tx' : n.rxKeyed ? 'border-rx' : 'border-line');
+  const tileClass = (n: (typeof app.nodes)[number]) => (n.stale ? 'border-warn/50' : n.txKeyed ? 'border-danger' : n.rxKeyed ? 'border-rx' : 'border-line');
   const nodeName = (n: (typeof app.nodes)[number]) => n.info?.callsign || n.info?.description || '';
 
   let busyKey = $state('');
@@ -81,15 +82,27 @@
 
     <section class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" aria-label="Nodes" data-testid="tiles">
       {#each tiles as n (n.node)}
-        <button type="button" class="rounded-md border bg-surface px-3 py-2 text-left hover:bg-surface-2 {tileClass(n)} {app.selectedNode === n.node && tiles.length > 1 ? 'ring-1 ring-accent' : ''}" onclick={() => open(n.node)} aria-label="Node {n.node}, open the AllStarLink tab" data-testid="tile-{n.node}">
+        <button type="button" class="flex flex-col justify-start rounded-md border bg-surface px-3 py-2 text-left hover:bg-surface-2 {tileClass(n)} {app.selectedNode === n.node && tiles.length > 1 ? 'ring-1 ring-accent' : ''}" onclick={() => open(n.node)} aria-label="Node {n.node}, open the AllStarLink tab" data-testid="tile-{n.node}">
           <div class="flex items-baseline gap-2">
             <span class="font-mono text-base font-semibold">{n.node}</span>
             <span class="min-w-0 flex-1 truncate text-xs text-muted">{nodeName(n)}</span>
           </div>
           <div class="mt-1 flex items-center gap-2 text-xs">
-            <span class="font-medium {n.stale ? 'text-warn' : n.txKeyed ? 'text-tx' : n.rxKeyed ? 'text-rx' : 'text-muted'}">{tileState(n)}</span>
+            <span class="font-medium {n.stale ? 'text-warn' : n.txKeyed ? 'text-danger' : n.rxKeyed ? 'text-rx' : 'text-muted'}">{tileState(n)}</span>
             <span class="text-muted">{n.links.length} link{n.links.length === 1 ? '' : 's'}</span>
           </div>
+          {#if tileTalker(n, app.nowcalling?.current, dv)}
+            <div class="mt-1 truncate text-xs font-medium {n.txKeyed ? 'text-danger' : 'text-rx'}" data-testid="tile-talker-{n.node}">{n.txKeyed ? 'Talking' : 'Heard'}: <span class="font-mono">{tileTalker(n, app.nowcalling?.current, dv)}</span></div>
+          {/if}
+          {#if n.links.length}
+            {@const tl = tileLinks(n, dv)}
+            <ul class="mt-1.5 space-y-0.5 border-t border-line pt-1.5 text-xs" aria-label="Links" data-testid="tile-links-{n.node}">
+              {#each tl.shown as l (l.node)}
+                <li class="flex gap-1.5"><span class="shrink-0 font-mono">{l.node}</span><span class="min-w-0 truncate text-muted">{l.label}</span></li>
+              {/each}
+              {#if tl.more}<li class="text-muted">+{tl.more} more</li>{/if}
+            </ul>
+          {/if}
         </button>
       {/each}
       {#if dvOn && dv}
@@ -102,7 +115,10 @@
           <div class="mt-1 truncate text-xs text-muted" title={stateLine(dv.bridge, reflectorSilent(dv))}>
             {dv.bridge.mode === 'LOOP' ? 'Echo test' : dv.bridge.tune ? `Tuned to ${dv.bridge.targetName || dv.bridge.tune}` : 'Nothing tuned'}
           </div>
-          <div class="text-xs font-medium {dv.link?.linked ? 'text-ok' : 'text-warn'}">{dv.bridgeNode?.present ? (dv.link?.linked ? 'Linked' : 'Not linked') : 'No bridge node'}</div>
+          {#if dvLast}
+            <div class="mt-1 truncate text-xs" data-testid="tile-dv-last">Last: <span class="font-mono">{dvLast.who}</span>{#if dvLast.at}<span class="ml-1 text-muted">· {age(dvLast.at)}</span>{/if}</div>
+          {/if}
+          <div class="mt-1 text-xs font-medium {dv.link?.linked ? 'text-ok' : 'text-warn'}">{dv.bridgeNode?.present ? (dv.link?.linked ? 'Linked' : 'Not linked') : 'No bridge node'}</div>
         </a>
       {/if}
     </section>
@@ -116,6 +132,7 @@
         <div class="flex flex-wrap gap-2" data-testid="pins">
           {#each pins as p (p.key)}
             <button type="button" class="btn !min-h-10 !px-3 {p.kind === 'dv' ? 'border-accent/50' : ''}" disabled={!op || !!busyKey} aria-label="{p.kind === 'asl' ? 'Connect to' : 'Tune'} {p.label}" title={p.kind === 'asl' ? `Connect ${pinLocalNode(app.selectedNode, tiles) || 'a local node'} to ${p.sub}` : `Switch to ${p.sub} and tune ${p.fav?.value}`} onclick={() => tap(p)}>
+              {#if pinActive(p, app.nodes, dv)}<span class="inline-block size-2 shrink-0 rounded-full bg-ok" data-testid="pin-active" aria-hidden="true"></span><span class="sr-only">active</span>{/if}
               <span class="rounded bg-surface-2 px-1 text-[10px] font-semibold text-muted">{p.kind === 'asl' ? 'ASL' : 'DV'}</span>
               <span class="truncate">{p.label}</span>
               <span class="font-mono text-xs text-muted">{p.sub}</span>

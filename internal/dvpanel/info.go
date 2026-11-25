@@ -28,6 +28,11 @@ type Caller struct {
 	Private bool   `json:"private,omitempty"`
 	DMRID   string `json:"dmrId,omitempty"`
 	Dst     string `json:"dst,omitempty"`
+	// Mode is the engine mode of a YSF call only ("YSF"; the other modes leave
+	// it empty), DstName the reflector's name when it is known. For YSF Dst is
+	// the reflector (an id or an address), not a talkgroup.
+	Mode    string `json:"mode,omitempty"`
+	DstName string `json:"dstName,omitempty"`
 	Slot    int    `json:"slot,omitempty"`
 	At      string `json:"at,omitempty"`
 }

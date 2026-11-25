@@ -51,7 +51,7 @@ func TestDMRIDIsNotACallsign(t *testing.T) {
 	d := &dvSnapper{s: s, now: time.Now}
 	hb := ctl.Talk{Dir: "rx", Mode: ctl.ModeDMR, Call: "1234567", DMRID: 1234567, TG: 91, Start: time.Now()}
 
-	if c := d.caller(hb); c.Call != "N0CALL" || c.DMRID != "1234567" {
+	if c := d.caller(hb, nil); c.Call != "N0CALL" || c.DMRID != "1234567" {
 		t.Fatalf("heard: %+v", c)
 	}
 	nt := dvNowTalks([]ctl.Talk{hb})
@@ -66,12 +66,12 @@ func TestDMRIDIsNotACallsign(t *testing.T) {
 
 	// no radioid entry: no callsign, the DMR ID stays
 	un := ctl.Talk{Dir: "rx", Mode: ctl.ModeDMR, Call: "2345678", DMRID: 2345678, TG: 91}
-	if c := d.caller(un); c.Call != "" || c.DMRID != "2345678" {
+	if c := d.caller(un, nil); c.Call != "" || c.DMRID != "2345678" {
 		t.Fatalf("unknown: %+v", c)
 	}
 	// without any list
 	d0 := &dvSnapper{s: &Server{}, now: time.Now}
-	if c := d0.caller(hb); c.Call != "" || c.DMRID != "1234567" {
+	if c := d0.caller(hb, nil); c.Call != "" || c.DMRID != "1234567" {
 		t.Fatalf("no list: %+v", c)
 	}
 }
@@ -81,7 +81,7 @@ func TestDMRCallsignKinds(t *testing.T) {
 	d := &dvSnapper{s: s, now: time.Now}
 	// BrandMeister sends a real callsign: unchanged, whatever the list says
 	bm := ctl.Talk{Dir: "rx", Mode: ctl.ModeBM, Call: "N0CALL", DMRID: 2345678, TG: 91}
-	if c := d.caller(bm); c.Call != "N0CALL" {
+	if c := d.caller(bm, nil); c.Call != "N0CALL" {
 		t.Fatalf("BM: %+v", c)
 	}
 	if nt := dvNowTalks([]ctl.Talk{bm}); nt[0].Call != "N0CALL" {
@@ -92,17 +92,17 @@ func TestDMRCallsignKinds(t *testing.T) {
 	if nt := dvNowTalks([]ctl.Talk{p}); nt[0].Call != "Parrot" {
 		t.Fatalf("parrot: %+v", nt[0])
 	}
-	if c := d.caller(p); c.Call != "" || !c.Private {
+	if c := d.caller(p, nil); c.Call != "" || !c.Private {
 		t.Fatalf("parrot heard: %+v", c)
 	}
 	// the echo test keeps its name
 	e := ctl.Talk{Dir: "rx", Mode: ctl.ModeLoop, Call: ctl.EchoTestCall}
-	if c := d.caller(e); c.Call != ctl.EchoTestName {
+	if c := d.caller(e, nil); c.Call != ctl.EchoTestName {
 		t.Fatalf("echo: %+v", c)
 	}
 	// NXDN is not a DMR network: no radioid lookup, call untouched
 	nx := ctl.Talk{Dir: "rx", Mode: ctl.ModeNXDN, Call: "1234567", DMRID: 1234567}
-	if c := d.caller(nx); c.Call != "1234567" {
+	if c := d.caller(nx, nil); c.Call != "1234567" {
 		t.Fatalf("nxdn: %+v", c)
 	}
 }

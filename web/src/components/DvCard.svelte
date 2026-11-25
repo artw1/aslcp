@@ -15,6 +15,7 @@
   import NodePicker from './NodePicker.svelte';
   import Dialog from './Dialog.svelte';
   import DvMeter from './DvMeter.svelte';
+  import DvNetStrip from './DvNetStrip.svelte';
   import Menu from './Menu.svelte';
   import RadioTower from '@lucide/svelte/icons/radio-tower';
   import Star from '@lucide/svelte/icons/star';
@@ -22,7 +23,7 @@
   import Unlink from '@lucide/svelte/icons/unlink';
   import Pin from '@lucide/svelte/icons/pin';
 
-  // `page`: the DV tab shows the whole Last heard list and a login row per network.
+  // `page`: the DV tab shows the network status strip; its Last heard list is a card of its own (DvPage).
   let { page = false }: { page?: boolean } = $props();
   const snap = $derived(app.dv);
   const op = $derived(canOperate());
@@ -327,27 +328,7 @@
     <DvMeter running={snap.running} />
 
     {#if page}
-      <div data-testid="dv-logins">
-        <h3 class="text-[11px] uppercase tracking-wide text-muted">Network login</h3>
-        <ul class="mt-1 flex flex-wrap gap-1.5">
-          {#each snap.modes.filter((m) => m.available && m.id !== 'LOOP') as m (m.id)}
-            {@const l = m.enabled ? (m.login ?? 'off') : 'off'}
-            <li class="inline-flex items-center gap-1.5 rounded border border-line bg-surface-2 px-2 py-0.5 text-xs" title={m.detail || undefined}>
-              <span class="size-1.5 rounded-full {l === 'ok' ? 'bg-ok' : l === 'failed' ? 'bg-danger' : l === 'pending' ? 'bg-warn' : 'bg-muted'}" aria-hidden="true"></span>
-              <span class="font-medium">{modeButtonLabel(m)}</span>
-              <span class="{l === 'ok' ? 'text-ok' : l === 'failed' ? 'text-danger' : l === 'pending' ? 'text-warn' : 'text-muted'}">{l === 'ok' ? 'Logged in' : l === 'failed' ? 'Login failed' : l === 'pending' ? 'Logging in' : m.enabled ? 'Not logged in' : 'Disabled'}</span>
-            </li>
-          {/each}
-        </ul>
-      </div>
-      <div data-testid="dv-heard">
-        <h3 class="text-[11px] uppercase tracking-wide text-muted">Last heard</h3>
-        {#if snap.heard?.length}
-          <ul class="mt-1 space-y-0.5 font-mono text-xs">
-            {#each snap.heard as h, i (i)}<li title={h.dmrId ? `DMR ID ${h.dmrId}` : undefined}>{heardLine(h)}</li>{/each}
-          </ul>
-        {:else}<p class="mt-1 text-xs text-muted">Nothing heard yet.</p>{/if}
-      </div>
+      <DvNetStrip modes={snap.modes} />
     {:else if snap.heard?.length}
       <details class="text-xs" data-testid="dv-heard">
         <summary class="cursor-pointer text-muted">Last heard <span class="ml-1 font-mono">{heardLine(snap.heard[0])}</span></summary>

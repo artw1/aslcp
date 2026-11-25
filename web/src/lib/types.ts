@@ -229,7 +229,7 @@ export interface DVResume { resume: boolean; lastMode?: string; perMode: Partial
 /** GET /api/dv/snapshot and the SSE `dv` event (all roles; docs/API.md "Digital modes panel"). No install log, no identity, no secret. */
 export interface DVBridge { mode: string; tune: string; targetName?: string; slot: number; muted: boolean; /** The last tune was a DMR private call (the BrandMeister Parrot): `tune` is empty then. */ private?: boolean; source: 'aslcp-dv' | 'abinfo' | 'none'; updated: string }
 /** One talker from the Analog_Bridge log. `at` is the log's own time, no zone. */
-export interface DVCaller { call?: string; private?: boolean; dmrId?: string; dst?: string; slot?: number; at?: string }
+export interface DVCaller { call?: string; private?: boolean; dmrId?: string; dst?: string; slot?: number; at?: string; /** "YSF" for a YSF call: `dst` is then the reflector (address or id), not a talkgroup, and `dstName` its name when known. */ mode?: string; dstName?: string }
 export interface DVSnapshot {
   installed: boolean; running: boolean; configured: boolean;
   bridge: DVBridge;

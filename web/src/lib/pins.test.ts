@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAlerts, buildPins, bridgeNodeNumber, dvPinPlan, mergeActivity, pinLocalNode, tileNodes } from './pins.ts';
+import { aslPinActive, buildAlerts, buildPins, bridgeNodeNumber, dvLastCaller, dvPinActive, dvPinPlan, mergeActivity, pinActive, pinLocalNode, tileLinks, tileNodes, tileTalker } from './pins.ts';
 import type { DVFavorite, DVSnapshot, Favorite, NodeStatus, NowCall } from './types';
 
 const snap = (over: Partial<DVSnapshot> = {}): DVSnapshot => ({
@@ -79,4 +79,55 @@ test('activity merges ASL and DV, newest first', () => {
   assert.equal(out.filter((o) => o.src === 'ASL').length, 1);
   assert.equal(mergeActivity(undefined, undefined).length, 0);
   assert.equal(mergeActivity(recent, heard, 1).length, 1);
+});
+
+const link = (n: string, over: Partial<NodeStatus['links'][number]> = {}): NodeStatus['links'][number] => ({ node: n, kind: 'allstar', info: null, ip: '192.0.2.1', direction: 'OUT', connected: 10, state: 'ESTABLISHED', mode: 'T', keyed: false, sinceKey: null, sinceUnkey: null, ...over });
+
+test('tile links: three at most, keyed first, names, and the rest counted', () => {
+  const n = node('2001', { links: [link('1998', { connected: 50 }), link('1999', { connected: 40 }), link('1997', { connected: 5, info: { callsign: 'N1CALL' } as never }), link('2002', { connected: 70, keyed: true })] });
+  const r = tileLinks(n, snap());
+  assert.deepEqual(r.shown.map((l) => l.node), ['2002', '1997', '1999']);
+  assert.equal(r.shown[1].label, 'N1CALL');
+  assert.equal(r.shown[2].label, 'Digital modes linked node');
+  assert.equal(r.more, 1);
+  assert.deepEqual(tileLinks(node('2001'), null), { shown: [], more: 0 });
+});
+
+test('tile talker: AllStar by local node, digital by the keyed bridge link, none when idle', () => {
+  const call = (over: Partial<NowCall>): NowCall => ({ id: '1', kind: 'allstar', call: 'N1CALL', start: '', active: true, ...over });
+  const keyed = node('2001', { rxKeyed: true, links: [link('1999', { keyed: true })] });
+  assert.equal(tileTalker(keyed, call({ local: '2001' }), snap()), 'N1CALL');
+  assert.equal(tileTalker(keyed, call({ local: '2002' }), snap()), '');
+  assert.equal(tileTalker(keyed, call({ kind: 'dmr', call: 'N0CALL' }), snap()), 'N0CALL');
+  assert.equal(tileTalker(node('2001', { rxKeyed: true, links: [link('1999')] }), call({ kind: 'dmr' }), snap()), '');
+  assert.equal(tileTalker(node('2001', { links: [link('1999', { keyed: true })] }), call({ kind: 'dmr' }), snap()), '');
+  assert.equal(tileTalker(keyed, null, snap()), '');
+});
+
+test('DV last caller', () => {
+  assert.equal(dvLastCaller(snap()), null);
+  const c = dvLastCaller(snap({ heard: [{ call: 'N0CALL', at: '2026-11-25 10:00:00' }, { call: 'N1CALL' }] }));
+  assert.equal(c?.who, 'N0CALL');
+  assert.ok((c?.at ?? 0) > 0);
+});
+
+test('AllStar pin is active when the target is linked to any local node', () => {
+  const nodes = [node('2001', { links: [link('1998')] }), node('2002', { links: [link('1997')] })];
+  assert.equal(aslPinActive('1997', nodes), true);
+  assert.equal(aslPinActive('1998', nodes), true);
+  assert.equal(aslPinActive('1996', nodes), false);
+  assert.equal(aslPinActive('', nodes), false);
+  assert.equal(aslPinActive('1998', []), false);
+});
+
+test('DV pin is active when mode and target match what is tuned', () => {
+  assert.equal(dvPinActive(snap(), dvFav(1, 'YSF', '00001', 'x')), true);
+  assert.equal(dvPinActive(snap(), dvFav(1, 'YSF', '00002', 'x')), false);
+  assert.equal(dvPinActive(snap(), dvFav(1, 'M17', '00001', 'x')), false);
+  assert.equal(dvPinActive(snap({ bridge: { ...snap().bridge, source: 'none' } }), dvFav(1, 'YSF', '00001', 'x')), false);
+  assert.equal(dvPinActive(snap({ bridge: { ...snap().bridge, mode: 'BM', tune: '91', private: true } }), dvFav(1, 'BM', '91#', 'x')), true);
+  assert.equal(dvPinActive(snap({ bridge: { ...snap().bridge, mode: 'BM', tune: '91', private: true } }), dvFav(1, 'BM', '91', 'x')), false);
+  assert.equal(dvPinActive(null, dvFav(1, 'YSF', '00001', 'x')), false);
+  assert.equal(pinActive({ key: 'a', kind: 'asl', label: '', sub: '', node: '1998' }, [node('2001', { links: [link('1998')] })], null), true);
+  assert.equal(pinActive({ key: 'd', kind: 'dv', label: '', sub: '', fav: dvFav(1, 'YSF', '00001', 'x') }, [], snap()), true);
 });
