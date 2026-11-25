@@ -1,26 +1,41 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { movedPath, MOVED, isSettingsPath, sectionFromPath, settingsSection, clampLines, auditSummary } from './sysnav.ts';
+import { movedPath, MOVED, OLD_IDS, isSettingsPath, settingsRoute, clampLines, auditSummary } from './sysnav.ts';
 
-test('movedPath redirects every old route', () => {
-  assert.equal(movedPath('/updates'), '/settings/updates');
-  assert.equal(movedPath('/config'), '/settings/asterisk');
-  assert.equal(movedPath('/tune'), '/settings/audio-levels');
-  assert.equal(movedPath('/digital'), '/settings/dv-engine');
-  assert.equal(movedPath('/backup'), '/settings/backup');
-  assert.equal(movedPath('/system'), '/settings/overview');
-  assert.equal(movedPath('/system/'), '/settings/overview');
+test('movedPath redirects every legacy route', () => {
+  assert.equal(movedPath('/updates'), '/settings/system/updates');
+  assert.equal(movedPath('/config'), '/settings/allstarlink/asterisk');
+  assert.equal(movedPath('/tune'), '/settings/allstarlink/audio-levels');
+  assert.equal(movedPath('/digital'), '/settings/digital-modes');
+  assert.equal(movedPath('/backup'), '/settings/maintenance/backup');
+  assert.equal(movedPath('/system'), '/settings/system/overview');
+  assert.equal(movedPath('/system/'), '/settings/system/overview');
 });
 
-test('movedPath maps each old System section to the same id under Settings', () => {
-  for (const id of ['overview', 'updates', 'network', 'wifi', 'asl-services', 'web-port', 'terminal', 'logs', 'diagnostics', 'audit']) {
-    assert.equal(movedPath('/system/' + id), '/settings/' + id);
-  }
-  assert.equal(movedPath('/system/nope'), '/settings/overview');
+test('movedPath maps each old System section to its tab', () => {
+  assert.equal(movedPath('/system/updates'), '/settings/system/updates');
+  assert.equal(movedPath('/system/asl-services'), '/settings/system/asl-services');
+  assert.equal(movedPath('/system/logs'), '/settings/maintenance/logs');
+  assert.equal(movedPath('/system/diagnostics'), '/settings/maintenance/diagnostics');
+  assert.equal(movedPath('/system/audit'), '/settings/maintenance/audit');
+  assert.equal(movedPath('/system/nope'), '/settings/system/overview');
+});
+
+test('movedPath maps every flat settings id of the first Settings layout', () => {
+  assert.equal(Object.keys(OLD_IDS).length, 24);
+  assert.equal(movedPath('/settings/asterisk'), '/settings/allstarlink/asterisk');
+  assert.equal(movedPath('/settings/audio-levels'), '/settings/allstarlink/audio-levels');
+  assert.equal(movedPath('/settings/node-list'), '/settings/allstarlink/node-list');
+  for (const id of ['dv-engine', 'dv-identity', 'dv-bridge', 'dv-audio', 'dv-user-list', 'dv-callsigns']) assert.equal(movedPath('/settings/' + id), '/settings/digital-modes');
+  assert.equal(movedPath('/settings/users'), '/settings/access');
+  assert.equal(movedPath('/settings/public'), '/settings/access');
+  assert.equal(movedPath('/settings/web-port'), '/settings/system/web-port');
+  assert.equal(movedPath('/settings/backup/'), '/settings/maintenance/backup');
+  assert.equal(movedPath('/settings/audit'), '/settings/maintenance/audit');
 });
 
 test('movedPath leaves current routes alone', () => {
-  for (const p of ['/', '/settings', '/settings/updates', '/dv', '/allstar', '/schedules', '/systematic']) assert.equal(movedPath(p), null);
+  for (const p of ['/', '/settings', '/settings/about', '/settings/account', '/settings/system', '/settings/system/updates', '/settings/access', '/dv', '/allstar', '/schedules', '/systematic']) assert.equal(movedPath(p), null);
 });
 
 test('every redirect target is a settings route', () => {
@@ -29,30 +44,48 @@ test('every redirect target is a settings route', () => {
 
 test('isSettingsPath', () => {
   assert.equal(isSettingsPath('/settings'), true);
-  assert.equal(isSettingsPath('/settings/logs'), true);
+  assert.equal(isSettingsPath('/settings/system/logs'), true);
   assert.equal(isSettingsPath('/settingsx'), false);
   assert.equal(isSettingsPath('/system'), false);
 });
 
-test('sectionFromPath falls back for unknown sections', () => {
-  const ids = ['overview', 'updates', 'logs'];
-  assert.equal(sectionFromPath('/settings/updates', ids, 'overview'), 'updates');
-  assert.equal(sectionFromPath('/settings', ids, 'overview'), 'overview');
-  assert.equal(sectionFromPath('/settings/nope', ids, 'overview'), 'overview');
-  assert.equal(sectionFromPath('/settings/updates/x', ids, 'overview'), 'overview');
+const G = [
+  { id: 'allstarlink', tabs: ['asterisk', 'audio-levels', 'node-list'] },
+  { id: 'access', tabs: [] },
+  { id: 'system', tabs: ['overview', 'updates'] },
+  { id: 'about', tabs: [] },
+  { id: 'account', tabs: [] },
+];
+const OTHER = G.filter((g) => g.id === 'about' || g.id === 'account');
+
+test('settingsRoute: group and tab', () => {
+  assert.deepEqual(settingsRoute('/settings/system/updates', G, 'system', true), { group: 'system', tab: 'updates' });
+  assert.deepEqual(settingsRoute('/settings/system/', G, 'system', true), { group: 'system', tab: 'overview' });
+  assert.deepEqual(settingsRoute('/settings/allstarlink', G, 'system', true), { group: 'allstarlink', tab: 'asterisk' });
+  assert.deepEqual(settingsRoute('/settings/allstarlink/audio-levels', G, 'system', true), { group: 'allstarlink', tab: 'audio-levels' });
+  assert.deepEqual(settingsRoute('/settings/access', G, 'system', true), { group: 'access', tab: null });
 });
 
-test('settingsSection: an admin lands on the fallback, a non-admin on Dashboard for unknown pages', () => {
-  const admin = ['overview', 'updates', 'account', 'about'];
-  const other = ['account', 'about'];
-  assert.equal(settingsSection('/settings', admin, 'overview', true), 'overview');
-  assert.equal(settingsSection('/settings/updates', admin, 'overview', true), 'updates');
-  assert.equal(settingsSection('/settings/nope', admin, 'overview', true), 'overview');
-  assert.equal(settingsSection('/settings', other, 'account', false), 'account');
-  assert.equal(settingsSection('/settings/about', other, 'account', false), 'about');
-  assert.equal(settingsSection('/settings/updates', other, 'account', false), null);
-  assert.equal(settingsSection('/settings/nope', other, 'account', false), null);
-  assert.equal(settingsSection('/dv', admin, 'overview', true), null);
+test('settingsRoute: an unknown tab shows the first tab, a tab on a single page is ignored', () => {
+  assert.deepEqual(settingsRoute('/settings/system/nope', G, 'system', true), { group: 'system', tab: 'overview' });
+  assert.deepEqual(settingsRoute('/settings/access/users', G, 'system', true), { group: 'access', tab: null });
+});
+
+test('settingsRoute: default landing and unknown groups', () => {
+  assert.deepEqual(settingsRoute('/settings', G, 'system', true), { group: 'system', tab: 'overview' });
+  assert.deepEqual(settingsRoute('/settings/', G, 'system', true), { group: 'system', tab: 'overview' });
+  assert.deepEqual(settingsRoute('/settings/nope', G, 'system', true), { group: 'system', tab: 'overview' });
+  assert.deepEqual(settingsRoute('/settings/a/b/c', G, 'system', true), { group: 'system', tab: 'overview' });
+  assert.equal(settingsRoute('/dv', G, 'system', true), null);
+});
+
+test('settingsRoute: operators and viewers open only About and Account', () => {
+  assert.deepEqual(settingsRoute('/settings', OTHER, 'account', false), { group: 'account', tab: null });
+  assert.deepEqual(settingsRoute('/settings/about', OTHER, 'account', false), { group: 'about', tab: null });
+  assert.equal(settingsRoute('/settings/system', OTHER, 'account', false), null);
+  assert.equal(settingsRoute('/settings/system/updates', OTHER, 'account', false), null);
+  assert.equal(settingsRoute('/settings/nope', OTHER, 'account', false), null);
+  assert.equal(settingsRoute('/settings/a/b/c', OTHER, 'account', false), null);
 });
 
 test('clampLines', () => {

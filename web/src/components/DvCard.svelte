@@ -195,7 +195,7 @@
       {#if master}<span class="min-w-0 max-w-full truncate text-xs text-muted" title={masterTitle} data-testid="dv-master">{master}</span>{/if}
       <span class="sr-only">{ok ? 'All services running' : 'A service is down or the state is unknown'}</span>
       {#if linked}<span class="sr-only">Bridge node linked</span>{/if}
-      {#if admin}<a href="#/settings/dv-engine" class="ml-auto text-xs text-accent underline hover:no-underline">DV settings</a>{/if}
+      {#if admin}<a href="#/settings/digital-modes" class="ml-auto text-xs text-accent underline hover:no-underline">DV settings</a>{/if}
     </div>
 
     {#if !snap.running}
@@ -219,7 +219,7 @@
                 <div class="text-[11px] uppercase tracking-wide text-muted">{mode === 'LOOP' ? 'Echo test' : `${modeLabel(mode)} ${isDMRFamily(mode) ? 'talkgroup' : 'reflector'}`}</div>
                 {#if mode === 'LOOP'}
                   <div class="truncate font-medium text-ok">{ECHO_RUNNING}</div>
-                  <a href="#/settings/dv-audio" class="text-xs text-accent underline hover:no-underline" data-testid="dv-echo-link">{admin ? 'Stop it in Digital Modes settings' : 'Pick a mode to stop it'}</a>
+                  <a href="#/settings/digital-modes" class="text-xs text-accent underline hover:no-underline" data-testid="dv-echo-link">{admin ? 'Stop it in Digital Modes settings' : 'Pick a mode to stop it'}</a>
                 {:else if targetLinked}
                   <div class="truncate font-medium {reflectorSilent(snap) ? 'text-warn' : 'text-ok'}" title={targetFull}>{targetMain}</div>
                   {#if targetSub}<div class="truncate font-mono text-xs text-muted" title={targetFull}>{targetSub}</div>{/if}
@@ -263,7 +263,7 @@
       {@const modes = dashboardModes(snap.modes, shown)}
       <form class="space-y-1.5" data-testid="dv-controls" onsubmit={(e) => { e.preventDefault(); void go(); }}>
         {#if modes.length === 0}
-          <p class="text-muted" data-testid="dv-no-modes">No modes enabled.{#if admin} <a href="#/settings/dv-engine" class="text-accent underline hover:no-underline">DV settings</a>{/if}</p>
+          <p class="text-muted" data-testid="dv-no-modes">No modes enabled.{#if admin} <a href="#/settings/digital-modes" class="text-accent underline hover:no-underline">DV settings</a>{/if}</p>
         {:else}
         <div class="text-[11px] uppercase tracking-wide text-muted">Mode</div>
         <div class="flex flex-wrap items-stretch gap-1.5 md:flex-nowrap">

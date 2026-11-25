@@ -374,7 +374,7 @@ Code: `internal/susb` (service, parsing, closed command set), `internal/api/hand
 
 Differences from the design above:
 
-- Admin only (not operator). The page is Settings, AllStarLink, Audio levels (`#/settings/audio-levels`; the old `#/tune` link redirects), listed only to admins and only when a SimpleUSB device exists; the page shows an empty state otherwise.
+- Admin only (not operator). The page is Settings, AllStarLink, Audio levels (`#/settings/allstarlink/audio-levels`; the old `#/tune` link redirects), a tab shown only to admins and only when a SimpleUSB device exists; the page shows an empty state otherwise.
 - The meter is polled over REST (`GET /api/radio/{dev}/meter`, about once a second), not SSE. At most one read per 700 ms reaches the driver.
 - Revert sets the baseline values (simpleusb.conf laid over the running state) back with the set commands. `susb tune load` is not used: it reads the interface EEPROM, not the file.
 - A save whose file does not show a running value, or whose history record fails, is reported as a warning, not an error.

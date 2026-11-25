@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Digital Modes, Engine section (#/settings/dv-engine): enable or disable the native engine (aslcp-dv with md380-emu),
-  // its status and the enable job's log, the resume switch. The other Digital Modes sections wait for the engine to be enabled.
+  // Digital Modes (#/settings/digital-modes): enable or disable the native engine (aslcp-dv with md380-emu), its status and
+  // the enable job's log, the resume switch. Setup (bridge node, identity, networks, audio) appears once the engine is enabled.
   import { onMount } from 'svelte';
   import { api } from '../../lib/api';
   import { toast, toastError } from '../../lib/toast.svelte';
@@ -10,6 +10,9 @@
   import { lastUsed, resumeShort, resumeToast } from '../../lib/dvmodes';
   import Toggle from '../Toggle.svelte';
   import Dialog from '../Dialog.svelte';
+  import DvSetup from '../DvSetup.svelte';
+  import UserListCard from '../UserListCard.svelte';
+  import HamDBCard from '../HamDBCard.svelte';
   import Refresh from '@lucide/svelte/icons/refresh-cw';
   import Power from '@lucide/svelte/icons/power';
 
@@ -115,6 +118,8 @@
       </div>
     {/if}
 
+    {#if st.enabled && !running}<UserListCard compact /><HamDBCard />{/if}
+
     {#if running || job.state === 'failed' || (job.state === 'succeeded' && (!dismissed || logOpen))}
       <div class="space-y-2 border-t border-line pt-3" aria-label="Job">
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -138,6 +143,11 @@
       </div>
     {/if}
   </section>
+  {#if st.enabled && !running}
+    <DvSetup {resume} reloadResume={loadResume} />
+  {:else if !(st.enabled && !running)}
+    <UserListCard />
+  {/if}
   {/if}
 </div>
 

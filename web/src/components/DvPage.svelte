@@ -27,7 +27,7 @@
     <p class="py-10 text-center text-sm text-muted" role="status">Loading digital modes…</p>
   {:else if !app.dv.installed}
     <p class="rounded-md border border-line bg-surface px-3 py-8 text-center text-sm text-muted" data-testid="dv-off">
-      The digital modes engine is off.{#if isAdmin()} Turn it on in <a href="#/settings/dv-engine" class="text-accent underline hover:no-underline">Digital Modes settings</a>.{/if}
+      The digital modes engine is off.{#if isAdmin()} Turn it on in <a href="#/settings/digital-modes" class="text-accent underline hover:no-underline">Digital Modes settings</a>.{/if}
     </p>
   {:else}
     <SchedulesCard />

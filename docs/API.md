@@ -327,7 +327,7 @@ Channels: the apt repository has two suites, `stable` (releases `X.Y.Z`) and `be
 
 ## System settings (admin)
 
-The web UI shows these under **Settings** (`#/settings/<section>`: System has `overview`, `updates`, `network`, `wifi`, `web-port`, `asl-services`, `terminal`; Maintenance has `backup`, `logs`, `diagnostics`, `audit`). The old `#/system/<section>` and `#/updates` links redirect to `#/settings/<section>`. Every endpoint here is admin only: `403 {"code":"forbidden"}` for operator and viewer, and the Settings sections are hidden from their navigation (they see only Account and About). `503 {"code":"system_unavailable"}` without a helper, `409 {"code":"update_running"}` while an apt job runs, `502 {"code":"helper_error"}` when a helper tool fails. A missing tool (timedatectl, journalctl, systemctl, ip) is not an error: the reply sets the `*Available`/`available` flag to false. The privileged work is done by fixed helper ops (see Helper protocol); the web process never builds a command line.
+The web UI shows these under **Settings** (`#/settings/<group>/<tab>`: System has the tabs `overview`, `updates`, `network`, `wifi`, `web-port`, `asl-services`, `terminal`; Maintenance has `backup`, `logs`, `diagnostics`, `audit`). The old `#/system/<section>` and `#/updates` links redirect to the matching group and tab, for example `#/settings/system/updates`. Every endpoint here is admin only: `403 {"code":"forbidden"}` for operator and viewer, and the Settings groups are hidden from their navigation (they see only Account and About). `503 {"code":"system_unavailable"}` without a helper, `409 {"code":"update_running"}` while an apt job runs, `502 {"code":"helper_error"}` when a helper tool fails. A missing tool (timedatectl, journalctl, systemctl, ip) is not an error: the reply sets the `*Available`/`available` flag to false. The privileged work is done by fixed helper ops (see Helper protocol); the web process never builds a command line.
 
 | Method | Path | Notes |
 |---|---|---|
@@ -356,7 +356,7 @@ WiFi endpoints are admin only. Every mutating WiFi call is `503 {"code":"system_
 
 ### Browser terminal (admin)
 
-Settings, System, Terminal (`#/settings/terminal`): a `login` prompt on the node in the browser. Admin only (operators and viewers get `403 forbidden`, anonymous `401`), **off by default**, switched on by an administrator. No root shell is handed out: the helper has systemd start `login` in its own transient unit, so the person still has to give a Linux account name and password (PAM decides), and the shell runs as that user.
+Settings, System, Terminal (`#/settings/system/terminal`): a `login` prompt on the node in the browser. Admin only (operators and viewers get `403 forbidden`, anonymous `401`), **off by default**, switched on by an administrator. No root shell is handed out: the helper has systemd start `login` in its own transient unit, so the person still has to give a Linux account name and password (PAM decides), and the shell runs as that user.
 
 | Method | Path | Notes |
 |---|---|---|

@@ -1,61 +1,67 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sections, groupSections, visibleSections, defaultFor, type SettingsSection } from './sections.ts';
-import { MOVED } from '../../lib/sysnav.ts';
+import { groups, visibleGroups, visibleTabs, defaultFor } from './sections.ts';
+import { MOVED, OLD_IDS } from '../../lib/sysnav.ts';
 
-const sec = (id: string, group?: string): SettingsSection => ({ id, label: id, group, load: async () => ({ default: null as never }) });
+const tabIds = (id: string) => groups.find((g) => g.id === id)?.tabs?.map((t) => t.id);
 
-test('groupSections splits consecutive runs by group', () => {
-  const out = groupSections([sec('a', 'x'), sec('b', 'x'), sec('c', 'y'), sec('d', 'z'), sec('e', 'z')]);
-  assert.deepEqual(out.map((g) => g.map((s) => s.id)), [['a', 'b'], ['c'], ['d', 'e']]);
+test('seven groups in the menu order', () => {
+  assert.deepEqual(groups.map((g) => g.label), ['AllStarLink', 'Digital Modes', 'Access', 'System', 'Maintenance', 'About', 'Account']);
+  assert.deepEqual(groups.map((g) => g.id), ['allstarlink', 'digital-modes', 'access', 'system', 'maintenance', 'about', 'account']);
 });
 
-test('groupSections keeps a non-adjacent repeat as its own run', () => {
-  const out = groupSections([sec('a', 'x'), sec('b', 'y'), sec('c', 'x')]);
-  assert.deepEqual(out.map((g) => g.map((s) => s.id)), [['a'], ['b'], ['c']]);
-});
-
-test('groupSections on an empty list', () => {
-  assert.deepEqual(groupSections([]), []);
-});
-
-test('section ids are unique kebab-case', () => {
-  const ids = sections.map((s) => s.id);
+test('group and tab ids are unique kebab-case', () => {
+  const ids = [...groups.map((g) => g.id), ...groups.flatMap((g) => (g.tabs ?? []).map((t) => g.id + '/' + t.id))];
   assert.equal(new Set(ids).size, ids.length);
-  for (const id of ids) assert.match(id, /^[a-z0-9]+(-[a-z0-9]+)*$/);
+  for (const g of groups) {
+    assert.match(g.id, /^[a-z0-9]+(-[a-z0-9]+)*$/);
+    for (const t of g.tabs ?? []) assert.match(t.id, /^[a-z0-9]+(-[a-z0-9]+)*$/);
+  }
 });
 
-test('groups come in the menu order', () => {
-  const names = groupSections(sections).map((g) => g[0].group);
-  assert.deepEqual(names, ['AllStarLink', 'Digital Modes', 'Access', 'System', 'Maintenance', 'About', 'Account']);
+test('a group has tabs or pages, never both', () => {
+  for (const g of groups) assert.equal(!!g.tabs?.length !== !!g.pages?.length, true, g.id);
 });
 
-test('sections of each group, in order', () => {
-  const by = (g: string) => sections.filter((s) => s.group === g).map((s) => s.id);
-  assert.deepEqual(by('AllStarLink'), ['asterisk', 'audio-levels', 'node-list']);
-  assert.deepEqual(by('Digital Modes'), ['dv-engine', 'dv-identity', 'dv-bridge', 'dv-audio', 'dv-user-list', 'dv-callsigns']);
-  assert.deepEqual(by('Access'), ['users', 'public']);
-  assert.deepEqual(by('System'), ['overview', 'updates', 'network', 'wifi', 'web-port', 'asl-services', 'terminal']);
-  assert.deepEqual(by('Maintenance'), ['backup', 'logs', 'diagnostics', 'audit']);
+test('tabs of each tabbed group, in order', () => {
+  assert.deepEqual(tabIds('allstarlink'), ['asterisk', 'audio-levels', 'node-list']);
+  assert.deepEqual(tabIds('system'), ['overview', 'updates', 'network', 'wifi', 'web-port', 'asl-services', 'terminal']);
+  assert.deepEqual(tabIds('maintenance'), ['backup', 'logs', 'diagnostics', 'audit']);
 });
 
-test('an admin sees every section, anyone else only About and Account', () => {
-  assert.equal(visibleSections(sections, true).length, sections.length);
-  assert.deepEqual(visibleSections(sections, false).map((s) => s.id), ['about', 'account']);
+test('Digital Modes is one page, Access stacks Users and Public page', () => {
+  const dm = groups.find((g) => g.id === 'digital-modes')!;
+  assert.equal(dm.tabs, undefined);
+  assert.equal(dm.pages?.length, 1);
+  assert.equal(groups.find((g) => g.id === 'access')!.pages?.length, 2);
 });
 
-test('Audio levels is listed only when the node has audio devices', () => {
-  assert.equal(visibleSections(sections, true, false).some((s) => s.id === 'audio-levels'), false);
-  assert.equal(visibleSections(sections, true, true).some((s) => s.id === 'audio-levels'), true);
-  assert.equal(visibleSections(sections, true, false).length, sections.length - 1);
+test('an admin sees every group, anyone else only About and Account', () => {
+  assert.equal(visibleGroups(groups, true).length, 7);
+  assert.deepEqual(visibleGroups(groups, false).map((g) => g.id), ['about', 'account']);
 });
 
-test('the default section is one the role can open', () => {
-  assert.ok(visibleSections(sections, true).some((s) => s.id === defaultFor(true)));
-  assert.ok(visibleSections(sections, false).some((s) => s.id === defaultFor(false)));
+test('Audio levels is a tab only when the node has audio devices', () => {
+  const asl = groups.find((g) => g.id === 'allstarlink')!;
+  assert.deepEqual(visibleTabs(asl, false).map((t) => t.id), ['asterisk', 'node-list']);
+  assert.deepEqual(visibleTabs(asl, true).map((t) => t.id), ['asterisk', 'audio-levels', 'node-list']);
+  assert.deepEqual(visibleTabs(groups.find((g) => g.id === 'about')!), []);
 });
 
-test('every redirect lands on a real section', () => {
-  const ids = new Set(sections.map((s) => s.id));
-  for (const to of Object.values(MOVED)) assert.ok(ids.has(to.replace('/settings/', '')), to);
+test('the default group is one the role can open', () => {
+  assert.equal(defaultFor(true), 'system');
+  assert.ok(visibleGroups(groups, true).some((g) => g.id === defaultFor(true)));
+  assert.ok(visibleGroups(groups, false).some((g) => g.id === defaultFor(false)));
+});
+
+test('every redirect and old id lands on a real group and tab', () => {
+  const real = (to: string) => {
+    const [, , gid, tid] = to.split('/');
+    const g = groups.find((x) => x.id === gid);
+    assert.ok(g, to);
+    if (tid) assert.ok(g.tabs?.some((t) => t.id === tid), to);
+    else assert.ok(!g.tabs || g.tabs.length > 0);
+  };
+  for (const to of Object.values(MOVED)) real(to);
+  for (const [g, t] of Object.values(OLD_IDS)) real('/settings/' + g + (t ? '/' + t : ''));
 });

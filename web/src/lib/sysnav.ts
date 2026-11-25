@@ -1,47 +1,85 @@
-// Pure routing helpers for the Settings area (#/settings/<section>).
+// Pure routing helpers for the Settings area (#/settings/<group> and #/settings/<group>/<tab>).
 
-/** Old section ids of the former System tab (#/system/<id>); every one kept its id under Settings. */
-const OLD_SYSTEM_IDS = ['overview', 'updates', 'network', 'wifi', 'asl-services', 'web-port', 'terminal', 'logs', 'diagnostics', 'audit'];
+/** Every flat section id of the first Settings layout (#/settings/<id>) and where it lives now: [group, tab?]. */
+export const OLD_IDS: Readonly<Record<string, readonly [string, string?]>> = {
+  'asterisk': ['allstarlink', 'asterisk'],
+  'audio-levels': ['allstarlink', 'audio-levels'],
+  'node-list': ['allstarlink', 'node-list'],
+  'dv-engine': ['digital-modes'],
+  'dv-identity': ['digital-modes'],
+  'dv-bridge': ['digital-modes'],
+  'dv-audio': ['digital-modes'],
+  'dv-user-list': ['digital-modes'],
+  'dv-callsigns': ['digital-modes'],
+  'users': ['access'],
+  'public': ['access'],
+  'overview': ['system', 'overview'],
+  'updates': ['system', 'updates'],
+  'network': ['system', 'network'],
+  'wifi': ['system', 'wifi'],
+  'web-port': ['system', 'web-port'],
+  'asl-services': ['system', 'asl-services'],
+  'terminal': ['system', 'terminal'],
+  'backup': ['maintenance', 'backup'],
+  'logs': ['maintenance', 'logs'],
+  'diagnostics': ['maintenance', 'diagnostics'],
+  'audit': ['maintenance', 'audit'],
+  'about': ['about'],
+  'account': ['account'],
+};
+
+const route = ([g, t]: readonly [string, string?]) => '/settings/' + g + (t ? '/' + t : '');
 
 /** Old top-level routes that moved; the router rewrites them so old links and bookmarks keep working. */
 export const MOVED: Readonly<Record<string, string>> = {
-  '/updates': '/settings/updates',
-  '/config': '/settings/asterisk',
-  '/tune': '/settings/audio-levels',
-  '/digital': '/settings/dv-engine',
-  '/backup': '/settings/backup',
-  '/system': '/settings/overview',
-  ...Object.fromEntries(OLD_SYSTEM_IDS.map((id) => ['/system/' + id, '/settings/' + id])),
+  '/updates': route(OLD_IDS['updates']),
+  '/config': route(OLD_IDS['asterisk']),
+  '/tune': route(OLD_IDS['audio-levels']),
+  '/digital': route(OLD_IDS['dv-engine']),
+  '/backup': route(OLD_IDS['backup']),
+  '/system': route(OLD_IDS['overview']),
+  ...Object.fromEntries(['overview', 'updates', 'network', 'wifi', 'asl-services', 'web-port', 'terminal', 'logs', 'diagnostics', 'audit'].map((id) => ['/system/' + id, route(OLD_IDS[id])])),
+  ...Object.fromEntries(Object.entries(OLD_IDS).map(([id, to]) => ['/settings/' + id, route(to)])),
 };
 
 export function movedPath(path: string): string | null {
   const p = path.length > 1 ? path.replace(/\/$/, '') : path;
-  if (MOVED[p]) return MOVED[p];
+  const to = Object.hasOwn(MOVED, p) ? MOVED[p] : null;
+  // The "same" route (about, account) maps to itself: nothing to rewrite.
+  if (to && to !== p) return to;
+  if (to) return null;
   // An unknown old System section lands on its first one, as it did before.
-  return p.startsWith('/system/') ? '/settings/overview' : null;
+  return p.startsWith('/system/') ? route(OLD_IDS['overview']) : null;
 }
 
 export function isSettingsPath(path: string): boolean {
   return path === '/settings' || path.startsWith('/settings/');
 }
 
-/** The section id in "/settings/<id>", or `fallback` when missing or not one of `ids`. */
-export function sectionFromPath(path: string, ids: readonly string[], fallback: string): string {
-  const m = /^\/settings\/([a-z0-9-]+)\/?$/.exec(path);
-  return m && ids.includes(m[1]) ? m[1] : fallback;
-}
+/** A group as the router sees it: its id and its tab ids in order (empty for a single-page group). */
+export interface NavGroup { id: string; tabs: readonly string[] }
+
+export interface SettingsRoute { group: string; tab: string | null }
 
 /**
- * The section a settings route shows, or null when the page does not exist for this viewer (the app then shows
- * the Dashboard). `ids` are the sections the viewer may open; `fallback` is where "#/settings" (or an unknown
- * id, for an admin) lands. A viewer who may only open the account pages never gets the fallback for an unknown id.
+ * The group and tab a settings route shows, or null when the page does not exist for this viewer (the app then
+ * shows the Dashboard). `groups` are the ones the viewer may open; `fallback` is where "#/settings" (or an unknown
+ * group, for an admin) lands. A viewer who may only open Account and About never gets the fallback for an unknown
+ * group. A missing or unknown tab shows the group's first tab; a single-page group has no tab.
  */
-export function settingsSection(path: string, ids: readonly string[], fallback: string, admin: boolean): string | null {
+export function settingsRoute(path: string, groups: readonly NavGroup[], fallback: string, admin: boolean): SettingsRoute | null {
   if (!isSettingsPath(path)) return null;
-  if (path === '/settings' || path === '/settings/') return fallback;
-  const id = sectionFromPath(path, ids, '');
-  if (id) return id;
-  return admin ? fallback : null;
+  const m = /^\/settings(?:\/([a-z0-9-]+)(?:\/([a-z0-9-]+))?)?\/?$/.exec(path);
+  const want = m ? m[1] : '?';
+  let g = groups.find((x) => x.id === want);
+  if (!g) {
+    if (want && !admin) return null;
+    g = groups.find((x) => x.id === fallback);
+    if (!g) return null;
+    return { group: g.id, tab: g.tabs[0] ?? null };
+  }
+  const tab = m?.[2] && g.tabs.includes(m[2]) ? m[2] : (g.tabs[0] ?? null);
+  return { group: g.id, tab };
 }
 
 /** Line-count clamp, the same bounds as the server (50..1000). */

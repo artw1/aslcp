@@ -14,11 +14,10 @@
   import MenuIcon from '@lucide/svelte/icons/menu';
   import X from '@lucide/svelte/icons/x';
   import Eye from '@lucide/svelte/icons/eye';
-  import Gear from '@lucide/svelte/icons/settings';
   import { fade, fly } from 'svelte/transition';
   import NowCalling from './NowCalling.svelte';
 
-  const nav = $derived([['/', 'Dashboard'], ['/allstar', 'ASL'], ...(app.dv?.installed ? [['/dv', 'DV']] : []), ['/schedules', 'Schedules']] as [string, string][]);
+  const nav = $derived([['/', 'Dashboard'], ['/allstar', 'ASL'], ...(app.dv?.installed ? [['/dv', 'DV']] : []), ['/schedules', 'Schedules'], ...(isAdmin() ? [['/settings', 'Settings']] : [])] as [string, string][]);
   // Admin only: counts only (SSE "updates"); security updates or a reboot use the warn color.
   const updCount = $derived((app.updates.aslcp || (app.system?.updateAvailable ?? false) ? 1 : 0) + app.updates.os);
   const updWarn = $derived(app.updates.security > 0 || app.updates.reboot);
@@ -30,9 +29,9 @@
   const showDot = $derived(isAdmin() && (updCount > 0 || app.updates.reboot));
   const pageName = $derived(isSettingsPath(router.path) ? 'Settings' : router.path === '/public' ? 'Public view' : (nav.find(([p]) => p === router.path)?.[1] ?? ''));
   const dur = () => (matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 150);
-  const isHere = (path: string) => router.path === path;
   const inSettings = $derived(isSettingsPath(router.path));
-  const adminSettings = $derived(inSettings && router.path !== '/settings/account' && router.path !== '/settings/about');
+  // The Settings item is lit on every settings route.
+  const isHere = (path: string) => (path === '/settings' ? inSettings : router.path === path);
   $effect(() => { void router.path; open = false; });
   $effect(() => {
     const mq = matchMedia('(min-width: 80rem)');
@@ -76,7 +75,7 @@
     </nav>
     <div class="flex items-center gap-1.5 xl:ml-auto">
       {#if isAdmin() && (updCount > 0 || app.updates.reboot) && !app.updating}
-        <a href="#/settings/updates" class="badge hidden xl:inline-flex {updWarn ? 'text-warn' : 'text-accent'}" title={updTitle}>{app.updates.reboot && updCount === 0 ? 'Reboot needed' : `${updCount} update${updCount === 1 ? '' : 's'}`}</a>
+        <a href="#/settings/system/updates" class="badge hidden xl:inline-flex {updWarn ? 'text-warn' : 'text-accent'}" title={updTitle}>{app.updates.reboot && updCount === 0 ? 'Reboot needed' : `${updCount} update${updCount === 1 ? '' : 's'}`}</a>
       {/if}
       <span class="badge {app.conn === 'live' ? 'text-ok' : 'text-warn'}" role="status" aria-label="Connection: {connLabel}">
         {#if app.conn === 'live'}<Wifi size={13} />{:else}<WifiOff size={13} />{/if}{connLabel}
@@ -84,9 +83,6 @@
       <button class="btn btn-sm btn-icon hidden xl:inline-flex" onclick={cycleTheme} aria-label={themeLabel} title={themeLabel}>
         {#if theme.value === 'dark'}<Moon size={16} />{:else if theme.value === 'light'}<Sun size={16} />{:else}<Monitor size={16} />{/if}
       </button>
-      {#if isAdmin()}
-        <a href="#/settings" class="btn btn-sm btn-icon hidden xl:inline-flex {inSettings ? 'bg-surface-2 text-fg' : ''}" aria-label="Settings" title="Settings" aria-current={inSettings ? 'page' : undefined}><Gear size={16} /></a>
-      {/if}
       <div class="relative hidden xl:block" data-usermenu>
         <button class="btn btn-sm" aria-haspopup="menu" aria-expanded={menu} onclick={() => (menu = !menu)}>
           <User size={15} /><span>{app.user?.username}</span>
@@ -114,13 +110,12 @@
       <div class="mx-auto max-w-[1100px] px-3 py-2 sm:px-4">
         <nav class="sm:ml-auto sm:max-w-xs" aria-label="Main">
           {#if isAdmin() && (updCount > 0 || app.updates.reboot) && !app.updating}
-            <a href="#/settings/updates" onclick={() => (open = false)} class="badge mb-1 min-h-11 w-full justify-center rounded-md text-sm {updWarn ? 'text-warn' : 'text-accent'}" title={updTitle}>{app.updates.reboot && updCount === 0 ? 'Reboot needed' : `${updCount} update${updCount === 1 ? '' : 's'}`}</a>
+            <a href="#/settings/system/updates" onclick={() => (open = false)} class="badge mb-1 min-h-11 w-full justify-center rounded-md text-sm {updWarn ? 'text-warn' : 'text-accent'}" title={updTitle}>{app.updates.reboot && updCount === 0 ? 'Reboot needed' : `${updCount} update${updCount === 1 ? '' : 's'}`}</a>
           {/if}
           {#each nav as [path, label]}
             <a href={'#' + path} onclick={() => (open = false)} aria-current={isHere(path) ? 'page' : undefined} class={item(isHere(path))}>{label}</a>
           {/each}
           <div class="mt-2 border-t border-line pt-2">
-            {#if isAdmin()}<a href="#/settings" onclick={() => (open = false)} aria-current={adminSettings ? 'page' : undefined} class={item(adminSettings)}>Settings</a>{/if}
             <a href="#/settings/account" onclick={() => (open = false)} aria-current={router.path === '/settings/account' ? 'page' : undefined} class={item(router.path === '/settings/account')}>Account</a>
             <a href="#/settings/about" onclick={() => (open = false)} aria-current={router.path === '/settings/about' ? 'page' : undefined} class={item(router.path === '/settings/about')}>About</a>
             {#if app.publicEnabled}

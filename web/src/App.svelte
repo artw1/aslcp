@@ -2,8 +2,8 @@
   import { app, isAdmin } from './lib/store.svelte';
   import { router, navigate } from './lib/router.svelte';
   import { reconcilePending } from './lib/actions.svelte';
-  import { settingsSection } from './lib/sysnav';
-  import { sections, visibleSections, defaultFor } from './components/settings/sections';
+  import { settingsRoute } from './lib/sysnav';
+  import { groups, visibleGroups, defaultFor } from './components/settings/sections';
   import Header from './components/Header.svelte';
   import HotspotBanner from './components/HotspotBanner.svelte';
   import Toasts from './components/Toasts.svelte';
@@ -13,8 +13,8 @@
   import Dashboard from './components/Dashboard.svelte';
   import PublicView from './components/public/PublicView.svelte';
 
-  // Operators and viewers open only Account and About; any other settings page falls back to the Dashboard.
-  const settingsOpen = $derived(settingsSection(router.path, visibleSections(sections, isAdmin()).map((s) => s.id), defaultFor(isAdmin()), isAdmin()) !== null);
+  // Operators and viewers open only About and Account; any other settings page falls back to the Dashboard.
+  const settingsOpen = $derived(settingsRoute(router.path, visibleGroups(groups, isAdmin()).map((g) => ({ id: g.id, tabs: (g.tabs ?? []).map((t) => t.id) })), defaultFor(isAdmin()), isAdmin()) !== null);
 
   // Clear in-flight connects once their link shows, whichever page is open.
   $effect(() => { app.nodes; reconcilePending(); });

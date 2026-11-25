@@ -35,7 +35,7 @@
       if (!lostConnection(e)) { toastError(e); busy = false; await load(); return; }
     }
     busy = false;
-    const link = webAddress(location, port, '/#/settings/web-port');
+    const link = webAddress(location, port, '/#/settings/system/web-port');
     wait = { port, link, state: 'ready' };
     // The old address goes away; if it comes back, the helper undid the move.
     const r = await watchOldAddress({ probe: () => probeServer(3000), timeoutMs: 100000 });
@@ -79,7 +79,7 @@
       </div>
     {:else if st.pending}
       <p class="text-sm text-warn" role="status">A move to port 80 is waiting for confirmation ({st.pending.seconds} s left). Open the new address to confirm it, or ASLCP goes back to its old port.</p>
-      <a class="btn btn-primary" href={webAddress(location, 80, '/#/settings/web-port')}>Open the new address</a>
+      <a class="btn btn-primary" href={webAddress(location, 80, '/#/settings/system/web-port')}>Open the new address</a>
     {/if}
     {#if st.reverted && !wait}
       <p class="text-sm text-warn" role="status">The last move was not confirmed in time and was undone, so ASLCP is on its old port.</p>
@@ -93,7 +93,7 @@
       <button class="btn btn-primary" disabled={busy || !!wait} onclick={() => (askMove = true)}>Move to port 80</button>
     {:else}
       <p class="text-sm" role="note">{reasons[st.reason] ?? 'Moving to port 80 is not possible now.'}</p>
-      {#if st.reason === 'busy'}<a class="btn btn-sm" href="#/settings/asl-services">Go to ASL services</a>{/if}
+      {#if st.reason === 'busy'}<a class="btn btn-sm" href="#/settings/system/asl-services">Go to ASL services</a>{/if}
       {#if st.dropIn}<button class="btn" disabled={busy || !!wait} onclick={() => (askBack = true)}>Undo the earlier move</button>{/if}
     {/if}
     {#if st.firewall}<p class="text-xs text-muted">{st.firewall}</p>{/if}

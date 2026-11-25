@@ -17,7 +17,7 @@ ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly w
 - **Asterisk files** (Settings, AllStarLink): edit `rpt.conf`, `iax.conf`, `simpleusb.conf`, `extensions.conf` and other Asterisk files in the browser. Saving shows a diff and checks syntax, reloads Asterisk, and keeps a history you can restore from. Administrators only.
 - **Audio levels** (Settings, AllStarLink; administrators, nodes with a SimpleUSB radio): live receive meter, RX and TX levels, carrier and CTCSS settings, PTT mode and delays.
 - **Backup and restore** (Settings, Maintenance): download one file with your Asterisk config, ASLCP users, favorites and settings and digital modes settings. Restore it on a freshly installed node during setup or later.
-- **Settings** (administrators; the gear in the top bar): CPU temperature, load, uptime, Asterisk status and restart, ASL services, web port, WiFi, a browser terminal, updates and diagnostics.
+- **Settings** (administrators; the Settings item in the top bar, with AllStarLink, Digital Modes, Access, System, Maintenance, About and Account): CPU temperature, load, uptime, Asterisk status and restart, ASL services, web port, WiFi, a browser terminal, updates and diagnostics.
 - **Diagnostics**: download one `.tar.gz` with versions, recent logs, network summary, disk and memory, service states and your config files, to ask for help. Secrets are replaced by `<redacted>`; a checkbox (on by default) also hides your callsign and public IP. Password files, private keys and the ASLCP database are never included. Read it before posting it publicly.
 - **Users and roles**: admin, operator and viewer, with rate-limited login and CSRF protection.
 - **Updates from the web page**: Settings, System, Updates shows the installed and available version with release notes, lets you pick the release or beta channel, and installs updates on request.
@@ -119,7 +119,7 @@ It combines with `ASLCP_PORT`:
 curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_DV=1 ASLCP_PORT=8181 sh
 ```
 
-Once ASLCP is running, the installer runs `aslcp dv enable`, the same as enabling digital modes in Settings, Digital Modes, Engine, and shows its log. It takes a few minutes. If it fails, the installer warns and finishes anyway; retry with `sudo aslcp dv enable`. Digital modes settings from a restored backup are applied at the end of that install.
+Once ASLCP is running, the installer runs `aslcp dv enable`, the same as enabling digital modes in Settings, Digital Modes (the Engine card), and shows its log. It takes a few minutes. If it fails, the installer warns and finishes anyway; retry with `sudo aslcp dv enable`. Digital modes settings from a restored backup are applied at the end of that install.
 
 ### First login
 
