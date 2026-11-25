@@ -445,10 +445,24 @@ func (d *dvSnapper) caller(t ctl.Talk, tuned *ctl.Target) dvpanel.Caller {
 	return c
 }
 
-// fillPerson puts the name and place of a callsign-only caller (no DMR ID) on
-// c, from the radioid.net list or the cache of hamdb.org. It never waits.
+// fillPerson puts the name and place of the caller on c: by DMR ID from the
+// radioid.net list when the call has one (DMR and the other ID networks), else
+// by callsign from the radioid.net list or the cache of hamdb.org. It never
+// waits. A DMR ID the list does not know falls back to the callsign.
 func (d *dvSnapper) fillPerson(c *dvpanel.Caller) {
-	if c.Private || c.DMRID != "" || c.Call == "" || c.Call == ctl.EchoTestName {
+	if c.Private || c.Call == ctl.EchoTestName {
+		return
+	}
+	if c.DMRID != "" && d.s.d.RadioID != nil {
+		if u, ok := d.s.d.RadioID.ByID(parseID(c.DMRID)); ok {
+			c.Name, c.Place = u.Name(), joinPlace(u.City, u.State)
+			if c.Call == "" {
+				c.Call = u.Callsign
+			}
+			return
+		}
+	}
+	if c.Call == "" {
 		return
 	}
 	c.Name, c.Place = d.s.callerPerson(c.Call)

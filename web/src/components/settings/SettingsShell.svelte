@@ -33,7 +33,7 @@
     <nav class="no-scrollbar flex gap-1.5 overflow-x-auto" aria-label="Settings groups">
       {#each openable as g (g.id)}
         <a href={'#/settings/' + g.id} aria-current={g.id === grp.id ? 'page' : undefined}
-          class="btn shrink-0 whitespace-nowrap {g.id === grp.id ? 'btn-primary' : ''}">
+          class="btn shrink-0 whitespace-nowrap {g.id === grp.id ? 'btn-accent-outline' : ''}">
           {g.label}{#if g.id === 'system' && hasBadge}<span class="size-2 rounded-full {badgeClass}" aria-label="updates available"></span>{/if}
         </a>
       {/each}

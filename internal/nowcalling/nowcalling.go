@@ -157,7 +157,8 @@ type Tracker struct {
 	bridge  map[string]bool  // local node -> bridge link keyed
 	bridgeK bool             // the bridge node is linked to at least one local node (not stale)
 	// linkedSince is when bridgeK last became true (zero while unlinked).
-	// Talks that started before it are never shown or recorded.
+	// Talks that started before it are never shown or recorded, except a call of
+	// the engine still in progress when the link came up (see liveSince).
 	linkedSince time.Time
 	recent      []Call
 	key         string
@@ -344,7 +345,7 @@ func (t *Tracker) syncDV(now time.Time) {
 	}
 	t.eff = nil
 	for _, k := range t.talks {
-		if !k.Start.Before(t.linkedSince) {
+		if !k.Start.Before(t.linkedSince) || liveSince(k, t.linkedSince) {
 			t.eff = append(t.eff, k)
 		}
 	}
@@ -416,6 +417,15 @@ func (t *Tracker) syncDV(now time.Time) {
 		return
 	}
 	t.endDV(now, bridgeKeyed)
+}
+
+// liveSince reports whether k is a call of the engine that was already in
+// progress when the bridge link came up (it has no end, or ended after the
+// link). The engine reports calls as they happen, not as log lines re-read on
+// every poll, so such a call is real news and must not be treated as the
+// history of the unlinked time.
+func liveSince(k Talk, linked time.Time) bool {
+	return k.Via == ViaEngine && (k.End.IsZero() || !k.End.Before(linked))
 }
 
 // talking: is call k (the newest) in progress? An end line ends it. Without

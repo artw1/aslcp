@@ -684,3 +684,31 @@ func TestSuffixAndBroadcastDst(t *testing.T) {
 		t.Fatalf("lsf %+v", st.LSF)
 	}
 }
+
+// A stream the client joins mid-call (the first packet seen has a frame
+// number above 0) starts a call from the LSF every packet carries, and the
+// frames before it arriving late do not start a second one.
+func TestRxLateEntry(t *testing.T) {
+	r := linked(t)
+	r.sendStream(rxPacket(0x5151, 7, 0x10, 0x20))
+	h := r.s.wait(t, kind("header"), time.Second).h
+	if h.Src != "N1CALL" || h.Room != "M17-XXX C" {
+		t.Fatalf("header %+v", h)
+	}
+	r.sendStream(rxPacket(0x5151, 8, 0x30, 0x40))
+	r.sendStream(rxPacket(0x5151, 3, 0x50, 0x60)) // an earlier packet, late
+	r.sendStream(rxPacket(0x5151, 9|proto.LastFrame, 0x70, 0x80))
+	for n := 0; n < 6; n++ {
+		if e := r.s.wait(t, kind("voice"), time.Second); e.f.Call != h.Call {
+			t.Fatalf("frame %+v", e.f)
+		}
+	}
+	if e := r.s.wait(t, kind("end"), time.Second); e.call != h.Call {
+		t.Fatalf("end %+v", e)
+	}
+	select {
+	case e := <-r.s.ch:
+		t.Fatalf("extra event %+v", e)
+	case <-time.After(40 * time.Millisecond):
+	}
+}

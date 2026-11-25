@@ -854,3 +854,43 @@ func TestTGIFIgnoresSlotAndOptions(t *testing.T) {
 		t.Fatalf("TGIF used slot %d", d.Slot)
 	}
 }
+
+// A stream the client joins mid-call (no voice LC header, only voice bursts)
+// starts a call from the source and talkgroup every DMRD packet carries, and
+// the real header arriving later in the same stream does not start another.
+func TestRXLateEntryNoHeader(t *testing.T) {
+	m := newMaster(t)
+	_, s, _, _ := start(t, ctl.ModeTGIF, m, testPW, nil)
+	waitFor(t, "ok", func() bool { return s.hasLogin(ctl.LoginOK) })
+	const stream, tg = 120, 1998
+	tx := dmr.NewTX(dmr.TXConfig{Src: 1234567, Dst: tg, CC: 1})
+	hdr := tx.Start()
+	var voice []dmr.TXFrame
+	for i := 0; i < 12; i++ {
+		voice = append(voice, tx.Write(ambe(byte(i*7)))...)
+	}
+	term := tx.End()
+	var seq byte
+	play := func(fs []dmr.TXFrame) {
+		for _, f := range fs {
+			d := dmrd{Seq: seq, Src: 1234567, Dst: tg, Repeater: testRID, Slot: 2, FrameTyp: int(f.FrameType),
+				DType: int(f.DTypeVSeq), Stream: stream, Payload: f.Burst}
+			seq++
+			m.reply(d.marshal())
+		}
+	}
+	play(voice[:2]) // joined mid-call: no header
+	waitFor(t, "late call", func() bool { return s.nHdr() == 1 && s.nVoice() > 0 })
+	play(hdr) // the real header turns up later in the same stream
+	play(voice[2:])
+	play(term)
+	waitFor(t, "end", func() bool { return s.nEnd() == 1 })
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.hdrs) != 1 || s.hdrs[0].SrcID != 1234567 || s.hdrs[0].Src != "1234567" || s.hdrs[0].TG != tg || s.hdrs[0].Slot != 2 {
+		t.Fatalf("headers %+v", s.hdrs)
+	}
+	if s.ends[0] != s.hdrs[0].Call {
+		t.Fatal("end id")
+	}
+}

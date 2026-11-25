@@ -388,3 +388,34 @@ func TestM17CallShowsReflectorAsRoom(t *testing.T) {
 		t.Fatalf("current = %+v", cur)
 	}
 }
+
+// A call of the engine that is already in progress when the bridge node is
+// linked is shown at once, with its real start, and is recorded once when it
+// ends. One that ended before the link is history and stays out.
+func TestEngineCallInProgressWhenLinkComesUp(t *testing.T) {
+	c := &clk{t0}
+	tr, _ := newT(c)
+	over := Talk{Kind: KindDMR, Via: ViaEngine, Call: "N1CALL", DMRID: "1234567", Dst: "91", Slot: 2, Start: t0.Add(-30 * time.Second), End: t0.Add(-20 * time.Second)}
+	live := Talk{Kind: KindDMR, Via: ViaEngine, Call: "N0CALL", DMRID: "1234568", Dst: "91", Slot: 2, Start: t0.Add(-4 * time.Second)}
+	tr.UpdateAllStar("1998", nil, false, false, false) // unlinked: the engine hears both
+	tr.UpdateDV([]Talk{live, over})
+	if s := tr.Snapshot(); s.Current != nil || len(s.Recent) != 0 {
+		t.Fatalf("unlinked: %+v", s)
+	}
+	tr.UpdateAllStar("1998", nil, true, false, false) // the node links to the bridge mid-call
+	tr.UpdateDV([]Talk{over, live})
+	s := tr.Snapshot()
+	if s.Current == nil || s.Current.Call != "N0CALL" || s.Current.DMRID != "1234568" || s.Current.TG != "91" || !s.Current.Active || len(s.Recent) != 0 {
+		t.Fatalf("linked mid-call: %+v", s)
+	}
+	if s.Current.Start != live.Start.Format(time.RFC3339) {
+		t.Fatalf("start %s", s.Current.Start)
+	}
+	c.add(3 * time.Second)
+	live.End = c.t
+	tr.UpdateDV([]Talk{over, live})
+	tr.UpdateDV([]Talk{over, live})
+	if s := tr.Snapshot(); s.Current != nil || len(s.Recent) != 1 || s.Recent[0].Call != "N0CALL" {
+		t.Fatalf("after end: %+v", s)
+	}
+}
