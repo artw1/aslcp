@@ -1,5 +1,5 @@
 {
-  "version": "2.3.1",
-  "notes": "Merge pull request #33 from w1jar/try/dv-card\n\nRedesign the dashboard Digital modes card",
-  "date": "2026-11-24"
+  "version": "2.4.0",
+  "notes": "Merge pull request #35 from w1jar/try/dashboard-split\n\nRelease 2.4.0: dashboard split, DV tab, pins, public page and Settings rework",
+  "date": "2026-11-25"
 }
