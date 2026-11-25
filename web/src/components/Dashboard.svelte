@@ -18,6 +18,7 @@
   import Footer from './Footer.svelte';
   import RadioTower from '@lucide/svelte/icons/radio-tower';
   import Pin from '@lucide/svelte/icons/pin';
+  import PinFace from './PinFace.svelte';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 
   const op = $derived(canOperate());
@@ -133,11 +134,8 @@
       {#if pins.length}
         <div class="flex flex-wrap gap-2" data-testid="pins">
           {#each pins as p (p.key)}
-            <button type="button" class="btn !min-h-10 !px-3 {p.kind === 'dv' ? 'border-accent/50' : ''}" disabled={!op || !!busyKey} aria-label="{p.kind === 'asl' ? 'Connect to' : 'Tune'} {p.label}" title={p.kind === 'asl' ? `Connect ${pinLocalNode(app.selectedNode, tiles) || 'a local node'} to ${p.sub}` : `Switch to ${p.sub} and tune ${p.fav?.value}`} onclick={() => tap(p)}>
-              {#if pinActive(p, app.nodes, dv)}<span class="inline-block size-2 shrink-0 rounded-full bg-ok" data-testid="pin-active" aria-hidden="true"></span><span class="sr-only">active</span>{/if}
-              <span class="rounded bg-surface-2 px-1 text-[10px] font-semibold text-muted">{p.kind === 'asl' ? 'ASL' : 'DV'}</span>
-              <span class="truncate">{p.label}</span>
-              <span class="font-mono text-xs text-muted">{p.sub}</span>
+            <button type="button" class="btn btn-pin {p.kind === 'dv' ? 'border-accent/50' : ''}" disabled={!op || !!busyKey} aria-label="{p.kind === 'asl' ? 'Connect to' : 'Tune'} {p.label}" title={p.kind === 'asl' ? `Connect ${pinLocalNode(app.selectedNode, tiles) || 'a local node'} to ${p.sub}` : `Switch to ${p.sub} and tune ${p.fav?.value}`} onclick={() => tap(p)}>
+              <PinFace active={pinActive(p, app.nodes, dv)} dotId="pin-active" tag={p.kind === 'asl' ? 'ASL' : 'DV'} label={p.label} sub={p.sub} />
             </button>
           {/each}
         </div>
