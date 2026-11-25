@@ -49,7 +49,7 @@ Availability comes from the engine (which modes the running build implements); w
 
 ## The setup page
 
-Digital modes (`#/digital`) is one column, in the order of the setup: the *Engine* card (status, services, Refresh, Disable, the *Resume after restart* switch, the *radioid.net user list* row with its switch, a one-line summary and *Download now*, and the last enable job with a *Show log* toggle), *Bridge node* (a summary line with *Edit* once a node exists), *Identity*, *Networks* and *Audio* (the echo test and the AGC and gain settings). In *Networks* each mode is its own card with its state, a one-line summary, an Enable switch and a chevron that opens its settings below a divider; one card is open at a time. The switch saves the enabled state at once; if something is missing (the password, the NXDN ID, the identity) the card opens, says what, and the switch stays off. Fields are saved with the card's *Save*.
+Digital modes (`#/digital`) is one column, in the order of the setup: the *Engine* card (status, services, Refresh, Disable, the *Resume after restart* switch, the *radioid.net user list* row with its switch, a one-line summary and *Download now*, and the last enable job with a *Show log* toggle), *Identity*, *Bridge node* (a summary line with *Edit* once a node exists) and *Audio* (the echo test and the AGC and gain settings). The networks are not on this page: each mode's Enable switch and settings are on the DV page (`#/dv`), where an admin clicks a mode button to open its panel. The switch saves the enabled state at once; if something is missing (the password, the NXDN ID, the identity) the panel opens, says what, and the switch stays off. Fields are saved with the panel's *Save*.
 
 ## Echo test
 
@@ -61,7 +61,7 @@ The Echo test is a local test with no network and no account: the engine records
 
 BrandMeister is a native client of the Rewind protocol: the engine logs in to a BrandMeister master with your DMR ID and a hotspot password, and carries the audio between the bridge node and the network. There is no separate bridge program and no ini file to edit.
 
-**Settings** (Digital modes tab, admin; docs/API.md "Digital modes networks and identity"):
+**Settings** (admin: Identity on the Digital modes page, the network settings on the DV page; docs/API.md "Digital modes networks and identity"):
 
 - *Identity*: callsign, DMR ID and an optional ESSID (2 digits, 01–99; the repeater ID is your DMR ID followed by it). The DMR networks log in with it. Clearing it disables them.
 - *Master*: picked from a dropdown of the BrandMeister masters (entries named `BM_<id>_<Country>` in the DMR host list the node downloads daily, shown as "3104 – United States", sorted by id); pick the one closest to you. There is no port setting: the engine always uses 54006 (the port in the host list is the Homebrew port and is not used), and a port stored by an earlier version is ignored. If the list has not been downloaded yet, the card says so and shows an *Other address* field instead; *Other…* in the dropdown does the same for a master that is not in the list.

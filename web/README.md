@@ -19,7 +19,7 @@ Mock logins: `admin`, `op` (operator) or `guest` (viewer), password `pass`. `MOC
 npm run build      # outputs web/dist
 ```
 
-The repository Makefile copies `web/dist` into `internal/webui/dist`, which the Go binary embeds with `go:embed` and serves at `/` (unknown non-`/api` paths fall back to `index.html`). Routing is hash-based (`#/`, `#/lookup`, `#/settings`), so the server needs no route knowledge.
+The repository Makefile copies `web/dist` into `internal/webui/dist`, which the Go binary embeds with `go:embed` and serves at `/` (unknown non-`/api` paths fall back to `index.html`). Routing is hash-based (`#/`, `#/settings`), so the server needs no route knowledge.
 
 ## Layout
 

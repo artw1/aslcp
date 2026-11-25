@@ -11,7 +11,7 @@ ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly w
 - **Live dashboard** for every local node: links, keyed state (who is transmitting right now), connection time, mode, node information and the wider network, updated about once a second.
 - **Connect, disconnect, monitor and local monitor**, with permanent links and an optional "disconnect before connect" so you do not bridge two networks by accident.
 - **Favorites** with groups and ordering; import from AllScan. An optional scan shows which favorites are active.
-- **Node lookup** by number, callsign, description or location, using the AllStarLink node list.
+- **Node search** by number, callsign, description or location in the connect bar and favorites, using the AllStarLink node list.
 - **Digital modes** (DMR, YSF, P25, NXDN) on the built-in engine, with a Digital modes card on the dashboard, an Echo test and a **Now calling** strip. See [Digital modes](#digital-modes).
 - **Schedules**: connect and disconnect nodes at set times (weekly or one-off), with a global on/off switch, an upcoming list, and a choice of what happens when you connect by hand.
 - **Config editor**: edit `rpt.conf`, `iax.conf`, `simpleusb.conf`, `extensions.conf` and other Asterisk files in the browser. Saving shows a diff and checks syntax, reloads Asterisk, and keeps a history you can restore from. Administrators only.
@@ -202,7 +202,7 @@ ASLCP 2.0 has its own digital voice engine, `aslcp-dv`, so a node can talk on di
 - **YSF** (System Fusion) reflectors, **P25** and **NXDN** talkgroups. P25 and NXDN are tested against recorded traffic but not yet on air.
 - **Echo test**: a local test with no network and no account. You hear yourself back a second after you unkey, which proves the audio path.
 
-Enable digital modes on the **Digital modes** page (or `sudo aslcp dv enable`, or `ASLCP_DV=1` at install). Enter your callsign and DMR ID, then turn on and set up the networks you want. `sudo aslcp dv status` shows the state and `sudo aslcp dv disable` stops the engine and keeps your settings. Enabling installs only the md380 vocoder. It needs a 64-bit OS (32-bit armhf is not supported).
+Enable digital modes on the **Digital modes** page (or `sudo aslcp dv enable`, or `ASLCP_DV=1` at install). Enter your callsign and DMR ID, then turn on and set up the networks you want on the **DV** page. `sudo aslcp dv status` shows the state and `sudo aslcp dv disable` stops the engine and keeps your settings. Enabling installs only the md380 vocoder. It needs a 64-bit OS (32-bit armhf is not supported).
 
 On the dashboard, the **Digital modes** card shows the bridge node, switches mode, tunes a talkgroup or reflector, unlinks, has a Parrot button for BrandMeister and keeps favorites. **Now calling** (a red strip on every page) shows who is talking, with callsign, name, place, network, talkgroup and timeslot, and **Last heard** lists recent calls. The engine resumes in the last mode after a restart. More in [docs/DV.md](docs/DV.md).
 

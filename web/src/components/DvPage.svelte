@@ -9,6 +9,7 @@
   import LastHeardTable from './LastHeardTable.svelte';
   import { dvHeardItems } from '../lib/lastheard';
   import DvModes from './DvModes.svelte';
+  import SchedulesCard from './SchedulesCard.svelte';
   import Footer from './Footer.svelte';
 
   // The network settings and identity are admin only (an operator gets 403): a viewer gets the state rows from the snapshot.
@@ -29,6 +30,7 @@
       The digital modes engine is off.{#if isAdmin()} Set it up in <a href="#/digital" class="text-accent underline hover:no-underline">Digital modes</a>.{/if}
     </p>
   {:else}
+    <SchedulesCard />
     <DvCard page />
     <DvModes admin={isAdmin()} {nets} {identity} modes={app.dv.modes} bridge={app.dv.bridge} onsaved={netSaved} />
     <section class="card space-y-1 p-4" aria-label="Last heard" data-testid="dv-heard">

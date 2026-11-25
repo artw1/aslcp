@@ -17,6 +17,7 @@
   import { mergeHeard } from '../lib/lastheard';
   import LastHeardTable from './LastHeardTable.svelte';
   import NodeTile from './NodeTile.svelte';
+  import SchedulesCard from './SchedulesCard.svelte';
   import Footer from './Footer.svelte';
   import RadioTower from '@lucide/svelte/icons/radio-tower';
   import Pin from '@lucide/svelte/icons/pin';
@@ -78,6 +79,7 @@
   {#if !app.haveNodes}
     <p class="py-10 text-center text-sm text-muted" role="status">Loading node status…</p>
   {:else}
+    <SchedulesCard />
     {#if alerts.length}
       <section class="space-y-1" aria-label="Alerts" data-testid="alerts">
         {#each alerts as a (a.key)}
