@@ -31,7 +31,7 @@
     </p>
   {:else}
     <DvCard page />
-    <DvModes admin={isAdmin()} {nets} {identity} modes={app.dv.modes} onsaved={netSaved} />
+    <DvModes admin={isAdmin()} {nets} {identity} modes={app.dv.modes} bridge={app.dv.bridge} onsaved={netSaved} />
     <section class="card space-y-1 p-4" aria-label="Last heard" data-testid="dv-heard">
       <h2 class="text-base font-semibold">Last heard</h2>
       {#if app.dv.heard?.length}

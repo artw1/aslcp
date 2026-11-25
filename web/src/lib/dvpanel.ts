@@ -12,9 +12,35 @@ export const isDMRFamily = (mode: string): boolean => isDVNetwork(mode);
 export const modeLabel = (mode: string): string => networkLabel(mode);
 /** The name of a panel mode button: the snapshot's label when it has one, else modeLabel. */
 export const modeButtonLabel = (m: { id: string; label?: string }): string => m.label || modeLabel(m.id);
-/** One button of the DV tab's mode buttons card: dot tone (ok green, err red, warn amber, off grey) and the short state. `idle` (BrandMeister outside its mode, no session on purpose) is a grey "Not in use". A network the engine reports no login for (YSF, P25, NXDN, M17) shows "Enabled". */
-export function netChip(m: { enabled: boolean; login?: string }): { tone: 'ok' | 'err' | 'warn' | 'off'; text: string } {
+/** What the engine says about one network, as the snapshot carries it. */
+type ChipMode = { id: string; enabled: boolean; login?: string; detail?: string };
+type Chip = { tone: 'ok' | 'err' | 'warn' | 'off'; text: string };
+
+/** The reflector or talkgroup a no-login mode is tuned to, short ("TG 1234", the reflector name or address); '' when it is not the active mode or nothing is tuned. */
+export function linkTarget(mode: string, b: Pick<DVBridge, 'mode' | 'tune' | 'targetName' | 'source'> | null | undefined): string {
+  if (!b || b.source === 'none' || b.mode !== mode || !b.tune) return '';
+  return mode === 'P25' || mode === 'NXDN' ? `TG ${b.tune}` : b.targetName || b.tune;
+}
+
+/**
+ * The state of a network without a login (YSF, P25, NXDN, M17: a reflector or talkgroup link, nothing to log in to).
+ * The engine reports `ok` while linked, `pending` while a link attempt runs (the reflector has not answered yet),
+ * `failed` when the reflector cannot be reached or refuses, else `off`. A mode that is not the active one is just enabled.
+ */
+export function linkChip(m: ChipMode, b?: Pick<DVBridge, 'mode' | 'tune' | 'targetName' | 'source'> | null): Chip {
+  const known = !!b && b.source !== 'none' && !!b.mode;
+  if (known && b!.mode !== m.id) return { tone: 'off', text: 'Enabled' };
+  if (m.login === 'pending') return { tone: 'warn', text: 'Linking' };
+  if (m.login === 'failed') return { tone: 'err', text: 'Link failed' };
+  const target = linkTarget(m.id, b);
+  if (m.login === 'ok' || (m.login === undefined && target)) return { tone: 'ok', text: target ? `Linked \u00b7 ${target}` : 'Linked' };
+  return { tone: 'off', text: 'Enabled' };
+}
+
+/** One button of the DV tab's mode buttons card: dot tone (ok green, err red, warn amber, off grey) and the short state. A DMR network shows its login: `idle` (BrandMeister outside its mode, no session on purpose) is a grey "Not in use". YSF, P25, NXDN and M17 have no login and show their link instead (linkChip): "Enabled", "Linking" or "Linked". */
+export function netChip(m: ChipMode, bridge?: Pick<DVBridge, 'mode' | 'tune' | 'targetName' | 'source'> | null): Chip {
   if (!m.enabled) return { tone: 'off', text: 'Disabled' };
+  if (!isDMRFamily(m.id)) return linkChip(m, bridge);
   if (m.login === 'ok') return { tone: 'ok', text: 'Logged in' };
   if (m.login === 'failed') return { tone: 'err', text: 'Login failed' };
   if (m.login === 'pending') return { tone: 'warn', text: 'Logging in' };

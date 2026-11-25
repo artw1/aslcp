@@ -63,6 +63,9 @@ test('alerts', () => {
   // BrandMeister outside its mode (idle, "Not in use") is not a failed login
   const idle = [{ id: 'BM' as const, enabled: true, available: true, unlink: '4000', login: 'idle' as const }];
   assert.deepEqual(buildAlerts([node('2001')], true, snap({ modes: idle })), []);
+  // YSF, P25, NXDN and M17 have no login: no login alert, whatever the engine says
+  const refl = ['YSF', 'P25', 'NXDN', 'M17'].flatMap((id) => (['pending', 'failed'] as const).map((login) => ({ id: id as 'YSF', enabled: true, available: true, unlink: 'disconnect', login })));
+  assert.deepEqual(buildAlerts([node('2001')], true, snap({ modes: refl })), []);
   const down = buildAlerts([node('2001')], true, snap({ link: { mode: 'ondemand', localNode: '2001', linked: false, paused: false, exclusive: true } }));
   assert.deepEqual(down.map((a) => a.key), ['bridge']);
   assert.equal(buildAlerts([node('2001')], true, snap({ running: false }))[0].key, 'dvdown');

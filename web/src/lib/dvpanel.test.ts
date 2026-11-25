@@ -390,15 +390,41 @@ test('Last heard: a YSF call shows the reflector, never a talkgroup', () => {
 });
 
 test('mode button states', () => {
-  assert.deepEqual(netChip({ enabled: false, login: 'ok' }), { tone: 'off', text: 'Disabled' });
-  assert.deepEqual(netChip({ enabled: true, login: 'ok' }), { tone: 'ok', text: 'Logged in' });
-  assert.deepEqual(netChip({ enabled: true, login: 'failed' }), { tone: 'err', text: 'Login failed' });
-  assert.deepEqual(netChip({ enabled: true, login: 'pending' }), { tone: 'warn', text: 'Logging in' });
-  assert.deepEqual(netChip({ enabled: true }), { tone: 'off', text: 'Enabled' });
+  assert.deepEqual(netChip({ id: 'TGIF', enabled: false, login: 'ok' }), { tone: 'off', text: 'Disabled' });
+  assert.deepEqual(netChip({ id: 'TGIF', enabled: true, login: 'ok' }), { tone: 'ok', text: 'Logged in' });
+  assert.deepEqual(netChip({ id: 'DMR', enabled: true, login: 'failed' }), { tone: 'err', text: 'Login failed' });
+  assert.deepEqual(netChip({ id: 'BM', enabled: true, login: 'pending' }), { tone: 'warn', text: 'Logging in' });
+  assert.deepEqual(netChip({ id: 'BM', enabled: true }), { tone: 'off', text: 'Enabled' });
   // an on-demand network outside its mode (BrandMeister): grey, and a disabled one still reads Disabled
-  assert.deepEqual(netChip({ enabled: true, login: 'idle' }), { tone: 'off', text: 'Not in use' });
-  assert.deepEqual(netChip({ enabled: false, login: 'idle' }), { tone: 'off', text: 'Disabled' });
+  assert.deepEqual(netChip({ id: 'BM', enabled: true, login: 'idle' }), { tone: 'off', text: 'Not in use' });
+  assert.deepEqual(netChip({ id: 'BM', enabled: false, login: 'idle' }), { tone: 'off', text: 'Disabled' });
   assert.deepEqual(stripModes([{ id: 'LOOP', available: true }, { id: 'BM', available: true }, { id: 'TGIF', available: false }]).map((m) => m.id), ['BM']);
+});
+
+test('modes without a login show their link, never "Logging in"', () => {
+  const ysf = { id: 'YSF', enabled: true };
+  const on = (mode: string, tune: string, targetName?: string) => ({ mode, tune, targetName, slot: 2, muted: false, source: 'aslcp-dv' as const, updated: '' });
+  for (const id of ['YSF', 'P25', 'NXDN', 'M17']) {
+    assert.deepEqual(netChip({ id, enabled: false, login: 'off' }), { tone: 'off', text: 'Disabled' });
+    // enabled, not the active mode, nothing tuned: grey Enabled
+    assert.deepEqual(netChip({ id, enabled: true, login: 'off' }, on('BM', '91')), { tone: 'off', text: 'Enabled' });
+    assert.deepEqual(netChip({ id, enabled: true, login: 'off' }, on(id, '')), { tone: 'off', text: 'Enabled' });
+    assert.deepEqual(netChip({ id, enabled: true }), { tone: 'off', text: 'Enabled' });
+    // a stale pending or ok of a mode that is not the active one never shows
+    assert.deepEqual(netChip({ id, enabled: true, login: 'pending' }, on('BM', '91')), { tone: 'off', text: 'Enabled' });
+  }
+  assert.deepEqual(netChip({ ...ysf, login: 'ok', detail: 'linked to YSF-TEST' }, on('YSF', '00000', 'YSF-TEST')), { tone: 'ok', text: 'Linked \u00b7 YSF-TEST' });
+  assert.deepEqual(netChip({ ...ysf, login: 'ok' }, on('YSF', '192.0.2.10:42000')), { tone: 'ok', text: 'Linked \u00b7 192.0.2.10:42000' });
+  assert.deepEqual(netChip({ id: 'P25', enabled: true, login: 'ok' }, on('P25', '1234')), { tone: 'ok', text: 'Linked \u00b7 TG 1234' });
+  assert.deepEqual(netChip({ id: 'NXDN', enabled: true, login: 'ok' }, on('NXDN', '1234')), { tone: 'ok', text: 'Linked \u00b7 TG 1234' });
+  assert.deepEqual(netChip({ id: 'M17', enabled: true, login: 'ok' }, on('M17', 'M17-XXX C')), { tone: 'ok', text: 'Linked \u00b7 M17-XXX C' });
+  assert.deepEqual(netChip({ id: 'M17', enabled: true, login: 'ok' }), { tone: 'ok', text: 'Linked' });
+  assert.deepEqual(netChip({ ...ysf, login: 'pending', detail: 'linking' }, on('YSF', '00000')), { tone: 'warn', text: 'Linking' });
+  assert.deepEqual(netChip({ ...ysf, login: 'failed', detail: 'cannot resolve x' }, on('YSF', '00000')), { tone: 'err', text: 'Link failed' });
+  // an engine without a login field: the active mode with a tuned target is linked
+  assert.deepEqual(netChip(ysf, on('YSF', '00000', 'YSF-TEST')), { tone: 'ok', text: 'Linked \u00b7 YSF-TEST' });
+  // the DMR networks keep their login text
+  assert.deepEqual(netChip({ id: 'BM', enabled: true, login: 'pending' }, on('YSF', '00000')), { tone: 'warn', text: 'Logging in' });
 });
 
 test('Last heard table row', () => {

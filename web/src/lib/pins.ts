@@ -54,7 +54,7 @@ export function buildAlerts(nodes: NodeStatus[], haveNodes: boolean, dv: DVSnaps
     if (!dv.running) out.push({ key: 'dvdown', text: 'The digital modes engine is not running.', href: '/dv' });
     else {
       for (const m of dv.modes ?? []) {
-        if (m.enabled && m.login === 'failed') out.push({ key: `login:${m.id}`, text: `${modeLabel(m.id)} login failed${m.detail ? `: ${m.detail}` : ''}`, href: '/dv' });
+        if (m.enabled && m.login === 'failed' && isDMRFamily(m.id)) out.push({ key: `login:${m.id}`, text: `${modeLabel(m.id)} login failed${m.detail ? `: ${m.detail}` : ''}`, href: '/dv' });
       }
       if (dv.bridgeNode?.present && dv.link && !bridgeLinked(dv)) {
         out.push({ key: 'bridge', text: dv.link.mode === 'permanent' && !dv.link.paused ? 'The bridge node link is down.' : 'The bridge node is not linked to a local node.', href: '/dv' });

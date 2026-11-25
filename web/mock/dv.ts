@@ -197,6 +197,9 @@ let ident: { callsign: string; dmrId: number; repeaterId?: number } = { callsign
 // BrandMeister logs in only while it is the active mode (or with the stay_logged_in option): otherwise the engine reports `idle`.
 const bmInUse = () => bridge.mode === 'BM' || bmNet.options.stay_logged_in === 'true';
 const bmLogin = () => (!bmInUse() ? 'idle' : ident.dmrId ? 'ok' : 'failed');
+// A reflector or talkgroup network (YSF, P25, NXDN, M17) has no login: like the engine, `off` until a target is tuned, then `ok` while linked.
+const linkLogin = (m: PMode): 'off' | 'ok' => (bridge.mode === m && bridge.tune && bridge.tune !== UNLINK[m] ? 'ok' : 'off');
+const linkDetail = (m: PMode) => (linkLogin(m) === 'ok' ? `linked to ${bridge.tune}` : '');
 const bmDetail = () => (bmInUse() && !ident.dmrId ? 'the master refused the login: no DMR ID set' : '');
 const BM_HELP = 'Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security). Pick the master closest to you.';
 const intOpt = (key: string, label: string, def: string, min: number, max: number, advanced = false) => ({ key, label, kind: 'int', default: def, min, max, ...(advanced ? { advanced } : {}) });
@@ -269,7 +272,7 @@ function netView(m: NetId) {
   return {
     mode: m, label: sp.label, available: avail, enabled: n.enabled, address: n.address, port: n.port, ...(sp.defaultPort ? { defaultPort: sp.defaultPort } : {}), ...(sp.defaultAddress ? { defaultAddress: sp.defaultAddress } : {}), ...(sp.defaultPassword ? { defaultPassword: sp.defaultPassword } : {}),
     passwordSet: n.password !== '', fields: sp.fields, needsIdentity: true, ...(sp.help ? { help: sp.help } : {}), options: sp.options, values: { ...n.options },
-    ...(avail && n.enabled && snapshot().running ? { login: m === 'BM' ? bmLogin() : 'off', detail: m === 'BM' ? bmDetail() : '' } : {}),
+    ...(avail && n.enabled && snapshot().running ? { login: m === 'BM' ? bmLogin() : m === 'TGIF' || m === 'DMR' ? 'off' : linkLogin(m), detail: m === 'BM' ? bmDetail() : m === 'TGIF' || m === 'DMR' ? '' : linkDetail(m) } : {}),
   };
 }
 function netsHandler(c: DVCtx): boolean {
@@ -349,7 +352,7 @@ function snapshot() {
     bridge: running
       ? { mode: bridge.mode, tune: bridge.tune, slot: bridge.slot, muted: bridge.muted, source: 'aslcp-dv', updated: new Date().toISOString() }
       : { mode: '', tune: '', slot: 0, muted: false, source: 'none', updated: '' },
-    modes: ALL.map((id) => ({ id, enabled: running && (id === 'LOOP' || netOf(id as NetId).enabled), available: NATIVE.includes(id), unlink: UNLINK[id], ...(LABEL[id] ? { label: LABEL[id] } : {}), ...(running && id === 'BM' && bmNet.enabled ? { login: bmLogin(), detail: bmDetail() } : {}), ...(running && id === 'BM' && bmNet.enabled && bmNet.address ? { master: bmNet.address === '192.0.2.10' ? 'BM_Example' : bmNet.address } : {}), ...(running && id === 'DMR' && otherNets.DMR.enabled && otherNets.DMR.address ? { master: otherNets.DMR.address === '192.0.2.10' ? 'DMR+_IPSC2-Example' : otherNets.DMR.address } : {}) })),
+    modes: ALL.map((id) => ({ id, enabled: running && (id === 'LOOP' || netOf(id as NetId).enabled), available: NATIVE.includes(id), unlink: UNLINK[id], ...(LABEL[id] ? { label: LABEL[id] } : {}), ...(running && id === 'BM' && bmNet.enabled ? { login: bmLogin(), detail: bmDetail() } : {}), ...(running && ['YSF', 'P25', 'NXDN', 'M17'].includes(id) && netOf(id as NetId).enabled ? { login: linkLogin(id), detail: linkDetail(id) } : {}), ...(running && id === 'BM' && bmNet.enabled && bmNet.address ? { master: bmNet.address === '192.0.2.10' ? 'BM_Example' : bmNet.address } : {}), ...(running && id === 'DMR' && otherNets.DMR.enabled && otherNets.DMR.address ? { master: otherNets.DMR.address === '192.0.2.10' ? 'DMR+_IPSC2-Example' : otherNets.DMR.address } : {}) })),
     services: enabled ? [{ unit: 'aslcp-dv', active: true }, { unit: 'md380-emu', active: true }] : [],
     ...(running ? { vocoder: { ok: true, timeouts: 0 }, engine: { version: '2.0.0', uptime: Math.floor((Date.now() - started) / 1000) } } : {}),
     bridgeNode: pb.node ? { present: true, node: pb.node, name: pb.name || NODE_NAME } : { present: false },

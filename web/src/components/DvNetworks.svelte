@@ -59,7 +59,7 @@
       {@const sum = netSummary(v, c.available, c.enabled)}
       {@const isOpen = open === id}
       {@const live = v ? liveLogin(v, modes) : null}
-      {@const login = v?.enabled && live ? loginText(live.login, live.detail) : ''}
+      {@const login = v?.enabled && live ? loginText(live.login, live.detail, id) : ''}
       {@const tone = loginTone(live?.login)}
       <li id="dv-row-{id.toLowerCase()}" class="card scroll-mt-16 p-3 {isOpen ? 'border-accent' : ''}" data-testid="dv-row-{id.toLowerCase()}">
         <div class="flex items-center gap-2">

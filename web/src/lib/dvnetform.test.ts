@@ -84,6 +84,15 @@ test('login text and identity checks', () => {
   assert.equal(loginText('idle', ''), 'Not in use');
   assert.equal(loginTone('idle'), 'off');
   assert.equal(loginText('off', ''), '');
+  // YSF, P25, NXDN and M17 have no login: their lines are about the link
+  for (const m of ['YSF', 'P25', 'NXDN', 'M17']) {
+    assert.equal(loginText('ok', '', m), 'Linked');
+    assert.equal(loginText('pending', 'linking', m), 'Linking...');
+    assert.equal(loginText('failed', 'cannot resolve x', m), 'Link failed: cannot resolve x');
+    assert.equal(loginText('off', '', m), '');
+  }
+  assert.equal(loginText('pending', '', 'BM'), 'Logging in...');
+  assert.equal(loginText('ok', '', 'TGIF'), 'Logged in');
   assert.equal(identityError('N0CALL', '1234567', ''), '');
   assert.match(identityError('N0', '1234567', ''), /^Callsign/);
   assert.match(identityError('N0CALL', '123', ''), /^DMR ID/);

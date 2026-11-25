@@ -13,7 +13,7 @@
   import Toggle from './Toggle.svelte';
   import DvNet from './DvNet.svelte';
 
-  let { nets, identity, modes, admin, onsaved }: { nets: DVNetView[]; identity: DVIdentity | null; modes: DVSnapshot['modes']; admin: boolean; onsaved: (n: DVNetView) => void } = $props();
+  let { nets, identity, modes, bridge, admin, onsaved }: { nets: DVNetView[]; identity: DVIdentity | null; modes: DVSnapshot['modes']; bridge?: DVSnapshot['bridge']; admin: boolean; onsaved: (n: DVNetView) => void } = $props();
   let open = $state<DVTuneMode | ''>(''), busy = $state(false), block = $state<string>('');
   const list = $derived(stripModes(modes));
   const openNet = $derived(nets.find((n) => n.mode === open));
@@ -42,7 +42,7 @@
   <p class="mt-0.5 text-xs text-muted">{admin ? 'The state of each network. Open one for its switch and settings.' : 'The state of each network.'}</p>
   <ul class="mt-3 flex flex-wrap gap-2" data-testid="dv-logins">
     {#each list as m (m.id)}
-      {@const c = netChip(m)}
+      {@const c = netChip(m, bridge)}
       {@const isOpen = open === m.id}
       <li>
         {#snippet face()}

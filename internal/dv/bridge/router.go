@@ -492,7 +492,14 @@ func (r *Router) startSession(e *netEntry) {
 	}
 	e.used, e.running = true, true
 	e.gen++
-	e.login, e.detail = ctl.LoginPending, ""
+	// Only a network with a login starts out "pending". YSF, P25, NXDN and M17
+	// have none: they stay "off" until a reflector is tuned, and their client
+	// never re-announces an "off" it already holds, so a "pending" set here would
+	// stick for good.
+	e.login, e.detail = ctl.LoginOff, ""
+	if hasLogin(e.cfg.Mode) {
+		e.login = ctl.LoginPending
+	}
 	ctx, cancel := context.WithCancel(r.runCtx)
 	done := make(chan struct{})
 	e.cancel, e.done = cancel, done
@@ -505,6 +512,12 @@ func (r *Router) startSession(e *netEntry) {
 			r.log.Printf("network %s stopped: %v", e.cfg.Mode, err)
 		}
 	}()
+}
+
+// hasLogin reports whether the network of mode logs in to a master (the DMR
+// networks); YSF, P25, NXDN and M17 only link to a reflector or talkgroup.
+func hasLogin(mode string) bool {
+	return mode == ctl.ModeBM || mode == ctl.ModeTGIF || mode == ctl.ModeDMR
 }
 
 // stopSession ends the network's session: the context is cancelled (BM sends
