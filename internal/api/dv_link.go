@@ -16,11 +16,11 @@ import (
 type dvLinker struct{ s *Server }
 
 func (l dvLinker) Connect(ctx context.Context, local, bridge string, exclusive bool) error {
-	return l.s.connectLink(ctx, local, bridge, rpt.ConnTransceive, true, exclusive)
+	return l.s.connectLink(ctx, dvSystemUser, local, bridge, rpt.ConnTransceive, true, exclusive)
 }
 
 func (l dvLinker) Disconnect(ctx context.Context, local, bridge string, permanent bool) error {
-	return l.s.disconnectLink(ctx, local, bridge, permanent)
+	return l.s.disconnectLink(ctx, dvSystemUser, local, bridge, permanent)
 }
 
 // Linked reports whether local has bridge among its direct links (a link

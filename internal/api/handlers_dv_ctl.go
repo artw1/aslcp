@@ -156,6 +156,8 @@ func (s *Server) dvCtlFail(w http.ResponseWriter, err error) {
 
 // dvSendTune builds and sends a tune (or the unlink of an unlink value).
 func (s *Server) dvSendTune(ctx context.Context, mode, tune string) (ctl.Status, bool, error) {
+	s.dvTuning.Add(1)
+	defer s.dvTuning.Add(-1)
 	var resolve func(string, string) (ctl.Target, bool)
 	if s.d.HostLists != nil {
 		resolve = s.d.HostLists.Resolve

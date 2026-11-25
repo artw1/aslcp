@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/artw1/aslcp/internal/activity"
@@ -152,6 +153,13 @@ type Server struct {
 	platOnce  sync.Once
 	plat      diag.Platform
 
+	// dvTuning counts tunes in flight (dvSendTune); the re-tune after a bridge
+	// node link does not run while one is. dvBridgeMu serializes the release
+	// and the re-tune; dvRetuneDelay is the wait before the latter.
+	dvTuning      atomic.Int32
+	dvBridgeMu    sync.Mutex
+	dvRetuneDelay time.Duration
+
 	monMu sync.RWMutex
 	mon   *rpt.Monitor
 
@@ -186,7 +194,7 @@ func New(d Deps) *Server {
 		d:        d, rpt: rpt.New(d.AMI), mux: http.NewServeMux(),
 		FastInterval: time.Second, SlowInterval: 10 * time.Second,
 		PingInterval: 15 * time.Second, SystemInterval: 10 * time.Second,
-		LinkGoneWait:     3 * time.Second,
+		LinkGoneWait: 3 * time.Second, dvRetuneDelay: dvDefaultRetuneDelay,
 		AsteriskBackWait: 90 * time.Second, AsteriskBackPoll: time.Second,
 		stop: make(chan struct{}),
 	}

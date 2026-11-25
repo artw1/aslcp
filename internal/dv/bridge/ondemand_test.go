@@ -256,3 +256,60 @@ func TestOnDemandInitialMode(t *testing.T) {
 		t.Fatalf("%s", h.entries())
 	}
 }
+
+// Release leaves the network like a mode switch: unlink, session stopped, the
+// mode kept and the target cleared.
+func TestUnlinkReleaseKeepsModeStopsOnDemandSession(t *testing.T) {
+	g, h := odRig(t, "ok", true, noMode, 0)
+	ctx := context.Background()
+	if _, err := g.r.Tune(ctx, ctl.TuneArgs{Mode: ctl.ModeNXDN, Target: ctl.Target{Room: "00001"}}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := g.r.Unlink(ctx, ctl.UnlinkArgs{Mode: ctl.ModeNXDN, Release: true})
+	if err != nil || st.Mode != ctl.ModeNXDN || st.Target != nil {
+		t.Fatalf("%+v %v", st, err)
+	}
+	if got := h.entries(); got != "run,tune,unlink,close" || h.up() != 0 {
+		t.Fatalf("%s", got)
+	}
+	if n := netLogin(t, g); n.Login != ctl.LoginIdle {
+		t.Fatalf("%+v", n)
+	}
+	// tuning again in the same mode logs in again
+	if st, err = g.r.Tune(ctx, ctl.TuneArgs{Mode: ctl.ModeNXDN, Target: ctl.Target{Room: "00001"}}); err != nil || st.Target == nil {
+		t.Fatalf("%+v %v", st, err)
+	}
+	if got := h.entries(); got != "run,tune,unlink,close,run,tune" {
+		t.Fatalf("%s", got)
+	}
+}
+
+func TestUnlinkWithoutReleaseKeepsSession(t *testing.T) {
+	g, h := odRig(t, "ok", true, noMode, 0)
+	ctx := context.Background()
+	if _, err := g.r.Tune(ctx, ctl.TuneArgs{Mode: ctl.ModeNXDN, Target: ctl.Target{Room: "00001"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.r.Unlink(ctx, ctl.UnlinkArgs{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.entries(); got != "run,tune,unlink" || h.up() != 1 {
+		t.Fatalf("%s", got)
+	}
+}
+
+func TestUnlinkReleaseStayLoggedIn(t *testing.T) {
+	g, h := odRig(t, "ok", false, ctl.ModeLoop, 0)
+	eventually(t, 2*time.Second, func() bool { return netLogin(t, g).Login == ctl.LoginOK })
+	ctx := context.Background()
+	if _, err := g.r.Tune(ctx, ctl.TuneArgs{Mode: ctl.ModeNXDN, Target: ctl.Target{Room: "00001"}}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := g.r.Unlink(ctx, ctl.UnlinkArgs{Release: true})
+	if err != nil || st.Mode != ctl.ModeNXDN || st.Target != nil {
+		t.Fatalf("%+v %v", st, err)
+	}
+	if got := h.entries(); got != "run,tune,unlink" || netLogin(t, g).Login != ctl.LoginOK {
+		t.Fatalf("%s", got)
+	}
+}
