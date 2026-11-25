@@ -1,5 +1,5 @@
 {
-  "version": "2.4.0",
-  "notes": "Merge pull request #35 from w1jar/try/dashboard-split\n\nRelease 2.4.0: dashboard split, DV tab, pins, public page and Settings rework",
+  "version": "2.4.1",
+  "notes": "Merge pull request #36 from w1jar/try/dv-bridge-unlink\n\n2.4.1: release the DV target when ASLCP unlinks the bridge node",
   "date": "2026-11-25"
 }
