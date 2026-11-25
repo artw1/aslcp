@@ -31,7 +31,7 @@
 # The installer warns when another program already uses the port.
 # Digital modes: ASLCP_DV=1 (or yes, true) also enables digital modes once ASLCP
 # is running, with "aslcp dv enable" (the same job as the Enable button of the
-# digital modes page; it takes a few minutes and follows the log). Any other
+# Digital Modes settings; it takes a few minutes and follows the log). Any other
 # non-empty value is refused. If
 # the job fails the installer warns and still finishes; run "sudo aslcp dv
 # enable" later to retry. It combines with ASLCP_PORT:
@@ -928,7 +928,7 @@ dv_enable() {
 		done
 	fi
 	if aslcp dv enable --config "$CONF"; then
-		DV_RESULT="enabled. Set it up on the digital modes page of the web UI."
+		DV_RESULT="enabled. Set it up in Settings, Digital Modes, in the web UI."
 	else
 		DV_RESULT="NOT enabled (see the messages above). ASLCP itself is installed; retry with: sudo aslcp dv enable"
 		say "warning: enabling digital modes failed; continuing"

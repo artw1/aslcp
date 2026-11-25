@@ -2,7 +2,8 @@
   import { app, isAdmin } from './lib/store.svelte';
   import { router, navigate } from './lib/router.svelte';
   import { reconcilePending } from './lib/actions.svelte';
-  import { isSystemPath } from './lib/sysnav';
+  import { settingsSection } from './lib/sysnav';
+  import { sections, visibleSections, defaultFor } from './components/settings/sections';
   import Header from './components/Header.svelte';
   import HotspotBanner from './components/HotspotBanner.svelte';
   import Toasts from './components/Toasts.svelte';
@@ -10,8 +11,10 @@
   import Login from './components/Login.svelte';
   import Setup from './components/Setup.svelte';
   import Dashboard from './components/Dashboard.svelte';
-  import Settings from './components/Settings.svelte';
   import PublicView from './components/public/PublicView.svelte';
+
+  // Operators and viewers open only Account and About; any other settings page falls back to the Dashboard.
+  const settingsOpen = $derived(settingsSection(router.path, visibleSections(sections, isAdmin()).map((s) => s.id), defaultFor(isAdmin()), isAdmin()) !== null);
 
   // Clear in-flight connects once their link shows, whichever page is open.
   $effect(() => { app.nodes; reconcilePending(); });
@@ -40,12 +43,7 @@
   <Header />
   <main class="mx-auto max-w-[1100px] px-3 py-2 sm:px-4">
     {#if router.path === '/schedules'}{#await import('./components/Schedules.svelte') then m}<m.default />{/await}
-    {:else if router.path === '/settings'}<Settings />
-    {:else if router.path === '/config' && isAdmin()}{#await import('./components/Config.svelte') then m}<m.default />{/await}
-    {:else if router.path === '/backup' && isAdmin()}{#await import('./components/Backup.svelte') then m}<m.default />{/await}
-    {:else if isSystemPath(router.path) && isAdmin()}{#await import('./components/system/System.svelte') then m}<m.default />{/await}
-    {:else if router.path === '/digital' && isAdmin()}{#await import('./components/DigitalModes.svelte') then m}<m.default />{/await}
-    {:else if router.path === '/tune' && isAdmin()}{#await import('./components/Tune.svelte') then m}<m.default />{/await}
+    {:else if settingsOpen}{#await import('./components/settings/SettingsShell.svelte') then m}<m.default />{/await}
     {:else if router.path === '/allstar'}{#await import('./components/AllStarPage.svelte') then m}<m.default />{/await}
     {:else if router.path === '/dv'}{#await import('./components/DvPage.svelte') then m}<m.default />{/await}
     {:else}<Dashboard />{/if}

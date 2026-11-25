@@ -107,7 +107,7 @@
       {/each}
       {#if dvOn && dv}
         {@const tone = stateTone(dv)}
-        <a href="#/dv" class="rounded-md border bg-surface px-3 py-2 hover:bg-surface-2 {tone === 'warn' ? 'border-warn/50' : tone === 'ok' ? 'border-ok/50' : 'border-line'}" aria-label="Digital modes, open the DV tab" data-testid="tile-dv">
+        <a href="#/dv" class="rounded-md border bg-surface px-3 py-2 hover:bg-surface-2 {tone === 'warn' ? 'border-warn/50' : tone === 'ok' ? 'border-ok/50' : 'border-line'}" aria-label="Digital Modes, open the DV tab" data-testid="tile-dv">
           <div class="flex items-baseline gap-2">
             <span class="inline-flex items-center gap-1 text-base font-semibold"><RadioTower size={14} class="text-accent" aria-hidden="true" />DV</span>
             <span class="min-w-0 flex-1 truncate text-xs text-muted">{dv.bridge.source !== 'none' && dv.bridge.mode ? modeLabel(dv.bridge.mode) : 'Mode unknown'}</span>

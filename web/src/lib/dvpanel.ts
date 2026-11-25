@@ -50,7 +50,7 @@ export function netChip(m: ChipMode, bridge?: Pick<DVBridge, 'mode' | 'tune' | '
 /** The networks of the mode buttons card: every available network except the echo test. */
 export const stripModes = <M extends { id: string; available: boolean }>(modes: M[]): M[] => modes.filter((m) => m.available && m.id !== 'LOOP');
 
-/** The mode buttons of the dashboard card: only enabled modes (the echo test has none, it starts in Digital modes setup); a disabled mode stays while it is the current one, so the selection is not hidden. */
+/** The mode buttons of the dashboard card: only enabled modes (the echo test has none, it starts in Digital Modes settings); a disabled mode stays while it is the current one, so the selection is not hidden. */
 export const dashboardModes = <M extends { id: string; enabled: boolean }>(modes: M[], current?: string): M[] => modes.filter((m) => m.id !== 'LOOP' && (m.enabled || m.id === current));
 /** How long a mode switch may stay unconfirmed before the card says so. */
 export const CONFIRM_MS = 5000;

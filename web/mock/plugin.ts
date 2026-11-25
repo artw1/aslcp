@@ -28,7 +28,7 @@ function addLink(local: string, node: string, mode: string, dir: 'IN' | 'OUT', a
 }
 locals['2001'] = { links: [], rx: 0, tx: 0 };
 locals['1997'] = { links: [], rx: 0, tx: 0 };
-// Nodes with a SimpleUSB device in the mock (Audio Tuning); placeholder numbers.
+// Nodes with a SimpleUSB device in the mock (Audio levels); placeholder numbers.
 NODES.push({ node: '2000', callsign: 'TUNE1', description: 'Tuning test node', location: 'Exampleton, ST' }, { node: '2002', callsign: 'TUNE2', description: 'Second tuning node', location: 'Exampleton, ST' });
 byNode.set('2000', NODES[NODES.length - 2]); byNode.set('2002', NODES[NODES.length - 1]);
 locals['2000'] = { links: [], rx: 0, tx: 0 };

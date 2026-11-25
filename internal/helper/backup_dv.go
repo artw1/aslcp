@@ -135,7 +135,7 @@ func (o *Ops) dvRestartRestored(ctx context.Context) string {
 	}
 	out, code, err := o.Run.Run(ctx, "systemctl", "restart", dvEngineUnit+".service")
 	if err != nil || code != 0 {
-		return "the digital modes engine could not be restarted, restart it from the Digital modes page: " +
+		return "the digital modes engine could not be restarted, restart it in Settings, Digital Modes, Engine: " +
 			strings.TrimSpace(LastLines(out, 2)+" "+errOr(err))
 	}
 	return "the engine was restarted with the restored settings"

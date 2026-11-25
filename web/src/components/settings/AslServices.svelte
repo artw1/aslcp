@@ -90,7 +90,7 @@
           <button class="btn btn-danger" disabled={busy} onclick={() => start(s, 'disable')}>Turn off</button>
         {:else if s.scope === 'apache' && st.aslcpOnPort80}
           <p class="text-sm" role="note">ASLCP is using port 80. Move ASLCP to another port first.</p>
-          <a class="btn btn-sm" href="#/system/web-port">Go to Web port</a>
+          <a class="btn btn-sm" href="#/settings/web-port">Go to Web port</a>
         {:else}
           <button class="btn btn-primary" disabled={busy} onclick={() => start(s, 'enable')}>Turn on</button>
         {/if}

@@ -19,10 +19,11 @@ Mock logins: `admin`, `op` (operator) or `guest` (viewer), password `pass`. `MOC
 npm run build      # outputs web/dist
 ```
 
-The repository Makefile copies `web/dist` into `internal/webui/dist`, which the Go binary embeds with `go:embed` and serves at `/` (unknown non-`/api` paths fall back to `index.html`). Routing is hash-based (`#/`, `#/settings`), so the server needs no route knowledge.
+The repository Makefile copies `web/dist` into `internal/webui/dist`, which the Go binary embeds with `go:embed` and serves at `/` (unknown non-`/api` paths fall back to `index.html`). Routing is hash-based (`#/`, `#/settings/<section>`), so the server needs no route knowledge.
 
 ## Layout
 
 - `src/lib/` API client (`api.ts`), SSE + state stores (`store.svelte.ts`), actions, theme, router, toasts.
-- `src/components/` pages and widgets (Dashboard, ConnectBar, LinksTable, Favorites, Lookup, Settings, ...).
+- `src/components/` pages and widgets (Dashboard, ConnectBar, LinksTable, Favorites, Lookup, ...).
+- `src/components/settings/` the Settings area: the shell (left list on desktop, a select on phones) and `sections.ts`, the one list of its sections. A new section is one component plus one line there. Old routes (`#/config`, `#/tune`, `#/digital`, `#/backup`, `#/system/...`, `#/updates`) are rewritten to their `#/settings/<id>` by `MOVED` in `src/lib/sysnav.ts`.
 - `mock/plugin.ts` dev-only Vite plugin, enabled with `VITE_MOCK=1`; never included in the build output.

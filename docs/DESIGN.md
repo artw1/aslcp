@@ -77,7 +77,7 @@ Allow/deny lists live in AstDB and are managed through AMI database actions (UI 
 - WebSocket (terminal): a browser cannot send the CSRF header on a handshake, so the page POSTs (session cookie plus the custom header) for a one-time ticket (30 seconds, single use, tied to the user and the login session) and passes it as `?ticket=`. The upgrade also requires the cookie, the admin role and an `Origin` that matches the host (a missing one is refused). The CSP names the host's `ws://` and `wss://` in `connect-src`.
 - Login rate limiting.
 - Optional HTTPS: a self-signed certificate generated at install, or a user-supplied certificate.
-- Default port 8080, configurable, so ASLCP coexists with Allmon3 and Cockpit. With Apache off, the System tab can move ASLCP to port 80 (a systemd drop-in with `CAP_NET_BIND_SERVICE`, a 60 s revert timer if the new address is not opened) and the ASL services switch can stop and disable Cockpit, Apache and Allmon3 (never uninstall). The optional public status page is served on the same port without login (section 9.3).
+- Default port 8080, configurable, so ASLCP coexists with Allmon3 and Cockpit. With Apache off, Settings, System can move ASLCP to port 80 (a systemd drop-in with `CAP_NET_BIND_SERVICE`, a 60 s revert timer if the new address is not opened) and the ASL services switch can stop and disable Cockpit, Apache and Allmon3 (never uninstall). The optional public status page is served on the same port without login (section 9.3).
 
 ### 3.4 Privilege separation
 

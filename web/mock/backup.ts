@@ -27,7 +27,7 @@ const preview = () => ({
   node: { asl3Version: '3.10.8-1.deb13', asteriskVersion: '22.10.1+asl3-3.10.8-1.deb13', arch: 'arm64', osId: 'debian', osCodename: 'trixie', osName: 'Debian GNU/Linux 13 (trixie)' },
   warnings: [
     { code: 'os_release', message: "This backup was made on Debian 12 (bookworm); this node runs Debian 13 (trixie). Files you edited will replace the new release's defaults; the new defaults are kept next to them as .dpkg-dist. ASL3 changes some configs between releases (for example DAHDI timing is no longer needed), so if Asterisk or app_rpt does not start, compare your files against the .dpkg-dist copies." },
-    { code: 'dv_settings_not_restored', message: 'The backup holds the settings of the previous digital voice stack. ASLCP 2.0 does not restore them: set up digital modes again on the Digital modes page after the restore.' },
+    { code: 'dv_settings_not_restored', message: 'The backup holds the settings of the previous digital voice stack. ASLCP 2.0 does not restore them: set up digital modes again in Settings, Digital Modes, after the restore.' },
     { code: 'asl3_version', message: 'The backup was made on ASL3 3.10.7; this node runs 3.10.8. Stock files keep the new version.' },
   ],
   files,

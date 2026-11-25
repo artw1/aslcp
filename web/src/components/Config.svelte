@@ -100,8 +100,8 @@
 <svelte:window onbeforeunload={(e) => { if (dirtyPaths.length) e.preventDefault(); }} />
 
 <div class="flex flex-wrap items-center gap-2 pb-2">
-  <h1 class="mr-2 text-base font-semibold">Config</h1>
-  <div class="flex gap-0.5" role="tablist" aria-label="Config sections">
+  <h2 class="mr-2 text-base font-semibold">Asterisk files</h2>
+  <div class="flex gap-0.5" role="tablist" aria-label="Asterisk files sections">
     {#each [['files', 'Files'], ['history', 'History']] as const as [id, label]}
       <button role="tab" aria-selected={tab === id} class="rounded px-2 py-1 text-[13px] font-medium {tab === id ? 'bg-surface-2 text-fg' : 'text-muted hover:text-fg'}" onclick={() => (tab = id)}>{label}{#if id === 'files' && dirtyPaths.length}<span class="ml-1 text-accent" title="{dirtyPaths.length} modified">●</span>{/if}</button>
     {/each}

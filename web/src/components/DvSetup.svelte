@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Digital modes setup, in the order of the setup flow: identity, bridge node and audio. Networks are managed on the DV page.
+  // One part of the Digital Modes settings (Identity, Bridge node or Audio sections). Networks are managed on the DV page.
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
   import { toast } from '../lib/toast.svelte';
@@ -12,8 +12,10 @@
   import DvIdentity from './DvIdentity.svelte';
   import DvAudio from './DvAudio.svelte';
 
-  // `resume` (the Engine card's switch) says which mode the echo test returns to; `reloadResume` refreshes it.
-  let { resume, reloadResume }: { resume: DVResume | null; reloadResume: () => Promise<void> } = $props();
+  let { part }: { part: 'identity' | 'bridge' | 'audio' } = $props();
+  // The Engine section's resume switch says which mode the echo test returns to.
+  let resume = $state<DVResume | null>(null);
+  async function reloadResume() { try { resume = await api.dvResume(); } catch { /* no tracker: no switch */ } }
   let v = $state<DVSetup | null>(null), err = $state(''), busy = $state(false);
   const base = () => Object.fromEntries((v?.files ?? []).filter((f) => f.sha256).map((f) => [f.id, f.sha256]));
   const modes = $derived(app.dv?.modes);
@@ -26,7 +28,7 @@
   async function loadNets() {
     try { const r = await api.dvNetworks(); identity = r.identity; audio = r.audio ?? null; } catch { identity = null; audio = null; }
   }
-  onMount(() => { load(); loadNets(); });
+  onMount(() => { load(); loadNets(); if (part === 'audio') void reloadResume(); });
   // Audio card: the echo test is the engine's LOOP mode, switched with POST /api/dv/mode like any mode.
   // Stop switches back to the mode in effect before Start (the server re-tunes that mode's remembered tune).
   const echoOn = $derived(echoRunning(app.dv));
@@ -51,12 +53,13 @@
   <p class="text-sm text-muted">{err || 'Loading…'}</p>
 {:else}
   <div class="space-y-4">
-    {#if identity}
+    {#if part === 'identity' && identity}
       <DvIdentity {identity} onsaved={(i) => { identity = i; loadNets(); }} />
     {/if}
 
-    <DvBridge b={v.bridgeNode} base={base()} onsaved={load} />
+    {#if part === 'bridge'}<DvBridge b={v.bridgeNode} base={base()} onsaved={load} />{/if}
 
+    {#if part === 'audio'}
     <section class="card space-y-2 p-4" aria-label="Audio" data-testid="dv-echo">
       <div class="flex flex-wrap items-center gap-2">
         <h2 class="text-base font-semibold">Audio</h2>
@@ -71,5 +74,6 @@
       <p class="text-xs text-muted" data-testid="dv-echo-hint">{ECHO_HINT}{#if !echoReady && !echoOn} The digital modes engine is not running.{/if}</p>
       {#if audio}<DvAudio {audio} onsaved={(a) => { audio = a; loadNets(); }} />{/if}
     </section>
+    {/if}
   </div>
 {/if}

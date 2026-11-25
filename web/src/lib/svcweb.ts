@@ -1,4 +1,4 @@
-// Types and pure helpers of the System tab's "ASL services" and "Web port"
+// Types and pure helpers of the Settings "ASL web services" and "Web port"
 // sections (docs/API.md "ASL services and web port"). No imports from the app,
 // so node:test runs it directly.
 

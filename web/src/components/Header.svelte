@@ -1,7 +1,7 @@
 <script lang="ts">
   import { app, logout, isAdmin } from '../lib/store.svelte';
   import { router, navigate } from '../lib/router.svelte';
-  import { isSystemPath } from '../lib/sysnav';
+  import { isSettingsPath } from '../lib/sysnav';
   import { theme, cycleTheme } from '../lib/theme.svelte';
   import Radio from '@lucide/svelte/icons/radio-tower';
   import Sun from '@lucide/svelte/icons/sun';
@@ -14,10 +14,11 @@
   import MenuIcon from '@lucide/svelte/icons/menu';
   import X from '@lucide/svelte/icons/x';
   import Eye from '@lucide/svelte/icons/eye';
+  import Gear from '@lucide/svelte/icons/settings';
   import { fade, fly } from 'svelte/transition';
   import NowCalling from './NowCalling.svelte';
 
-  const nav = $derived([['/', 'Dashboard'], ['/allstar', 'ASL'], ...(app.dv?.installed ? [['/dv', 'DV']] : []), ['/schedules', 'Schedules'], ...(isAdmin() ? [['/config', 'Config']] : []), ...(isAdmin() && app.tune.devices.length ? [['/tune', 'Audio Tuning']] : []), ...(isAdmin() ? [['/digital', 'Digital modes']] : []), ['/settings', 'Settings'], ...(isAdmin() ? [['/backup', 'Backup'], ['/system', 'System']] : [])] as [string, string][]);
+  const nav = $derived([['/', 'Dashboard'], ['/allstar', 'ASL'], ...(app.dv?.installed ? [['/dv', 'DV']] : []), ['/schedules', 'Schedules']] as [string, string][]);
   // Admin only: counts only (SSE "updates"); security updates or a reboot use the warn color.
   const updCount = $derived((app.updates.aslcp || (app.system?.updateAvailable ?? false) ? 1 : 0) + app.updates.os);
   const updWarn = $derived(app.updates.security > 0 || app.updates.reboot);
@@ -27,11 +28,11 @@
   let open = $state(false);
   let menuBtn: HTMLButtonElement | undefined = $state();
   const showDot = $derived(isAdmin() && (updCount > 0 || app.updates.reboot));
-  const pageName = $derived(isSystemPath(router.path) ? 'System' : router.path === '/public' ? 'Public view' : (nav.find(([p]) => p === router.path)?.[1] ?? ''));
+  const pageName = $derived(isSettingsPath(router.path) ? 'Settings' : router.path === '/public' ? 'Public view' : (nav.find(([p]) => p === router.path)?.[1] ?? ''));
   const dur = () => (matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 150);
-  const operate = $derived(nav.filter(([p]) => ['/', '/allstar', '/dv', '/schedules'].includes(p)));
-  const admin = $derived(nav.filter(([p]) => ['/config', '/tune', '/digital', '/backup', '/system'].includes(p)));
-  const isHere = (path: string) => (path === '/system' ? isSystemPath(router.path) : router.path === path);
+  const isHere = (path: string) => router.path === path;
+  const inSettings = $derived(isSettingsPath(router.path));
+  const adminSettings = $derived(inSettings && router.path !== '/settings/account' && router.path !== '/settings/about');
   $effect(() => { void router.path; open = false; });
   $effect(() => {
     const mq = matchMedia('(min-width: 80rem)');
@@ -70,12 +71,12 @@
       {#each nav as [path, label]}
         {@const here = isHere(path)}
         <a href={'#' + path} aria-current={here ? 'page' : undefined}
-          class="rounded px-2 py-1 text-[13px] font-medium {here ? 'bg-surface-2 text-fg' : 'text-muted hover:text-fg'}">{label}{#if path === '/system' && (updCount > 0 || app.updates.reboot)}<span class="ml-1 inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-4 text-black {updWarn ? 'bg-warn' : 'bg-accent'}" aria-label={updTitle}>{updCount > 0 ? updCount : '!'}</span>{/if}</a>
+          class="rounded px-2 py-1 text-[13px] font-medium {here ? 'bg-surface-2 text-fg' : 'text-muted hover:text-fg'}">{label}</a>
       {/each}
     </nav>
     <div class="flex items-center gap-1.5 xl:ml-auto">
       {#if isAdmin() && (updCount > 0 || app.updates.reboot) && !app.updating}
-        <a href="#/system/updates" class="badge hidden xl:inline-flex {updWarn ? 'text-warn' : 'text-accent'}" title={updTitle}>{app.updates.reboot && updCount === 0 ? 'Reboot needed' : `${updCount} update${updCount === 1 ? '' : 's'}`}</a>
+        <a href="#/settings/updates" class="badge hidden xl:inline-flex {updWarn ? 'text-warn' : 'text-accent'}" title={updTitle}>{app.updates.reboot && updCount === 0 ? 'Reboot needed' : `${updCount} update${updCount === 1 ? '' : 's'}`}</a>
       {/if}
       <span class="badge {app.conn === 'live' ? 'text-ok' : 'text-warn'}" role="status" aria-label="Connection: {connLabel}">
         {#if app.conn === 'live'}<Wifi size={13} />{:else}<WifiOff size={13} />{/if}{connLabel}
@@ -83,6 +84,9 @@
       <button class="btn btn-sm btn-icon hidden xl:inline-flex" onclick={cycleTheme} aria-label={themeLabel} title={themeLabel}>
         {#if theme.value === 'dark'}<Moon size={16} />{:else if theme.value === 'light'}<Sun size={16} />{:else}<Monitor size={16} />{/if}
       </button>
+      {#if isAdmin()}
+        <a href="#/settings" class="btn btn-sm btn-icon hidden xl:inline-flex {inSettings ? 'bg-surface-2 text-fg' : ''}" aria-label="Settings" title="Settings" aria-current={inSettings ? 'page' : undefined}><Gear size={16} /></a>
+      {/if}
       <div class="relative hidden xl:block" data-usermenu>
         <button class="btn btn-sm" aria-haspopup="menu" aria-expanded={menu} onclick={() => (menu = !menu)}>
           <User size={15} /><span>{app.user?.username}</span>
@@ -90,7 +94,8 @@
         {#if menu}
           <div role="menu" class="absolute right-0 mt-1 w-48 rounded border border-line bg-surface p-1 shadow-md">
             <div class="px-3 py-1.5 text-xs text-muted">{app.user?.username} · {app.user?.role}</div>
-            <button role="menuitem" class="btn w-full justify-start border-transparent" onclick={() => { menu = false; navigate('/settings'); }}>Settings</button>
+            <button role="menuitem" class="btn w-full justify-start border-transparent" onclick={() => { menu = false; navigate('/settings/account'); }}>Account</button>
+            <button role="menuitem" class="btn w-full justify-start border-transparent" onclick={() => { menu = false; navigate('/settings/about'); }}>About</button>
             {#if app.publicEnabled}<button role="menuitem" class="btn w-full justify-start border-transparent" onclick={() => { menu = false; navigate('/public'); }}>Public view</button>{/if}
             <button role="menuitem" class="btn w-full justify-start border-transparent" onclick={logout}><LogOut size={15} />Sign out</button>
           </div>
@@ -109,20 +114,18 @@
       <div class="mx-auto max-w-[1100px] px-3 py-2 sm:px-4">
         <nav class="sm:ml-auto sm:max-w-xs" aria-label="Main">
           {#if isAdmin() && (updCount > 0 || app.updates.reboot) && !app.updating}
-            <a href="#/system/updates" onclick={() => (open = false)} class="badge mb-1 min-h-11 w-full justify-center rounded-md text-sm {updWarn ? 'text-warn' : 'text-accent'}" title={updTitle}>{app.updates.reboot && updCount === 0 ? 'Reboot needed' : `${updCount} update${updCount === 1 ? '' : 's'}`}</a>
+            <a href="#/settings/updates" onclick={() => (open = false)} class="badge mb-1 min-h-11 w-full justify-center rounded-md text-sm {updWarn ? 'text-warn' : 'text-accent'}" title={updTitle}>{app.updates.reboot && updCount === 0 ? 'Reboot needed' : `${updCount} update${updCount === 1 ? '' : 's'}`}</a>
           {/if}
-          <p class="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted">Operate</p>
-          {#each operate as [path, label]}
+          {#each nav as [path, label]}
             <a href={'#' + path} onclick={() => (open = false)} aria-current={isHere(path) ? 'page' : undefined} class={item(isHere(path))}>{label}</a>
           {/each}
-          {#if admin.length}
-            <p class="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted">Admin</p>
-            {#each admin as [path, label]}
-              <a href={'#' + path} onclick={() => (open = false)} aria-current={isHere(path) ? 'page' : undefined} class={item(isHere(path))}>{label}{#if path === '/system' && (updCount > 0 || app.updates.reboot)}<span class="inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-4 text-black {updWarn ? 'bg-warn' : 'bg-accent'}" aria-label={updTitle}>{updCount > 0 ? updCount : '!'}</span>{/if}</a>
-            {/each}
-          {/if}
           <div class="mt-2 border-t border-line pt-2">
-            <a href="#/settings" onclick={() => (open = false)} aria-current={router.path === '/settings' ? 'page' : undefined} class={item(router.path === '/settings')}>Settings</a>
+            {#if isAdmin()}<a href="#/settings" onclick={() => (open = false)} aria-current={adminSettings ? 'page' : undefined} class={item(adminSettings)}>Settings</a>{/if}
+            <a href="#/settings/account" onclick={() => (open = false)} aria-current={router.path === '/settings/account' ? 'page' : undefined} class={item(router.path === '/settings/account')}>Account</a>
+            <a href="#/settings/about" onclick={() => (open = false)} aria-current={router.path === '/settings/about' ? 'page' : undefined} class={item(router.path === '/settings/about')}>About</a>
+            {#if app.publicEnabled}
+              <button class={item(router.path === '/public')} onclick={() => { open = false; navigate('/public'); }}><span class="flex items-center gap-2"><Eye size={16} />Public view</span></button>
+            {/if}
           </div>
         </nav>
         <div class="mt-2 border-t border-line pt-2 sm:ml-auto sm:max-w-xs">
@@ -130,9 +133,6 @@
             <span class="flex items-center gap-2">{#if theme.value === 'dark'}<Moon size={16} />{:else if theme.value === 'light'}<Sun size={16} />{:else}<Monitor size={16} />{/if}Theme</span>
             <span class="text-xs capitalize">{theme.value}</span>
           </button>
-          {#if app.publicEnabled}
-            <button class={item(router.path === '/public')} onclick={() => { open = false; navigate('/public'); }}><span class="flex items-center gap-2"><Eye size={16} />Public view</span></button>
-          {/if}
           <p class="flex min-h-11 items-center gap-2 px-3 text-xs text-muted"><User size={15} />{app.user?.username} · {app.user?.role}</p>
           <button class={item(false)} onclick={logout}><span class="flex items-center gap-2"><LogOut size={16} />Sign out</span></button>
         </div>

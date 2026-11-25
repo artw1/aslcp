@@ -18,7 +18,7 @@ const CODE: Record<string, string> = {
   mode_disabled: 'That mode is disabled.',
   not_available: 'That mode is not yet available in this build.',
   unknown_target: 'That target is not in the host list.',
-  not_enabled: 'Digital modes are not enabled. Enable them on the Digital modes page first.',
+  not_enabled: 'Digital modes are not enabled. Turn the engine on in the Digital Modes settings first.',
   not_supported: 'This node cannot run the digital modes engine.',
   busy: 'The engine is busy with a call. Try again in a moment.',
 };

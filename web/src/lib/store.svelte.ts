@@ -23,7 +23,7 @@ export const app = $state<{
   publicEnabled: boolean; embed: boolean;
   /** This page was opened over the setup hotspot (GET /api/setup): a login typed here is not encrypted. */
   hotspot: boolean;
-  /** SimpleUSB devices (admins only); the Audio Tuning tab shows only when there is one. */
+  /** SimpleUSB devices (admins only); the Audio levels section is listed only when there is one. */
   tune: { loaded: boolean; devices: TuneDevice[]; reason: string };
   /** Favorites activity scan: switch, state and the latest values per node. */
   favstats: { enabled: boolean; rate: number; effRate: number; backoff: boolean; backoffReason: string; retryAt: number | null; updated: number | null; stats: Record<string, FavActivity>; checking: string; next: string; nextAt: number | null; checked: number; total: number | null; checkedAt: Record<string, number> };
@@ -175,7 +175,7 @@ export function stopEvents() {
   es?.close(); es = null; app.conn = 'offline';
 }
 
-/** Admins only: find out whether any node has a SimpleUSB device (the Audio Tuning tab depends on it). */
+/** Admins only: find out whether any node has a SimpleUSB device (the Audio levels section depends on it). */
 export async function refreshTune() {
   if (!isAdmin()) { app.tune = { loaded: true, devices: [], reason: '' }; return; }
   try { const l = await api.tuneList(); app.tune = { loaded: true, devices: l.devices, reason: l.reason ?? '' }; }

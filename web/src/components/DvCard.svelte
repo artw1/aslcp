@@ -187,19 +187,19 @@
 </script>
 
 {#if snap?.installed}
-  <section class="space-y-2 rounded-md border px-2 py-1.5 text-sm {linked ? 'border-ok/50 bg-ok/10' : 'border-line bg-surface'}" aria-label="Digital modes" data-linked={linked}>
+  <section class="space-y-2 rounded-md border px-2 py-1.5 text-sm {linked ? 'border-ok/50 bg-ok/10' : 'border-line bg-surface'}" aria-label="Digital Modes" data-linked={linked}>
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <span class="inline-flex items-center gap-1.5 text-base font-semibold"><RadioTower size={16} class="text-accent" aria-hidden="true" />Digital modes</span>
+      <span class="inline-flex items-center gap-1.5 text-base font-semibold"><RadioTower size={16} class="text-accent" aria-hidden="true" />Digital Modes</span>
       <span class="badge {pill.cls}" title={stateTitle(snap)} data-tone={tone} data-testid="dv-status">{pill.text}</span>
       <span class="sr-only">{stateLine(b, reflectorSilent(snap))}</span>
       {#if master}<span class="min-w-0 max-w-full truncate text-xs text-muted" title={masterTitle} data-testid="dv-master">{master}</span>{/if}
       <span class="sr-only">{ok ? 'All services running' : 'A service is down or the state is unknown'}</span>
       {#if linked}<span class="sr-only">Bridge node linked</span>{/if}
-      {#if admin}<a href="#/digital" class="ml-auto text-xs text-accent underline hover:no-underline">Setup</a>{/if}
+      {#if admin}<a href="#/settings/dv-engine" class="ml-auto text-xs text-accent underline hover:no-underline">DV settings</a>{/if}
     </div>
 
     {#if !snap.running}
-      <p class="text-warn">The digital modes engine is not running.{admin ? ' Start it from the Digital modes tab.' : ''}</p>
+      <p class="text-warn">The digital modes engine is not running.{admin ? ' Start it in the Digital Modes settings.' : ''}</p>
     {/if}
     {#if quiet}
       <p class="flex flex-wrap items-center gap-2 text-warn" role="status" data-testid="dv-quiet">{quiet.text}
@@ -219,7 +219,7 @@
                 <div class="text-[11px] uppercase tracking-wide text-muted">{mode === 'LOOP' ? 'Echo test' : `${modeLabel(mode)} ${isDMRFamily(mode) ? 'talkgroup' : 'reflector'}`}</div>
                 {#if mode === 'LOOP'}
                   <div class="truncate font-medium text-ok">{ECHO_RUNNING}</div>
-                  <a href="#/digital" class="text-xs text-accent underline hover:no-underline" data-testid="dv-echo-link">{admin ? 'Stop it in Digital modes setup' : 'Pick a mode to stop it'}</a>
+                  <a href="#/settings/dv-audio" class="text-xs text-accent underline hover:no-underline" data-testid="dv-echo-link">{admin ? 'Stop it in Digital Modes settings' : 'Pick a mode to stop it'}</a>
                 {:else if targetLinked}
                   <div class="truncate font-medium {reflectorSilent(snap) ? 'text-warn' : 'text-ok'}" title={targetFull}>{targetMain}</div>
                   {#if targetSub}<div class="truncate font-mono text-xs text-muted" title={targetFull}>{targetSub}</div>{/if}
@@ -256,14 +256,14 @@
       </div>
     {/if}
     {#if snap.running && !snap.bridgeNode.present}
-      <p class="text-muted">No bridge node yet: audio through AllStar needs the bridge node setup{admin ? ' (Digital modes tab).' : '.'}</p>
+      <p class="text-muted">No bridge node yet: audio through AllStar needs the bridge node setup{admin ? ' (Digital Modes settings).' : '.'}</p>
     {/if}
 
     {#if op && live}
       {@const modes = dashboardModes(snap.modes, shown)}
       <form class="space-y-1.5" data-testid="dv-controls" onsubmit={(e) => { e.preventDefault(); void go(); }}>
         {#if modes.length === 0}
-          <p class="text-muted" data-testid="dv-no-modes">No modes enabled.{#if admin} <a href="#/digital" class="text-accent underline hover:no-underline">Setup</a>{/if}</p>
+          <p class="text-muted" data-testid="dv-no-modes">No modes enabled.{#if admin} <a href="#/settings/dv-engine" class="text-accent underline hover:no-underline">DV settings</a>{/if}</p>
         {:else}
         <div class="text-[11px] uppercase tracking-wide text-muted">Mode</div>
         <div class="flex flex-wrap items-stretch gap-1.5 md:flex-nowrap">

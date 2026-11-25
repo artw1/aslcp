@@ -1,6 +1,6 @@
 # SimpleUSB audio tuning from the web UI
 
-Status: implemented in 1.1.6 (tone removed in beta.8) (admin-only "Audio Tuning" page, `/api/radio`). Sections 1 to 9 are the original design; "Implementation notes" near the end lists what differs and what is not yet verified on hardware. Node numbers below are placeholders (1999, 1998).
+Status: implemented in 1.1.6 (tone removed in beta.8) (admin-only "Audio levels" page (named "Audio Tuning" before 2.4.0), `/api/radio`). Sections 1 to 9 are the original design; "Implementation notes" near the end lists what differs and what is not yet verified on hardware. Node numbers below are placeholders (1999, 1998).
 
 > **The TX test tone was removed in 1.1.8.** `susb tune flash` is meant to key three 1 s bursts. On the bench the tones were intermittent, even when `susb tune flash` was run directly with `asterisk -rx`, with no ASLCP involved, while `simpleusb-tune-menu` played them consistently. The likely cause is a race with app_rpt on the channel generator, which is in the driver and not something ASLCP can fix. The maintainer decided the panel does not need the feature. The page now says: for a steady test tone (e.g. with a deviation meter), use `simpleusb-tune-menu` in a terminal. Everything below that describes the tone, `flash`, the channel-up pre-flight check, tone rate limits, `POST /api/radio/{dev}/tone` and the dedicated AMI connection is the original design, kept as history; none of it is in the code any more.
 
@@ -374,7 +374,7 @@ Code: `internal/susb` (service, parsing, closed command set), `internal/api/hand
 
 Differences from the design above:
 
-- Admin only (not operator). The tab is at `#/tune`, shown only to admins and only when a SimpleUSB device exists; the route shows an empty-state page otherwise.
+- Admin only (not operator). The page is Settings, AllStarLink, Audio levels (`#/settings/audio-levels`; the old `#/tune` link redirects), listed only to admins and only when a SimpleUSB device exists; the page shows an empty state otherwise.
 - The meter is polled over REST (`GET /api/radio/{dev}/meter`, about once a second), not SSE. At most one read per 700 ms reaches the driver.
 - Revert sets the baseline values (simpleusb.conf laid over the running state) back with the set commands. `susb tune load` is not used: it reads the interface EEPROM, not the file.
 - A save whose file does not show a running value, or whose history record fails, is reported as a warning, not an error.
