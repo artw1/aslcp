@@ -18,7 +18,7 @@
   // Updates carries the same badge as the header, on the System group and on its Updates tab.
   const updCount = $derived((app.updates.aslcp || (app.system?.updateAvailable ?? false) ? 1 : 0) + app.updates.os);
   const hasBadge = $derived(admin && (updCount > 0 || app.updates.reboot));
-  // Keep the active pill and tab visible in the one-line rows on phones.
+  // Keep the active button and tab visible in the one-line rows on phones.
   $effect(() => {
     void route.group; void route.tab;
     queueMicrotask(() => document.querySelectorAll('nav[aria-label^="Settings groups"] [aria-current], nav[aria-label$=" sections"] [aria-current]')
@@ -28,21 +28,21 @@
 </script>
 
 <div class="space-y-4">
-  <!-- Two bars: groups as pills, then (tabbed groups only) a tinted strip of underlined tabs. Each row is one line and scrolls sideways on phones. -->
+  <!-- Two bars: groups as buttons, then (tabbed groups only) a tinted strip of underlined tabs. Each row is one line and scrolls sideways on phones. -->
   <div class="border-b border-line pb-4">
     <nav class="no-scrollbar flex gap-1.5 overflow-x-auto" aria-label="Settings groups">
       {#each openable as g (g.id)}
         <a href={'#/settings/' + g.id} aria-current={g.id === grp.id ? 'page' : undefined}
-          class="inline-flex min-h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-[13px] font-medium transition-colors {g.id === grp.id ? 'border-transparent bg-accent text-accent-fg' : 'border-line bg-surface text-muted hover:bg-surface-2 hover:text-fg'}">
+          class="btn shrink-0 whitespace-nowrap {g.id === grp.id ? 'btn-primary' : ''}">
           {g.label}{#if g.id === 'system' && hasBadge}<span class="size-2 rounded-full {badgeClass}" aria-label="updates available"></span>{/if}
         </a>
       {/each}
     </nav>
     {#if grp.tabs}
-      <nav class="no-scrollbar mt-2 flex gap-1 overflow-x-auto rounded border border-line bg-surface-2 px-2" aria-label="{grp.label} sections">
+      <nav class="no-scrollbar mt-2 flex gap-1 overflow-x-auto rounded border border-line bg-surface-2 px-1.5" aria-label="{grp.label} sections">
         {#each tabs as t (t.id)}
           <a href={'#/settings/' + grp.id + '/' + t.id} aria-current={t.id === route.tab ? 'page' : undefined}
-            class="-mb-px inline-flex min-h-11 shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-[13px] font-medium transition-colors md:min-h-10 {t.id === route.tab ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-fg'}">
+            class="-mb-px inline-flex min-h-[1.9rem] shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 text-[13px] font-medium pointer-coarse:min-h-11 transition-colors {t.id === route.tab ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-fg'}">
             {t.label}{#if t.id === 'updates' && hasBadge}<span class="size-2 rounded-full {badgeClass}" aria-label="updates available"></span>{/if}
           </a>
         {/each}
