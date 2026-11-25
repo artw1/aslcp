@@ -4,7 +4,7 @@ A modern web control panel for [AllStarLink 3](https://www.allstarlink.org/) nod
 
 ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly web page to connect and disconnect links, watch live status and keep your favorites, in the spirit of [AllScan](https://allscan.info/). It also edits your Asterisk configuration, runs scheduled links, backs up and restores the whole node, and has built-in digital voice modes (DMR, YSF, P25 and NXDN).
 
-![ASLCP dashboard, desktop](docs/images/dashboard-desktop.png)
+![ASLCP Dashboard, desktop](docs/images/dashboard-desktop.png)
 
 ## Features
 
@@ -27,7 +27,7 @@ ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly w
 - Small and safe: one static binary, runs as an unprivileged, hardened systemd service; a tiny root helper performs only package updates, firewall changes and similar system tasks.
 
 <p>
-  <img src="docs/images/dashboard-mobile.png" alt="ASLCP dashboard on a phone" width="260">
+  <img src="docs/images/dashboard-mobile.png" alt="ASLCP Dashboard on a phone" width="260">
   <img src="docs/images/settings-updates.png" alt="Settings, Updates section" width="520">
 </p>
 
@@ -204,13 +204,13 @@ ASLCP 2.0 has its own digital voice engine, `aslcp-dv`, so a node can talk on di
 
 Enable digital modes in **Settings, Digital Modes** (or `sudo aslcp dv enable`, or `ASLCP_DV=1` at install). Enter your callsign and DMR ID, then turn on and set up the networks you want on the **DV** page. `sudo aslcp dv status` shows the state and `sudo aslcp dv disable` stops the engine and keeps your settings. Enabling installs only the md380 vocoder. It needs a 64-bit OS (32-bit armhf is not supported).
 
-On the dashboard, the **Digital modes** card shows the bridge node, switches mode, tunes a talkgroup or reflector, unlinks, has a Parrot button for BrandMeister and keeps favorites. **Now calling** (a red strip on every page) shows who is talking, with callsign, name, place, network, talkgroup and timeslot, and **Last heard** lists recent calls. The engine resumes in the last mode after a restart. More in [docs/DV.md](docs/DV.md).
+On the **DV** page, the Digital Modes card shows the bridge node and its link, has a button for each enabled mode, a tune entry (a trailing `#` makes a private DMR call), favorites and an **Unlink** button, and the **Modes** panel opens each network's switch and settings. The **Dashboard** has a DV tile with the same **Unlink** button. **Now calling** (a red strip on every page) shows who is talking, with callsign, name, place, network, talkgroup and timeslot, and **Last heard** lists recent calls. The engine resumes in the last mode after a restart. More in [docs/DV.md](docs/DV.md).
 
-![Digital modes card on the dashboard](docs/images/dashboard-digital.png)
+![DV page, Digital Modes card](docs/images/dashboard-digital.png)
 
-![Digital modes networks](docs/images/digital-networks.png)
+![DV page, BrandMeister network panel](docs/images/digital-networks.png)
 
-![Digital modes setup](docs/images/digital-setup.png)
+![Settings, Digital Modes](docs/images/digital-setup.png)
 
 ## Public status page
 
