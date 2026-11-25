@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIRM_MS, dashboardModes, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, masterLine, MASTER_MAX, quietHint, QUIET_MS, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, isTargetLinked, pendingOutcome, rxCaller, reflectorSilent, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate, m17Tune, m17Split, m17Display, M17_MODULES } from './dvpanel.ts';
+import { netChip, stripModes, heardRow, CONFIRM_MS, dashboardModes, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, masterLine, MASTER_MAX, quietHint, QUIET_MS, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, isTargetLinked, unlinkPlan, pendingOutcome, rxCaller, reflectorSilent, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate, m17Tune, m17Split, m17Display, M17_MODULES } from './dvpanel.ts';
 import type { DVFavorite, DVSnapshot } from './types';
 
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
@@ -31,7 +31,7 @@ test('service dots are amber for a down unit or an unknown state', () => {
   assert.ok(!allOk(null));
 });
 
-test('favourite names', () => {
+test('favorite names', () => {
   assert.equal(validFavName('  Example room '), 'Example room');
   assert.equal(validFavName(''), null);
   assert.equal(validFavName('   '), null);
@@ -50,26 +50,26 @@ test('tune values follow the server rules', () => {
   assert.ok(validTune('YSF', '00001') && validTune('YSF', 'US-Example') && validTune('YSF', '192.0.2.10:42000') && validTune('YSF', 'disconnect'));
   assert.ok(!validTune('YSF', '192.0.2.10:70000') && !validTune('YSF', 'a=b') && !validTune('YSF', '-x') && !validTune('YSF', 'a;b') && !validTune('YSF', 'x'.repeat(33)));
   assert.ok(validTune('M17', 'M17-XXX C') && validTune('M17', 'M17-0A9 Z'));
-  assert.ok(!validTune('M17', 'disconnect')); // never a favourite or a Go value; Unlink sends it
+  assert.ok(!validTune('M17', 'disconnect')); // never a favorite or a Go value; Unlink sends it
   assert.ok(!validTune('M17', 'M17-XXX') && !validTune('M17', 'M17-XXX c') && !validTune('M17', 'M17-XX C') && !validTune('M17', 'M17-XXXX C') && !validTune('M17', 'M17-XXX CC'));
   assert.ok(!validTune('DSTAR', '1'));
   assert.ok(validTune('DMR', ' 91 '));
 });
 
-const fav = (id: number, mode: DVFavorite['mode'], value: string, sort = id): DVFavorite => ({ id, mode, value, name: `f${id}`, sort });
+const fav = (id: number, mode: DVFavorite['mode'], value: string, sort = id): DVFavorite => ({ id, mode, value, name: `f${id}`, sort, pinned: false });
 
-test('favourites per mode, ordered, and why a save is blocked', () => {
+test('favorites per mode, ordered, and why a save is blocked', () => {
   const favs = [fav(1, 'YSF', '00001', 5), fav(2, 'DMR', '91'), fav(3, 'YSF', '00002', 1)];
   assert.deepEqual(favoritesFor(favs, 'YSF').map((f) => f.id), [3, 1]);
   assert.equal(favoriteBlock(favs, 'YSF', '00003'), null);
-  assert.equal(favoriteBlock(favs, 'YSF', '00001'), 'Already a favourite');
+  assert.equal(favoriteBlock(favs, 'YSF', '00001'), 'Already a favorite');
   assert.match(favoriteBlock(favs, 'DMR', '') ?? '', /no valid target/);
   const many = Array.from({ length: 50 }, (_, i) => fav(i + 10, 'P25', String(i + 1)));
   assert.match(favoriteBlock(many, 'P25', '99') ?? '', /At most 50/);
   assert.equal(favoriteBlock(many, 'NXDN', '99'), null);
 });
 
-test('default favourite name', () => {
+test('default favorite name', () => {
   assert.equal(defaultFavName({ tune: '91', targetName: 'World wide' }), 'World wide');
   assert.equal(defaultFavName({ tune: '91' }), '91');
   assert.equal(defaultFavName({ tune: '', targetName: undefined }), '');
@@ -195,10 +195,10 @@ test('DMR private call: a trailing # is accepted for DMR only', () => {
   assert.equal(withPrivate('P25', '10100', true), '10100');
 });
 
-test('a private call is a favourite with its #, apart from the plain talkgroup', () => {
-  const favs: DVFavorite[] = [{ id: 1, mode: 'DMR', value: '9990', name: 'x', sort: 0 }];
+test('a private call is a favorite with its #, apart from the plain talkgroup', () => {
+  const favs: DVFavorite[] = [{ id: 1, mode: 'DMR', value: '9990', name: 'x', sort: 0, pinned: false }];
   assert.equal(favoriteBlock(favs, 'DMR', '9990#'), null);
-  assert.equal(favoriteBlock(favs, 'DMR', '9990'), 'Already a favourite');
+  assert.equal(favoriteBlock(favs, 'DMR', '9990'), 'Already a favorite');
 });
 
 test('bridge RX target of a private call, and the caller', () => {
@@ -313,7 +313,9 @@ test('the echo test has no mode button and the state line says it runs', () => {
     { id: 'TGIF', enabled: false, available: true, unlink: '4000' },
     { id: 'YSF', enabled: false, available: false, unlink: 'disconnect' },
   ];
-  assert.deepEqual(dashboardModes(modes).map((m) => m.id), ['BM', 'YSF']);
+  assert.deepEqual(dashboardModes(modes).map((m) => m.id), ['BM']);
+  assert.deepEqual(dashboardModes(modes, 'YSF').map((m) => m.id), ['BM', 'YSF']);
+  assert.deepEqual(dashboardModes(modes, 'LOOP').map((m) => m.id), ['BM']);
   assert.equal(stateLine({ mode: 'LOOP', tune: '', source: 'aslcp-dv' }), 'Echo test running');
   assert.equal(stateLine({ mode: 'LOOP', tune: '9990', targetName: 'Parrot', source: 'aslcp-dv' }), 'Echo test running');
   assert.equal(stateLine({ mode: 'LOOP', tune: '', source: 'none' }), 'Mode unknown');
@@ -379,6 +381,73 @@ test('M17: tune value, split and display', () => {
   assert.equal(modeLabel('M17'), 'M17');
   assert.ok(PANEL_MODES.includes('M17'));
   assert.equal(favoriteBlock([], 'M17', 'M17-XXX C'), null);
-  assert.equal(favoriteBlock([fav(1, 'M17', 'M17-XXX C')], 'M17', 'M17-XXX C'), 'Already a favourite');
+  assert.equal(favoriteBlock([fav(1, 'M17', 'M17-XXX C')], 'M17', 'M17-XXX C'), 'Already a favorite');
   assert.match(favoriteBlock([], 'M17', 'M17-XXX') ?? '', /no valid target/);
+});
+
+test('Last heard: a YSF call shows the reflector, never a talkgroup', () => {
+  assert.equal(heardLine({ call: 'N0CALL', dst: '203.0.113.5:42000', mode: 'YSF', dstName: 'US-EXAMPLE', at: '2026-11-25T10:00:00' }), 'N0CALL · YSF US-EXAMPLE · 10:00:00');
+  assert.equal(heardLine({ call: 'N0CALL', dst: '203.0.113.5:42000', mode: 'YSF' }), 'N0CALL · YSF 203.0.113.5:42000');
+  assert.equal(heardLine({ call: 'N0CALL', dst: '91', slot: 2, mode: undefined }), 'N0CALL · TG 91 · TS2');
+});
+
+test('mode button states', () => {
+  assert.deepEqual(netChip({ id: 'TGIF', enabled: false, login: 'ok' }), { tone: 'off', text: 'Disabled' });
+  assert.deepEqual(netChip({ id: 'TGIF', enabled: true, login: 'ok' }), { tone: 'ok', text: 'Logged in' });
+  assert.deepEqual(netChip({ id: 'DMR', enabled: true, login: 'failed' }), { tone: 'err', text: 'Login failed' });
+  assert.deepEqual(netChip({ id: 'BM', enabled: true, login: 'pending' }), { tone: 'warn', text: 'Logging in' });
+  assert.deepEqual(netChip({ id: 'BM', enabled: true }), { tone: 'off', text: 'Enabled' });
+  // an on-demand network outside its mode (BrandMeister): gray, and a disabled one still reads Disabled
+  assert.deepEqual(netChip({ id: 'BM', enabled: true, login: 'idle' }), { tone: 'off', text: 'Not in use' });
+  assert.deepEqual(netChip({ id: 'BM', enabled: false, login: 'idle' }), { tone: 'off', text: 'Disabled' });
+  assert.deepEqual(stripModes([{ id: 'LOOP', available: true }, { id: 'BM', available: true }, { id: 'TGIF', available: false }]).map((m) => m.id), ['BM']);
+});
+
+test('modes without a login show their link, never "Logging in"', () => {
+  const ysf = { id: 'YSF', enabled: true };
+  const on = (mode: string, tune: string, targetName?: string) => ({ mode, tune, targetName, slot: 2, muted: false, source: 'aslcp-dv' as const, updated: '' });
+  for (const id of ['YSF', 'P25', 'NXDN', 'M17']) {
+    assert.deepEqual(netChip({ id, enabled: false, login: 'off' }), { tone: 'off', text: 'Disabled' });
+    // enabled, not the active mode, nothing tuned: gray Enabled
+    assert.deepEqual(netChip({ id, enabled: true, login: 'off' }, on('BM', '91')), { tone: 'off', text: 'Enabled' });
+    assert.deepEqual(netChip({ id, enabled: true, login: 'off' }, on(id, '')), { tone: 'off', text: 'Enabled' });
+    assert.deepEqual(netChip({ id, enabled: true }), { tone: 'off', text: 'Enabled' });
+    // a stale pending or ok of a mode that is not the active one never shows
+    assert.deepEqual(netChip({ id, enabled: true, login: 'pending' }, on('BM', '91')), { tone: 'off', text: 'Enabled' });
+  }
+  assert.deepEqual(netChip({ ...ysf, login: 'ok', detail: 'linked to YSF-TEST' }, on('YSF', '00000', 'YSF-TEST')), { tone: 'ok', text: 'Linked \u00b7 YSF-TEST' });
+  assert.deepEqual(netChip({ ...ysf, login: 'ok' }, on('YSF', '192.0.2.10:42000')), { tone: 'ok', text: 'Linked \u00b7 192.0.2.10:42000' });
+  assert.deepEqual(netChip({ id: 'P25', enabled: true, login: 'ok' }, on('P25', '1234')), { tone: 'ok', text: 'Linked \u00b7 TG 1234' });
+  assert.deepEqual(netChip({ id: 'NXDN', enabled: true, login: 'ok' }, on('NXDN', '1234')), { tone: 'ok', text: 'Linked \u00b7 TG 1234' });
+  assert.deepEqual(netChip({ id: 'M17', enabled: true, login: 'ok' }, on('M17', 'M17-XXX C')), { tone: 'ok', text: 'Linked \u00b7 M17-XXX C' });
+  assert.deepEqual(netChip({ id: 'M17', enabled: true, login: 'ok' }), { tone: 'ok', text: 'Linked' });
+  assert.deepEqual(netChip({ ...ysf, login: 'pending', detail: 'linking' }, on('YSF', '00000')), { tone: 'warn', text: 'Linking' });
+  assert.deepEqual(netChip({ ...ysf, login: 'failed', detail: 'cannot resolve x' }, on('YSF', '00000')), { tone: 'err', text: 'Link failed' });
+  // an engine without a login field: the active mode with a tuned target is linked
+  assert.deepEqual(netChip(ysf, on('YSF', '00000', 'YSF-TEST')), { tone: 'ok', text: 'Linked \u00b7 YSF-TEST' });
+  // the DMR networks keep their login text
+  assert.deepEqual(netChip({ id: 'BM', enabled: true, login: 'pending' }, on('YSF', '00000')), { tone: 'warn', text: 'Logging in' });
+});
+
+test('Last heard table row', () => {
+  assert.deepEqual(heardRow({ call: 'N0CALL', dst: '91', slot: 2, at: '2026-11-18 10:00:01' }), { call: 'N0CALL', mode: 'DMR', target: 'TG 91', slot: 'TS2', time: '10:00:01' });
+  assert.deepEqual(heardRow({ call: 'N1CALL', dst: '203.0.113.5:42000', mode: 'YSF', dstName: 'Example room' }), { call: 'N1CALL', mode: 'YSF', target: 'Example room', slot: '', time: '' });
+  assert.equal(heardRow({ call: 'N0CALL', dst: 'M17-XXX C' }).mode, 'M17');
+  assert.deepEqual(heardRow({ dmrId: '1234567' }), { call: '1234567', mode: '', target: '', slot: '', time: '' });
+  assert.equal(heardRow({ dmrId: '9990', private: true, dst: '1234567' }).call, 'Parrot (private call)');
+});
+
+test('unlinkPlan: label and value for a linked target, null otherwise', () => {
+  const snap = (mode: string, tune: string, targetName?: string, source = 'aslcp-dv') => ({
+    bridge: { mode, tune, targetName, slot: 2, muted: false, source, updated: '' },
+    modes: [{ id: 'BM', unlink: '4000' }, { id: 'YSF', unlink: 'None' }, { id: 'M17', unlink: 'None' }, { id: 'P25', unlink: '9999' }],
+  }) as never;
+  assert.deepEqual(unlinkPlan(snap('BM', '91')), { label: 'Unlink TG 91', value: '4000' });
+  assert.deepEqual(unlinkPlan(snap('YSF', '192.0.2.10:42000', 'YSF-TEST')), { label: 'Unlink YSF-TEST', value: 'None' });
+  assert.deepEqual(unlinkPlan(snap('M17', 'M17-ABC C')), { label: 'Unlink M17-ABC C', value: 'None' });
+  assert.deepEqual(unlinkPlan(snap('P25', '10100')), { label: 'Unlink TG 10100', value: '9999' });
+  assert.equal(unlinkPlan(snap('BM', '4000')), null);
+  assert.equal(unlinkPlan(snap('BM', '')), null);
+  assert.equal(unlinkPlan(snap('BM', '91', undefined, 'none')), null);
+  assert.equal(unlinkPlan(null), null);
 });

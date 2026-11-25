@@ -14,7 +14,7 @@ export interface NodeStatus {
   rxKeyed: boolean; txKeyed: boolean; extTxKeyed: boolean; numLinks: number;
   links: Link[]; network: NetworkEntry[]; flags: Record<string, boolean>; updated: string;
 }
-export interface Favorite { id: number; node: string; label: string; group: string; position: number; info: NodeInfo | null }
+export interface Favorite { id: number; node: string; label: string; group: string; position: number; pinned: boolean; info: NodeInfo | null }
 export interface SystemInfo {
   hostname: string; cpuTemp: number | null; load: number[]; memTotal: number; memAvailable: number;
   uptime: number; asterisk: { connected: boolean; version: string; uptime: number; error: string | null }; version: string;
@@ -67,14 +67,18 @@ export interface PubNode {
   links: PubLink[]; network?: PubNetNode[];
 }
 export interface PubActivity { node: string; link: string; label?: string; callsign?: string; at: number; duration: number; kerchunk: boolean }
+/** A digital modes call on the public page: no IDs, hosts or addresses. `callsign`, `name` and `location` are absent when callsigns are hidden. */
+export interface PubDVCall { mode: string; callsign?: string; target?: string; slot?: number; at: number; name?: string; location?: string }
+/** The digital modes part of the public page; sent only while the "Show digital modes activity" setting is on. */
+export interface PubDV { now: PubDVCall | null; heard: PubDVCall[] }
 export interface PubSnapshot {
-  title: string; now: number; callsigns: boolean; showNetwork: boolean; showActivity: boolean;
-  nodes: PubNode[]; activity?: PubActivity[];
+  title: string; now: number; callsigns: boolean; showNetwork: boolean; showActivity: boolean; showDV: boolean;
+  nodes: PubNode[]; activity?: PubActivity[]; dv?: PubDV;
 }
 export interface PublicInfo { enabled: boolean; title: string; loggedIn: boolean }
 /** GET/PUT /api/public (admin). */
 export interface PublicSettings {
-  enabled: boolean; title: string; nodes: string[]; showCallsigns: boolean; showNetwork: boolean; showActivity: boolean;
+  enabled: boolean; title: string; nodes: string[]; showCallsigns: boolean; showNetwork: boolean; showActivity: boolean; showDV: boolean;
   allowEmbedding: boolean; trustProxy: boolean; defaultTitle: string;
   localNodes: { node: string; info: NodeInfo | null }[]; clients: number;
 }
@@ -164,7 +168,7 @@ export interface ScheduleEvent {
   at: string; id: number; name: string; node: string; target: string; action: 'connect' | 'disconnect'; mode: ConnectMode;
 }
 export type ManualAction = 'pause' | 'pause_today' | 'cancel';
-/** Cancel mode: windows cancelled by a manual action, while they would still be running. */
+/** Cancel mode: windows canceled by a manual action, while they would still be running. */
 export interface CancelNotice { reason: string; at: string; until: string; ids: number[]; names: string[] }
 export interface SchedulesSnapshot {
   enabled: boolean; pausedReason: string; pausedAt: string | null; resumeAt: string | null;
@@ -229,12 +233,12 @@ export interface DVResume { resume: boolean; lastMode?: string; perMode: Partial
 /** GET /api/dv/snapshot and the SSE `dv` event (all roles; docs/API.md "Digital modes panel"). No install log, no identity, no secret. */
 export interface DVBridge { mode: string; tune: string; targetName?: string; slot: number; muted: boolean; /** The last tune was a DMR private call (the BrandMeister Parrot): `tune` is empty then. */ private?: boolean; source: 'aslcp-dv' | 'abinfo' | 'none'; updated: string }
 /** One talker from the Analog_Bridge log. `at` is the log's own time, no zone. */
-export interface DVCaller { call?: string; private?: boolean; dmrId?: string; dst?: string; slot?: number; at?: string }
+export interface DVCaller { call?: string; private?: boolean; dmrId?: string; dst?: string; slot?: number; at?: string; /** "YSF" for a YSF call: `dst` is then the reflector (address or id), not a talkgroup, and `dstName` its name when known. */ mode?: string; dstName?: string; /** The caller's name and "City, ST" for a callsign-only call (YSF, P25, NXDN, M17), from the radioid.net list or, when the admin turned it on, hamdb.org. */ name?: string; place?: string }
 export interface DVSnapshot {
   installed: boolean; running: boolean; configured: boolean;
   bridge: DVBridge;
   /** `label`: the button's name when it is not the id (a DMR network's registry label: "BrandMeister", "TGIF", "DMR - Other"). `available`: the engine implements the mode (LOOP and BM in this build). */
-  modes: { id: DVTuneMode; enabled: boolean; available: boolean; unlink: string; label?: string; /** The engine's login state of an enabled network (`off`, `pending`, `ok`, `failed`) and its detail. */ login?: DVLogin; detail?: string; /** A tuned YSF, P25, NXDN or M17 reflector sends nothing back (the engine's lost state). */ silent?: boolean; /** DMR - Other: when the tuned talkgroup last had traffic (RFC 3339); absent during a call or when none is tuned. */ quietSince?: string; /** BrandMeister and DMR - Other: the master the mode is set to (its name in the host list, else the address as saved). */ master?: string }[];
+  modes: { id: DVTuneMode; enabled: boolean; available: boolean; unlink: string; label?: string; /** The engine's login state of an enabled network (`off`, `pending`, `ok`, `failed`, `idle`: an on-demand network, BrandMeister, that is not the active mode) and its detail. */ login?: DVLogin; detail?: string; /** A tuned YSF, P25, NXDN or M17 reflector sends nothing back (the engine's lost state). */ silent?: boolean; /** DMR - Other: when the tuned talkgroup last had traffic (RFC 3339); absent during a call or when none is tuned. */ quietSince?: string; /** BrandMeister and DMR - Other: the master the mode is set to (its name in the host list, else the address as saved). */ master?: string }[];
   /** M1: aslcp-dv and md380-emu. */
   services: { unit: string; active: boolean }[];
   /** md380 vocoder health (`ok`; `timeouts` counts the calls that timed out) and the engine's version and uptime in seconds; absent while the engine is not reachable. */
@@ -249,7 +253,7 @@ export interface DVSnapshot {
   /** The last few distinct callers, newest first. */
   heard: DVCaller[];
 }
-export type DVLogin = 'off' | 'pending' | 'ok' | 'failed';
+export type DVLogin = 'off' | 'pending' | 'ok' | 'failed' | 'idle';
 /** One option of a network (GET /api/dv/networks): `kind` text, int or bool; `default` is what the engine uses when it is unset. */
 export interface DVOptSpec { key: string; label: string; kind: 'text' | 'int' | 'bool'; default: string; help?: string; min?: number; max?: number; maxLen?: number; advanced?: boolean }
 /** One network of GET /api/dv/networks and the reply of PUT /api/dv/networks/{mode}. The password is write-only: only `passwordSet` comes back. */
@@ -277,7 +281,7 @@ export interface DVLink { mode: DVLinkMode; localNode: string; linked: boolean; 
 /** The reply of POST /api/dv/mode, /unlink and /tune. */
 /** `left`: the mode a switch unlinked before leaving it (it reconnects when switched back). */
 export interface DVCmdReply { mode: string; switched: boolean; confirmed: boolean; left?: string; snapshot: DVSnapshot }
-export interface DVFavorite { id: number; mode: DVTuneMode; value: string; name: string; sort: number }
+export interface DVFavorite { id: number; mode: DVTuneMode; value: string; name: string; sort: number; pinned: boolean }
 
 // System tab (docs/API.md "System"); all admin-only.
 export interface HostStatus { hostname: string; prettyHostname: string; os: string; hostnameAvailable: boolean; hostnamectlAvailable: boolean; hostnamectlMissing: boolean; timezone: string; ntp: boolean; ntpSynchronized: boolean; canNtp: boolean; localRtc: boolean; timeAvailable: boolean; now: string; clock: string }
@@ -316,8 +320,10 @@ export interface NowCall {
   id: string; kind: 'allstar' | 'dmr' | 'ysf' | 'm17'; call?: string; first?: string; name?: string;
   city?: string; state?: string; country?: string; location?: string; dmrId?: string;
   node?: string; desc?: string; local?: string; network?: string; tg?: string; tgName?: string;
-  slot?: number; private?: boolean; room?: string; start: string; end?: string; active: boolean;
+  slot?: number; private?: boolean; room?: string; /** Where the name and place came from when not the radioid.net list ("hamdb.org"). */ source?: string; start: string; end?: string; active: boolean;
 }
 export interface NowCalling { current: NowCall | null; recent: NowCall[] }
+/** The hamdb.org callsign lookup (admin, digital modes settings): off by default. `cached` answers are kept, `today` requests were made in the last 24 hours (at most `dailyMax`); `pausedUntil` while a back-off holds requests back. */
+export interface HamDBStatus { enabled: boolean; cached: number; today: number; dailyMax: number; pausedUntil?: string }
 /** The radioid.net user list (admin, digital modes settings). */
 export interface UserListStatus { enabled: boolean; entries: number; updated?: string; checked?: string; error?: string; busy?: boolean; size?: number }

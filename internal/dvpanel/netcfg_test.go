@@ -70,3 +70,22 @@ func TestM17Settings(t *testing.T) {
 		t.Error("enabled without identity")
 	}
 }
+
+func TestBMStayLoggedInOption(t *testing.T) {
+	var sp OptSpec
+	for _, o := range OptSpecs(ModeBM) {
+		if o.Key == "stay_logged_in" {
+			sp = o
+		}
+	}
+	if sp.Kind != KindBool || sp.Default != "false" || sp.Advanced || sp.Help == "" {
+		t.Fatalf("%+v", sp)
+	}
+	u, err := CheckUpdate(ModeBM, NetUpdate{Options: map[string]string{"stay_logged_in": "true"}})
+	if err != nil || u.Options["stay_logged_in"] != "true" {
+		t.Fatalf("%+v %v", u, err)
+	}
+	if _, err := CheckUpdate(ModeTGIF, NetUpdate{Options: map[string]string{"stay_logged_in": "true"}}); err == nil {
+		t.Error("TGIF took the BM option")
+	}
+}

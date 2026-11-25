@@ -33,7 +33,10 @@ type Options struct {
 	// Bridge returns the private digital modes bridge node and its display name,
 	// or "" when there is none. Optional.
 	Bridge func() (node, name string)
-	Now    func() time.Time
+	// DV returns the digital modes calls (Now calling and heard), already
+	// resolved from local caches. Optional; only read while Settings.ShowDV is on.
+	DV  func() DVInput
+	Now func() time.Time
 }
 
 // Service serves the public status data.
@@ -44,12 +47,18 @@ type Service struct {
 	lim *limiter
 	hub *hub
 
+	dvMu    sync.Mutex
+	dvLast  time.Time
+	dvTimer *time.Timer
+	dvSent  []byte
+
 	// Limits and timing; set before the service is used (tests change them).
 	MaxPerIP     int           // SSE connections per client address (default 4)
 	MaxClients   int           // SSE connections in total (default 200)
 	PingInterval time.Duration // default 20s
 	MaxStream    time.Duration // an SSE stream is closed after this long (default 6h)
 	WriteTimeout time.Duration // per write on an SSE stream (default 10s)
+	DVInterval   time.Duration // shortest time between two "dv" events (default 1s)
 }
 
 // New returns a Service with the persisted settings loaded.
@@ -62,7 +71,7 @@ func New(o Options) *Service {
 	}
 	s := &Service{
 		opt: o, lim: newLimiter(2, 10),
-		MaxPerIP: 4, MaxClients: 200, PingInterval: 20 * time.Second, MaxStream: 6 * time.Hour, WriteTimeout: 10 * time.Second,
+		MaxPerIP: 4, MaxClients: 200, PingInterval: 20 * time.Second, MaxStream: 6 * time.Hour, WriteTimeout: 10 * time.Second, DVInterval: dvInterval,
 	}
 	s.hub = newHub(s)
 	st := LoadSettings(o.Store, o.DefaultEnabled)
@@ -105,7 +114,7 @@ func (s *Service) Update(ns Settings) error {
 }
 
 // Close ends all SSE streams.
-func (s *Service) Close() { s.hub.closeAll() }
+func (s *Service) Close() { s.stopDV(); s.hub.closeAll() }
 
 func (s *Service) selected(cfg *Settings) map[string]bool {
 	if len(cfg.Nodes) == 0 {
@@ -140,7 +149,7 @@ func (s *Service) build(withActivity bool) Snapshot {
 	cfg := s.cfg.Load()
 	now := s.opt.Now()
 	v := s.view(cfg, now)
-	snap := Snapshot{Now: now.Unix(), Callsigns: cfg.ShowCallsigns, ShowNetwork: cfg.ShowNetwork, ShowActivity: cfg.ShowActivity, Nodes: []Node{}}
+	snap := Snapshot{Now: now.Unix(), Callsigns: cfg.ShowCallsigns, ShowNetwork: cfg.ShowNetwork, ShowActivity: cfg.ShowActivity, ShowDV: cfg.ShowDV, Nodes: []Node{}}
 	m := s.mon.Load()
 	ids := s.nodeIDs(cfg, m)
 	if m != nil {
@@ -163,6 +172,9 @@ func (s *Service) build(withActivity bool) Snapshot {
 	snap.Title = scrub(snap.Title)
 	if cfg.ShowActivity && withActivity {
 		snap.Activity = s.activity(cfg, ids, v)
+	}
+	if withActivity {
+		snap.DV = s.dv(cfg, v)
 	}
 	return snap
 }

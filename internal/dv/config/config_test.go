@@ -163,3 +163,30 @@ func TestAudioDefaultsAndRanges(t *testing.T) {
 		}
 	}
 }
+
+// BrandMeister is on demand unless the option stay_logged_in is "true"; the
+// other networks are not; an explicit onDemand wins.
+func TestOnDemandDefault(t *testing.T) {
+	c, err := Parse([]byte(`{"version":1,"networks":[
+		{"mode":"BM","enabled":true,"address":"bm.example.net"},
+		{"mode":"TGIF","enabled":true},
+		{"mode":"DMR","enabled":true,"onDemand":true}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"BM": true, "TGIF": false, "DMR": true, "LOOP": false}
+	for _, n := range c.Networks {
+		if n.OnDemand == nil || *n.OnDemand != want[n.Mode] {
+			t.Errorf("%s: %v", n.Mode, n.OnDemand)
+		}
+	}
+	c, err = Parse([]byte(`{"version":1,"networks":[{"mode":"BM","enabled":true,"options":{"stay_logged_in":"true"}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range c.Networks {
+		if n.Mode == "BM" && *n.OnDemand {
+			t.Error("stay_logged_in did not keep BM always on")
+		}
+	}
+}

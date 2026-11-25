@@ -49,7 +49,7 @@ const language = StreamLanguage.define<St>({
   languageData: { commentTokens: { line: ';' } },
 });
 
-// Colours come from CSS variables (--cm-*, defined in CodeEditor.svelte for both themes).
+// Colors come from CSS variables (--cm-*, defined in CodeEditor.svelte for both themes).
 const style = HighlightStyle.define([
   { tag: t.heading, color: 'var(--cm-section)', fontWeight: '600' },
   { tag: t.typeName, color: 'var(--cm-template)' },

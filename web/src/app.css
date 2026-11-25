@@ -41,7 +41,7 @@ body { background: var(--bg); color: var(--fg); font-family: var(--font-sans); -
 @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
 
 /* Secondary text on keyed (red) / local-RX (green) rows. Unlayered so it beats the
-   .text-muted utility (which otherwise leaves grey text on red). White at 94% is
+   .text-muted utility (which otherwise leaves gray text on red). White at 94% is
    >= 4.6:1 on every row background in both themes (5.9 / 7.0 red, 6.5 / 6.1 green). */
 .tbl tr.row-tx .muted, .tbl tr.row-rx .muted, .tbl tr.row-tx .text-muted, .tbl tr.row-rx .text-muted { color: rgb(255 255 255 / 0.94); }
 
@@ -49,12 +49,16 @@ body { background: var(--bg); color: var(--fg); font-family: var(--font-sans); -
 .tap::after { content: ''; position: absolute; inset: -10px -6px; }
 
 @layer components {
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
   .btn { @apply inline-flex items-center justify-center gap-1 rounded border border-line bg-surface px-2.5 py-1 text-[13px] font-medium text-fg transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45; min-height: 1.9rem; }
   .btn-primary { @apply border-transparent bg-accent text-accent-fg hover:opacity-90 hover:bg-accent; }
   .btn-ok { @apply border-transparent bg-ok text-accent-fg hover:bg-ok hover:opacity-90; }
   .btn-bad { @apply border-transparent bg-danger text-accent-fg hover:bg-danger hover:opacity-90; }
   .btn-bad-outline { @apply border-danger/50 bg-transparent text-danger hover:bg-danger/10; }
   .btn-danger { @apply text-danger hover:bg-danger/10; }
+  /* The one-tap favorite button: the Dashboard's Pinned buttons and the DV card's favorites (PinFace.svelte inside). */
+  .btn-pin { min-height: 2.5rem; padding-left: 0.75rem; padding-right: 0.75rem; }
   .btn-sm { @apply px-2 py-0.5 text-xs; min-height: 1.6rem; }
   .btn-xs { @apply px-1.5 py-0 text-[11px]; min-height: 1.35rem; }
   .btn-off { @apply border-transparent bg-neutral-600 text-neutral-200 hover:bg-neutral-600 disabled:opacity-100; }

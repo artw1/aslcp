@@ -30,6 +30,7 @@ import (
 	"github.com/artw1/aslcp/internal/dv/ctl"
 	"github.com/artw1/aslcp/internal/dvpanel"
 	"github.com/artw1/aslcp/internal/favstats"
+	"github.com/artw1/aslcp/internal/hamdb"
 	"github.com/artw1/aslcp/internal/helper"
 	"github.com/artw1/aslcp/internal/hostlists"
 	"github.com/artw1/aslcp/internal/nodelist"
@@ -144,6 +145,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 		ridOpts.Client, ridOpts.FirstDelay = demo.RadioIDClient(), time.Second
 	}
 	rid := radioid.New(ridOpts)
+	hdb := hamdb.New(hamdb.Options{Dir: cfg.DataDir, Version: version, Settings: st, Logger: logger})
 	nl := nodelist.New(nodelist.Options{URL: cfg.NodelistURL, DataDir: cfg.DataDir, Interval: cfg.NodelistRefresh, Logger: logger})
 	proxy := &lateAMI{}
 	setTuneSave := func(func(string)) {}
@@ -316,9 +318,11 @@ func run(cfgPath string, dev, demoMode bool) error {
 		dvTrack.Interval = 3 * time.Second
 	}
 	bg(func() { rid.Run(ctx) })
+	bg(func() { hdb.Run(ctx) })
 	bg(func() { hl.Run(ctx) })
 	srv = api.New(api.Deps{
 		RadioID:      rid,
+		HamDB:        hdb,
 		FavStats:     favScan,
 		Schedules:    sched,
 		DVLink:       dvLink,

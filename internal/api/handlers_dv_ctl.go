@@ -271,9 +271,11 @@ func (s *Server) handleDVMode(w http.ResponseWriter, r *http.Request, u store.Us
 	)
 	if last := s.dvRememberedTune(mode); switched && last != "" {
 		st, _, err = s.dvSendTune(ctx, mode, last)
-		if err != nil {
+		var ce *ctl.Error
+		if err != nil && !(errors.As(err, &ce) && ce.Code == ctl.CodeLoginFailed) {
 			// the remembered value was refused (a host list changed, say):
-			// switch to the mode unlinked
+			// switch to the mode unlinked. A refused login is not that: the
+			// master would only be asked again.
 			st, err = s.d.DVCtl.Mode(ctx, ctl.ModeArgs{Mode: mode, Force: true})
 		}
 	} else {
@@ -398,8 +400,9 @@ func (s *Server) handleDVFavUpdate(w http.ResponseWriter, r *http.Request, u sto
 		return
 	}
 	var in struct {
-		Name *string `json:"name"`
-		Sort *int    `json:"sort"`
+		Name   *string `json:"name"`
+		Sort   *int    `json:"sort"`
+		Pinned *bool   `json:"pinned"`
 	}
 	if !decode(w, r, &in, false) {
 		return
@@ -417,7 +420,7 @@ func (s *Server) handleDVFavUpdate(w http.ResponseWriter, r *http.Request, u sto
 		writeErr(w, http.StatusBadRequest, "bad_request", "sort is out of range")
 		return
 	}
-	f, err := s.d.Store.UpdateDVFavorite(id, name, in.Sort)
+	f, err := s.d.Store.UpdateDVFavorite(id, name, in.Sort, in.Pinned)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "not_found", "no such favourite")
 		return

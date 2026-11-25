@@ -733,6 +733,39 @@ func TestFavorites(t *testing.T) {
 	}
 }
 
+func TestFavoritePins(t *testing.T) {
+	e := newEnv(t, opts{})
+	var f api.FavoriteJSON
+	e.do("op", "POST", "/api/favorites", map[string]string{"node": "2000"}, &f)
+	if f.Pinned {
+		t.Fatalf("new favourites are not pinned: %+v", f)
+	}
+	path := fmt.Sprintf("/api/favorites/%d", f.ID)
+	expectErr(t, e, "viewer", "PUT", path, map[string]bool{"pinned": true}, 403, "forbidden")
+	var up api.FavoriteJSON
+	if c := e.do("op", "PUT", path, map[string]bool{"pinned": true}, &up); c != 200 || !up.Pinned || up.Label != f.Label {
+		t.Fatal(c, up)
+	}
+	// an edit that does not mention pinned keeps the pin
+	if c := e.do("op", "PUT", path, map[string]string{"label": "Renamed"}, &up); c != 200 || !up.Pinned || up.Label != "Renamed" {
+		t.Fatal(c, up)
+	}
+	var list []api.FavoriteJSON
+	e.do("viewer", "GET", "/api/favorites", nil, &list)
+	if len(list) != 1 || !list[0].Pinned {
+		t.Fatalf("viewer sees the pin: %+v", list)
+	}
+	if c := e.do("op", "PUT", path, map[string]bool{"pinned": false}, &up); c != 200 || up.Pinned {
+		t.Fatal(c, up)
+	}
+	e.do("op", "PUT", path, map[string]bool{"pinned": true}, nil)
+	e.do("op", "DELETE", path, nil, nil)
+	e.do("op", "GET", "/api/favorites", nil, &list)
+	if len(list) != 0 {
+		t.Fatalf("deleted with its pin: %+v", list)
+	}
+}
+
 func TestImportAllScan(t *testing.T) {
 	e := newEnv(t, opts{})
 	var pre struct {

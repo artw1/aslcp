@@ -28,11 +28,11 @@ function addLink(local: string, node: string, mode: string, dir: 'IN' | 'OUT', a
 }
 locals['2001'] = { links: [], rx: 0, tx: 0 };
 locals['1997'] = { links: [], rx: 0, tx: 0 };
-// Nodes with a SimpleUSB device in the mock (Audio Tuning); placeholder numbers.
-NODES.push({ node: '1999', callsign: 'TUNE1', description: 'Tuning test node', location: 'Exampleton, ST' }, { node: '1998', callsign: 'TUNE2', description: 'Second tuning node', location: 'Exampleton, ST' });
-byNode.set('1999', NODES[NODES.length - 2]); byNode.set('1998', NODES[NODES.length - 1]);
-locals['1999'] = { links: [], rx: 0, tx: 0 };
-locals['1998'] = { links: [], rx: 0, tx: 0 };
+// Nodes with a SimpleUSB device in the mock (Audio levels); placeholder numbers.
+NODES.push({ node: '2000', callsign: 'TUNE1', description: 'Tuning test node', location: 'Exampleton, ST' }, { node: '2002', callsign: 'TUNE2', description: 'Second tuning node', location: 'Exampleton, ST' });
+byNode.set('2000', NODES[NODES.length - 2]); byNode.set('2002', NODES[NODES.length - 1]);
+locals['2000'] = { links: [], rx: 0, tx: 0 };
+locals['2002'] = { links: [], rx: 0, tx: 0 };
 addLink('2001', '1000', 'transceive', 'OUT', 5400);
 addLink('2001', '1037', 'monitor', 'OUT', 1200);
 addLink('2001', '1074', 'transceive', 'IN', 300);
@@ -40,14 +40,14 @@ addLink('2001', '1111', 'transceive', 'IN', 61);
 addLink('2001', BRIDGE_NODE, 'transceive', 'OUT', 3600);
 addLink('2001', '1998', 'transceive', 'OUT', 3000);
 addLink('1997', '1148', 'transceive', 'OUT', 800);
-addLink('1999', '1000', 'transceive', 'OUT', 900);
+addLink('2000', '1000', 'transceive', 'OUT', 900);
 
-let favs: { id: number; node: string; label: string; group: string; position: number }[] = [
-  { id: 1, node: '1000', label: 'Main hub', group: 'Hubs', position: 0 },
-  { id: 2, node: '1037', label: 'Club repeater', group: 'Hubs', position: 1 },
-  { id: 3, node: '1185', label: 'Evening net', group: 'Nets', position: 0 },
-  { id: 4, node: '1222', label: 'Simplex friends', group: 'Nets', position: 1 },
-  { id: 5, node: '1259', label: 'Test node', group: '', position: 0 },
+let favs: { id: number; node: string; label: string; group: string; position: number; pinned: boolean }[] = [
+  { id: 1, node: '1000', label: 'Main hub', group: 'Hubs', position: 0, pinned: true },
+  { id: 2, node: '1037', label: 'Club repeater', group: 'Hubs', position: 1, pinned: false },
+  { id: 3, node: '1185', label: 'Evening net', group: 'Nets', position: 0, pinned: false },
+  { id: 4, node: '1222', label: 'Simplex friends', group: 'Nets', position: 1, pinned: false },
+  { id: 5, node: '1259', label: 'Test node', group: '', position: 0, pinned: false },
 ];
 let nextFav = 6;
 const sortedFavs = () => [...favs].sort((a, b) => a.group.localeCompare(b.group) || a.position - b.position).map((f) => ({ ...f, info: info(f.node) }));
@@ -118,13 +118,27 @@ function status(id: string, role = 'admin') {
   return { node: id, info: info(id), stale: false, rxKeyed: s.rx > t, txKeyed: s.tx > t || links.some((l) => l.keyed && l.mode === 'T'), extTxKeyed: false, numLinks: network.length, links, network, flags: { txDisabled: false, linkFunsDisabled: false, parrot: false }, updated: new Date().toISOString() };
 }
 // Public status view (docs/API.md "Public page"): on by default in the mock so the logged-out view can be developed.
-const pubCfg = { enabled: true, title: '', nodes: [] as string[], showCallsigns: true, showNetwork: true, showActivity: true, allowEmbedding: false, trustProxy: false };
+const pubCfg = { enabled: true, title: '', nodes: [] as string[], showCallsigns: true, showNetwork: true, showActivity: true, showDV: false, allowEmbedding: false, trustProxy: false };
 const activity: { node: string; link: string; at: number; duration: number }[] = [
   { node: '2001', link: '1000', at: Date.now() - 95e3, duration: 14 },
   { node: '2001', link: 'local', at: Date.now() - 260e3, duration: 6 },
   { node: '1997', link: '1148', at: Date.now() - 700e3, duration: 1 },
   { node: '2001', link: '1074', at: Date.now() - 3.2e6, duration: 41 },
 ];
+// Digital modes calls of the public page (placeholders): only sent while "Show digital modes activity" is on, without callsigns/names when callsigns are hidden.
+const pubDVCalls = [
+  { mode: 'DMR', call: 'N0CALL', target: 'TG 91', slot: 2, ago: 240, name: 'Pat Example', place: 'Springfield, XX' },
+  { mode: 'YSF', call: 'N1CALL', target: 'YSF-TEST', slot: 0, ago: 780, name: 'Sam Example', place: 'Shelbyville, XX' },
+  { mode: 'M17', call: 'N1CALL', target: 'M17-XXX C', slot: 0, ago: 1500, name: '', place: '' },
+  { mode: 'DMR', call: 'N0CALL', target: 'TG 9', slot: 1, ago: 3300, name: 'Pat Example', place: 'Springfield, XX' },
+];
+function pubDV() {
+  const t = Date.now(), cs = pubCfg.showCallsigns;
+  const row = (c: (typeof pubDVCalls)[number], ago: number) => ({ mode: c.mode, ...(cs ? { callsign: c.call, ...(c.name ? { name: c.name } : {}), ...(c.place ? { location: c.place } : {}) } : {}), target: c.target, ...(c.slot ? { slot: c.slot } : {}), at: Math.floor((t - ago * 1000) / 1000) });
+  // one call in progress for 20 s of every minute
+  const talking = Math.floor(t / 1000) % 60 < 20;
+  return { now: talking ? row(pubDVCalls[0], Math.floor(t / 1000) % 60) : null, heard: pubDVCalls.map((c) => row(c, c.ago)) };
+}
 const pubDefaultTitle = () => `${info('2001')?.callsign} AllStarLink node 2001`;
 function pubSnapshot() {
   const ids = Object.keys(locals).filter((id) => !pubCfg.nodes.length || pubCfg.nodes.includes(id));
@@ -133,13 +147,13 @@ function pubSnapshot() {
     return {
       node: s.node, info: s.info && { callsign: s.info.callsign, description: s.info.description, location: s.info.location }, stale: false,
       txKeyed: s.txKeyed, rxKeyed: s.rxKeyed, numLinks: s.numLinks,
-      links: s.links.map((l) => ({ node: l.node, kind: l.kind, ...(pubCfg.showCallsigns && l.info ? { info: { callsign: l.info.callsign, description: l.info.description, location: l.info.location } } : {}), direction: l.direction, mode: l.mode, connected: l.connected, keyed: l.keyed, sinceKey: l.sinceKey, sinceUnkey: l.sinceUnkey })),
+      links: s.links.map((l) => ({ node: l.node, ...(l.node === BRIDGE_NODE ? { label: 'Digital modes linked node' } : {}), kind: l.kind, ...(pubCfg.showCallsigns && l.info ? { info: { callsign: l.info.callsign, description: l.info.description, location: l.info.location } } : {}), direction: l.direction, mode: l.mode, connected: l.connected, keyed: l.keyed, sinceKey: l.sinceKey, sinceUnkey: l.sinceUnkey })),
       ...(pubCfg.showNetwork ? { network: s.network.map((n) => ({ node: n.node, ...(pubCfg.showCallsigns && n.info ? { callsign: n.info.callsign } : {}) })) } : {}),
     };
   });
   const acts = activity.filter((a) => ids.includes(a.node)).sort((a, b) => b.at - a.at).slice(0, 25)
-    .map((a) => ({ node: a.node, link: a.link, ...(pubCfg.showCallsigns && a.link !== 'local' && info(a.link) ? { callsign: info(a.link)!.callsign } : {}), at: Math.floor(a.at / 1000), duration: a.duration, kerchunk: a.duration < 2 }));
-  return { title: pubCfg.title || pubDefaultTitle(), now: Math.floor(now() / 1000), callsigns: pubCfg.showCallsigns, showNetwork: pubCfg.showNetwork, showActivity: pubCfg.showActivity, nodes, ...(pubCfg.showActivity ? { activity: acts } : {}) };
+    .map((a) => ({ node: a.node, link: a.link, ...(a.link === BRIDGE_NODE ? { label: "Digital modes linked node" } : {}), ...(pubCfg.showCallsigns && a.link !== 'local' && info(a.link) ? { callsign: info(a.link)!.callsign } : {}), at: Math.floor(a.at / 1000), duration: a.duration, kerchunk: a.duration < 2 }));
+  return { title: pubCfg.title || pubDefaultTitle(), now: Math.floor(now() / 1000), callsigns: pubCfg.showCallsigns, showNetwork: pubCfg.showNetwork, showActivity: pubCfg.showActivity, showDV: pubCfg.showDV, nodes, ...(pubCfg.showActivity ? { activity: acts } : {}), ...(pubCfg.showDV ? { dv: pubDV() } : {}) };
 }
 // Simulated update: apply runs ~6s, then the "server" restarts (SSE streams close) and reports the new version.
 let mockVersion = '2.0.0';
@@ -276,7 +290,7 @@ export function mockApi(): Plugin {
         if (p === '/public') {
           if (!isAdmin) return forbid();
           if (m === 'PUT') {
-            for (const k of ['enabled', 'showCallsigns', 'showNetwork', 'showActivity', 'allowEmbedding', 'trustProxy'] as const) if (typeof body[k] === 'boolean') pubCfg[k] = body[k];
+            for (const k of ['enabled', 'showCallsigns', 'showNetwork', 'showActivity', 'showDV', 'allowEmbedding', 'trustProxy'] as const) if (typeof body[k] === 'boolean') pubCfg[k] = body[k];
             if (typeof body.title === 'string') { if (body.title.length > 80) return err(res, 400, 'title is too long', 'bad_request'); pubCfg.title = body.title; }
             if (Array.isArray(body.nodes)) { if (body.nodes.some((n: string) => !locals[n])) return err(res, 400, 'not a local node', 'bad_request'); pubCfg.nodes = body.nodes.length === Object.keys(locals).length ? [] : body.nodes; }
             if (!pubCfg.enabled) { pubClients.forEach((r) => r.end()); pubClients.clear(); }
@@ -384,7 +398,7 @@ export function mockApi(): Plugin {
           if (!canOp) return forbid();
           let imported = 0, skipped = 0;
           for (const it of [{ node: '1000', label: 'Main hub' }, { node: '1296', label: 'Imported net' }, { node: '1333', label: 'Imported repeater' }]) {
-            if (favs.some((f) => f.node === it.node)) skipped++; else { favs.push({ id: nextFav++, node: it.node, label: it.label, group: '', position: 99 }); imported++; }
+            if (favs.some((f) => f.node === it.node)) skipped++; else { favs.push({ id: nextFav++, node: it.node, label: it.label, group: '', position: 99, pinned: false }); imported++; }
           }
           broadcast('favorites', sortedFavs); return json(res, 200, { imported, skipped });
         }
@@ -400,14 +414,14 @@ export function mockApi(): Plugin {
           if (m === 'POST') {
             if (!/^\d{3,}$/.test(body.node ?? '')) return err(res, 400, 'invalid node', 'bad_target');
             const i = info(body.node);
-            const f = { id: nextFav++, node: body.node, label: body.label || (i ? `${i.callsign} ${i.description}` : body.node), group: body.group || '', position: 99 };
+            const f = { id: nextFav++, node: body.node, label: body.label || (i ? `${i.callsign} ${i.description}` : body.node), group: body.group || '', position: 99, pinned: false };
             favs.push(f); broadcast('favorites', sortedFavs); return json(res, 201, { ...f, info: i });
           }
         }
         if ((mm = /^\/favorites\/(\d+)$/.exec(p))) {
           if (!canOp) return forbid();
           const f = favs.find((x) => x.id === +mm![1]); if (!f) return err(res, 404, 'not found', 'not_found');
-          if (m === 'PUT') { Object.assign(f, Object.fromEntries(Object.entries(body).filter(([k, v]) => ['node', 'label', 'group'].includes(k) && v !== undefined))); broadcast('favorites', sortedFavs); return json(res, 200, { ...f, info: info(f.node) }); }
+          if (m === 'PUT') { Object.assign(f, Object.fromEntries(Object.entries(body).filter(([k, v]) => ['node', 'label', 'group'].includes(k) || (k === 'pinned' && typeof v === 'boolean') && v !== undefined))); broadcast('favorites', sortedFavs); return json(res, 200, { ...f, info: info(f.node) }); }
           if (m === 'DELETE') { favs = favs.filter((x) => x !== f); broadcast('favorites', sortedFavs); return json(res, 204); }
         }
         if (p === '/lookup' && m === 'GET') {

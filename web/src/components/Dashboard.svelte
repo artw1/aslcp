@@ -1,36 +1,161 @@
 <script lang="ts">
-  import { app } from '../lib/store.svelte';
-  import { reconcilePending } from '../lib/actions.svelte';
-  import StatusTable from './StatusTable.svelte';
-  import ConnectBar from './ConnectBar.svelte';
-  import NetworkList from './NetworkList.svelte';
+  // Overview: node tiles, the digital modes tile, alerts, pinned favorites and one activity feed.
+  // The full controls live on the ASL (/allstar) and DV (/dv) tabs.
+  import { api } from '../lib/api';
+  import { app, canOperate, clock } from '../lib/store.svelte';
+  import { navigate } from '../lib/router.svelte';
+  import { connectTo, disconnectFrom } from '../lib/actions.svelte';
+  import { exclusive } from '../lib/settings.svelte';
+  import { toast, toastError } from '../lib/toast.svelte';
+  import { dvErrorMessage } from '../lib/dvmsg';
+  import { stateLine, reflectorSilent, stateTone, modeLabel, unlinkPlan } from '../lib/dvpanel';
+  import { agoText } from '../lib/nowcalling';
+  import { buildAlerts, buildPins, dvLastCaller, dvPinPlan, pinActive, pinLocalNode, tileNodes } from '../lib/pins';
+  import { nodeTile } from '../lib/tiles';
+  import type { PinItem } from '../lib/pins';
+  import type { DVFavorite } from '../lib/types';
+  import { mergeHeard } from '../lib/lastheard';
+  import LastHeardTable from './LastHeardTable.svelte';
+  import NodeTile from './NodeTile.svelte';
   import SchedulesCard from './SchedulesCard.svelte';
-  import DvCard from './DvCard.svelte';
-  import Favorites from './Favorites.svelte';
-  import NodeConnectDialog from './NodeConnectDialog.svelte';
   import Footer from './Footer.svelte';
+  import Unlink from '@lucide/svelte/icons/unlink';
+  import RadioTower from '@lucide/svelte/icons/radio-tower';
+  import Pin from '@lucide/svelte/icons/pin';
+  import PinFace from './PinFace.svelte';
+  import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 
-  const node = $derived(app.nodes.find((n) => n.node === app.selectedNode));
-  $effect(() => { app.nodes; reconcilePending(); });
+  const op = $derived(canOperate());
+  const dv = $derived(app.dv);
+  const dvOn = $derived(!!dv?.installed);
+  const tiles = $derived(tileNodes(app.nodes, dv));
+  const alerts = $derived(buildAlerts(app.nodes, app.haveNodes, dv));
+  const feed = $derived(mergeHeard(app.nowcalling?.recent, dv?.heard));
+
+  // DV favorites are not in the store: load them once the engine is known to be installed.
+  let dvFavs = $state<DVFavorite[]>([]);
+  let loaded = false;
+  $effect(() => {
+    if (!dvOn || loaded) return;
+    loaded = true;
+    api.dvFavorites().then((f) => { dvFavs = f; }).catch(() => { loaded = false; });
+  });
+  const pins = $derived(buildPins(app.favorites, dvFavs));
+  const dvLast = $derived(dvLastCaller(dv));
+
+  function open(node: string) { app.selectedNode = node; navigate('/allstar'); }
+  // The DV tile's Unlink: the tuned talkgroup or reflector only, the same call as the DV card; the bridge node link is not touched.
+  const dvUnlink = $derived(op ? unlinkPlan(dv) : null);
+  let dvBusy = $state(false);
+  async function unlinkDv(e: Event) {
+    e.preventDefault(); e.stopPropagation();
+    if (dvBusy || !op) return;
+    dvBusy = true;
+    try { const r = await api.dvUnlink(); app.dv = r.snapshot; toast(r.confirmed ? 'Unlinked' : 'Sent, not confirmed yet', r.confirmed ? 'ok' : 'info'); }
+    catch (x) { toastError(x); } finally { dvBusy = false; }
+  }
+  let unlinking = $state('');
+  async function unlink(local: string, target: string) {
+    if (unlinking || !op) return;
+    unlinking = `${local}/${target}`;
+    try { await disconnectFrom(local, target); } finally { unlinking = ''; }
+  }
+
+  let busyKey = $state('');
+  async function tap(p: PinItem) {
+    if (busyKey || !op) return;
+    busyKey = p.key;
+    try {
+      if (p.kind === 'asl' && p.node) {
+        const local = pinLocalNode(app.selectedNode, tiles);
+        if (!local) { toast('No local node to connect from', 'error'); return; }
+        await connectTo(local, p.node, 'transceive', false, exclusive.value);
+      } else if (p.fav) {
+        const plan = dvPinPlan(dv, p.fav);
+        if (!plan) { toast('Digital modes are not running', 'error'); return; }
+        if (plan.mode) await api.dvMode(plan.mode);
+        const r = await api.dvTune({ mode: p.fav.mode, tune: plan.tune });
+        app.dv = r.snapshot;
+        if (plan.link) await api.connect(plan.link.local, plan.link.node, 'transceive', false, plan.link.exclusive);
+        toast(r.confirmed ? `Tuned ${p.label}` : 'Sent, not confirmed yet', r.confirmed ? 'ok' : 'info');
+        if (plan.link) app.dv = await api.dvSnapshot();
+      }
+    } catch (e) { if (p.kind === 'dv') toast(dvErrorMessage(e), 'error'); else toastError(e); }
+    finally { busyKey = ''; }
+  }
+  const age = (at: number) => (at ? agoText((clock.now - at) / 1000) : '');
 </script>
 
 <div class="space-y-3">
   {#if !app.haveNodes}
     <p class="py-10 text-center text-sm text-muted" role="status">Loading node status…</p>
-  {:else if app.nodes.length === 0}
-    <p class="rounded-md border border-line bg-surface px-3 py-8 text-center text-sm text-muted">No local nodes found. Is Asterisk running with app_rpt?</p>
   {:else}
     <SchedulesCard />
-    <section class="space-y-2" aria-label="Connection status">
-      {#each app.nodes as n (n.node)}
-        <div class="rounded-md border border-line bg-surface"><StatusTable node={n} /></div>
+    {#if alerts.length}
+      <section class="space-y-1" aria-label="Alerts" data-testid="alerts">
+        {#each alerts as a (a.key)}
+          <a href={'#' + (a.href ?? '/')} class="flex items-center gap-2 rounded-md border border-warn/50 bg-warn/10 px-3 py-1.5 text-sm text-warn hover:bg-warn/20">
+            <TriangleAlert size={15} class="shrink-0" aria-hidden="true" /><span class="min-w-0">{a.text}</span>
+          </a>
+        {/each}
+      </section>
+    {/if}
+
+    <section class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" aria-label="Nodes" data-testid="tiles">
+      {#each tiles as n (n.node)}
+        <NodeTile tile={nodeTile(n, app.nowcalling?.current, dv)} selected={app.selectedNode === n.node && tiles.length > 1} busy={!!unlinking} onopen={() => open(n.node)} onunlink={op ? (target) => unlink(n.node, target) : undefined} />
       {/each}
+      {#if dvOn && dv}
+        {@const tone = stateTone(dv)}
+        <a href="#/dv" class="rounded-md border bg-surface px-3 py-2 hover:bg-surface-2 {tone === 'warn' ? 'border-warn/50' : tone === 'ok' ? 'border-ok/50' : 'border-line'}" aria-label="Digital Modes, open the DV tab" data-testid="tile-dv">
+          <div class="flex items-baseline gap-2">
+            <span class="inline-flex items-center gap-1 text-base font-semibold"><RadioTower size={14} class="text-accent" aria-hidden="true" />DV</span>
+            <span class="min-w-0 flex-1 truncate text-xs text-muted">{dv.bridge.source !== 'none' && dv.bridge.mode ? modeLabel(dv.bridge.mode) : 'Mode unknown'}</span>
+          </div>
+          <div class="mt-1 flex items-center gap-2">
+            <span class="min-w-0 flex-1 truncate text-xs text-muted" title={stateLine(dv.bridge, reflectorSilent(dv))}>
+              {dv.bridge.mode === 'LOOP' ? 'Echo test' : dv.bridge.tune ? `Tuned to ${dv.bridge.targetName || dv.bridge.tune}` : 'Nothing tuned'}
+            </span>
+            {#if dvUnlink}
+              <button type="button" class="btn btn-sm btn-bad-outline shrink-0 max-sm:min-h-11 pointer-coarse:min-h-11" disabled={dvBusy} title="Unlink the {modeLabel(dv.bridge.mode)} talkgroup or reflector. The bridge node link is not changed." data-testid="tile-dv-unlink" onclick={unlinkDv}><Unlink size={12} aria-hidden="true" />{dvUnlink.label}</button>
+            {/if}
+          </div>
+          {#if dvLast}
+            <div class="mt-1 truncate text-xs" data-testid="tile-dv-last">Last: <span class="font-mono">{dvLast.who}</span>{#if dvLast.at}<span class="ml-1 text-muted">· {age(dvLast.at)}</span>{/if}</div>
+          {/if}
+          <div class="mt-1 text-xs font-medium {dv.link?.linked ? 'text-ok' : 'text-warn'}">{dv.bridgeNode?.present ? (dv.link?.linked ? 'Linked' : 'Not linked') : 'No bridge node'}</div>
+        </a>
+      {/if}
     </section>
-    <ConnectBar />
-    <DvCard />
-    <Favorites />
-    {#if node}<NetworkList {node} showNode={app.nodes.length > 1} />{/if}
+    {#if app.nodes.length === 0 && !alerts.length}
+      <p class="rounded-md border border-line bg-surface px-3 py-8 text-center text-sm text-muted">No local nodes found. Is Asterisk running with app_rpt?</p>
+    {/if}
+
+    <section aria-label="Pinned favorites">
+      <h2 class="mb-1 text-sm font-semibold uppercase tracking-wide text-muted">Pinned</h2>
+      {#if pins.length}
+        <div class="flex flex-wrap gap-2" data-testid="pins">
+          {#each pins as p (p.key)}
+            <button type="button" class="btn btn-pin {p.kind === 'dv' ? 'border-accent/50' : ''}" disabled={!op || !!busyKey} aria-label="{p.kind === 'asl' ? 'Connect to' : 'Tune'} {p.label}" title={p.kind === 'asl' ? `Connect ${pinLocalNode(app.selectedNode, tiles) || 'a local node'} to ${p.sub}` : `Switch to ${p.sub} and tune ${p.fav?.value}`} onclick={() => tap(p)}>
+              <PinFace active={pinActive(p, app.nodes, dv)} dotId="pin-active" tag={p.kind === 'asl' ? 'ASL' : 'DV'} label={p.label} sub={p.sub} />
+            </button>
+          {/each}
+        </div>
+      {:else}
+        <p class="rounded-md border border-line bg-surface px-3 py-3 text-sm text-muted">Nothing pinned yet. Use the <Pin size={13} class="inline" aria-hidden="true" /> button on a favorite (ASL and DV tabs) to put a one-tap button here.</p>
+      {/if}
+    </section>
+
+    <section aria-label="Activity">
+      <h2 class="mb-1 text-sm font-semibold uppercase tracking-wide text-muted">Last heard</h2>
+      <div class="rounded-md border border-line bg-surface px-3 py-1">
+        {#if feed.length === 0}
+          <p class="py-3 text-center text-sm text-muted">Nothing heard yet.</p>
+        {:else}
+          <LastHeardTable rows={feed} testid="activity" />
+        {/if}
+      </div>
+    </section>
   {/if}
-  <NodeConnectDialog />
   <Footer />
 </div>

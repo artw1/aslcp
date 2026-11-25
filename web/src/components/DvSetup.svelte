@@ -1,16 +1,14 @@
 <script lang="ts">
-  // Digital modes setup, in the order of the setup flow: bridge node, identity, the networks list and audio.
-  // The modes the engine does not carry show "Not yet available in this build" with disabled controls.
+  // Digital modes setup, in the order of the setup flow: identity, bridge node and audio. Networks are managed on the DV page.
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
   import { toast } from '../lib/toast.svelte';
-  import type { DVAudio, DVIdentity, DVNetView, DVResume, DVSetup, DVTuneMode } from '../lib/types';
+  import type { DVAudio, DVIdentity, DVResume, DVSetup, DVTuneMode } from '../lib/types';
   import { app } from '../lib/store.svelte';
   import { cardState, MODE_NAME } from '../lib/dvmodes';
   import { ECHO_HINT, ECHO_RUNNING, ECHO_START, ECHO_STOP, echoRunning, forgetBefore, modeBefore, rememberBefore, stopTarget } from '../lib/dvecho';
   import { dvErrorMessage } from '../lib/dvmsg';
   import DvBridge from './DvBridge.svelte';
-  import DvNetworks from './DvNetworks.svelte';
   import DvIdentity from './DvIdentity.svelte';
   import DvAudio from './DvAudio.svelte';
 
@@ -23,12 +21,11 @@
   async function load() {
     try { v = await api.dvSetup(); err = ''; } catch (e) { err = e instanceof Error ? e.message : String(e); }
   }
-  // Network settings and identity (admin only: an operator gets 403 and the cards show the state only).
-  let nets = $state<DVNetView[]>([]), identity = $state<DVIdentity | null>(null), audio = $state<DVAudio | null>(null);
+  // Identity and audio settings (admin only: an operator gets 403).
+  let identity = $state<DVIdentity | null>(null), audio = $state<DVAudio | null>(null);
   async function loadNets() {
-    try { const r = await api.dvNetworks(); nets = r.modes; identity = r.identity; audio = r.audio ?? null; } catch { nets = []; identity = null; audio = null; }
+    try { const r = await api.dvNetworks(); identity = r.identity; audio = r.audio ?? null; } catch { identity = null; audio = null; }
   }
-  function netSaved(n: DVNetView) { nets = nets.map((x) => (x.mode === n.mode ? n : x)); loadNets(); }
   onMount(() => { load(); loadNets(); });
   // Audio card: the echo test is the engine's LOOP mode, switched with POST /api/dv/mode like any mode.
   // Stop switches back to the mode in effect before Start (the server re-tunes that mode's remembered tune).
@@ -54,13 +51,11 @@
   <p class="text-sm text-muted">{err || 'Loading…'}</p>
 {:else}
   <div class="space-y-4">
-    <DvBridge b={v.bridgeNode} base={base()} onsaved={load} />
-
     {#if identity}
       <DvIdentity {identity} onsaved={(i) => { identity = i; loadNets(); }} />
     {/if}
 
-    <DvNetworks {nets} {identity} {modes} onsaved={netSaved} />
+    <DvBridge b={v.bridgeNode} base={base()} onsaved={load} />
 
     <section class="card space-y-2 p-4" aria-label="Audio" data-testid="dv-echo">
       <div class="flex flex-wrap items-center gap-2">

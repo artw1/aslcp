@@ -144,10 +144,10 @@
 
 <div class="space-y-3 py-1">
   <div class="flex flex-wrap items-center gap-2">
-    <h1 class="text-base font-semibold">Audio tuning</h1>
+    <h2 class="text-base font-semibold">Audio levels</h2>
     {#if devices.length > 1}
       <label class="flex items-center gap-1.5 text-sm"><span class="text-muted">Device</span>
-        <select class="input w-auto" value={dev} onchange={(e) => navigate('/tune?dev=' + encodeURIComponent(e.currentTarget.value))}>
+        <select class="input w-auto" value={dev} onchange={(e) => navigate('/settings/allstarlink/audio-levels?dev=' + encodeURIComponent(e.currentTarget.value))}>
           {#each devices as d}<option value={d.name}>{d.name}{d.node ? ` (node ${d.node})` : ''}</option>{/each}
         </select>
       </label>

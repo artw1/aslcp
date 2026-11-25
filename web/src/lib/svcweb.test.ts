@@ -38,7 +38,7 @@ test('listenText', () => {
 
 test('webAddress builds the link from the browser host', () => {
   assert.equal(webAddress({ protocol: 'http:', hostname: 'node2001.local' }, 80), 'http://node2001.local/');
-  assert.equal(webAddress({ protocol: 'http:', hostname: '192.0.2.10' }, 8080, '/#/system/web-port'), 'http://192.0.2.10:8080/#/system/web-port');
+  assert.equal(webAddress({ protocol: 'http:', hostname: '192.0.2.10' }, 8080, '/#/settings/system/web-port'), 'http://192.0.2.10:8080/#/settings/system/web-port');
   assert.equal(webAddress({ protocol: 'http:', hostname: '2001:db8::1' }, 80), 'http://[2001:db8::1]/');
   assert.equal(webAddress({ protocol: 'http:', hostname: '[2001:db8::1]' }, 8080), 'http://[2001:db8::1]:8080/');
 });

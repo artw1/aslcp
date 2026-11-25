@@ -64,6 +64,7 @@ type FavoriteJSON struct {
 	Label    string         `json:"label"`
 	Group    string         `json:"group"`
 	Position int            `json:"position"`
+	Pinned   bool           `json:"pinned"`
 	Info     *nodelist.Info `json:"info"`
 }
 
@@ -136,7 +137,7 @@ func (s *Server) nodeJSON(st rpt.NodeStatus, priv bool) NodeStatusJSON {
 }
 
 func (s *Server) favJSON(f store.Favorite) FavoriteJSON {
-	return FavoriteJSON{ID: f.ID, Node: f.Node, Label: f.Label, Group: f.Group, Position: f.Position, Info: s.info(f.Node)}
+	return FavoriteJSON{ID: f.ID, Node: f.Node, Label: f.Label, Group: f.Group, Position: f.Position, Pinned: f.Pinned, Info: s.info(f.Node)}
 }
 
 func (s *Server) favoritesJSON() ([]FavoriteJSON, error) {

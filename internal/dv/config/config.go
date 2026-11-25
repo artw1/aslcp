@@ -146,6 +146,12 @@ func Validate(c *ctl.Config) error {
 		}
 	}
 	ensureEchoTest(c)
+	for i, n := range c.Networks {
+		if n.OnDemand == nil {
+			d := ctl.WantsOnDemand(n)
+			c.Networks[i].OnDemand = &d
+		}
+	}
 	for _, u := range c.Ctl.AllowUIDs {
 		if u < 0 {
 			return errors.New("config: ctl.allowUids: negative uid")

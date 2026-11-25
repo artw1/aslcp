@@ -1,5 +1,6 @@
 // In-memory /api/dv/* for `npm run dev:mock` (plan 2.0 M1: the native engine aslcp-dv with md380-emu). Dev only.
-// Placeholders only: callsign N0CALL, nodes 2001 and 1997, DMR ID 1234567, RFC 5737 addresses.
+// Placeholders only: callsign N0CALL, nodes 2001 (local) and 1999 (bridge), DMR ID 1234567, RFC 5737 addresses.
+import { hamdb, HAMDB_PERSON } from './nowcalling.ts';
 type Body = Record<string, unknown>;
 const ENABLE_MS = 6000;
 const ENABLE_LOG = ['Hit:1 http://deb.debian.org/debian bookworm InRelease', 'Get:2 https://packages.example.invalid/aslcp bookworm InRelease', 'key fingerprint matches the pinned one', 'Setting up md380-emu ...', 'Setting up aslcp-dv ...', 'previous digital voice services stopped and disabled', 'aslcp-dv started', 'enable finished'];
@@ -37,23 +38,23 @@ function setup() {
 const bad = (c: DVCtx, what: string) => c.err(400, `invalid_field: a value is not allowed (${what})`, 'invalid_field');
 
 // Private bridge node (PUT /dv/private-node). Starts without one so "No bridge node yet" and the
-// suggestion can be seen. Local nodes of the mock: 2001. Nothing here touches a real Asterisk.
-const LOCALS = ['2001'];
+// suggestion can be seen. Local nodes of the mock: 2001, 1997 and the tuning nodes 2000 and 2002. Nothing here touches a real Asterisk.
+const LOCALS = ['2001', '1997', '2000', '2002'];
 const pb = { name: '', node: '', owned: false, rxPort: 34001, txPort: 32001, mode: 'ondemand', local: '', paused: false, linked: false, exclusive: true, adopt: false };
 // the stock [USRP] ports that a removal puts back (the mock never recorded others)
 const STOCK = { rx: 31001, tx: 31001 };
 let pbUndo: { node: string; owned: boolean; rxPort: number; txPort: number; mode: string; local: string } | null = null;
 const NODE_NAME = 'Digital modes linked node';
-// The first install of a mock session finds a bridge node 1997 in rpt.conf that has no ASLCP record, like a
+// The first install of a mock session finds a bridge node 1999 in rpt.conf that has no ASLCP record, like a
 // restore of a backup from before 1.2.4: "Manage this bridge node with ASLCP" is offered. Later installs start clean.
 let foundOnce = true;
 function foundAfterRestore() {
   if (!foundOnce || pb.node) return;
   foundOnce = false;
-  Object.assign(pb, { node: '1997', owned: false, adopt: true, rxPort: 34001, txPort: 32001 });
+  Object.assign(pb, { node: '1999', owned: false, adopt: true, rxPort: 34001, txPort: 32001 });
 }
 const bridgeSetup = () => ({
-  node: pb.node, owned: pb.owned, adoptable: !!pb.node && !pb.owned && pb.adopt, suggested: pb.node ? '' : '1997', used: [...LOCALS, ...(pb.node ? [pb.node] : [])], localNodes: LOCALS,
+  node: pb.node, owned: pb.owned, adoptable: !!pb.node && !pb.owned && pb.adopt, suggested: pb.node ? '' : '1900', used: [...LOCALS, ...(pb.node ? [pb.node] : [])], localNodes: LOCALS,
   rxPort: pb.rxPort, txPort: pb.txPort, link: { mode: pb.mode, localNode: pb.local, bridge: pb.node, exclusive: pb.exclusive }, paused: pb.paused, name: pb.name || NODE_NAME,
 });
 const linkView = () => ({ mode: pb.mode, localNode: pb.local, linked: !!pb.node && (pb.mode === 'permanent' ? !pb.paused : pb.linked), paused: pb.paused, exclusive: pb.exclusive });
@@ -178,7 +179,7 @@ const LISTS: Record<string, { value: string; name: string; detail?: string; addr
   ],
 };
 
-// Dashboard panel (GET /dv/snapshot, /mode, /unlink, /tune, favourites). LOOP (the echo test, always on, shown as
+// Dashboard panel (GET /dv/snapshot, /mode, /unlink, /tune, favorites). LOOP (the echo test, always on, shown as
 // "Echo test", started from Digital modes setup) and BM are available; the other modes answer 409 not_available, and BM answers 409
 // mode_disabled until it is set up (PUT /dv/networks/BM with the identity set).
 type PMode = 'LOOP' | 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN' | 'M17';
@@ -194,11 +195,17 @@ type NetId = 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN' | 'M17';
 const blank = (): MockNet => ({ enabled: false, address: '', port: 0, password: '', options: {} });
 const otherNets: Record<'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN' | 'M17', MockNet> = { TGIF: blank(), DMR: blank(), YSF: blank(), P25: blank(), NXDN: blank(), M17: blank() };
 let ident: { callsign: string; dmrId: number; repeaterId?: number } = { callsign: '', dmrId: 0 };
-const bmLogin = () => (ident.dmrId ? 'ok' : 'failed');
-const bmDetail = () => (ident.dmrId ? '' : 'the master refused the login: no DMR ID set');
+// BrandMeister logs in only while it is the active mode (or with the stay_logged_in option): otherwise the engine reports `idle`.
+const bmInUse = () => bridge.mode === 'BM' || bmNet.options.stay_logged_in === 'true';
+const bmLogin = () => (!bmInUse() ? 'idle' : ident.dmrId ? 'ok' : 'failed');
+// A reflector or talkgroup network (YSF, P25, NXDN, M17) has no login: like the engine, `off` until a target is tuned, then `ok` while linked.
+const linkLogin = (m: PMode): 'off' | 'ok' => (bridge.mode === m && bridge.tune && bridge.tune !== UNLINK[m] ? 'ok' : 'off');
+const linkDetail = (m: PMode) => (linkLogin(m) === 'ok' ? `linked to ${bridge.tune}` : '');
+const bmDetail = () => (bmInUse() && !ident.dmrId ? 'the master refused the login: no DMR ID set' : '');
 const BM_HELP = 'Logs in as an Open DMR Terminal with your DMR ID and the password set in your BrandMeister SelfCare (hotspot security). Pick the master closest to you.';
 const intOpt = (key: string, label: string, def: string, min: number, max: number, advanced = false) => ({ key, label, kind: 'int', default: def, min, max, ...(advanced ? { advanced } : {}) });
 const BM_OPTS = [
+  { key: 'stay_logged_in', label: 'Stay logged in when not in BrandMeister mode', kind: 'bool', default: 'false', help: 'Off: BrandMeister logs in only while it is the active mode, so your DMR ID is free for other BrandMeister terminal apps in between (the master allows one session per ID). On: the session stays open in every mode.' },
   { key: 'client_version', label: 'Client version', kind: 'text', default: 'ASLCP', advanced: true },
   intOpt('keepalive_ms', 'Keep-alive (ms)', '5000', 100, 60000, true),
   intOpt('timeout_ms', 'Timeout (ms)', '15000', 500, 120000, true),
@@ -210,7 +217,7 @@ const boolOpt = (key: string, label: string, def: string, advanced = false) => (
 const HB_OPTS = (optionsHelp: string) => [
   ...(optionsHelp ? [txtOpt('options', 'Master options', '', 200, false, optionsHelp), intOpt('slot', 'Timeslot', '2', 1, 2)] : []),
   intOpt('repeater_id', 'Repeater ID', '', 1, 999999999, true),
-  intOpt('colour_code', 'Colour code', '1', 0, 15, true),
+  intOpt('colour_code', 'Color code', '1', 0, 15, true),
   boolOpt('tune_kerchunk', 'Link by short key-up', 'true', true),
   intOpt('unlink_tg', 'Unlink talkgroup', '4000', 0, 16777215, true),
   intOpt('rx_freq', 'RX frequency (Hz)', '0', 0, 999999999, true),
@@ -266,7 +273,7 @@ function netView(m: NetId) {
   return {
     mode: m, label: sp.label, available: avail, enabled: n.enabled, address: n.address, port: n.port, ...(sp.defaultPort ? { defaultPort: sp.defaultPort } : {}), ...(sp.defaultAddress ? { defaultAddress: sp.defaultAddress } : {}), ...(sp.defaultPassword ? { defaultPassword: sp.defaultPassword } : {}),
     passwordSet: n.password !== '', fields: sp.fields, needsIdentity: true, ...(sp.help ? { help: sp.help } : {}), options: sp.options, values: { ...n.options },
-    ...(avail && n.enabled && snapshot().running ? { login: m === 'BM' ? bmLogin() : 'off', detail: m === 'BM' ? bmDetail() : '' } : {}),
+    ...(avail && n.enabled && snapshot().running ? { login: m === 'BM' ? bmLogin() : m === 'TGIF' || m === 'DMR' ? 'off' : linkLogin(m), detail: m === 'BM' ? bmDetail() : m === 'TGIF' || m === 'DMR' ? '' : linkDetail(m) } : {}),
   };
 }
 function netsHandler(c: DVCtx): boolean {
@@ -332,7 +339,7 @@ function callers() {
   const n = Math.floor(Date.now() / 30_000);
   const at = (k: number) => new Date(Date.now() - k * 30_000).toISOString().slice(0, 19).replace('T', ' ');
   const heard = bridge.mode === 'LOOP'
-    ? [0, 1, 2].map((k) => ({ call: 'Echo test', at: at(k) }))
+    ? [{ call: 'Echo test', at: at(0) }, { call: 'N0CALL', dmrId: '1234567', dst: '91', slot: 2, at: at(1) }, { call: 'N1CALL', dst: '203.0.113.5:42000', mode: 'YSF', dstName: 'YSF-TEST', at: at(2), ...(hamdb.enabled ? { name: HAMDB_PERSON.name, place: 'Springfield, XX' } : {}) }]
     : bridge.mode === 'M17'
     ? [0, 1, 2].map((k) => ({ call: 'N0CALL', ...(bridge.tune && bridge.tune !== 'disconnect' ? { dst: bridge.tune } : {}), at: at(k) }))
     : [0, 1, 2].map((k) => ({ ...TALKERS[(n - k + 3 * 100) % 3], dst: '91', slot: 2, at: at(k) }));
@@ -346,7 +353,7 @@ function snapshot() {
     bridge: running
       ? { mode: bridge.mode, tune: bridge.tune, slot: bridge.slot, muted: bridge.muted, source: 'aslcp-dv', updated: new Date().toISOString() }
       : { mode: '', tune: '', slot: 0, muted: false, source: 'none', updated: '' },
-    modes: ALL.map((id) => ({ id, enabled: running && (id === 'LOOP' || netOf(id as NetId).enabled), available: NATIVE.includes(id), unlink: UNLINK[id], ...(LABEL[id] ? { label: LABEL[id] } : {}), ...(running && id === 'BM' && bmNet.enabled ? { login: bmLogin(), detail: bmDetail() } : {}), ...(running && id === 'BM' && bmNet.enabled && bmNet.address ? { master: bmNet.address === '192.0.2.10' ? 'BM_Example' : bmNet.address } : {}), ...(running && id === 'DMR' && otherNets.DMR.enabled && otherNets.DMR.address ? { master: otherNets.DMR.address === '192.0.2.10' ? 'DMR+_IPSC2-Example' : otherNets.DMR.address } : {}) })),
+    modes: ALL.map((id) => ({ id, enabled: running && (id === 'LOOP' || netOf(id as NetId).enabled), available: NATIVE.includes(id), unlink: UNLINK[id], ...(LABEL[id] ? { label: LABEL[id] } : {}), ...(running && id === 'BM' && bmNet.enabled ? { login: bmLogin(), detail: bmDetail() } : {}), ...(running && ['YSF', 'P25', 'NXDN', 'M17'].includes(id) && netOf(id as NetId).enabled ? { login: linkLogin(id), detail: linkDetail(id) } : {}), ...(running && id === 'BM' && bmNet.enabled && bmNet.address ? { master: bmNet.address === '192.0.2.10' ? 'BM_Example' : bmNet.address } : {}), ...(running && id === 'DMR' && otherNets.DMR.enabled && otherNets.DMR.address ? { master: otherNets.DMR.address === '192.0.2.10' ? 'DMR+_IPSC2-Example' : otherNets.DMR.address } : {}) })),
     services: enabled ? [{ unit: 'aslcp-dv', active: true }, { unit: 'md380-emu', active: true }] : [],
     ...(running ? { vocoder: { ok: true, timeouts: 0 }, engine: { version: '2.0.0', uptime: Math.floor((Date.now() - started) / 1000) } } : {}),
     bridgeNode: pb.node ? { present: true, node: pb.node, name: pb.name || NODE_NAME } : { present: false },
@@ -355,9 +362,9 @@ function snapshot() {
   };
 }
 const tuneRe: Record<PMode, RegExp> = { LOOP: /^$/, BM: /^[0-9]{1,8}#?$/, TGIF: /^[0-9]{1,8}#?$/, DMR: /^[0-9]{1,8}#?$/, YSF: /^(disconnect|[A-Za-z0-9._-]{1,32}|[A-Za-z0-9.-]{1,253}:[0-9]{1,5})$/, P25: /^[0-9]{1,5}$/, NXDN: /^[0-9]{1,5}$/, M17: /^(disconnect|M17-[A-Z0-9]{3} [A-Z])$/ };
-const favs: { id: number; mode: PMode; value: string; name: string; sort: number }[] = [];
+const favs: { id: number; mode: PMode; value: string; name: string; sort: number; pinned: boolean }[] = [];
 let favSeq = 0;
-const favView = (f: (typeof favs)[number]) => ({ id: f.id, mode: f.mode, value: f.value, name: f.name, sort: f.sort });
+const favView = (f: (typeof favs)[number]) => ({ id: f.id, mode: f.mode, value: f.value, name: f.name, sort: f.sort, pinned: f.pinned });
 function panelHandler(c: DVCtx): boolean {
   const op = c.user!.role !== 'viewer';
   const forbid = () => (c.err(403, 'insufficient permissions', 'forbidden'), true);
@@ -404,8 +411,8 @@ function panelHandler(c: DVCtx): boolean {
   if (c.m === 'POST' && c.p === '/dv/favorites') {
     const mode = String(body.mode ?? '').toUpperCase() as PMode, value = typeof body.value === 'string' ? body.value : '', name = typeof body.name === 'string' ? body.name.trim() : '';
     if (!(mode in tuneRe) || !tuneRe[mode].test(value) || [...name].length < 1 || [...name].length > 40) return c.err(400, 'bad_request: check the mode, the value and the name (1 to 40 characters)', 'bad_request'), true;
-    if (favs.some((f) => f.mode === mode && f.value === value)) return c.err(409, 'duplicate: this target is already a favourite', 'duplicate'), true;
-    const f = { id: ++favSeq, mode, value, name, sort: favs.filter((x) => x.mode === mode).length };
+    if (favs.some((f) => f.mode === mode && f.value === value)) return c.err(409, 'duplicate: this target is already a favorite', 'duplicate'), true;
+    const f = { id: ++favSeq, mode, value, name, sort: favs.filter((x) => x.mode === mode).length, pinned: false };
     favs.push(f);
     c.json(201, favView(f));
     return true;
@@ -413,11 +420,13 @@ function panelHandler(c: DVCtx): boolean {
   const m = /^\/dv\/favorites\/(\d+)$/.exec(c.p);
   if (m) {
     const i = favs.findIndex((f) => f.id === Number(m[1]));
-    if (i < 0) return c.err(404, 'not_found: no such favourite', 'not_found'), true;
+    if (i < 0) return c.err(404, 'not_found: no such favorite', 'not_found'), true;
+    if (!op) return forbid();
     if (c.m === 'DELETE') { favs.splice(i, 1); c.json(204); return true; }
     if (c.m === 'PUT') {
       if (body.name !== undefined) { const n = typeof body.name === 'string' ? body.name.trim() : ''; if ([...n].length < 1 || [...n].length > 40) return c.err(400, 'bad_request: the name must be 1 to 40 characters', 'bad_request'), true; favs[i].name = n; }
       if (typeof body.sort === 'number') favs[i].sort = body.sort;
+      if (typeof body.pinned === 'boolean') favs[i].pinned = body.pinned;
       c.json(200, favView(favs[i]));
       return true;
     }

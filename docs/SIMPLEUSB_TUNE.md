@@ -1,6 +1,6 @@
 # SimpleUSB audio tuning from the web UI
 
-Status: implemented in 1.1.6 (tone removed in beta.8) (admin-only "Audio Tuning" page, `/api/radio`). Sections 1 to 9 are the original design; "Implementation notes" near the end lists what differs and what is not yet verified on hardware. Node numbers below are placeholders (1999, 1998).
+Status: implemented in 1.1.6 (tone removed in beta.8) (admin-only "Audio levels" page (named "Audio Tuning" before 2.4.0), `/api/radio`). Sections 1 to 9 are the original design; "Implementation notes" near the end lists what differs and what is not yet verified on hardware. Node numbers below are placeholders (1999, 1998).
 
 > **The TX test tone was removed in 1.1.8.** `susb tune flash` is meant to key three 1 s bursts. On the bench the tones were intermittent, even when `susb tune flash` was run directly with `asterisk -rx`, with no ASLCP involved, while `simpleusb-tune-menu` played them consistently. The likely cause is a race with app_rpt on the channel generator, which is in the driver and not something ASLCP can fix. The maintainer decided the panel does not need the feature. The page now says: for a steady test tone (e.g. with a deviation meter), use `simpleusb-tune-menu` in a terminal. Everything below that describes the tone, `flash`, the channel-up pre-flight check, tone rate limits, `POST /api/radio/{dev}/tone` and the dedicated AMI connection is the original design, kept as history; none of it is in the code any more.
 
@@ -138,7 +138,7 @@ Un-saved changes live only in the running channel. A `module reload chan_simpleu
 - `t<N>` / `u<N>` use `atoi` with no sign check; negative numbers are not clamped. Validate 0-3000 (frames) server-side; offer 0-999 in the UI at most (what the terminal menu allows) or show milliseconds (`frames * 20`).
 - `q` (PTT mode) when queried prints the state of `plfilter` (cosmetic driver bug). Read PTT mode from `0+4` field 8, never from the `q` query reply.
 - `rx`/`txa`/`txb` and `Y` replies carry no device name, so they cannot prove which device they ran on; the `menu-support c|f|g` replies do (`Channel <name>:`), and `2` shows `Active radio interface is [<name>]`.
-- `flash` and the tone path call into `o->owner`; if the device exists but the node channel is not up (app_rpt not started, channel torn down) the behaviour is untested and could fault. ASLCP must check node/channel health first (section 6.4).
+- `flash` and the tone path call into `o->owner`; if the device exists but the node channel is not up (app_rpt not started, channel torn down) the behavior is untested and could fault. ASLCP must check node/channel health first (section 6.4).
 - A device whose USB interface is unplugged replies `Device <name> is selected, the associated USB device string <devstr> was not found`; all level/tone/meter commands print this instead of results.
 
 ### 2.8 Reachability over AMI
@@ -215,7 +215,7 @@ Display notes: show dBFS (peak hold for 1 s is what the driver gives), mark clip
 
 - "Unsaved changes" is computed by comparing the last `0+4` snapshot taken from `susb` with the values read from `simpleusb.conf` (via the config API) for that stanza. This also covers changes made behind ASLCP's back with the terminal tool.
 - **Save** runs `menu-support j` for the selected device, then re-reads `simpleusb.conf` and shows a diff of the keys that changed. If the value in the file does not match the running value after a save, the page reports "save may have failed, see Asterisk log".
-- **Revert** re-applies the values from the file (not "reload the module": a reload would also drop changes that are unrelated and would re-initialise both devices; see 7).
+- **Revert** re-applies the values from the file (not "reload the module": a reload would also drop changes that are unrelated and would re-initialize both devices; see 7).
 - Navigation guard: leaving the page with unsaved changes asks for confirmation.
 - A "Restore previous values" button is shown for the current session (ASLCP keeps the values read when the page opened, in memory only).
 
@@ -252,7 +252,7 @@ Strict, fixed command strings only; no pass-through of user text:
 
 1. Before saving, the server reads `simpleusb.conf` through the existing config read path and remembers its sha256.
 2. After `menu-support j`, it reads the file again, parses it with `astconf`, and shows the diff to the user.
-3. A new minimal helper operation (suggested name `config-record`, request `{path, message, author}`) commits the file's current on-disk content to the history repository as an "external change" with a message like `Radio tuning saved from web UI (device 1999)`. The helper validates the path like the other `config-*` ops (only `simpleusb.conf`/`usbradio.conf` accepted for this op), never trusts content from the server, and reads the file itself. This keeps rollback via the existing "restore" flow working and keeps `config-apply` base hashes consistent. If the helper op is not available (older helper), skip it: the next config-apply from the editor will show a conflict, which is the correct behaviour.
+3. A new minimal helper operation (suggested name `config-record`, request `{path, message, author}`) commits the file's current on-disk content to the history repository as an "external change" with a message like `Radio tuning saved from web UI (device 1999)`. The helper validates the path like the other `config-*` ops (only `simpleusb.conf`/`usbradio.conf` accepted for this op), never trusts content from the server, and reads the file itself. This keeps rollback via the existing "restore" flow working and keeps `config-apply` base hashes consistent. If the helper op is not available (older helper), skip it: the next config-apply from the editor will show a conflict, which is the correct behavior.
 
 Alternative considered and rejected for v1: **writing the values via the config editor pipeline** (`config-apply` with a lossless `astconf` edit) instead of `susb tune save`. Pros: history, diff, conflict detection and formatting preservation for free; Asterisk would not rewrite the file. Cons: it would not update the interface EEPROM, needs a `module reload chan_simpleusb.so` to apply (not shown to be glitch-free for a live node with two devices), and needs template-aware editing of values that are inherited from `[node-main](!)`. Re-evaluate after the bench test in section 8 shows how much Asterisk reformats the file.
 
@@ -283,7 +283,7 @@ Rate limits (in addition to the existing per-session limits): parameter writes 1
 
 ### 5.6 Frontend notes
 
-- New `web/src/components/Radio.svelte` (lazy import like `Config.svelte`), a small `lib/radio.svelte.ts` store (params, saved, meter stream), types in `lib/types.ts`, mock handlers under `web/mock/` for `npm run dev:mock`, and demo-mode behaviour in `internal/demo` (a simulated `susb` handler producing wobbling meter values and canned replies so `make demo` shows the page).
+- New `web/src/components/Radio.svelte` (lazy import like `Config.svelte`), a small `lib/radio.svelte.ts` store (params, saved, meter stream), types in `lib/types.ts`, mock handlers under `web/mock/` for `npm run dev:mock`, and demo-mode behavior in `internal/demo` (a simulated `susb` handler producing wobbling meter values and canned replies so `make demo` shows the page).
 - Reuse `Confirm.svelte`/`Dialog.svelte` for the tone dialog; reuse the toast and form helpers.
 - The meter should be a lightweight canvas or CSS bar; no charting library.
 
@@ -322,20 +322,20 @@ Before the tone is allowed: AMI connected, device `present`, node known to app_r
 | AMI user lacks `command` permission or the connection is shared with others | `GET /api/radio` reports `no_command_permission` with the exact fix text |
 | Public exposure | Nothing from this feature goes to the public page; viewer role gets no access; device paths and serials appear only for operator/admin |
 | SD-card wear from AMI temp files | Meter capped at 2 Hz, a single poller, auto-stop, 5 minute cap |
-| Regulatory | Station identification and licence conditions are the operator's responsibility; the confirmation text says so and the tone is never sent without it |
+| Regulatory | Station identification and license conditions are the operator's responsibility; the confirmation text says so and the tone is never sent without it |
 
 ## 8. Open questions
 
 Hardware bench tests (priority, needed before coding the tone and meter):
 
-1. **AMI behaviour of the interactive commands.** Confirm on a real node that `menu-support b`, `v`, `Y`, `l`, `fK` over AMI return immediately (regular-file fd is always "readable"), that `Y` returns the stats line, and that `susb tune flash` blocks for about 5 s and keys for about 3 s in total. Confirm `susb tune flash` works when the Command connection goes away mid-run.
+1. **AMI behavior of the interactive commands.** Confirm on a real node that `menu-support b`, `v`, `Y`, `l`, `fK` over AMI return immediately (regular-file fd is always "readable"), that `Y` returns the stats line, and that `susb tune flash` blocks for about 5 s and keys for about 3 s in total. Confirm `susb tune flash` works when the Command connection goes away mid-run.
 2. **Meter calibration.** What `Pk` (dBFS) corresponds to a known reference deviation (for example 1 kHz at 3 kHz deviation on a 5 kHz channel)? The terminal meter marks "3KHz"/"5KHz" at roughly 44% and 67% of its 0-16384 scale (about -13 dBFS and -9.5 dBFS of 16-bit peak by a first calculation from the source; unverified and the marker spacing is not linear in the header string). Measure with a signal generator or service monitor, and check what the ASL3 manual's tuning procedure says (could not fetch it here).
 3. **Tone shape.** A 5 s run of 3 bursts is what `flash` gives. Is that enough to measure deviation on a service monitor, or do we need a longer continuous tone? Options: call flash repeatedly (gaps of 1 s remain), or contribute a driver option upstream. What is the correct tone frequency/level (source uses a 1004 Hz tone at 7200 amplitude units; the prompt says 1000 Hz)?
 4. **Save reformatting.** How much does `ast_config_text_file_save2` change the ASL3 default template-based `simpleusb.conf` (comments, template inheritance, whitespace alignment of trailing comments)? This decides whether `susb tune save` is acceptable or whether to write via the config pipeline.
 5. **Reload semantics.** What does `module reload chan_simpleusb.so` do to a running device (is PTT/audio interrupted, are un-saved values reset)? Determines whether Revert may use it and how loud the "unsaved tuning" warning must be.
 6. **Concurrent consumers of the active device.** Does anything else in ASL3 use `simpleusb_active` while a node is running (console key/unkey CLI, `asl-menu` actions, other panels)? If so, is the mutex plus name verification enough, or do we need to gate the page behind an "I am the only operator" notice?
 7. **Version support.** `0+4` and `Y` exist in `3.5.0` and `3.10.0`, not in `3.0.0`. Which ASL3 releases do we support (the config doc already asks the same question), and should the page degrade (no meter, no 16-field block, use the 12-field `0`)?
-8. **Channel not up.** Behaviour of `flash` when the device is configured but app_rpt/the channel is not running (possible crash). Test before enabling the tone.
+8. **Channel not up.** Behavior of `flash` when the device is configured but app_rpt/the channel is not running (possible crash). Test before enabling the tone.
 9. **EEPROM devices.** For `eeprom = 1` interfaces, does Asterisk's EEPROM write finish before the CLI returns? (`tune_write` only sets `eepromctl = 2`; the write happens asynchronously.) Should the UI show "EEPROM write pending" and how can it be verified?
 10. **Roles.** Is operator read-only meter access desirable, or should the whole page be admin-only for the beta?
 11. **AMI permissions.** Does the default ASL3 AMI user already have `command` write permission? Needed for the first-run diagnostics message.
@@ -360,7 +360,7 @@ Value: the operator can watch RX audio levels while adjusting the radio, without
 - Per-device selection for multi-node, active-device restore, name verification, rate limits.
 Value: full RX/TX level and option tuning, replacing `simpleusb-tune-menu` except for the TX tone.
 
-**Phase 3: TX test tone (beta N+2, only if Phase 0 confirmed the behaviour).**
+**Phase 3: TX test tone (beta N+2, only if Phase 0 confirmed the behavior).**
 - `POST /tone` with confirmation, preflight checks, rate limits, banner, Z stats, audit.
 - Safety review (separate pass) and an operator-facing doc paragraph on dummy loads and ID rules.
 
@@ -374,7 +374,7 @@ Code: `internal/susb` (service, parsing, closed command set), `internal/api/hand
 
 Differences from the design above:
 
-- Admin only (not operator). The tab is at `#/tune`, shown only to admins and only when a SimpleUSB device exists; the route shows an empty-state page otherwise.
+- Admin only (not operator). The page is Settings, AllStarLink, Audio levels (`#/settings/allstarlink/audio-levels`; the old `#/tune` link redirects), a tab shown only to admins and only when a SimpleUSB device exists; the page shows an empty state otherwise.
 - The meter is polled over REST (`GET /api/radio/{dev}/meter`, about once a second), not SSE. At most one read per 700 ms reaches the driver.
 - Revert sets the baseline values (simpleusb.conf laid over the running state) back with the set commands. `susb tune load` is not used: it reads the interface EEPROM, not the file.
 - A save whose file does not show a running value, or whose history record fails, is reported as a warning, not an error.
@@ -388,8 +388,8 @@ Not verified on hardware (written from the driver source and the bench notes onl
 - `susb tune flash` over AMI `Command`: whether the call blocks for the whole tone and how the replies look, and the channel-up pre-flight check against `core show channels concise` (it could refuse a working node).
 - Echo mode (`k0`/`k1`) over AMI, including that it really stops on timeout, page exit and service stop.
 - `menu-support 0+4`, `Y` and the set commands over AMI, and the reply strings the parsers expect.
-- Save: how `susb tune save` rewrites `simpleusb.conf` (formatting, comments, which keys) and the history record; EEPROM behaviour.
-- Link behaviour during a tone and during echo on a node with real links.
+- Save: how `susb tune save` rewrites `simpleusb.conf` (formatting, comments, which keys) and the history record; EEPROM behavior.
+- Link behavior during a tone and during echo on a node with real links.
 - `chan_usbradio` is not supported.
 
 ## Appendix: bench results (2026-11-16, SHARI SA818 node, ASL3 on Debian 13)

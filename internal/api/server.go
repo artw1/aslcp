@@ -23,6 +23,7 @@ import (
 	"github.com/artw1/aslcp/internal/diag"
 	"github.com/artw1/aslcp/internal/dvpanel"
 	"github.com/artw1/aslcp/internal/favstats"
+	"github.com/artw1/aslcp/internal/hamdb"
 	"github.com/artw1/aslcp/internal/helper"
 	"github.com/artw1/aslcp/internal/hostlists"
 	"github.com/artw1/aslcp/internal/nodelist"
@@ -71,6 +72,9 @@ type Deps struct {
 	// RadioID is the radioid.net user list: names and places of DMR and YSF
 	// callers for the "Now calling" strip (nil: bare callsigns only).
 	RadioID *radioid.Manager
+	// HamDB is the opt-in hamdb.org fallback for the name and place of a
+	// callsign-only caller the radioid.net list does not know (nil: none).
+	HamDB *hamdb.Manager
 	// ConfigEditor is the configuration editing service (nil: 503
 	// config_unavailable).
 	ConfigEditor *configsvc.Service
@@ -202,6 +206,7 @@ func New(d Deps) *Server {
 		Store: pst, Lookup: lk, Logger: d.Logger, DefaultEnabled: d.PublicDefaultEnabled,
 		OnClients: func(int) { s.updateInterval(0) },
 		Bridge:    s.publicBridge(),
+		DV:        s.publicDV,
 	})
 	if d.Store != nil {
 		s.rec = activity.New(d.Store, d.Logger)
@@ -212,6 +217,9 @@ func New(d Deps) *Server {
 	s.initFavStats()
 	s.initSchedules()
 	s.initNowCalling()
+	if d.HamDB != nil {
+		d.HamDB.SetOnChange(s.hamdbChanged)
+	}
 	s.initDV()
 	s.initDVLink()
 	s.routes()

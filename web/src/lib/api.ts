@@ -1,4 +1,4 @@
-import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVStatus, DVJob, DVSetup, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVNetworks, DVAudio, DVMeter, DVNetView, DVNetPut, DVIdentity, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage, WifiState, WifiScan, TerminalStatus, TerminalTicket, TerminalSessionInfo, DiagPlan, NowCalling, UserListStatus } from './types';
+import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVStatus, DVJob, DVSetup, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVNetworks, DVAudio, DVMeter, DVNetView, DVNetPut, DVIdentity, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage, WifiState, WifiScan, TerminalStatus, TerminalTicket, TerminalSessionInfo, DiagPlan, NowCalling, UserListStatus, HamDBStatus } from './types';
 import type { SvcStatus, SvcSetResult, WebPortStatus } from './svcweb';
 
 export class ApiError extends Error {
@@ -93,7 +93,7 @@ function restoreUpload(file: File, auth: { password?: string; code?: string }, o
     xhr.setRequestHeader('Accept', 'application/json');
     xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
     xhr.onerror = () => reject(new ApiError(0, 'network', 'Cannot reach the server'));
-    xhr.onabort = () => reject(new ApiError(0, 'aborted', 'Upload cancelled'));
+    xhr.onabort = () => reject(new ApiError(0, 'aborted', 'Upload canceled'));
     xhr.onload = () => {
       let j: any = null;
       try { j = JSON.parse(xhr.responseText); } catch { /* not json */ }
@@ -125,7 +125,7 @@ export const api = {
   favStats: () => req<FavStatsUpdate>('GET', '/favorites/stats'),
   setFavScan: (enabled: boolean) => req<FavStatsUpdate>('PUT', '/favorites/scan', { enabled }),
   addFavorite: (f: { node: string; label?: string; group?: string }) => req<Favorite>('POST', '/favorites', f),
-  updateFavorite: (id: number, f: { node?: string; label?: string; group?: string }) => req<Favorite>('PUT', `/favorites/${id}`, f),
+  updateFavorite: (id: number, f: { node?: string; label?: string; group?: string; pinned?: boolean }) => req<Favorite>('PUT', `/favorites/${id}`, f),
   deleteFavorite: (id: number) => req<void>('DELETE', `/favorites/${id}`),
   reorder: (ids: number[]) => req<void>('POST', '/favorites/reorder', { ids }),
   importPreview: () => req<ImportPreview>('GET', '/favorites/import/allscan'),
@@ -196,12 +196,14 @@ export const api = {
   nowcalling: () => req<NowCalling>('GET', '/nowcalling'),
   userList: () => req<UserListStatus>('GET', '/dv/userlist'),
   setUserList: (enabled: boolean) => req<UserListStatus>('PUT', '/dv/userlist', { enabled }),
+  hamdb: () => req<HamDBStatus>('GET', '/dv/hamdb'),
+  setHamDB: (enabled: boolean) => req<HamDBStatus>('PUT', '/dv/hamdb', { enabled }),
   downloadUserList: () => req<UserListStatus>('POST', '/dv/userlist/download', {}),
   dvMode: (mode: DVTuneMode) => req<DVCmdReply>('POST', '/dv/mode', { mode }),
   dvUnlink: () => req<DVCmdReply>('POST', '/dv/unlink', {}),
   dvFavorites: () => req<DVFavorite[]>('GET', '/dv/favorites'),
   dvAddFavorite: (b: { mode: DVTuneMode; value: string; name: string }) => req<DVFavorite>('POST', '/dv/favorites', b),
-  dvUpdateFavorite: (id: number, b: { name?: string; sort?: number }) => req<DVFavorite>('PUT', `/dv/favorites/${id}`, b),
+  dvUpdateFavorite: (id: number, b: { name?: string; sort?: number; pinned?: boolean }) => req<DVFavorite>('PUT', `/dv/favorites/${id}`, b),
   dvDeleteFavorite: (id: number) => req<void>('DELETE', `/dv/favorites/${id}`),
   dvResume: () => req<DVResume>('GET', '/dv/resume'),
   dvSetResume: (resume: boolean) => req<DVResume>('PUT', '/dv/resume', { resume }),

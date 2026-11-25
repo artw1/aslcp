@@ -1,5 +1,5 @@
 // Pure logic of the dashboard digital modes card (docs/DV.md "Dashboard card"): the state line,
-// favourite and tune validation (the same rules as the server), and the pending/confirm logic.
+// favorite and tune validation (the same rules as the server), and the pending/confirm logic.
 import { ECHO_RUNNING } from './dvecho.ts';
 import { isDVNetwork, networkLabel } from './dvnetworks.ts';
 import { slotLabel } from './nowcalling.ts';
@@ -12,8 +12,46 @@ export const isDMRFamily = (mode: string): boolean => isDVNetwork(mode);
 export const modeLabel = (mode: string): string => networkLabel(mode);
 /** The name of a panel mode button: the snapshot's label when it has one, else modeLabel. */
 export const modeButtonLabel = (m: { id: string; label?: string }): string => m.label || modeLabel(m.id);
-/** The mode buttons of the dashboard card: the echo test has none (it starts in Digital modes setup), and a disabled DMR network has none. */
-export const dashboardModes = <M extends { id: string; enabled: boolean }>(modes: M[]): M[] => modes.filter((m) => m.id !== 'LOOP' && (!isDMRFamily(m.id) || m.enabled));
+/** What the engine says about one network, as the snapshot carries it. */
+type ChipMode = { id: string; enabled: boolean; login?: string; detail?: string };
+type Chip = { tone: 'ok' | 'err' | 'warn' | 'off'; text: string };
+
+/** The reflector or talkgroup a no-login mode is tuned to, short ("TG 1234", the reflector name or address); '' when it is not the active mode or nothing is tuned. */
+export function linkTarget(mode: string, b: Pick<DVBridge, 'mode' | 'tune' | 'targetName' | 'source'> | null | undefined): string {
+  if (!b || b.source === 'none' || b.mode !== mode || !b.tune) return '';
+  return mode === 'P25' || mode === 'NXDN' ? `TG ${b.tune}` : b.targetName || b.tune;
+}
+
+/**
+ * The state of a network without a login (YSF, P25, NXDN, M17: a reflector or talkgroup link, nothing to log in to).
+ * The engine reports `ok` while linked, `pending` while a link attempt runs (the reflector has not answered yet),
+ * `failed` when the reflector cannot be reached or refuses, else `off`. A mode that is not the active one is just enabled.
+ */
+export function linkChip(m: ChipMode, b?: Pick<DVBridge, 'mode' | 'tune' | 'targetName' | 'source'> | null): Chip {
+  const known = !!b && b.source !== 'none' && !!b.mode;
+  if (known && b!.mode !== m.id) return { tone: 'off', text: 'Enabled' };
+  if (m.login === 'pending') return { tone: 'warn', text: 'Linking' };
+  if (m.login === 'failed') return { tone: 'err', text: 'Link failed' };
+  const target = linkTarget(m.id, b);
+  if (m.login === 'ok' || (m.login === undefined && target)) return { tone: 'ok', text: target ? `Linked \u00b7 ${target}` : 'Linked' };
+  return { tone: 'off', text: 'Enabled' };
+}
+
+/** One button of the DV tab's mode buttons card: dot tone (ok green, err red, warn amber, off gray) and the short state. A DMR network shows its login: `idle` (BrandMeister outside its mode, no session on purpose) is a gray "Not in use". YSF, P25, NXDN and M17 have no login and show their link instead (linkChip): "Enabled", "Linking" or "Linked". */
+export function netChip(m: ChipMode, bridge?: Pick<DVBridge, 'mode' | 'tune' | 'targetName' | 'source'> | null): Chip {
+  if (!m.enabled) return { tone: 'off', text: 'Disabled' };
+  if (!isDMRFamily(m.id)) return linkChip(m, bridge);
+  if (m.login === 'ok') return { tone: 'ok', text: 'Logged in' };
+  if (m.login === 'failed') return { tone: 'err', text: 'Login failed' };
+  if (m.login === 'pending') return { tone: 'warn', text: 'Logging in' };
+  if (m.login === 'idle') return { tone: 'off', text: 'Not in use' };
+  return { tone: 'off', text: 'Enabled' };
+}
+/** The networks of the mode buttons card: every available network except the echo test. */
+export const stripModes = <M extends { id: string; available: boolean }>(modes: M[]): M[] => modes.filter((m) => m.available && m.id !== 'LOOP');
+
+/** The mode buttons of the dashboard card: only enabled modes (the echo test has none, it starts in Digital Modes settings); a disabled mode stays while it is the current one, so the selection is not hidden. */
+export const dashboardModes = <M extends { id: string; enabled: boolean }>(modes: M[], current?: string): M[] => modes.filter((m) => m.id !== 'LOOP' && (m.enabled || m.id === current));
 /** How long a mode switch may stay unconfirmed before the card says so. */
 export const CONFIRM_MS = 5000;
 export const FAV_NAME_MAX = 40;
@@ -86,7 +124,7 @@ export function serviceDots(s: DVSnapshot | null | undefined): { unit: string; o
 }
 export const allOk = (s: DVSnapshot | null | undefined): boolean => !!s && s.bridge.source !== 'none' && serviceDots(s).every((d) => d.ok);
 
-/** Colour of the state line: warn when a service is down, the state is unknown or the reflector does not answer, ok when all is well and a target is tuned, else neutral. */
+/** Color of the state line: warn when a service is down, the state is unknown or the reflector does not answer, ok when all is well and a target is tuned, else neutral. */
 export function stateTone(s: DVSnapshot | null | undefined): 'ok' | 'warn' | '' {
   if (!s || !allOk(s) || !s.bridge.mode) return 'warn';
   if (reflectorSilent(s)) return 'warn';
@@ -107,7 +145,7 @@ export function stateTitle(s: DVSnapshot | null | undefined): string {
 export const bridgeLinked = (s: Pick<DVSnapshot, 'bridgeNode' | 'link'> | null | undefined): boolean => !!s && !!s.bridgeNode?.present && !!s.bridgeNode.node && !!s.link?.linked;
 
 const printable = (s: string) => ![...s].some((c) => { const n = c.codePointAt(0)!; return n < 0x20 || (n >= 0x7f && n < 0xa0); });
-/** The trimmed favourite name, or null when it is not 1 to 40 printable characters. */
+/** The trimmed favorite name, or null when it is not 1 to 40 printable characters. */
 export function validFavName(name: string): string | null {
   const t = name.trim();
   const n = [...t].length;
@@ -132,6 +170,9 @@ export function validTune(mode: string, value: string): boolean {
   }
 }
 
+/** The placeholder of the tune box: what the mode's validator wants. */
+export const tunePlaceholder = (mode: string): string => (mode === 'YSF' ? 'Reflector' : mode === 'M17' ? 'Reflector (M17-XXX)' : isDMRFamily(mode) ? 'Talkgroup (end with # for private call)' : 'Talkgroup');
+
 /** BM Parrot: DMR 9990, called as a private call. */
 export const PARROT_ID = '9990';
 export const PRIVATE_MARK = '#';
@@ -145,17 +186,17 @@ export function withPrivate(mode: string, value: string, priv: boolean): string 
   return priv ? bare + PRIVATE_MARK : bare;
 }
 
-/** The favourite of `mode` with this value, if any (decides whether the star is filled). */
+/** The favorite of `mode` with this value, if any (decides whether the star is filled). */
 export function findFavorite(favs: DVFavorite[], mode: string, value: string): DVFavorite | undefined {
   return favs.find((f) => f.mode === mode && f.value === value);
 }
 export const favoritesFor = (favs: DVFavorite[], mode: string): DVFavorite[] => favs.filter((f) => f.mode === mode).sort((a, b) => a.sort - b.sort || a.id - b.id);
 
-/** Why a favourite cannot be saved now (null: it can). */
+/** Why a favorite cannot be saved now (null: it can). */
 export function favoriteBlock(favs: DVFavorite[], mode: string, value: string): string | null {
   if (!validTune(mode, value)) return 'Nothing to save: no valid target is tuned';
-  if (findFavorite(favs, mode, value)) return 'Already a favourite';
-  if (favs.filter((f) => f.mode === mode).length >= FAV_PER_MODE) return `At most ${FAV_PER_MODE} favourites per mode`;
+  if (findFavorite(favs, mode, value)) return 'Already a favorite';
+  if (favs.filter((f) => f.mode === mode).length >= FAV_PER_MODE) return `At most ${FAV_PER_MODE} favorites per mode`;
   return null;
 }
 
@@ -178,7 +219,7 @@ export function shownMode(p: Pending | null, outcome: Outcome, bridgeMode: strin
   return p && outcome === 'waiting' ? p.mode : bridgeMode ?? '';
 }
 
-/** True while a command is in flight or its mode switch still waits for confirmation: the mode buttons, Go, the favourite chips and Unlink are disabled then (one command at a time). */
+/** True while a command is in flight or its mode switch still waits for confirmation: the mode buttons, Go, the favorite chips and Unlink are disabled then (one command at a time). */
 export const controlsLocked = (busy: boolean, outcome: Outcome): boolean => busy || outcome === 'waiting';
 
 /** The label of the bridge node when the operator set no name (the same default as the server). */
@@ -200,11 +241,30 @@ export function validNodeName(name: string): string | null {
   return [...t].length <= NODE_NAME_MAX && printable(t) ? t : null;
 }
 
-/** Button class of the node link button: green to link, red to unlink (solid colours, readable in both themes). */
+/** Button class of the node link button: green to link, red to unlink (solid colors, readable in both themes). */
 export const nodeLinkClass = (action: 'connect' | 'disconnect'): string => (action === 'connect' ? 'btn-ok' : 'btn-bad');
 
 /** A mode's tune is linked when it is set and is not the mode's unlink value (the "nothing linked" target). */
 export const isTargetLinked = (target: string, unlinkValue: string): boolean => !!target && target !== unlinkValue;
+
+/** The mode's unlink value (what a tune sends to leave the target), '' when unknown. */
+export const modeUnlinkValue = (s: Pick<DVSnapshot, 'bridge' | 'modes'> | null | undefined): string => {
+  const b = s?.bridge;
+  return (b && b.source !== 'none' ? s?.modes?.find((x) => x.id === b.mode)?.unlink : '') ?? '';
+};
+
+/**
+ * The Unlink button for the tuned talkgroup or reflector: the label ("Unlink TG 91", "Unlink YSF-TEST", "Unlink M17-XXX C") and the unlink value the mode takes.
+ * Null unless a target is tuned and linked (same rule as the DV card). It never concerns the bridge node link.
+ */
+export function unlinkPlan(s: Pick<DVSnapshot, 'bridge' | 'modes'> | null | undefined): { label: string; value: string } | null {
+  const b = s?.bridge;
+  if (!s || !b || b.source === 'none' || !b.mode) return null;
+  const value = modeUnlinkValue(s);
+  if (!value || !isTargetLinked(b.tune, value)) return null;
+  const target = isDMRFamily(b.mode) || b.mode === 'P25' || b.mode === 'NXDN' ? `TG ${b.tune}` : b.mode === 'M17' ? b.tune : b.targetName || b.tune;
+  return { label: `Unlink ${target}`, value };
+}
 
 /** The mode and target the bridge is tuned to: "BrandMeister TG 91", "DMR TG 1", "YSF Example room", "P25 TG 10100", "DMR" with no target; null without a bridge node or mode. Not what the talker sent. */
 export function bridgeRxTarget(s: Pick<DVSnapshot, 'bridgeNode' | 'bridge'> | null | undefined): string | null {
@@ -236,9 +296,22 @@ export function callerLabel(c: DVCaller): string {
   return c.call?.trim() || c.dmrId || '';
 }
 
-/** "N0CALL" or "N0CALL (1234567)" for the Last heard list, with the target ("TG 91") and the log time. */
+/** The target of a heard call: the reflector name for YSF (the Mode column says YSF), the module for M17, else "TG 91". Empty when there is no destination. */
+function heardTarget(c: DVCaller): string {
+  return !c.dst ? '' : c.mode === 'YSF' ? c.dstName || c.dst : /^M17-/.test(c.dst) ? m17Display(c.dst) : `TG ${c.dst}`;
+}
+
+/** The cells of one Last heard table row: callsign (or DMR ID, or "Private call"), mode (the call's own, else M17 for an M17 target, DMR for a talkgroup), target, time slot and the log time (HH:MM:SS). Empty strings for what is not known. */
+export function heardRow(c: DVCaller): { call: string; mode: string; target: string; slot: string; time: string } {
+  const mode = c.mode || (!c.dst ? '' : /^M17-/.test(c.dst) ? 'M17' : 'DMR');
+  return { call: callerLabel(c), mode, target: heardTarget(c), slot: slotLabel(c.slot), time: c.at ? c.at.slice(11, 19) : '' };
+}
+
+/** One line for the dashboard's Last heard list: callsign, target, time slot, log time. */
 export function heardLine(c: DVCaller): string {
-  return [callerLabel(c), c.dst ? (/^M17-/.test(c.dst) ? m17Display(c.dst) : `TG ${c.dst}`) : '', slotLabel(c.slot), c.at ? c.at.slice(11, 19) : ''].filter(Boolean).join(' · ');
+  const r = heardRow(c);
+  // there is no Mode column in this line, so a YSF reflector keeps its "YSF" label
+  return [r.call, r.mode === 'YSF' && r.target ? `YSF ${r.target}` : r.target, r.slot, r.time].filter(Boolean).join(' · ');
 }
 
 /** The Frequency field in MHz as Hz (an integer), or null when it is not a number in the 30 to 3000 MHz range the server accepts. Hz input (30000000 to 3000000000) is taken as it is. */

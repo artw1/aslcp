@@ -5,9 +5,13 @@
   import { theme, cycleTheme } from '../../lib/theme.svelte';
   import { pub, startPublic, stopPublic } from '../../lib/publicLive.svelte';
   import { REPO_URL } from '../../lib/util';
-  import PublicStatusTable from './PublicStatusTable.svelte';
+  import NodeTile from '../NodeTile.svelte';
+  import LastHeardTable from '../LastHeardTable.svelte';
   import PublicNetwork from './PublicNetwork.svelte';
-  import PublicActivity from './PublicActivity.svelte';
+  import PublicNowCalling from './PublicNowCalling.svelte';
+  import { pubTile } from '../../lib/tiles';
+  import { pubNow } from '../../lib/pubnow';
+  import { pubHeardItems } from '../../lib/lastheard';
   import Radio from '@lucide/svelte/icons/radio-tower';
   import Sun from '@lucide/svelte/icons/sun';
   import Moon from '@lucide/svelte/icons/moon';
@@ -29,6 +33,8 @@
   const nextTheme = $derived(theme.value === 'dark' ? 'light' : theme.value === 'light' ? 'system' : 'dark');
   const themeLabel = $derived(`Theme: ${theme.value}. Switch to ${nextTheme}.`);
   const updatedAt = $derived(pub.updated ? new Date(pub.updated).toLocaleTimeString() : '');
+  const banner = $derived(pubNow(snap, pub.skew, pub.nodeAt));
+  const heard = $derived(pubHeardItems(snap));
   // `clock` ticks once a second so the age of the data is current.
   const staleData = $derived(pub.updated > 0 && clock.now - pub.updated > 45000);
 </script>
@@ -52,6 +58,7 @@
         <button class="btn btn-sm shrink-0" onclick={() => navigate('/')}>Back</button>
       {/if}
     </div>
+    {#if snap && snap.nodes.length > 0 && banner}<PublicNowCalling call={banner} />{/if}
   </header>
 
   <main class="mx-auto w-full max-w-[1100px] flex-1 space-y-3 px-3 py-2 sm:px-4">
@@ -60,13 +67,23 @@
     {:else if snap.nodes.length === 0}
       <p class="py-10 text-center text-sm text-muted" role="status">No node data yet.</p>
     {:else}
-      {#each snap.nodes as n, i (n.node + '/' + i)}
-        <div class="space-y-3">
-          <div class="overflow-hidden rounded-md border border-line bg-surface"><PublicStatusTable node={n} /></div>
-          {#if snap.showNetwork && n.network && n.network.length > 0}<PublicNetwork node={n} showNode={snap.nodes.length > 1} />{/if}
-        </div>
-      {/each}
-      {#if snap.showActivity}<PublicActivity items={snap.activity ?? []} multi={snap.nodes.length > 1} />{/if}
+      <section class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" aria-label="Nodes" data-testid="tiles">
+        {#each snap.nodes as n, i (n.node + '/' + i)}<NodeTile tile={pubTile(n, snap.showDV ? snap.dv?.now : null)} />{/each}
+      </section>
+      {#if snap.showNetwork}
+        {#each snap.nodes as n, i (n.node + '/' + i)}
+          {#if n.network && n.network.length > 0}<PublicNetwork node={n} showNode={snap.nodes.length > 1} />{/if}
+        {/each}
+      {/if}
+      {#if snap.showActivity || snap.showDV}
+        <section aria-label="Last heard">
+          <h2 class="mb-1 text-sm font-semibold uppercase tracking-wide text-muted">Last heard</h2>
+          <div class="rounded-md border border-line bg-surface px-3 py-1">
+            {#if heard.length === 0}<p class="py-3 text-center text-sm text-muted">Nothing heard yet.</p>
+            {:else}<LastHeardTable rows={heard} readonly testid="public-heard" />{/if}
+          </div>
+        </section>
+      {/if}
     {/if}
   </main>
 

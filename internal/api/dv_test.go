@@ -3,6 +3,7 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -354,6 +355,38 @@ func TestDVTuneM17(t *testing.T) {
 		t.Fatalf("favourite: %d", c)
 	}
 	expectErr(t, e, "op", "POST", "/api/dv/favorites", map[string]string{"mode": "M17", "value": "M17-XXX", "name": "Test"}, 400, "bad_request")
+}
+
+func TestDVFavoritePins(t *testing.T) {
+	e, _, _ := dvEnv(t, ctl.ModeLoop)
+	var f struct {
+		ID     int64
+		Pinned bool
+	}
+	if c := e.do("op", "POST", "/api/dv/favorites", map[string]string{"mode": "YSF", "value": "12345", "name": "Room"}, &f); c != 201 || f.Pinned {
+		t.Fatalf("create: %d %+v", c, f)
+	}
+	path := fmt.Sprintf("/api/dv/favorites/%d", f.ID)
+	expectErr(t, e, "viewer", "PUT", path, map[string]bool{"pinned": true}, 403, "forbidden")
+	if c := e.do("op", "PUT", path, map[string]bool{"pinned": true}, &f); c != 200 || !f.Pinned {
+		t.Fatalf("pin: %d %+v", c, f)
+	}
+	if c := e.do("op", "PUT", path, map[string]string{"name": "Renamed"}, &f); c != 200 || !f.Pinned {
+		t.Fatalf("rename keeps the pin: %d %+v", c, f)
+	}
+	var l []struct {
+		ID     int64
+		Pinned bool
+	}
+	e.do("viewer", "GET", "/api/dv/favorites", nil, &l)
+	if len(l) != 1 || !l[0].Pinned {
+		t.Fatalf("viewer sees the pin: %+v", l)
+	}
+	e.do("op", "DELETE", path, nil, nil)
+	e.do("op", "GET", "/api/dv/favorites", nil, &l)
+	if len(l) != 0 {
+		t.Fatalf("deleted with its pin: %+v", l)
+	}
 }
 
 func TestDVMode(t *testing.T) {

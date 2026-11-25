@@ -62,6 +62,8 @@ type rigOpts struct {
 	cfg     func(*ctl.Config)
 	mode    string
 	txTO    time.Duration
+	// loginWait is Options.LoginWait (0: the default).
+	loginWait time.Duration
 }
 
 func newRig(t *testing.T, o rigOpts) *rig {
@@ -109,7 +111,7 @@ func newRig(t *testing.T, o rigOpts) *rig {
 	}
 	r := bridge.New(bridge.Options{
 		USRP: ep, AMBE: md, Config: cfg, Version: "test", VocoderStats: md.Stats,
-		Emit: ev.add, InitialMode: mode, TxTimeout: o.txTO,
+		Emit: ev.add, InitialMode: mode, TxTimeout: o.txTO, LoginWait: o.loginWait,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/artw1/aslcp/internal/dv/ctl"
+	"github.com/artw1/aslcp/internal/hostlists"
 )
 
 func dmrStatus(tg uint32, updated time.Time) ctl.Status {
@@ -78,5 +79,26 @@ func TestCallerCarriesSlot(t *testing.T) {
 	c := dvCaller(ctl.Talk{Mode: ctl.ModeDMR, DMRID: 2345678, TG: 759, Slot: 1, Start: time.Now()})
 	if c.Slot != 1 || c.Dst != "759" {
 		t.Fatalf("%+v", c)
+	}
+}
+
+func TestYSFReflectorName(t *testing.T) {
+	items := []hostlists.Item{{Value: "00001", Name: "US-EXAMPLE", Address: "203.0.113.5", Port: 42000}, {Value: "00002", Name: "", Address: "203.0.113.6", Port: 42001}}
+	tuned := &ctl.Target{Room: "00009", Name: "TUNED-EXAMPLE", Host: "203.0.113.9", Port: 42002}
+	for _, c := range []struct {
+		dst  string
+		tgt  *ctl.Target
+		want string
+	}{
+		{"203.0.113.9:42002", tuned, "TUNED-EXAMPLE"},
+		{"00009", tuned, "TUNED-EXAMPLE"},
+		{"203.0.113.5:42000", tuned, "US-EXAMPLE"},
+		{"00001", nil, "US-EXAMPLE"},
+		{"203.0.113.6:42001", nil, ""},
+		{"203.0.113.7:42003", tuned, ""},
+	} {
+		if got := ysfName(c.dst, c.tgt, items); got != c.want {
+			t.Errorf("%s: got %q want %q", c.dst, got, c.want)
+		}
 	}
 }

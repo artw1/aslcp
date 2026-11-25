@@ -1,5 +1,6 @@
 // The generic settings form of a digital modes network (docs/DV.md "BrandMeister"): the form is built from the
 // option specs the server sends, so a new network needs no web change. Pure helpers so node --test covers them.
+import { isDVNetwork } from './dvnetworks.ts';
 import type { DVIdentity, DVListItem, DVLogin, DVNetPut, DVNetView, DVOptSpec, DVSnapshot, DVTuneMode } from './types';
 
 /** The modes the build implements natively. Only the fallback when the snapshot does not list a mode; the engine's `available` wins. */
@@ -104,12 +105,14 @@ export function nxdnOffNote(v: DVNetView, f: NetForm): string {
   return v.mode === 'NXDN' && v.enabled && f.enabled && (f.options.nxdn_id ?? '').trim() === '' ? 'Saving without an NXDN ID turns NXDN off.' : '';
 }
 
-/** The login line of a network card: "Logged in", "Logging in...", "Login refused: detail"; '' when it is off. */
-export function loginText(login: DVLogin | undefined, detail: string | undefined): string {
+/** The login line of a network card: "Logged in", "Logging in...", "Login refused: detail", "Not in use" (an on-demand network outside its mode); '' when it is off. YSF, P25, NXDN and M17 have no login: pass the mode and the line is their link, "Linked", "Linking..." or "Link failed: detail". */
+export function loginText(login: DVLogin | undefined, detail: string | undefined, mode?: string): string {
+  const link = mode !== undefined && !isDVNetwork(mode);
   switch (login) {
-    case 'ok': return 'Logged in';
-    case 'pending': return detail ? `Logging in... (${detail})` : 'Logging in...';
-    case 'failed': return detail ? `Login failed: ${detail}` : 'Login failed';
+    case 'ok': return link ? 'Linked' : 'Logged in';
+    case 'pending': return link ? 'Linking...' : detail ? `Logging in... (${detail})` : 'Logging in...';
+    case 'failed': return link ? (detail ? `Link failed: ${detail}` : 'Link failed') : detail ? `Login failed: ${detail}` : 'Login failed';
+    case 'idle': return link ? '' : 'Not in use';
     default: return '';
   }
 }

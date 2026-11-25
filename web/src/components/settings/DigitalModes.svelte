@@ -1,17 +1,18 @@
 <script lang="ts">
-  // Digital modes (route /dv): enable or disable the native engine (aslcp-dv with md380-emu), its status and
+  // Digital Modes (#/settings/digital-modes): enable or disable the native engine (aslcp-dv with md380-emu), its status and
   // the enable job's log, the resume switch. Setup (bridge node, identity, networks, audio) appears once the engine is enabled.
   import { onMount } from 'svelte';
-  import { api } from '../lib/api';
-  import { toast, toastError } from '../lib/toast.svelte';
-  import type { DVJob, DVResume, DVStatus } from '../lib/types';
-  import { app } from '../lib/store.svelte';
-  import { dismissKey, isDismissed, jobSummary, jobView, setDismissed } from '../lib/dvjob';
-  import { lastUsed, resumeShort, resumeToast } from '../lib/dvmodes';
-  import Toggle from './Toggle.svelte';
-  import Dialog from './Dialog.svelte';
-  import DvSetup from './DvSetup.svelte';
-  import UserListCard from './UserListCard.svelte';
+  import { api } from '../../lib/api';
+  import { toast, toastError } from '../../lib/toast.svelte';
+  import type { DVJob, DVResume, DVStatus } from '../../lib/types';
+  import { app } from '../../lib/store.svelte';
+  import { dismissKey, isDismissed, jobSummary, jobView, setDismissed } from '../../lib/dvjob';
+  import { lastUsed, resumeShort, resumeToast } from '../../lib/dvmodes';
+  import Toggle from '../Toggle.svelte';
+  import Dialog from '../Dialog.svelte';
+  import DvSetup from '../DvSetup.svelte';
+  import UserListCard from '../UserListCard.svelte';
+  import HamDBCard from '../HamDBCard.svelte';
   import Refresh from '@lucide/svelte/icons/refresh-cw';
   import Power from '@lucide/svelte/icons/power';
 
@@ -73,7 +74,6 @@
   const unitState = (active: boolean, enabled: boolean | null) => `${active ? 'active' : 'inactive'}${enabled === null ? '' : enabled ? ', enabled' : ', disabled'}`;
 </script>
 <div class="space-y-4">
-  <h1 class="text-xl font-bold tracking-tight">Digital modes</h1>
   {#if !st}
     <p class="text-sm text-muted">{err || 'Loading…'}</p>
   {:else}
@@ -118,7 +118,7 @@
       </div>
     {/if}
 
-    {#if st.enabled && !running}<UserListCard compact />{/if}
+    {#if st.enabled && !running}<UserListCard compact /><HamDBCard />{/if}
 
     {#if running || job.state === 'failed' || (job.state === 'succeeded' && (!dismissed || logOpen))}
       <div class="space-y-2 border-t border-line pt-3" aria-label="Job">

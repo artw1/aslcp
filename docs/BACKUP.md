@@ -8,7 +8,7 @@ Goal: download one file from a working node, re-image the SD card with a fresh A
 |---|---|---|---|
 | Asterisk configuration | all of `/etc/asterisk` (every file and subdirectory, not only `*.conf`: `allmon.ini.php`, `extensions.ael`, `custom/`, `broadcastify/`, ...) | always | Owner, group and mode are kept as names plus mode. Each file is also classified as stock or changed (see "Restoring onto a newer ASL3"). |
 | AstDB | `/var/lib/asterisk/astdb.sqlite3` (confirmed on ASL3, asterisk:asterisk 0644, ~12 KB) | always | Allow/deny lists and other state `app_rpt` keeps in AstDB. Copied consistently (SQLite backup API, read-only) while Asterisk runs. |
-| ASLCP database | `/var/lib/aslcp/aslcp.db` | always | Users (password hashes), roles, favorites, schedules, settings, public page, audit log. Snapshot with `VACUUM INTO`. Sessions are not restored (everyone logs in again). |
+| ASLCP database | `/var/lib/aslcp/aslcp.db` | always | Users (password hashes), roles, favorites (with their pins), schedules, settings (including the off-by-default hamdb.org lookup switch; its cache file `hamdb-cache.json` is not backed up), public page, audit log. Snapshot with `VACUUM INTO`. Sessions are not restored (everyone logs in again). |
 | ASLCP config file | `/etc/aslcp/aslcp.conf` | always | AMI settings, update URL. The web port (`listen` in `[server]`) is not restored: the node keeps its own. |
 | Config history | `/var/lib/aslcp-config-history` | on | The git history of config changes, so history and Restore keep working after the re-image. Can be unticked to make the file smaller. |
 | Other AMI clients | `/etc/allmon3/` if present | on when present | Allmon3 config (it shares the AMI login). |
@@ -68,7 +68,7 @@ Same ASL3 version on both sides: stock files are identical anyway, so the result
 
 ## Creating a backup
 
-Backup tab (admin only): tick the optional parts, Download. Audited as `backup.create` (no content).
+Settings, Maintenance, Backup & restore (admin only): tick the optional parts, Download. Audited as `backup.create` (no content).
 
 1. The server asks the helper for the system part (new op `backup-create` with a typed request: which optional parts). The helper reads the root-only files (`/etc/asterisk` contains `root:www-data 0660` files, the history repository is root 0700, AstDB belongs to asterisk) and streams a tar over the socket after a JSON header. No temp files in directories the `aslcp` user can write.
 2. The server adds its own parts (`VACUUM INTO` a temp file in its private data dir, `aslcp.conf`), writes `manifest.json` first, gzip, streaming straight to the HTTP response. Size limit 256 MiB (typical size: a few MB).
@@ -80,7 +80,7 @@ Later (not in beta.3): scheduled automatic backups kept on the node (last N) and
 ### Where
 
 - **Fresh install (the main case):** the first-run page that asks to create the admin account gets a second choice, "Restore from a backup". It needs the one-time setup code (the same code that allows creating the first admin; the installer prints it as a one-time setup link, and `sudo aslcp admin setup-code` shows it again), so nobody on the network can push a configuration onto a new node.
-- **Running node:** Backup tab > Restore (admin, password re-entry).
+- **Running node:** Settings, Maintenance, Backup & restore > Restore (admin, password re-entry).
 
 ### Steps
 

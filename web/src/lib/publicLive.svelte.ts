@@ -1,6 +1,6 @@
 // Live data of the public status view: SSE with backoff, falling back to
 // polling /api/public/status every 10 s while the stream is down.
-import type { PubActivity, PubNetNode, PubNode, PubSnapshot } from './types';
+import type { PubActivity, PubDV, PubNetNode, PubNode, PubSnapshot } from './types';
 
 export const pub = $state<{
   snap: PubSnapshot | null;
@@ -68,6 +68,11 @@ function connect() {
     const a = parse<{ now: number; activity: PubActivity[] }>(e);
     pub.snap.activity = a.activity;
     pub.skew = a.now * 1000 - Date.now();
+  });
+  src.addEventListener('dv', (e) => {
+    if (!pub.snap) return;
+    pub.snap.dv = parse<PubDV>(e);
+    pub.updated = Date.now();
   });
   src.onerror = () => {
     src.close(); if (es === src) es = null;

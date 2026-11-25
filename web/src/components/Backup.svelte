@@ -21,9 +21,7 @@
   $effect(() => { loadBackup(); });
 </script>
 <div class="space-y-4">
-  <h1 class="text-xl font-bold tracking-tight">Backup</h1>
     <section class="card space-y-3 p-4" aria-label="Backup">
-      <h2 class="text-base font-semibold">Backup</h2>
       <p class="text-sm">Download one file with this node's whole configuration: the same Asterisk setup, ASLCP users, favorites and settings. Restore it onto a freshly installed node to get the same node back.</p>
       <p class="text-sm text-muted">Always included: /etc/asterisk, AstDB, the ASLCP database and config{#if binfo?.sa818}, and the SA818 radio module settings{/if}.</p>
       {#if binfo}

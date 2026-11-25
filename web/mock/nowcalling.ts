@@ -5,18 +5,22 @@ interface MockCall { id: string; kind: string; call: string; first?: string; nam
 const SCRIPT: { at: number; len: number; c: MockCall }[] = [
   { at: 2, len: 14, c: { id: 'dmr', kind: 'dmr', call: 'N0CALL', first: 'Alex', name: 'Alex Example', city: 'Exampleton', state: 'Example State', country: 'Exampleland', dmrId: '1234567', network: 'BrandMeister', tg: '91', tgName: 'Example Worldwide', slot: 2 } },
   { at: 20, len: 6, c: { id: 'asl', kind: 'allstar', call: 'N1CALL', location: 'Example Hill, Anytown', node: '1998', desc: 'Example hub', local: '2001' } },
-  { at: 30, len: 8, c: { id: 'ysf', kind: 'ysf', call: 'N0CALL', first: '', name: '', city: '', state: '', country: '', room: 'Example Room' } },
+  { at: 30, len: 8, c: { id: 'ysf', kind: 'ysf', call: 'N1CALL', first: '', name: '', city: '', state: '', country: '', room: 'Example Room' } },
   { at: 40, len: 6, c: { id: 'm17', kind: 'm17', call: 'N0CALL', room: 'M17-XXX C' } },
 ];
 const CYCLE = 50;
 // The single shared timeline: the one link that is keyed right now, or null. The DMR and YSF talkers come in through
-// the digital modes bridge link (node 1900) and the AllStar talker is the hub link 1998, all on local node 2001.
-export const BRIDGE_NODE = '1900';
+// the digital modes bridge link (node 1999) and the AllStar talker is the hub link 1998, all on local node 2001.
+export const BRIDGE_NODE = '1999';
 export function talkerLink(now = Date.now()): { local: string; node: string; len: number } | null {
   const c = (nowCalling(now).current as MockCall | null);
   if (!c) return null;
   return { local: '2001', node: c.kind === 'allstar' ? c.node! : BRIDGE_NODE, len: SCRIPT.find((s) => c.id.startsWith(s.c.id + '-'))?.len ?? 0 };
 }
+// The hamdb.org lookup (docs/API.md "Now Calling"): off by default; when on, N1CALL (YSF) has a placeholder name and place.
+export const hamdb = { enabled: false };
+export const HAMDB_PERSON = { first: 'Pat', name: 'Pat Example', city: 'Springfield', state: 'XX', country: 'United States', source: 'hamdb.org' };
+const withPerson = (c: MockCall) => (hamdb.enabled && c.kind === 'ysf' ? { ...c, ...HAMDB_PERSON } : c);
 const iso = (ms: number) => new Date(ms).toISOString();
 
 export function nowCalling(now = Date.now()) {
@@ -26,7 +30,7 @@ export function nowCalling(now = Date.now()) {
     for (let i = SCRIPT.length - 1; i >= 0; i--) {
       const s = SCRIPT[i], start = T0 + (cyc * CYCLE + s.at) * 1000, end = start + s.len * 1000;
       if (start > now) continue;
-      const base = { ...s.c, id: `${s.c.id}-${cyc}` };
+      const base = { ...withPerson(s.c), id: `${s.c.id}-${cyc}` };
       if (now < end) current = { ...base, start: iso(start), active: true };
       else recent.push({ ...base, start: iso(start), end: iso(end), active: false });
     }
@@ -40,6 +44,11 @@ const view = () => ({ ...userList, busy: Date.now() < busyUntil });
 
 export function handleNowCalling(c: { m: string; p: string; body?: unknown; user?: { role: string }; json: (code: number, body?: unknown) => void; err: (code: number, msg: string, c: string) => void }): boolean {
   if (c.m === 'GET' && c.p === '/nowcalling') { if (!c.user) c.err(401, 'authentication required', 'unauthorized'); else c.json(200, nowCalling()); return true; }
+  if (c.p === '/dv/hamdb') {
+    if (c.user?.role !== 'admin') { c.err(c.user ? 403 : 401, 'insufficient permissions', c.user ? 'forbidden' : 'unauthorized'); return true; }
+    if (c.m === 'PUT') hamdb.enabled = !!(c.body as { enabled?: boolean } | undefined)?.enabled;
+    if (c.m === 'GET' || c.m === 'PUT') { c.json(200, { enabled: hamdb.enabled, cached: hamdb.enabled ? 1 : 0, today: hamdb.enabled ? 1 : 0, dailyMax: 100 }); return true; }
+  }
   if (!c.p.startsWith('/dv/userlist')) return false;
   if (c.user?.role !== 'admin') { c.err(c.user ? 403 : 401, 'insufficient permissions', c.user ? 'forbidden' : 'unauthorized'); return true; }
   if (c.m === 'GET' && c.p === '/dv/userlist') { c.json(200, view()); return true; }

@@ -161,3 +161,6 @@ export function ariaLabel(s: StripState, now: number): string {
   if (s.mode === 'idle') return `${idleLine(s.call, now)}. Open recent calls.`;
   return '';
 }
+
+/** One row of the details sheet. */
+export interface SheetRow { label: string; value: string; cls?: string; note?: string }

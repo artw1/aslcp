@@ -4,30 +4,30 @@ A modern web control panel for [AllStarLink 3](https://www.allstarlink.org/) nod
 
 ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly web page to connect and disconnect links, watch live status and keep your favorites, in the spirit of [AllScan](https://allscan.info/). It also edits your Asterisk configuration, runs scheduled links, backs up and restores the whole node, and has built-in digital voice modes (DMR, YSF, P25 and NXDN).
 
-![ASLCP dashboard, desktop](docs/images/dashboard-desktop.png)
+![ASLCP Dashboard, desktop](docs/images/dashboard-desktop.png)
 
 ## Features
 
 - **Live dashboard** for every local node: links, keyed state (who is transmitting right now), connection time, mode, node information and the wider network, updated about once a second.
 - **Connect, disconnect, monitor and local monitor**, with permanent links and an optional "disconnect before connect" so you do not bridge two networks by accident.
 - **Favorites** with groups and ordering; import from AllScan. An optional scan shows which favorites are active.
-- **Node lookup** by number, callsign, description or location, using the AllStarLink node list.
+- **Node search** by number, callsign, description or location in the connect bar and favorites, using the AllStarLink node list.
 - **Digital modes** (DMR, YSF, P25, NXDN) on the built-in engine, with a Digital modes card on the dashboard, an Echo test and a **Now calling** strip. See [Digital modes](#digital-modes).
 - **Schedules**: connect and disconnect nodes at set times (weekly or one-off), with a global on/off switch, an upcoming list, and a choice of what happens when you connect by hand.
-- **Config editor**: edit `rpt.conf`, `iax.conf`, `simpleusb.conf`, `extensions.conf` and other Asterisk files in the browser. Saving shows a diff and checks syntax, reloads Asterisk, and keeps a history you can restore from. Administrators only.
-- **Audio Tuning** (administrators, nodes with a SimpleUSB radio): live receive meter, RX and TX levels, carrier and CTCSS settings, PTT mode and delays.
-- **Backup and restore**: download one file with your Asterisk config, ASLCP users, favorites and settings and digital modes settings. Restore it on a freshly installed node during setup or later.
-- **System** (administrators): CPU temperature, load, uptime, Asterisk status and restart, ASL services, web port, WiFi, a browser terminal, updates and diagnostics.
+- **Asterisk files** (Settings, AllStarLink): edit `rpt.conf`, `iax.conf`, `simpleusb.conf`, `extensions.conf` and other Asterisk files in the browser. Saving shows a diff and checks syntax, reloads Asterisk, and keeps a history you can restore from. Administrators only.
+- **Audio levels** (Settings, AllStarLink; administrators, nodes with a SimpleUSB radio): live receive meter, RX and TX levels, carrier and CTCSS settings, PTT mode and delays.
+- **Backup and restore** (Settings, Maintenance): download one file with your Asterisk config, ASLCP users, favorites and settings and digital modes settings. Restore it on a freshly installed node during setup or later.
+- **Settings** (administrators; the Settings item in the top bar, with AllStarLink, Digital Modes, Access, System, Maintenance, About and Account): CPU temperature, load, uptime, Asterisk status and restart, ASL services, web port, WiFi, a browser terminal, updates and diagnostics.
 - **Diagnostics**: download one `.tar.gz` with versions, recent logs, network summary, disk and memory, service states and your config files, to ask for help. Secrets are replaced by `<redacted>`; a checkbox (on by default) also hides your callsign and public IP. Password files, private keys and the ASLCP database are never included. Read it before posting it publicly.
 - **Users and roles**: admin, operator and viewer, with rate-limited login and CSRF protection.
-- **Updates from the web page**: Settings shows the installed and available version with release notes, lets you pick the release or beta channel, and installs updates on request.
-- **Built-in bug reporting**: Settings, About has a prefilled issue form and a diagnostics download that removes private data.
+- **Updates from the web page**: Settings, System, Updates shows the installed and available version with release notes, lets you pick the release or beta channel, and installs updates on request.
+- **Built-in bug reporting**: Settings, About has a prefilled issue form, and Settings, Maintenance, Diagnostics has a diagnostics download that removes private data.
 - **Public status page** (optional, off by default): a read-only live view of your node for visitors who are not logged in, with recent activity. See below.
 - Light and dark themes, works on phones and tablets.
 - Small and safe: one static binary, runs as an unprivileged, hardened systemd service; a tiny root helper performs only package updates, firewall changes and similar system tasks.
 
 <p>
-  <img src="docs/images/dashboard-mobile.png" alt="ASLCP dashboard on a phone" width="260">
+  <img src="docs/images/dashboard-mobile.png" alt="ASLCP Dashboard on a phone" width="260">
   <img src="docs/images/settings-updates.png" alt="Settings, Updates section" width="520">
 </p>
 
@@ -119,7 +119,7 @@ It combines with `ASLCP_PORT`:
 curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_DV=1 ASLCP_PORT=8181 sh
 ```
 
-Once ASLCP is running, the installer runs `aslcp dv enable`, the same as enabling digital modes on the Digital modes page, and shows its log. It takes a few minutes. If it fails, the installer warns and finishes anyway; retry with `sudo aslcp dv enable`. Digital modes settings from a restored backup are applied at the end of that install.
+Once ASLCP is running, the installer runs `aslcp dv enable`, the same as enabling digital modes in Settings, Digital Modes (the Engine card), and shows its log. It takes a few minutes. If it fails, the installer warns and finishes anyway; retry with `sudo aslcp dv enable`. Digital modes settings from a restored backup are applied at the end of that install.
 
 ### First login
 
@@ -143,7 +143,7 @@ The installer writes it to `listen` in `/etc/aslcp/aslcp.conf` (`listen = :8181`
 
 #### Port 80
 
-Administrators can move ASLCP to port 80 in **System, Web port**, so the panel answers on `http://<your-node>/`. Port 80 must be free: if Apache runs, turn it off first in **System, ASL services**. The move writes a systemd drop-in (`/etc/systemd/system/aslcp.service.d/port80.conf`) and changes `listen`, then restarts ASLCP. The page shows the new address; open it within 60 seconds to confirm. If you do not, ASLCP goes back to its old port by itself, so you cannot lock yourself out. The old port is closed after the move (old bookmarks stop working), and **Move back** undoes it. While ASLCP is on port 80, Apache cannot be turned back on.
+Administrators can move ASLCP to port 80 in **Settings, System, Web port**, so the panel answers on `http://<your-node>/`. Port 80 must be free: if Apache runs, turn it off first in **Settings, System, ASL web services**. The move writes a systemd drop-in (`/etc/systemd/system/aslcp.service.d/port80.conf`) and changes `listen`, then restarts ASLCP. The page shows the new address; open it within 60 seconds to confirm. If you do not, ASLCP goes back to its old port by itself, so you cannot lock yourself out. The old port is closed after the move (old bookmarks stop working), and **Move back** undoes it. While ASLCP is on port 80, Apache cannot be turned back on.
 
 #### Port 80 and the other ASL web services at install (`ASLCP_TAKEOVER`)
 
@@ -159,7 +159,7 @@ It implies `ASLCP_PORT=80` unless you give `ASLCP_PORT` yourself. After the pack
 - the web server of the ASL web UIs: `apache2.service`, `lighttpd.service` or `nginx.service`, whichever is there (the ASL3 appliance image uses Apache for its landing page and for asl-web-ui);
 - the asl-web-ui backend (`asl-web-ui.service`) and Supermon (`supermon.service`, `supermon2.service`, `supermon-ng.service`), if they run as services.
 
-Asterisk and app_rpt keep running, and so does everything else the node needs to stay on the air; the node is not taken off the air. Cockpit (port 9090) does not compete with ASLCP and is left as it is; turn it off in **System, ASL services** if you want to. Nothing is uninstalled.
+Asterisk and app_rpt keep running, and so does everything else the node needs to stay on the air; the node is not taken off the air. Cockpit (port 9090) does not compete with ASLCP and is left as it is; turn it off in **Settings, System, ASL web services** if you want to. Nothing is uninstalled.
 
 Then ASLCP moves to port 80 (drop-in `/etc/systemd/system/aslcp.service.d/port80.conf` with `AmbientCapabilities` and `CapabilityBoundingSet` = `CAP_NET_BIND_SERVICE`, `listen = :80`, port 80 opened in firewalld) and the panel is at `http://<your-node>/`. If another program still holds port 80 after the takeover (for example a web server the installer does not know), the installer names it, does not move ASLCP, finishes on the old port and exits with status 1; the services it turned off stay off until you undo.
 
@@ -169,7 +169,7 @@ What was turned off is recorded in `/var/lib/aslcp/takeover.list`. To undo, run 
 curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_TAKEOVER=undo sh
 ```
 
-ASLCP moves back to the port it had before (8080 unless you set another), then exactly the recorded units are enabled and started again. Apache and Allmon3 are also recorded in the list of the System tab (ASL services), so `apt purge aslcp` turns them back on; the other units are only restored by the undo command.
+ASLCP moves back to the port it had before (8080 unless you set another), then exactly the recorded units are enabled and started again. Apache and Allmon3 are also recorded in the list in Settings, System, ASL web services, so `apt purge aslcp` turns them back on; the other units are only restored by the undo command.
 
 #### ASL3 telemetry at install (`ASLCP_ASL_TELEMETRY`)
 
@@ -188,7 +188,7 @@ sudo systemctl mask asl-telemetry.timer asl-telemetry.service
 
 ### ASL services (Cockpit, Apache, Allmon3)
 
-**System, ASL services** has one switch each for Cockpit, Apache and Allmon3. A switch only stops and disables the service (`systemctl disable --now`); nothing is uninstalled, so the ASL3 Pi appliance package keeps working, and turning it on again is one click. ASLCP asks first and says what you lose (Cockpit is a fallback terminal and WiFi settings if ASLCP ever breaks: keep it until you are sure SSH works). Turning Apache off offers to turn Allmon3 off too, because Allmon3 answers on ports 16080 and 16700+ on every address even without Apache. The page lists which of ports 80, 443, 9090, 16080 and 16700+ are really listening, and can close or reopen the matching firewalld services. ASLCP never touches these services during an install or update, unless you ask for it with `ASLCP_TAKEOVER=1` (above). `apt purge aslcp` turns back on the services ASLCP itself had turned off (and no others); `apt remove` leaves everything as it is.
+**Settings, System, ASL web services** has one switch each for Cockpit, Apache and Allmon3. A switch only stops and disables the service (`systemctl disable --now`); nothing is uninstalled, so the ASL3 Pi appliance package keeps working, and turning it on again is one click. ASLCP asks first and says what you lose (Cockpit is a fallback terminal and WiFi settings if ASLCP ever breaks: keep it until you are sure SSH works). Turning Apache off offers to turn Allmon3 off too, because Allmon3 answers on ports 16080 and 16700+ on every address even without Apache. The page lists which of ports 80, 443, 9090, 16080 and 16700+ are really listening, and can close or reopen the matching firewalld services. ASLCP never touches these services during an install or update, unless you ask for it with `ASLCP_TAKEOVER=1` (above). `apt purge aslcp` turns back on the services ASLCP itself had turned off (and no others); `apt remove` leaves everything as it is.
 
 ### Firewall
 
@@ -202,33 +202,33 @@ ASLCP 2.0 has its own digital voice engine, `aslcp-dv`, so a node can talk on di
 - **YSF** (System Fusion) reflectors, **P25** and **NXDN** talkgroups. P25 and NXDN are tested against recorded traffic but not yet on air.
 - **Echo test**: a local test with no network and no account. You hear yourself back a second after you unkey, which proves the audio path.
 
-Enable digital modes on the **Digital modes** page (or `sudo aslcp dv enable`, or `ASLCP_DV=1` at install). Enter your callsign and DMR ID, then turn on and set up the networks you want. `sudo aslcp dv status` shows the state and `sudo aslcp dv disable` stops the engine and keeps your settings. Enabling installs only the md380 vocoder. It needs a 64-bit OS (32-bit armhf is not supported).
+Enable digital modes in **Settings, Digital Modes** (or `sudo aslcp dv enable`, or `ASLCP_DV=1` at install). Enter your callsign and DMR ID, then turn on and set up the networks you want on the **DV** page. `sudo aslcp dv status` shows the state and `sudo aslcp dv disable` stops the engine and keeps your settings. Enabling installs only the md380 vocoder. It needs a 64-bit OS (32-bit armhf is not supported).
 
-On the dashboard, the **Digital modes** card shows the bridge node, switches mode, tunes a talkgroup or reflector, unlinks, has a Parrot button for BrandMeister and keeps favorites. **Now calling** (a red strip on every page) shows who is talking, with callsign, name, place, network, talkgroup and timeslot, and **Last heard** lists recent calls. The engine resumes in the last mode after a restart. More in [docs/DV.md](docs/DV.md).
+On the **DV** page, the Digital Modes card shows the bridge node and its link, has a button for each enabled mode, a tune entry (a trailing `#` makes a private DMR call), favorites and an **Unlink** button, and the **Modes** panel opens each network's switch and settings. The **Dashboard** has a DV tile with the same **Unlink** button. **Now calling** (a red strip on every page) shows who is talking, with callsign, name, place, network, talkgroup and timeslot, and **Last heard** lists recent calls. The engine resumes in the last mode after a restart. More in [docs/DV.md](docs/DV.md).
 
-![Digital modes card on the dashboard](docs/images/dashboard-digital.png)
+![DV page, Digital Modes card](docs/images/dashboard-digital.png)
 
-![Digital modes networks](docs/images/digital-networks.png)
+![DV page, BrandMeister network panel](docs/images/digital-networks.png)
 
-![Digital modes setup](docs/images/digital-setup.png)
+![Settings, Digital Modes](docs/images/digital-setup.png)
 
 ## Public status page
 
-A modern replacement for public Allmon3/Supermon pages. It is off by default. Enable it in **Settings, Public page** (administrators only).
+A modern replacement for public Allmon3/Supermon pages. It is off by default. Enable it in **Settings, Access, Public page** (administrators only).
 
 ![Public status page](docs/images/public-page.png)
 
-- **What visitors see:** when it is on and a visitor is not logged in, the address of the panel (`http://<your-node>:8080/`) shows a live, read-only status page (keying, connected links, optionally the linked network and the last 25 transmissions) with a **Log in** button. Logged-in users get the normal dashboard, with a "Public view" preview in the user menu. When it is off, visitors get the login page as before.
-- **What you control:** the title, which local nodes are shown, and whether callsigns and node info of linked nodes, the network list and recent activity are shown. IP addresses, system information, favorites and users are never part of it.
+- **What visitors see:** when it is on and a visitor is not logged in, the address of the panel (`http://<your-node>:8080/`) shows a live, read-only page that looks like the Dashboard (node tiles, a Now Calling banner and a Last heard table, optionally the linked network) with a **Log in** button. It has no pins, no Unlink or connect buttons and no system bar. Logged-in users get the normal dashboard, with a "Public view" preview in the user menu. When it is off, visitors get the login page as before.
+- **What you control:** the title, which local nodes are shown, and whether callsigns and node info of linked nodes, the network list and recent activity are shown. **Show digital modes activity** (off by default) adds the digital modes call in progress and the last heard digital calls (mode, callsign, talkgroup or reflector, slot, time, and name and place only when already in the local cache); no master or server host, login state, bridge node, DMR ID or address is ever sent. IP addresses, system information, favorites and users are never part of it.
 - **One port:** the page is served by the same server on the same port as the panel (the public data is at `/api/public/status` and `/api/public/events`; everything else under `/api` still needs a login). Making the panel reachable from the internet therefore also exposes the login page. Use strong passwords, and prefer a tunnel or reverse proxy (Cloudflare Tunnel, Caddy) over forwarding a router port to the panel.
 - **Abuse limits:** each visitor address gets a request rate limit (HTTP 429), at most 4 live connections per address and 200 in total. Behind a reverse proxy or tunnel turn on **Trust proxy headers** so the limits use the real visitor address (the last `X-Forwarded-For` entry, as added by your proxy). Leave it off otherwise.
-- **Embedding:** with **Allow embedding** on, `http://<your-node>:8080/embed` shows a chrome-less version (no login button) that other sites can put in an iframe; Settings shows the embed code. Only `/embed` can be framed; the login page never can.
+- **Embedding:** with **Allow embedding** on, `http://<your-node>:8080/embed` shows a chrome-less version (no login button) that other sites can put in an iframe; Settings, Access, Public page shows the embed code. Only `/embed` can be framed; the login page never can.
 
 ## Updating
 
 Either of:
 
-- **System, Updates** in the web page (administrators): *Check now*, then *Update*. Links are not affected; the page reconnects by itself.
+- **Settings, System, Updates** in the web page (administrators): *Check now*, then *Update*. Links are not affected; the page reconnects by itself.
 - `sudo apt update && sudo apt upgrade`
 
 ### Repository moved
@@ -244,15 +244,15 @@ The upgrade (2.0.4 or later) then keeps the apt source and the built-in update c
 
 ### Upgrading to 2.0
 
-**You have to redo the digital-modes configuration in 2.0.** The BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN settings and your identity (callsign and DMR ID) are not carried over, and nothing is imported from the previous stack. Enter them again on the Digital modes page. The previous digital voice stack is removed on upgrade, except md380-emu, which stays installed and working. Only what ASLCP installed is removed. See docs/DV.md.
+**You have to redo the digital-modes configuration in 2.0.** The BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN settings and your identity (callsign and DMR ID) are not carried over, and nothing is imported from the previous stack. Enter them again in Settings, Digital Modes. The previous digital voice stack is removed on upgrade, except md380-emu, which stays installed and working. Only what ASLCP installed is removed. See docs/DV.md.
 
 ## Terminal
 
-**System, Terminal** (administrators, off by default): a Linux login prompt in the browser, using xterm.js. Turn it on in that section, then *Connect* and log in with a Linux account name and password; no root shell is handed out. It closes after 15 minutes without typing, two sessions at most; the audit log records when it was used, never what was typed.
+**Settings, System, Terminal** (administrators, off by default): a Linux login prompt in the browser, using xterm.js. Turn it on in that section, then *Connect* and log in with a Linux account name and password; no root shell is handed out. It closes after 15 minutes without typing, two sessions at most; the audit log records when it was used, never what was typed.
 
 ## WiFi
 
-**System, WiFi** (administrators): scan, add a network (with or without a password), remove one, reorder the saved networks, connect now. If the node has no network for 3 minutes and no Ethernet cable, it opens an unprotected setup network called `ASLCP-<hostname>`; join it and open `http://10.42.0.1:<port>`. It switches off when a saved network connects. Use it only to set up WiFi, because others nearby can see what you type. Administrators can turn it off there. It needs NetworkManager and a WiFi device.
+**Settings, System, WiFi** (administrators): scan, add a network (with or without a password), remove one, reorder the saved networks, connect now. If the node has no network for 3 minutes and no Ethernet cable, it opens an unprotected setup network called `ASLCP-<hostname>`; join it and open `http://10.42.0.1:<port>`. It switches off when a saved network connects. Use it only to set up WiFi, because others nearby can see what you type. Administrators can turn it off there. It needs NetworkManager and a WiFi device.
 
 ## Uninstall
 
@@ -269,7 +269,7 @@ Please [open a bug report](https://github.com/w1jar/aslcp/issues/new?template=bu
 
 Add logs if you can, either of:
 
-- the diagnostics file: **Settings, About, Download diagnostics** (administrators). It lists versions, system and node state, configuration and the recent server log. IP addresses, passwords and secrets, email addresses and other stations' callsigns are removed automatically, but please read it before you attach it;
+- the diagnostics file: **Settings, Maintenance, Diagnostics** (administrators). It lists versions, system and node state, configuration and the recent server log. IP addresses, passwords and secrets, email addresses and other stations' callsigns are removed automatically, but please read it before you attach it;
 - `journalctl -u aslcp -n 100 --no-pager`
 
 Never paste passwords or other private data into an issue. Feature ideas are welcome too: [request a feature](https://github.com/w1jar/aslcp/issues/new?template=feature_request.yml).

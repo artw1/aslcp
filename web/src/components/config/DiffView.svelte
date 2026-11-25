@@ -1,5 +1,5 @@
 <script lang="ts">
-  /** Renders a unified diff with added/removed line colours. */
+  /** Renders a unified diff with added/removed line colors. */
   let { diff, empty = 'No changes.' }: { diff: string; empty?: string } = $props();
   const lines = $derived(diff ? diff.replace(/\n$/, '').split('\n') : []);
   function cls(l: string): string {

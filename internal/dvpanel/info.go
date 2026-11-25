@@ -28,6 +28,16 @@ type Caller struct {
 	Private bool   `json:"private,omitempty"`
 	DMRID   string `json:"dmrId,omitempty"`
 	Dst     string `json:"dst,omitempty"`
+	// Mode is the engine mode of a YSF call only ("YSF"; the other modes leave
+	// it empty), DstName the reflector's name when it is known. For YSF Dst is
+	// the reflector (an id or an address), not a talkgroup.
+	Mode    string `json:"mode,omitempty"`
+	DstName string `json:"dstName,omitempty"`
 	Slot    int    `json:"slot,omitempty"`
 	At      string `json:"at,omitempty"`
+	// Name and Place are the caller's name and "City, ST" for a callsign-only
+	// call (YSF, P25, NXDN, M17) when the radioid.net list or hamdb.org knows
+	// the callsign.
+	Name  string `json:"name,omitempty"`
+	Place string `json:"place,omitempty"`
 }

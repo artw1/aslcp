@@ -359,7 +359,7 @@ func (s *Service) preview(m *backup.Manifest, plan helper.RestoreResult, insp st
 			fmt.Sprintf("%d file(s) were changed by you and ASL3 changed the default since: your version is restored and the new default is kept beside it as .dpkg-dist. Review them.", dist)})
 	}
 	if plan.DVLegacySettings {
-		p.Warnings = append(p.Warnings, Warning{"dv_settings_not_restored", "The backup holds the settings of the previous digital voice stack. ASLCP 2.0 does not restore them: set up digital modes again on the Digital modes page after the restore."})
+		p.Warnings = append(p.Warnings, Warning{"dv_settings_not_restored", "The backup holds the settings of the previous digital voice stack. ASLCP 2.0 does not restore them: set up digital modes again in Settings, Digital Modes, after the restore."})
 	}
 	if len(m.Skipped) > 0 {
 		p.Warnings = append(p.Warnings, Warning{"skipped_files",

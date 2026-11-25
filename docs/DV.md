@@ -49,29 +49,40 @@ Availability comes from the engine (which modes the running build implements); w
 
 ## The setup page
 
-Digital modes (`#/digital`) is one column, in the order of the setup: the *Engine* card (status, services, Refresh, Disable, the *Resume after restart* switch, the *radioid.net user list* row with its switch, a one-line summary and *Download now*, and the last enable job with a *Show log* toggle), *Bridge node* (a summary line with *Edit* once a node exists), *Identity*, *Networks* and *Audio* (the echo test and the AGC and gain settings). In *Networks* each mode is its own card with its state, a one-line summary, an Enable switch and a chevron that opens its settings below a divider; one card is open at a time. The switch saves the enabled state at once; if something is missing (the password, the NXDN ID, the identity) the card opens, says what, and the switch stays off. Fields are saved with the card's *Save*.
+Digital Modes is one scrolling page in Settings (`#/settings/digital-modes`, no tabs) with these cards: *Engine* (status, services, Refresh, Disable, the *Resume after restart* switch, and the last enable job with a *Show log* toggle), *Identity*, *Bridge node* (a summary line with *Edit* once a node exists), *Audio* (the echo test and the AGC and gain settings), *User list (radioid.net)* (its switch, a summary and *Download now*) and *Callsign lookup (hamdb.org)*. The setup cards (Identity, Bridge node, Audio) appear once the engine is enabled; User list and Callsign lookup sit inside the Engine card then. The old `#/digital` link and the flat `#/settings/dv-engine`, `dv-identity`, `dv-bridge`, `dv-audio`, `dv-user-list` and `dv-callsigns` links redirect to this page. The networks are not there: each mode's Enable switch and settings are on the DV page (`#/dv`), where an admin clicks a mode button to open its panel. The switch saves the enabled state at once; if something is missing (the password, the NXDN ID, the identity) the panel opens, says what, and the switch stays off. Fields are saved with the panel's *Save*.
 
 ## Echo test
 
 The Echo test is a local test with no network and no account: the engine records one transmission, waits about a second and plays it back through the bridge node as a received call from the pseudo callsign "ECHO TEST" (no talkgroup, no DMR ID). It proves the audio path of the node, USRP, the engine and the md380 vocoder in both directions. Its engine mode id is `LOOP`; it is always enabled while digital modes are enabled, so it has no Enable card, and a `LOOP` entry in an older `networks.json` is ignored. Not to be confused with the **BrandMeister Parrot** (TG 9990 on BrandMeister), a service of the real network that is called from the BrandMeister mode on the dashboard.
 
-**Using it.** Digital modes setup, the *Audio* card (last on the page): press *Start echo test*, key up, talk, unkey, and you hear yourself back a second later. While it runs the dashboard card says "Echo test running" (it has no mode button there) and *Now calling* and *Last heard* show the playback as "Echo test". *Stop* switches back to the mode that was in effect before you started (the page remembers it; failing that, the last mode from `GET /api/dv/resume`, then the first enabled mode), and that mode's remembered talkgroup or reflector is tuned again, as when you switch modes on the dashboard. The Echo test is never remembered as the last mode, so a restart does not come back in it. Starting and stopping use `POST /api/dv/mode` (operator or admin).
+**Using it.** Settings, Digital Modes, *Audio*: press *Start echo test*, key up, talk, unkey, and you hear yourself back a second later. While it runs the dashboard card says "Echo test running" (it has no mode button there) and *Now calling* and *Last heard* show the playback as "Echo test". *Stop* switches back to the mode that was in effect before you started (the page remembers it; failing that, the last mode from `GET /api/dv/resume`, then the first enabled mode), and that mode's remembered talkgroup or reflector is tuned again, as when you switch modes on the dashboard. The Echo test is never remembered as the last mode, so a restart does not come back in it. Starting and stopping use `POST /api/dv/mode` (operator or admin).
 
 ## BrandMeister
 
 BrandMeister is a native client of the Rewind protocol: the engine logs in to a BrandMeister master with your DMR ID and a hotspot password, and carries the audio between the bridge node and the network. There is no separate bridge program and no ini file to edit.
 
-**Settings** (Digital modes tab, admin; docs/API.md "Digital modes networks and identity"):
+**Settings** (admin: Identity in Settings, Digital Modes, the network settings on the DV page; docs/API.md "Digital modes networks and identity"):
 
 - *Identity*: callsign, DMR ID and an optional ESSID (2 digits, 01–99; the repeater ID is your DMR ID followed by it). The DMR networks log in with it. Clearing it disables them.
 - *Master*: picked from a dropdown of the BrandMeister masters (entries named `BM_<id>_<Country>` in the DMR host list the node downloads daily, shown as "3104 – United States", sorted by id); pick the one closest to you. There is no port setting: the engine always uses 54006 (the port in the host list is the Homebrew port and is not used), and a port stored by an earlier version is ignored. If the list has not been downloaded yet, the card says so and shows an *Other address* field instead; *Other…* in the dropdown does the same for a master that is not in the list.
 - *Password*: the password set in your BrandMeister SelfCare (hotspot security). It is write-only; the page shows only "Password set" and a Change button, and the password is never logged or returned.
-- *Options*: all under "advanced": the client version and the keep-alive, timeout and back-off timers. A blank option uses the engine default.
+- *Stay logged in when not in BrandMeister mode* (checkbox, off by default; the option `stay_logged_in` in the network's options): see "Login only while BrandMeister is the active mode" below.
+- *Options*: the rest are under "advanced": the client version and the keep-alive, timeout and back-off timers. A blank option uses the engine default.
 - *Enable* needs the address, the password and the identity; the page says which one is missing. Saving renders the engine config and reloads the engine, so a login attempt starts at once; the card shows the login state (pending, logged in, or refused with the master's reason).
 
 **Login.** The engine logs in to BrandMeister as an Open DMR Terminal with your DMR ID and your BrandMeister password; no application ID is needed. A refusal (wrong password) shows on the card as "Login failed".
 
-**Using it.** On the dashboard, choose BrandMeister, type a talkgroup and press Tune, or pick a favourite. The *Private call* switch (or a trailing `#`) calls the number as a private call. The dashboard's **Parrot** button (BrandMeister's Parrot, not the Echo test) calls 9990 as a private call: key up, release, and the master plays your transmission back as a private call from 9990 to you. That tests the whole path over the real network without disturbing a talkgroup. **Unlink** tunes TG 4000, BrandMeister's disconnect talkgroup.
+**Login only while BrandMeister is the active mode.** BrandMeister allows one Open DMR Terminal session per DMR ID, so a session that stays up locks your ID out of every other BrandMeister terminal app (a phone app, say). The engine therefore keeps the session only while BrandMeister is the active mode:
+
+- Entering BrandMeister (a mode switch, a tune, a pin, or a resume after a restart that lands in it) starts the session and waits for the login, up to 12 seconds, before it tunes. If the master refuses the login or does not answer in time, the request fails with `502 login_failed` and the master's reason (engine error code `login_failed`), the session is stopped again and the engine is in no mode. The dashboard shows the message and the card shows the login state.
+- Leaving it (switching to another mode, or tuning another mode) tunes TG 4000 (unlink), then ends the session with the Rewind close packet, so the master sees the terminal go away and the ID is free. While another mode is active BrandMeister never reconnects by itself.
+- Until it is entered, the card and the status strip say "Not in use" (engine login state `idle`, gray). That is not a failure: the overview raises no alert for it.
+- After a restart, "Resume after restart" follows the resumed mode: BrandMeister is logged in only if it is the mode that comes back (the tracker's mode switch or tune logs in like any other).
+- The mode switch into BrandMeister takes as long as the login (normally a second or two) instead of being instant.
+
+Turn on *Stay logged in when not in BrandMeister mode* to keep the old behavior (a session from the start of the engine, in every mode); it costs you the free ID. TGIF and DMR - Other always stay logged in. Changing the option re-renders the engine config and reloads the engine, like any other setting. In the engine config (`/var/lib/aslcp-dv/config.json`) this is the per-network flag `onDemand`; when it is absent it defaults to true for `BM` unless the option `stay_logged_in` is `"true"`, and to false for the other networks.
+
+**Using it.** On the dashboard, choose BrandMeister, type a talkgroup and press Tune, or pick a favorite. The *Private call* switch (or a trailing `#`) calls the number as a private call. The dashboard's **Parrot** button (BrandMeister's Parrot, not the Echo test) calls 9990 as a private call: key up, release, and the master plays your transmission back as a private call from 9990 to you. That tests the whole path over the real network without disturbing a talkgroup. **Unlink** tunes TG 4000, BrandMeister's disconnect talkgroup.
 
 **Upgrade from 1.x.** Nothing of the old bridge program is imported: pick the master and enter the password once on the BrandMeister card.
 
@@ -96,13 +107,15 @@ ASLCP downloads the DMR, YSF, P25, NXDN and M17 host lists itself (the lists the
 
 The YSF, P25, NXDN and M17 lists are reflector data provided by DVRef (https://dvref.com/) under CC BY 4.0. ASLCP downloads and caches them as above, does not change them, and is not affiliated with or endorsed by DVRef. The DMR list is not DVRef data.
 
+Callsign-only modes (YSF, P25, NXDN, M17): when the radioid.net list has no entry for a heard callsign, the *Look up callsigns on hamdb.org* switch in the Engine card (admin, off by default) asks hamdb.org for the name and place. It sends the callsigns heard on this node to hamdb.org, only real-looking amateur callsigns that were actually heard, one at a time, at least 10 s apart and at most 100 a day, and keeps the answers on the node (30 days, 7 days when not found). After 5 failures in a row or a 429/503 it backs off (at most 1 h). The name shows in Now Calling and under the callsign in Last heard; see docs/API.md "hamdb.org lookup".
+
 The DMR user list (`DMRIds.dat`) is **not** downloaded: ASLCP shows names and callsigns from the radioid.net list it already keeps for Now Calling.
 
 ## Resume after restart
 
 With "Resume after restart" on, a tracker re-sends the last mode and tune after the engine restarts. It reads the engine over the control socket, not from a file. The "boot mode" hook of 1.x is gone: there is no file to write, the engine keeps its own state.
 
-The tracker remembers the last tune of each mode and the last mode used. A disconnect (an unlink value, or the Unlink button) erases the tune of that mode but keeps the mode: after a restart the engine comes back in that mode with nothing linked (the log says "dv resume: YSF selected, nothing linked"). This is a plain mode switch, nothing is sent to the network, and a disconnected target is never linked again. A mode that is switched off is skipped, and nothing is resumed more than a few minutes after the engine started.
+The tracker remembers the last tune of each mode and the last mode used. A disconnect (an unlink value, or the Unlink button) erases the tune of that mode but keeps the mode: after a restart the engine comes back in that mode with nothing linked (the log says "dv resume: YSF selected, nothing linked"). This is a plain mode switch, nothing is linked on the network (BrandMeister still logs in, since it is the active mode), and a disconnected target is never linked again. A mode that is switched off is skipped, and nothing is resumed more than a few minutes after the engine started.
 
 A tune, a mode switch or an unlink made on the dashboard is remembered at once; changes made elsewhere are picked up by the tracker's next poll.
 
@@ -132,10 +145,10 @@ TGIF is a native Homebrew (MMDVM) client: the engine logs in to a TGIF master wi
 
 - *Master*: there is no address or port field. The master follows the DMR host list: the address and port of its first TGIF entry, else `tgif.network` port 62031 when the list is not downloaded or has no TGIF entry. The password is never taken from the list. A change of the list is picked up the next time the engine's config is written (a settings save, or the engine start); an address or port saved by an earlier version is dropped and has no effect.
 - *Password*: write-only, like the BrandMeister password; the page shows only "Password set" and a Change button.
-- *Options*: under "advanced" the repeater ID, colour code, link by short key-up, unlink talkgroup, frequencies, location, description, URL and the keep-alive, timeout and back-off timers. A blank option uses the engine default. TGIF has no master options or timeslot field: it always uses timeslot 2.
+- *Options*: under "advanced" the repeater ID, color code, link by short key-up, unlink talkgroup, frequencies, location, description, URL and the keep-alive, timeout and back-off timers. A blank option uses the engine default. TGIF has no master options or timeslot field: it always uses timeslot 2.
 - *Enable* needs the password and the identity (callsign and DMR ID). The card shows the login state.
 
-On the dashboard, choose TGIF, type a talkgroup and press Tune, or pick a favourite. With *link by short key-up* on (the default), a short key-up on a talkgroup is enough for the master to link it.
+On the dashboard, choose TGIF, type a talkgroup and press Tune, or pick a favorite. With *link by short key-up* on (the default), a short key-up on a talkgroup is enough for the master to link it.
 
 ## DMR - Other (Homebrew master)
 
@@ -155,7 +168,7 @@ M17 is a native client for M17 reflectors (mrefd, urfd style) over UDP, default 
 - RX: stream packets, two Codec2 frames each, grouped by stream id; the call ends at the last-frame flag or after 1.5 s of silence. Packets with a bad CRC are counted and still played. Encrypted streams are ignored.
 - TX: a new random stream id per call, destination `M17-XXX C`, source your callsign, no META, no encryption or signature.
 
-Tested against an in-process fake reflector and an echo reflector through the bridge; the protocol layer is checked against the mrefd sources. Not verified without a live reflector: acceptance of your callsign, suffix and destination form by real mrefd/urfd builds, the TYPE/CAN bits against live traffic, voice level and quality of the Go Codec2, behaviour behind NAT and on busy modules. The dashboard panel, the host list and the settings card for M17 are not part of this stage.
+Tested against an in-process fake reflector and an echo reflector through the bridge; the protocol layer is checked against the mrefd sources. Not verified without a live reflector: acceptance of your callsign, suffix and destination form by real mrefd/urfd builds, the TYPE/CAN bits against live traffic, voice level and quality of the Go Codec2, behavior behind NAT and on busy modules. The dashboard panel, the host list and the settings card for M17 are not part of this stage.
 
 ## YSF (System Fusion)
 
@@ -195,7 +208,7 @@ With the defaults the audio from your node is not changed, and the audio from th
 
 The Digital modes card shows two small level meters, "To network" and "From network", and a summary of the last transmission in each direction: the speech level, the peak, and a verdict. The verdict is Low when the speech is more than 10 dB under the target, High when it is more than 8 dB over it, and Clipping when any frame clipped; otherwise OK. The verdict uses the configured target even with the AGC off. With the AGC on, the summary also shows the level after it.
 
-This is not the Tune page meter: that one reads the radio receive level of the sound card on the node, while these meters read the audio inside the bridge, after the gain and the codec path of the digital modes.
+This is not the Audio levels meter: that one reads the radio receive level of the sound card on the node, while these meters read the audio inside the bridge, after the gain and the codec path of the digital modes.
 
 To check your own level, tune the echo test (LOOP), transmit a few words, and read "To network" when it ends: a speech level near the target is right. The echo test plays your audio back, so you hear what others hear.
 

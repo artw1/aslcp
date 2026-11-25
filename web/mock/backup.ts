@@ -23,11 +23,11 @@ const files = [
 ].map(([path, action, note]) => ({ path, action, ...(note ? { note } : {}) }));
 
 const preview = () => ({
-  backup: { hostname: 'node-demo', created: new Date(Date.now() - 3 * 86400e3).toISOString(), createdBy: 'admin', aslcpVersion: '1.1.2', asl3Version: '3.10.7-1.deb12', asteriskVersion: '22.10.1+asl3-3.10.7-1.deb12', arch: 'arm64', osId: 'debian', osCodename: 'bookworm', osName: 'Debian GNU/Linux 12 (bookworm)', nodes: ['1999', '1998'], channel: 'beta' },
+  backup: { hostname: 'node-demo', created: new Date(Date.now() - 3 * 86400e3).toISOString(), createdBy: 'admin', aslcpVersion: '1.1.2', asl3Version: '3.10.7-1.deb12', asteriskVersion: '22.10.1+asl3-3.10.7-1.deb12', arch: 'arm64', osId: 'debian', osCodename: 'bookworm', osName: 'Debian GNU/Linux 12 (bookworm)', nodes: ['2000', '2002'], channel: 'beta' },
   node: { asl3Version: '3.10.8-1.deb13', asteriskVersion: '22.10.1+asl3-3.10.8-1.deb13', arch: 'arm64', osId: 'debian', osCodename: 'trixie', osName: 'Debian GNU/Linux 13 (trixie)' },
   warnings: [
     { code: 'os_release', message: "This backup was made on Debian 12 (bookworm); this node runs Debian 13 (trixie). Files you edited will replace the new release's defaults; the new defaults are kept next to them as .dpkg-dist. ASL3 changes some configs between releases (for example DAHDI timing is no longer needed), so if Asterisk or app_rpt does not start, compare your files against the .dpkg-dist copies." },
-    { code: 'dv_settings_not_restored', message: 'The backup holds the settings of the previous digital voice stack. ASLCP 2.0 does not restore them: set up digital modes again on the Digital modes page after the restore.' },
+    { code: 'dv_settings_not_restored', message: 'The backup holds the settings of the previous digital voice stack. ASLCP 2.0 does not restore them: set up digital modes again in Settings, Digital Modes, after the restore.' },
     { code: 'asl3_version', message: 'The backup was made on ASL3 3.10.7; this node runs 3.10.8. Stock files keep the new version.' },
   ],
   files,
@@ -87,7 +87,7 @@ export function handleBackup({ m, p, raw, res, user, setupNeeded, setupDone, bod
     ];
     lastResult = {
       at: new Date().toISOString(), backupCreated: preview().backup.created, steps,
-      health: { ok: true, checks: [{ name: 'Asterisk running', ok: true, detail: '' }, { name: 'AMI answers', ok: true, detail: '' }, { name: 'Node 1999 registered', ok: true, detail: '' }, { name: 'Node 1998 registered', ok: false, detail: 'not registered yet' }] },
+      health: { ok: true, checks: [{ name: 'Asterisk running', ok: true, detail: '' }, { name: 'AMI answers', ok: true, detail: '' }, { name: 'Node 2000 registered', ok: true, detail: '' }, { name: 'Node 2002 registered', ok: false, detail: 'not registered yet' }] },
       checklist: preview().checklist,
     };
     lastResult = { ...(lastResult as object), health: { ok: false, checks: (lastResult as any).health.checks } };

@@ -6,8 +6,8 @@ type Params = {
 const base = (): Params => ({ rxVoice: 650, txA: 500, txB: 0, echo: false, rxBoost: false, preEmphasis: true, deEmphasis: true, plFilter: true, pttInvert: false, carrierFrom: 'usbinvert', ctcssFrom: 'no', rxOnDelayMs: 0, txOffDelayMs: 0, micPlayMax: 31, spkrMax: 37, micMax: 35 });
 interface Dev { name: string; node: string; usbPath: string; card: number; cur: Params; saved: Params; echoUntil: number }
 const devs: Dev[] = [
-  { name: 'usb0', node: '1999', usbPath: '1-1.1', card: 1, cur: base(), saved: base(), echoUntil: 0 },
-  { name: 'usb1', node: '1998', usbPath: '1-1.2', card: 2, cur: base(), saved: base(), echoUntil: 0 },
+  { name: 'usb0', node: '2000', usbPath: '1-1.1', card: 1, cur: base(), saved: base(), echoUntil: 0 },
+  { name: 'usb1', node: '2002', usbPath: '1-1.2', card: 2, cur: base(), saved: base(), echoUntil: 0 },
 ];
 const ECHO_MS = 10 * 60 * 1000;
 const SIG = ['no', 'usb', 'usbinvert', 'pp', 'ppinvert'];

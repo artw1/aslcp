@@ -65,7 +65,7 @@ test('node link button is distinct from the talkgroup Unlink', () => {
   assert.equal(linkButton(L(), ''), null);
 });
 
-test('Link node honours the saved "Disconnect other links first"', () => {
+test('Link node honors the saved "Disconnect other links first"', () => {
   assert.match(linkButton(L({ exclusive: true }), '1999')!.title, /disconnects other links first/);
   assert.doesNotMatch(linkButton(L({ exclusive: false }), '1999')!.title, /disconnects/);
   assert.doesNotMatch(linkButton(L({ exclusive: true, linked: true }), '1999')!.title, /disconnects other/);

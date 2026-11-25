@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-for (const f of ['public/PublicActivity', 'public/PublicNetwork', 'public/PublicStatusTable', 'public/PublicView', 'NetworkList', 'StatusTable']) {
+for (const f of ['public/PublicNetwork', 'public/PublicView', 'NodeTile', 'NetworkList', 'StatusTable']) {
   test(f + ' each keys include the index', () => {
     const src = readFileSync(new URL(`../components/${f}.svelte`, import.meta.url), 'utf8');
     const each = src.match(/\{#each [^}]*\([^}]*\)\}/g) ?? [];

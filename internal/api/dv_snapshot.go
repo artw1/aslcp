@@ -394,7 +394,7 @@ func (d *dvSnapper) endTalkLocked(t ctl.Talk, at time.Time) {
 	d.noteTalkLocked(t)
 	d.talk = nil
 	d.quietCallLocked(t) // after noteTalkLocked: the end time counts
-	c := d.caller(t)
+	c := d.caller(t, d.st.Target)
 	out := []dvpanel.Caller{c}
 	for _, h := range d.heard {
 		if h.Call == c.Call && h.DMRID == c.DMRID && h.Private == c.Private && h.Dst == c.Dst {
@@ -430,14 +430,54 @@ func allDigits(s string) bool {
 
 // caller is dvCaller plus the callsign of the radioid.net entry of the DMR ID
 // when the talk carries none.
-func (d *dvSnapper) caller(t ctl.Talk) dvpanel.Caller {
+func (d *dvSnapper) caller(t ctl.Talk, tuned *ctl.Target) dvpanel.Caller {
 	c := dvCaller(t)
+	d.fillPerson(&c)
+	if t.Mode == ctl.ModeYSF && c.Dst != "" {
+		c.Mode = dvpanel.ModeYSF
+		c.DstName = d.ysfReflectorName(c.Dst, tuned)
+	}
 	if c.Call == "" && !c.Private && t.DMRID != 0 && dvpanel.DMRFamily(t.Mode) && d.s.d.RadioID != nil {
 		if u, ok := d.s.d.RadioID.ByID(t.DMRID); ok {
 			c.Call = u.Callsign
 		}
 	}
 	return c
+}
+
+// fillPerson puts the name and place of a callsign-only caller (no DMR ID) on
+// c, from the radioid.net list or the cache of hamdb.org. It never waits.
+func (d *dvSnapper) fillPerson(c *dvpanel.Caller) {
+	if c.Private || c.DMRID != "" || c.Call == "" || c.Call == ctl.EchoTestName {
+		return
+	}
+	c.Name, c.Place = d.s.callerPerson(c.Call)
+}
+
+// ysfReflectorName is the name of the YSF reflector a call came in on: the
+// tuned target's name when dst is the tuned reflector (its id or host:port),
+// else the name of the YSF host list entry with that id or address. "" when
+// neither knows it (the panel then shows the address as it is).
+func (d *dvSnapper) ysfReflectorName(dst string, tuned *ctl.Target) string {
+	var items []hostlists.Item
+	if d.s.d.HostLists != nil {
+		if l, err := d.s.d.HostLists.Get("ysf"); err == nil {
+			items = l.Items
+		}
+	}
+	return ysfName(dst, tuned, items)
+}
+
+func ysfName(dst string, tuned *ctl.Target, items []hostlists.Item) string {
+	if tuned != nil && tuned.Name != "" && (tuned.Room == dst || (tuned.Host != "" && tuned.Host+":"+strconv.Itoa(tuned.Port) == dst)) {
+		return tuned.Name
+	}
+	for _, it := range items {
+		if it.Name != "" && (it.Value == dst || it.Address+":"+strconv.Itoa(it.Port) == dst) {
+			return it.Name
+		}
+	}
+	return ""
 }
 
 // dvCaller is a call as the panel shows it.
@@ -485,6 +525,9 @@ func (d *dvSnapper) snapshot(ctx context.Context) DVSnapshot {
 		talk = &t
 	}
 	heard := append([]dvpanel.Caller(nil), d.heard...)
+	for i := range heard {
+		d.fillPerson(&heard[i]) // from the caches, so a later answer shows on the next snapshot
+	}
 	quiet := time.Time{}
 	if d.quietKey != "" && d.talk == nil {
 		quiet = d.quietAt
@@ -536,7 +579,7 @@ func (d *dvSnapper) snapshot(ctx context.Context) DVSnapshot {
 		d.fillMasters(ctx, sn.Modes)
 		d.fillBridge(&sn, st)
 		if talk != nil {
-			c := d.caller(*talk)
+			c := d.caller(*talk, st.Target)
 			sn.Caller = &c
 		}
 		sn.Heard = heard

@@ -217,7 +217,7 @@ func dvFollow(ctx context.Context, c dvClient, env dvEnv, seenRunning bool, base
 			}
 		}
 		if time.Now().After(deadline) {
-			return errors.New("the job did not finish in time; check the digital modes page")
+			return errors.New("the job did not finish in time; check Settings, Digital Modes, Engine")
 		}
 		env.sleep(env.poll)
 	}
