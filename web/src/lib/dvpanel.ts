@@ -247,6 +247,25 @@ export const nodeLinkClass = (action: 'connect' | 'disconnect'): string => (acti
 /** A mode's tune is linked when it is set and is not the mode's unlink value (the "nothing linked" target). */
 export const isTargetLinked = (target: string, unlinkValue: string): boolean => !!target && target !== unlinkValue;
 
+/** The mode's unlink value (what a tune sends to leave the target), '' when unknown. */
+export const modeUnlinkValue = (s: Pick<DVSnapshot, 'bridge' | 'modes'> | null | undefined): string => {
+  const b = s?.bridge;
+  return (b && b.source !== 'none' ? s?.modes?.find((x) => x.id === b.mode)?.unlink : '') ?? '';
+};
+
+/**
+ * The Unlink button for the tuned talkgroup or reflector: the label ("Unlink TG 91", "Unlink YSF-TEST", "Unlink M17-XXX C") and the unlink value the mode takes.
+ * Null unless a target is tuned and linked (same rule as the DV card). It never concerns the bridge node link.
+ */
+export function unlinkPlan(s: Pick<DVSnapshot, 'bridge' | 'modes'> | null | undefined): { label: string; value: string } | null {
+  const b = s?.bridge;
+  if (!s || !b || b.source === 'none' || !b.mode) return null;
+  const value = modeUnlinkValue(s);
+  if (!value || !isTargetLinked(b.tune, value)) return null;
+  const target = isDMRFamily(b.mode) || b.mode === 'P25' || b.mode === 'NXDN' ? `TG ${b.tune}` : b.mode === 'M17' ? b.tune : b.targetName || b.tune;
+  return { label: `Unlink ${target}`, value };
+}
+
 /** The mode and target the bridge is tuned to: "BrandMeister TG 91", "DMR TG 1", "YSF Example room", "P25 TG 10100", "DMR" with no target; null without a bridge node or mode. Not what the talker sent. */
 export function bridgeRxTarget(s: Pick<DVSnapshot, 'bridgeNode' | 'bridge'> | null | undefined): string | null {
   const bn = s?.bridgeNode;

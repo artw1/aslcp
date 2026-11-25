@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { netChip, stripModes, heardRow, CONFIRM_MS, dashboardModes, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, masterLine, MASTER_MAX, quietHint, QUIET_MS, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, isTargetLinked, pendingOutcome, rxCaller, reflectorSilent, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate, m17Tune, m17Split, m17Display, M17_MODULES } from './dvpanel.ts';
+import { netChip, stripModes, heardRow, CONFIRM_MS, dashboardModes, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, masterLine, MASTER_MAX, quietHint, QUIET_MS, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, isTargetLinked, unlinkPlan, pendingOutcome, rxCaller, reflectorSilent, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate, m17Tune, m17Split, m17Display, M17_MODULES } from './dvpanel.ts';
 import type { DVFavorite, DVSnapshot } from './types';
 
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
@@ -435,4 +435,19 @@ test('Last heard table row', () => {
   assert.equal(heardRow({ call: 'N0CALL', dst: 'M17-XXX C' }).mode, 'M17');
   assert.deepEqual(heardRow({ dmrId: '1234567' }), { call: '1234567', mode: '', target: '', slot: '', time: '' });
   assert.equal(heardRow({ dmrId: '9990', private: true, dst: '1234567' }).call, 'Parrot (private call)');
+});
+
+test('unlinkPlan: label and value for a linked target, null otherwise', () => {
+  const snap = (mode: string, tune: string, targetName?: string, source = 'aslcp-dv') => ({
+    bridge: { mode, tune, targetName, slot: 2, muted: false, source, updated: '' },
+    modes: [{ id: 'BM', unlink: '4000' }, { id: 'YSF', unlink: 'None' }, { id: 'M17', unlink: 'None' }, { id: 'P25', unlink: '9999' }],
+  }) as never;
+  assert.deepEqual(unlinkPlan(snap('BM', '91')), { label: 'Unlink TG 91', value: '4000' });
+  assert.deepEqual(unlinkPlan(snap('YSF', '192.0.2.10:42000', 'YSF-TEST')), { label: 'Unlink YSF-TEST', value: 'None' });
+  assert.deepEqual(unlinkPlan(snap('M17', 'M17-ABC C')), { label: 'Unlink M17-ABC C', value: 'None' });
+  assert.deepEqual(unlinkPlan(snap('P25', '10100')), { label: 'Unlink TG 10100', value: '9999' });
+  assert.equal(unlinkPlan(snap('BM', '4000')), null);
+  assert.equal(unlinkPlan(snap('BM', '')), null);
+  assert.equal(unlinkPlan(snap('BM', '91', undefined, 'none')), null);
+  assert.equal(unlinkPlan(null), null);
 });

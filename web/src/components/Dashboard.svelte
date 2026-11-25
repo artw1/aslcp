@@ -8,7 +8,7 @@
   import { exclusive } from '../lib/settings.svelte';
   import { toast, toastError } from '../lib/toast.svelte';
   import { dvErrorMessage } from '../lib/dvmsg';
-  import { stateLine, reflectorSilent, stateTone, modeLabel } from '../lib/dvpanel';
+  import { stateLine, reflectorSilent, stateTone, modeLabel, unlinkPlan } from '../lib/dvpanel';
   import { agoText } from '../lib/nowcalling';
   import { buildAlerts, buildPins, dvLastCaller, dvPinPlan, pinActive, pinLocalNode, tileNodes } from '../lib/pins';
   import { nodeTile } from '../lib/tiles';
@@ -19,6 +19,7 @@
   import NodeTile from './NodeTile.svelte';
   import SchedulesCard from './SchedulesCard.svelte';
   import Footer from './Footer.svelte';
+  import Unlink from '@lucide/svelte/icons/unlink';
   import RadioTower from '@lucide/svelte/icons/radio-tower';
   import Pin from '@lucide/svelte/icons/pin';
   import PinFace from './PinFace.svelte';
@@ -43,6 +44,16 @@
   const dvLast = $derived(dvLastCaller(dv));
 
   function open(node: string) { app.selectedNode = node; navigate('/allstar'); }
+  // The DV tile's Unlink: the tuned talkgroup or reflector only, the same call as the DV card; the bridge node link is not touched.
+  const dvUnlink = $derived(op ? unlinkPlan(dv) : null);
+  let dvBusy = $state(false);
+  async function unlinkDv(e: Event) {
+    e.preventDefault(); e.stopPropagation();
+    if (dvBusy || !op) return;
+    dvBusy = true;
+    try { const r = await api.dvUnlink(); app.dv = r.snapshot; toast(r.confirmed ? 'Unlinked' : 'Sent, not confirmed yet', r.confirmed ? 'ok' : 'info'); }
+    catch (x) { toastError(x); } finally { dvBusy = false; }
+  }
   let unlinking = $state('');
   async function unlink(local: string, target: string) {
     if (unlinking || !op) return;
@@ -101,8 +112,13 @@
             <span class="inline-flex items-center gap-1 text-base font-semibold"><RadioTower size={14} class="text-accent" aria-hidden="true" />DV</span>
             <span class="min-w-0 flex-1 truncate text-xs text-muted">{dv.bridge.source !== 'none' && dv.bridge.mode ? modeLabel(dv.bridge.mode) : 'Mode unknown'}</span>
           </div>
-          <div class="mt-1 truncate text-xs text-muted" title={stateLine(dv.bridge, reflectorSilent(dv))}>
-            {dv.bridge.mode === 'LOOP' ? 'Echo test' : dv.bridge.tune ? `Tuned to ${dv.bridge.targetName || dv.bridge.tune}` : 'Nothing tuned'}
+          <div class="mt-1 flex items-center gap-2">
+            <span class="min-w-0 flex-1 truncate text-xs text-muted" title={stateLine(dv.bridge, reflectorSilent(dv))}>
+              {dv.bridge.mode === 'LOOP' ? 'Echo test' : dv.bridge.tune ? `Tuned to ${dv.bridge.targetName || dv.bridge.tune}` : 'Nothing tuned'}
+            </span>
+            {#if dvUnlink}
+              <button type="button" class="btn btn-sm btn-bad-outline shrink-0 max-sm:min-h-11 pointer-coarse:min-h-11" disabled={dvBusy} title="Unlink the {modeLabel(dv.bridge.mode)} talkgroup or reflector. The bridge node link is not changed." data-testid="tile-dv-unlink" onclick={unlinkDv}><Unlink size={12} aria-hidden="true" />{dvUnlink.label}</button>
+            {/if}
           </div>
           {#if dvLast}
             <div class="mt-1 truncate text-xs" data-testid="tile-dv-last">Last: <span class="font-mono">{dvLast.who}</span>{#if dvLast.at}<span class="ml-1 text-muted">· {age(dvLast.at)}</span>{/if}</div>

@@ -7,7 +7,7 @@
   import { dvErrorMessage } from '../lib/dvmsg';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-    import { CONFIRM_MS, allOk, bridgeLinked, isTargetLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PRIVATE_MARK, heardLine, m17Display, masterLine, M17_MODULES, m17Tune, tunePlaceholder, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes, quietHint, QUIET_TICK_MS } from '../lib/dvpanel';
+    import { CONFIRM_MS, allOk, bridgeLinked, isTargetLinked, modeUnlinkValue, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PRIVATE_MARK, heardLine, m17Display, masterLine, M17_MODULES, m17Tune, tunePlaceholder, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes, quietHint, QUIET_TICK_MS } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import { ECHO_RUNNING } from '../lib/dvecho';
   import { exclusiveHint, linkButton, linkExclusiveOnClick, linkBoxText, linkLine, pausedHint } from '../lib/dvbridge';
@@ -104,7 +104,7 @@
 
   async function go() { if (tuneOk && (await tune(sendValue))) tuneValue = ''; }
 
-  const unlinkValue = $derived(snap?.modes.find((x) => x.id === mode)?.unlink ?? '');
+  const unlinkValue = $derived(modeUnlinkValue(snap));
   async function unlink() {
     if (locked || !mode) return;
     busy = true;
