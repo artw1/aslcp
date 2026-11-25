@@ -56,8 +56,9 @@ export function buildAlerts(nodes: NodeStatus[], haveNodes: boolean, dv: DVSnaps
       for (const m of dv.modes ?? []) {
         if (m.enabled && m.login === 'failed' && isDMRFamily(m.id)) out.push({ key: `login:${m.id}`, text: `${modeLabel(m.id)} login failed${m.detail ? `: ${m.detail}` : ''}`, href: '/dv' });
       }
-      if (dv.bridgeNode?.present && dv.link && !bridgeLinked(dv)) {
-        out.push({ key: 'bridge', text: dv.link.mode === 'permanent' && !dv.link.paused ? 'The bridge node link is down.' : 'The bridge node is not linked to a local node.', href: '/dv' });
+      // Only a permanent link that should be up but is down is an alert; a bridge node that is not linked (on demand, or paused) is not.
+      if (dv.bridgeNode?.present && dv.link && !bridgeLinked(dv) && dv.link.mode === 'permanent' && !dv.link.paused) {
+        out.push({ key: 'bridge', text: 'The bridge node link is down.', href: '/dv' });
       }
     }
   }

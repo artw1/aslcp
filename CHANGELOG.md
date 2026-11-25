@@ -20,6 +20,7 @@ Release notes are taken from the section of the tag being released
 - The dashboard is now an overview: a tile for each local node (click one to open it on the AllStarLink tab), a DV tile, an alerts strip when something is wrong, the pinned favorites and one Last heard table for AllStar and DV together, newest first (the same table as the DV tab, with the time on the right; an AllStar entry shows mode AllStar and its node as the target). Click a callsign for a small menu with a QRZ lookup and, when the entry has a DMR ID, radioid.net; "Echo test", private calls and entries without a valid callsign are plain text. A node tile lists its first three links (node number and callsign or name, then "+N more") and, while the node is keyed, who is talking; the DV tile shows the last caller and how long ago. A transmitting node tile is red like the Now Calling bar (it was orange); receiving stays green.
 - Last heard shows a YSF call as `YSF <reflector name>` (for example `YSF US-EXAMPLE`) instead of `TG <address>`; it falls back to `YSF <address>` when the reflector is not known. `GET /api/dv/snapshot` callers of a YSF call carry `mode` and `dstName`. DMR stays `TG 91 · TS2`.
 - The digital modes bridge node gets no tile on the dashboard, since it only links DV to the node.
+- The overview no longer warns "The bridge node is not linked to a local node." (the DV tab's AllStar Link panel still shows the bridge state). The "The bridge node link is down." alert stays for a permanent link that is down.
 
 ## [2.3.1] - 2026-11-24
 
