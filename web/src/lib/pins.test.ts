@@ -66,8 +66,12 @@ test('alerts', () => {
   // YSF, P25, NXDN and M17 have no login: no login alert, whatever the engine says
   const refl = ['YSF', 'P25', 'NXDN', 'M17'].flatMap((id) => (['pending', 'failed'] as const).map((login) => ({ id: id as 'YSF', enabled: true, available: true, unlink: 'disconnect', login })));
   assert.deepEqual(buildAlerts([node('2001')], true, snap({ modes: refl })), []);
-  const down = buildAlerts([node('2001')], true, snap({ link: { mode: 'ondemand', localNode: '2001', linked: false, paused: false, exclusive: true } }));
-  assert.deepEqual(down.map((a) => a.key), ['bridge']);
+  // A bridge node that is not linked (on demand, or a paused permanent link) raises no alert on the overview
+  assert.deepEqual(buildAlerts([node('2001')], true, snap({ link: { mode: 'ondemand', localNode: '2001', linked: false, paused: false, exclusive: true } })), []);
+  assert.deepEqual(buildAlerts([node('2001')], true, snap({ link: { mode: 'permanent', localNode: '2001', linked: false, paused: true, exclusive: true } })), []);
+  // A permanent link that should be up but is down does alert
+  const down = buildAlerts([node('2001')], true, snap({ link: { mode: 'permanent', localNode: '2001', linked: false, paused: false, exclusive: true } }));
+  assert.deepEqual(down.map((a) => [a.key, a.text]), [['bridge', 'The bridge node link is down.']]);
   assert.equal(buildAlerts([node('2001')], true, snap({ running: false }))[0].key, 'dvdown');
   assert.equal(buildAlerts([node('2001', { stale: true })], true, null)[0].key, 'stale:2001');
 });
