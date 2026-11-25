@@ -5,7 +5,7 @@
   import { api } from '../lib/api';
   import type { NodeInfo } from '../lib/types';
   type Opt = T;
-  let { value = $bindable(''), placeholder = 'Node number, callsign or name', id, onenter, onpick, options, search, label, onpickoption, maxlength, inputmode = 'search', describedby }: {
+  let { value = $bindable(''), placeholder = 'Node number, callsign or name', id, onenter, onpick, options, search, label, onpickoption, maxlength, inputmode = 'search', describedby, inputClass = '' }: {
     value: string; placeholder?: string; id?: string; onenter?: () => void; onpick?: (i: NodeInfo) => void;
     /** Local mode: the entries to search (an empty list never opens). */
     options?: Opt[];
@@ -14,6 +14,8 @@
     /** Local mode: the first line of an entry. */
     label?: (o: Opt) => string;
     onpickoption?: (o: Opt) => void;
+    /** Extra classes for the input. */
+    inputClass?: string;
     maxlength?: number; inputmode?: 'search' | 'numeric' | 'text'; describedby?: string;
   } = $props();
   const local = $derived(options !== undefined);
@@ -63,7 +65,7 @@
   }
 </script>
 <div class="relative">
-  <input {id} class="input font-mono" role="combobox" aria-expanded={open} aria-controls={listId} aria-autocomplete="list" aria-activedescendant={idx >= 0 ? `${listId}-${idx}` : undefined} aria-describedby={describedby}
+  <input {id} class="input font-mono {inputClass}" role="combobox" aria-expanded={open} aria-controls={listId} aria-autocomplete="list" aria-activedescendant={idx >= 0 ? `${listId}-${idx}` : undefined} aria-describedby={describedby}
     {placeholder} {maxlength} {inputmode} bind:value {oninput} {onfocus} onkeydown={onkey} onblur={() => setTimeout(() => (open = false), 150)} autocomplete="off" autocapitalize="off" spellcheck="false" />
   {#if open}
     <ul id={listId} role="listbox" class="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-line bg-surface p-1 shadow-lg">

@@ -7,7 +7,7 @@
   import { dvErrorMessage } from '../lib/dvmsg';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-    import { CONFIRM_MS, allOk, bridgeLinked, isTargetLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, m17Display, masterLine, M17_MODULES, m17Tune, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes, quietHint, QUIET_TICK_MS } from '../lib/dvpanel';
+    import { CONFIRM_MS, allOk, bridgeLinked, isTargetLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, m17Display, masterLine, M17_MODULES, m17Tune, tunePlaceholder, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes, quietHint, QUIET_TICK_MS } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import { ECHO_RUNNING } from '../lib/dvecho';
   import { exclusiveHint, linkButton, linkExclusiveOnClick, linkBoxText, linkLine, pausedHint } from '../lib/dvbridge';
@@ -19,6 +19,8 @@
   import RadioTower from '@lucide/svelte/icons/radio-tower';
   import Star from '@lucide/svelte/icons/star';
   import Ellipsis from '@lucide/svelte/icons/ellipsis';
+  import Check from '@lucide/svelte/icons/check';
+  import Search from '@lucide/svelte/icons/search';
   import Unlink from '@lucide/svelte/icons/unlink';
   import Pin from '@lucide/svelte/icons/pin';
   import LastHeardTable from './LastHeardTable.svelte';
@@ -261,41 +263,47 @@
     {/if}
 
     {#if op && live}
-      <div class="flex flex-wrap items-center gap-1.5">
-        <div class="inline-flex" role="group" aria-label="Mode">
-          {#each dashboardModes(snap.modes) as m, i (m.id)}
-            <button type="button" class="btn btn-sm rounded-none {i > 0 ? '-ml-px' : 'rounded-l'} {i === dashboardModes(snap.modes).length - 1 ? 'rounded-r' : ''} {shown === m.id ? 'btn-primary relative z-10' : ''}" aria-pressed={shown === m.id}
+      {@const modes = dashboardModes(snap.modes)}
+      <div class="space-y-2" data-testid="dv-controls">
+        <div class="grid gap-2" style="grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr))" role="group" aria-label="Mode" data-testid="dv-modes">
+          {#each modes as m (m.id)}
+            {@const on = shown === m.id}
+            <button type="button" class="btn !min-h-12 !px-3 !text-base !font-semibold {on ? 'btn-primary' : ''} {!m.enabled ? '!border-dashed !bg-surface-2 !text-muted' : ''}" aria-pressed={on}
               disabled={!m.enabled || locked}
-              title={m.enabled ? undefined : `${modeButtonLabel(m)} is disabled${admin ? ' (Digital modes tab)' : ''}`}
-              onclick={() => setMode(m.id)}>{modeButtonLabel(m)}{#if pending?.mode === m.id && outcome === 'waiting'}…{/if}</button>
+              title={m.enabled ? undefined : `${modeButtonLabel(m)}: enable in setup${admin ? ' (Digital modes tab)' : ''}`}
+              aria-label={m.enabled ? undefined : `${modeButtonLabel(m)}, not enabled. Enable in setup`}
+              onclick={() => setMode(m.id)}>{#if on}<Check size={18} strokeWidth={3} aria-hidden="true" />{/if}{modeButtonLabel(m)}{#if pending?.mode === m.id && outcome === 'waiting'}…{/if}</button>
           {/each}
         </div>
 
         {#if mode && mode !== 'LOOP'}
-          <form class="flex min-w-64 flex-1 flex-wrap items-center gap-1.5" onsubmit={(e) => { e.preventDefault(); void go(); }}>
-            <div class="min-w-40 flex-1">
-              {#if pickable}
-                <NodePicker id="dvtune" bind:value={tuneValue} options={pickable.items} search={(t) => searchList(pickable.index, t)} label={(o) => optionLabel(mode.toLowerCase() as DVListMode, o)} placeholder="Search {mode} or type a value" inputmode="text" onenter={go} />
-              {:else}
-                <input id="dvtune" class="input font-mono" bind:value={tuneValue} placeholder={isDMRFamily(mode) ? 'Talkgroup number' : 'Target'} inputmode={isDMRFamily(mode) ? 'numeric' : 'text'} autocomplete="off" aria-label="Tune target" />
+          <form class="space-y-2" onsubmit={(e) => { e.preventDefault(); void go(); }}>
+            <div class="flex items-stretch gap-2">
+              <div class="relative min-w-0 flex-1">
+                <Search size={20} class="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-muted" aria-hidden="true" />
+                {#if pickable}
+                  <NodePicker id="dvtune" bind:value={tuneValue} options={pickable.items} search={(t) => searchList(pickable.index, t)} label={(o) => optionLabel(mode.toLowerCase() as DVListMode, o)} placeholder={tunePlaceholder(mode)} inputmode="text" onenter={go} inputClass="!min-h-12 !pl-10 !text-base !border-2 focus:!border-accent focus:outline-none focus:ring-2 focus:ring-accent/40" />
+                {:else}
+                  <input id="dvtune" class="input font-mono !min-h-12 !pl-10 !text-base !border-2 focus:!border-accent focus:outline-none focus:ring-2 focus:ring-accent/40" bind:value={tuneValue} placeholder={tunePlaceholder(mode)} inputmode={isDMRFamily(mode) ? 'numeric' : 'text'} autocomplete="off" aria-label="Tune target" />
+                {/if}
+              </div>
+              {#if mode === 'M17'}
+                <select class="input !min-h-12 !w-auto !text-base" bind:value={module} disabled={locked} aria-label="Module" title="The module (room) of the reflector" data-testid="dv-m17-module">
+                  {#each M17_MODULES as x (x)}<option value={x}>Module {x}</option>{/each}
+                </select>
               {/if}
+              <button type="submit" class="btn btn-primary !min-h-12 !px-5 !text-base !font-semibold" disabled={locked || !tuneOk}>Tune</button>
             </div>
-            {#if mode === 'M17'}
-              <select class="input w-auto" bind:value={module} disabled={locked} aria-label="Module" title="The module (room) of the reflector" data-testid="dv-m17-module">
-                {#each M17_MODULES as x (x)}<option value={x}>Module {x}</option>{/each}
-              </select>
-            {/if}
-            {#if isDMRFamily(mode)}
-              <label class="inline-flex cursor-pointer items-center gap-1.5 text-xs" title="Call the number as a private call (a trailing # on the ID)" data-testid="dv-private">
-                <input type="checkbox" class="size-4 accent-[var(--accent)]" bind:checked={priv} disabled={locked} />Private call</label>
-            {/if}
-            <button type="submit" class="btn btn-primary btn-sm" disabled={locked || !tuneOk}>Go</button>
-            {#if isDMRFamily(mode)}
-              <button type="button" class="btn btn-sm" disabled={locked} title="BM Parrot: call 9990 as a private call and hear yourself back" data-testid="dv-parrot" onclick={parrot}>Parrot</button>
-            {/if}
-            <button type="button" class="btn btn-sm btn-icon {starred ? 'border-accent' : ''}" disabled={locked || !!block} aria-pressed={!!starred} data-testid="dv-star"
-              aria-label={starred ? 'Already a favourite' : 'Save the current target as a favourite'} title={block ?? 'Save the current target as a favourite'} onclick={addFav}>
-              <Star size={14} class={starred ? 'fill-accent text-accent' : 'text-muted'} aria-hidden="true" /></button>
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 empty:hidden">
+              {#if isDMRFamily(mode)}
+                <label class="inline-flex cursor-pointer items-center gap-1.5 text-sm" title="Call the number as a private call (a trailing # on the ID)" data-testid="dv-private">
+                  <input type="checkbox" class="size-4 accent-[var(--accent)]" bind:checked={priv} disabled={locked} />Private call</label>
+                <button type="button" class="btn btn-sm" disabled={locked} title="BM Parrot: call 9990 as a private call and hear yourself back" data-testid="dv-parrot" onclick={parrot}>Parrot</button>
+              {/if}
+              <button type="button" class="btn btn-sm btn-icon {starred ? 'border-accent' : ''}" disabled={locked || !!block} aria-pressed={!!starred} data-testid="dv-star"
+                aria-label={starred ? 'Already a favourite' : 'Save the current target as a favourite'} title={block ?? 'Save the current target as a favourite'} onclick={addFav}>
+                <Star size={14} class={starred ? 'fill-accent text-accent' : 'text-muted'} aria-hidden="true" /></button>
+            </div>
           </form>
         {/if}
       </div>
