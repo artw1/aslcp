@@ -7,7 +7,7 @@
   import { dvErrorMessage } from '../lib/dvmsg';
   import { indexList, optionLabel, searchList } from '../lib/dvlist';
   import type { DVIndexed } from '../lib/dvlist';
-    import { CONFIRM_MS, allOk, bridgeLinked, isTargetLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PARROT_ID, PRIVATE_MARK, heardLine, m17Display, masterLine, M17_MODULES, m17Tune, tunePlaceholder, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes, quietHint, QUIET_TICK_MS } from '../lib/dvpanel';
+    import { CONFIRM_MS, allOk, bridgeLinked, isTargetLinked, bridgeNodeName, nodeLinkClass, defaultFavName, favoriteBlock, favoritesFor, findFavorite, controlsLocked, pendingOutcome, shownMode, reflectorSilent, stateLine, stateTitle, stateTone, validFavName, validTune, withPrivate, PRIVATE_MARK, heardLine, m17Display, masterLine, M17_MODULES, m17Tune, tunePlaceholder, isDMRFamily, modeButtonLabel, modeLabel, dashboardModes, quietHint, QUIET_TICK_MS } from '../lib/dvpanel';
   import type { Pending } from '../lib/dvpanel';
   import { ECHO_RUNNING } from '../lib/dvecho';
   import { exclusiveHint, linkButton, linkExclusiveOnClick, linkBoxText, linkLine, pausedHint } from '../lib/dvbridge';
@@ -105,8 +105,6 @@
   const quiet = $derived(quietHint(snap, nowMs));
 
   async function go() { if (tuneOk && (await tune(sendValue))) tuneValue = ''; }
-  // BM Parrot (9990) only answers a private call.
-  const parrot = () => tune(PARROT_ID + PRIVATE_MARK);
 
   const unlinkValue = $derived(snap?.modes.find((x) => x.id === mode)?.unlink ?? '');
   async function unlink() {
@@ -282,9 +280,13 @@
               <div class="relative min-w-0 flex-1">
                 <Search size={16} class="pointer-events-none absolute left-2.5 top-1/2 z-10 -translate-y-1/2 text-muted" aria-hidden="true" />
                 {#if pickable}
-                  <NodePicker id="dvtune" bind:value={tuneValue} options={pickable.items} search={(t) => searchList(pickable.index, t)} label={(o) => optionLabel(mode.toLowerCase() as DVListMode, o)} placeholder={tunePlaceholder(mode)} inputmode="text" onenter={go} inputClass="!min-h-10 !pl-9 focus:!border-accent focus:outline-none focus:ring-1 focus:ring-accent/40" />
+                  <NodePicker id="dvtune" bind:value={tuneValue} options={pickable.items} search={(t) => searchList(pickable.index, t)} label={(o) => optionLabel(mode.toLowerCase() as DVListMode, o)} placeholder={tunePlaceholder(mode)} inputmode="text" onenter={go} inputClass="!min-h-10 !pl-9 {isDMRFamily(mode) ? '!pr-24' : ''} focus:!border-accent focus:outline-none focus:ring-1 focus:ring-accent/40" />
                 {:else}
-                  <input id="dvtune" class="input font-mono !min-h-10 !pl-9 focus:!border-accent focus:outline-none focus:ring-1 focus:ring-accent/40" bind:value={tuneValue} placeholder={tunePlaceholder(mode)} inputmode={isDMRFamily(mode) ? 'numeric' : 'text'} autocomplete="off" aria-label="Tune target" />
+                  <input id="dvtune" class="input font-mono !min-h-10 !pl-9 {isDMRFamily(mode) ? '!pr-24' : ''} focus:!border-accent focus:outline-none focus:ring-1 focus:ring-accent/40" bind:value={tuneValue} placeholder={tunePlaceholder(mode)} inputmode={isDMRFamily(mode) ? 'numeric' : 'text'} autocomplete="off" aria-label="Tune target" />
+                {/if}
+                {#if isDMRFamily(mode)}
+                  <label class="absolute right-2 top-1/2 z-10 inline-flex -translate-y-1/2 cursor-pointer items-center gap-1 text-xs" title="Call the number as a private call (a trailing # on the ID)" data-testid="dv-private">
+                    <input type="checkbox" class="size-3.5 accent-[var(--accent)]" bind:checked={priv} disabled={locked} aria-label="Private call" />Private call</label>
                 {/if}
               </div>
               {#if mode === 'M17'}
@@ -293,21 +295,12 @@
                 </select>
               {/if}
               <button type="submit" class="btn btn-primary !min-h-10 !px-3 !text-sm" disabled={locked || !tuneOk}>Tune</button>
+              <button type="button" class="btn btn-icon {starred ? 'border-accent' : ''} !min-h-10 !w-10 !px-0" disabled={locked || !!block} aria-pressed={!!starred} data-testid="dv-star"
+                aria-label={starred ? 'Already a favourite' : 'Save the current target as a favourite'} title={block ?? 'Save the current target as a favourite'} onclick={addFav}>
+                <Star size={16} class={starred ? 'fill-accent text-accent' : 'text-muted'} aria-hidden="true" /></button>
             </div>
           {/if}
         </div>
-        {#if mode && mode !== 'LOOP'}
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-            {#if isDMRFamily(mode)}
-              <label class="inline-flex cursor-pointer items-center gap-1.5 text-xs" title="Call the number as a private call (a trailing # on the ID)" data-testid="dv-private">
-                <input type="checkbox" class="size-4 accent-[var(--accent)]" bind:checked={priv} disabled={locked} />Private call</label>
-              <button type="button" class="btn btn-sm" disabled={locked} title="BM Parrot: call 9990 as a private call and hear yourself back" data-testid="dv-parrot" onclick={parrot}>Parrot</button>
-            {/if}
-            <button type="button" class="btn btn-sm btn-icon {starred ? 'border-accent' : ''}" disabled={locked || !!block} aria-pressed={!!starred} data-testid="dv-star"
-              aria-label={starred ? 'Already a favourite' : 'Save the current target as a favourite'} title={block ?? 'Save the current target as a favourite'} onclick={addFav}>
-              <Star size={14} class={starred ? 'fill-accent text-accent' : 'text-muted'} aria-hidden="true" /></button>
-          </div>
-        {/if}
       </form>
     {/if}
 
