@@ -83,11 +83,9 @@
       .then((l) => { lists[m] = { items: l.items, index: indexList(l.items) }; })
       .catch(() => { /* no list: free text */ });
   });
-  // DMR private call: the toggle, or a trailing # typed in the field. Never offered for the other modes.
-  let priv = $state(false);
   // M17: the reflector comes from the picker, the module from the dropdown ("M17-XXX" + " " + "C").
   let module = $state('A');
-  const sendValue = $derived(isDMRFamily(mode) ? withPrivate(mode, tuneValue, priv || tuneValue.trim().endsWith(PRIVATE_MARK)) : mode === 'M17' ? m17Tune(tuneValue, module) : tuneValue.trim());
+  const sendValue = $derived(isDMRFamily(mode) ? withPrivate(mode, tuneValue, tuneValue.trim().endsWith(PRIVATE_MARK)) : mode === 'M17' ? m17Tune(tuneValue, module) : tuneValue.trim());
   const tuneOk = $derived(!!mode && validTune(mode, sendValue));
   async function tune(value: string) {
     if (locked || !mode) return;
@@ -280,13 +278,9 @@
               <div class="relative min-w-0 flex-1">
                 <Search size={16} class="pointer-events-none absolute left-2.5 top-1/2 z-10 -translate-y-1/2 text-muted" aria-hidden="true" />
                 {#if pickable}
-                  <NodePicker id="dvtune" bind:value={tuneValue} options={pickable.items} search={(t) => searchList(pickable.index, t)} label={(o) => optionLabel(mode.toLowerCase() as DVListMode, o)} placeholder={tunePlaceholder(mode)} inputmode="text" onenter={go} inputClass="!min-h-10 !pl-9 {isDMRFamily(mode) ? '!pr-24' : ''} focus:!border-accent focus:outline-none focus:ring-1 focus:ring-accent/40" />
+                  <NodePicker id="dvtune" bind:value={tuneValue} options={pickable.items} search={(t) => searchList(pickable.index, t)} label={(o) => optionLabel(mode.toLowerCase() as DVListMode, o)} placeholder={tunePlaceholder(mode)} inputmode="text" onenter={go} inputClass="!min-h-10 !pl-9 focus:!border-accent focus:outline-none focus:ring-1 focus:ring-accent/40" />
                 {:else}
-                  <input id="dvtune" class="input font-mono !min-h-10 !pl-9 {isDMRFamily(mode) ? '!pr-24' : ''} focus:!border-accent focus:outline-none focus:ring-1 focus:ring-accent/40" bind:value={tuneValue} placeholder={tunePlaceholder(mode)} inputmode={isDMRFamily(mode) ? 'numeric' : 'text'} autocomplete="off" aria-label="Tune target" />
-                {/if}
-                {#if isDMRFamily(mode)}
-                  <label class="absolute right-2 top-1/2 z-10 inline-flex -translate-y-1/2 cursor-pointer items-center gap-1 text-xs" title="Call the number as a private call (a trailing # on the ID)" data-testid="dv-private">
-                    <input type="checkbox" class="size-3.5 accent-[var(--accent)]" bind:checked={priv} disabled={locked} aria-label="Private call" />Private call</label>
+                  <input id="dvtune" class="input font-mono !min-h-10 !pl-9 focus:!border-accent focus:outline-none focus:ring-1 focus:ring-accent/40" bind:value={tuneValue} placeholder={tunePlaceholder(mode)} inputmode={isDMRFamily(mode) ? 'numeric' : 'text'} autocomplete="off" aria-label="Tune target" />
                 {/if}
               </div>
               {#if mode === 'M17'}

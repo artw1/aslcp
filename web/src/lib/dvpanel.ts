@@ -171,7 +171,7 @@ export function validTune(mode: string, value: string): boolean {
 }
 
 /** The placeholder of the tune box: what the mode's validator wants. */
-export const tunePlaceholder = (mode: string): string => (mode === 'YSF' ? 'Reflector' : mode === 'M17' ? 'Reflector (M17-XXX)' : mode === 'BM' ? 'Talkgroup (9990# = Parrot)' : 'Talkgroup');
+export const tunePlaceholder = (mode: string): string => (mode === 'YSF' ? 'Reflector' : mode === 'M17' ? 'Reflector (M17-XXX)' : isDMRFamily(mode) ? 'Talkgroup (end with # for private call)' : 'Talkgroup');
 
 /** BM Parrot: DMR 9990, called as a private call. */
 export const PARROT_ID = '9990';
