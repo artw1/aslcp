@@ -10,9 +10,11 @@
   import { dvErrorMessage } from '../lib/dvmsg';
   import { stateLine, reflectorSilent, stateTone, modeLabel } from '../lib/dvpanel';
   import { agoText } from '../lib/nowcalling';
-  import { buildAlerts, buildPins, dvLastCaller, dvPinPlan, mergeActivity, pinActive, pinLocalNode, tileLinks, tileNodes, tileTalker } from '../lib/pins';
+  import { buildAlerts, buildPins, dvLastCaller, dvPinPlan, pinActive, pinLocalNode, tileLinks, tileNodes, tileTalker } from '../lib/pins';
   import type { PinItem } from '../lib/pins';
   import type { DVFavorite } from '../lib/types';
+  import { mergeHeard } from '../lib/lastheard';
+  import LastHeardTable from './LastHeardTable.svelte';
   import Footer from './Footer.svelte';
   import RadioTower from '@lucide/svelte/icons/radio-tower';
   import Pin from '@lucide/svelte/icons/pin';
@@ -23,7 +25,7 @@
   const dvOn = $derived(!!dv?.installed);
   const tiles = $derived(tileNodes(app.nodes, dv));
   const alerts = $derived(buildAlerts(app.nodes, app.haveNodes, dv));
-  const feed = $derived(mergeActivity(app.nowcalling?.recent, dv?.heard));
+  const feed = $derived(mergeHeard(app.nowcalling?.recent, dv?.heard));
 
   // DV favourites are not in the store: load them once the engine is known to be installed.
   let dvFavs = $state<DVFavorite[]>([]);
@@ -146,19 +148,11 @@
 
     <section aria-label="Activity">
       <h2 class="mb-1 text-sm font-semibold uppercase tracking-wide text-muted">Last heard</h2>
-      <div class="rounded-md border border-line bg-surface">
+      <div class="rounded-md border border-line bg-surface px-3 py-1">
         {#if feed.length === 0}
-          <p class="px-3 py-4 text-center text-sm text-muted">Nothing heard yet.</p>
+          <p class="py-3 text-center text-sm text-muted">Nothing heard yet.</p>
         {:else}
-          <ul class="divide-y divide-line" data-testid="activity">
-            {#each feed as a (a.key)}
-              <li class="flex items-center gap-2 px-3 py-1.5 text-sm">
-                <span class="w-9 shrink-0 rounded border px-1 text-center text-[10px] font-semibold {a.src === 'DV' ? 'border-accent/50 text-accent' : 'border-line text-muted'}" data-src={a.src}>{a.src}</span>
-                <span class="min-w-0 flex-1 truncate font-mono text-xs sm:text-sm">{a.text}</span>
-                <span class="shrink-0 text-xs text-muted">{age(a.at)}</span>
-              </li>
-            {/each}
-          </ul>
+          <LastHeardTable rows={feed} testid="activity" />
         {/if}
       </div>
     </section>

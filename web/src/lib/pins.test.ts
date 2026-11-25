@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { aslPinActive, buildAlerts, buildPins, bridgeNodeNumber, dvLastCaller, dvPinActive, dvPinPlan, mergeActivity, pinActive, pinLocalNode, tileLinks, tileNodes, tileTalker } from './pins.ts';
+import { aslPinActive, buildAlerts, buildPins, bridgeNodeNumber, dvLastCaller, dvPinActive, dvPinPlan, pinActive, pinLocalNode, tileLinks, tileNodes, tileTalker } from './pins.ts';
 import type { DVFavorite, DVSnapshot, Favorite, NodeStatus, NowCall } from './types';
 
 const snap = (over: Partial<DVSnapshot> = {}): DVSnapshot => ({
@@ -70,21 +70,6 @@ test('alerts', () => {
   assert.deepEqual(down.map((a) => a.key), ['bridge']);
   assert.equal(buildAlerts([node('2001')], true, snap({ running: false }))[0].key, 'dvdown');
   assert.equal(buildAlerts([node('2001', { stale: true })], true, null)[0].key, 'stale:2001');
-});
-
-test('activity merges ASL and DV, newest first', () => {
-  const t = (s: number) => new Date(Date.UTC(2026, 0, 1, 12, 0, s)).toISOString();
-  const recent: NowCall[] = [
-    { id: 'a', kind: 'allstar', call: 'N1CALL', node: '2000', desc: 'Example hub', start: t(0), end: t(10), active: false },
-    { id: 'd', kind: 'dmr', call: 'N0CALL', start: t(30), end: t(40), active: false },
-  ];
-  const heard = [{ call: 'N0CALL', dst: '91', slot: 2, at: '2026-01-01T12:00:30Z'.slice(0, 19).replace('T', ' ') }];
-  const out = mergeActivity(recent, heard);
-  assert.equal(out.length, 2);
-  assert.deepEqual(out.map((o) => o.src).sort(), ['ASL', 'DV']);
-  assert.equal(out.filter((o) => o.src === 'ASL').length, 1);
-  assert.equal(mergeActivity(undefined, undefined).length, 0);
-  assert.equal(mergeActivity(recent, heard, 1).length, 1);
 });
 
 const link = (n: string, over: Partial<NodeStatus['links'][number]> = {}): NodeStatus['links'][number] => ({ node: n, kind: 'allstar', info: null, ip: '192.0.2.1', direction: 'OUT', connected: 10, state: 'ESTABLISHED', mode: 'T', keyed: false, sinceKey: null, sinceUnkey: null, ...over });

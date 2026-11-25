@@ -338,7 +338,7 @@ function callers() {
   const n = Math.floor(Date.now() / 30_000);
   const at = (k: number) => new Date(Date.now() - k * 30_000).toISOString().slice(0, 19).replace('T', ' ');
   const heard = bridge.mode === 'LOOP'
-    ? [0, 1, 2].map((k) => ({ call: 'Echo test', at: at(k) }))
+    ? [{ call: 'Echo test', at: at(0) }, { call: 'N0CALL', dmrId: '1234567', dst: '91', slot: 2, at: at(1) }, { call: 'N1CALL', dst: '203.0.113.5:42000', mode: 'YSF', dstName: 'YSF-TEST', at: at(2) }]
     : bridge.mode === 'M17'
     ? [0, 1, 2].map((k) => ({ call: 'N0CALL', ...(bridge.tune && bridge.tune !== 'disconnect' ? { dst: bridge.tune } : {}), at: at(k) }))
     : [0, 1, 2].map((k) => ({ ...TALKERS[(n - k + 3 * 100) % 3], dst: '91', slot: 2, at: at(k) }));

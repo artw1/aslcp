@@ -21,6 +21,8 @@
   import Ellipsis from '@lucide/svelte/icons/ellipsis';
   import Unlink from '@lucide/svelte/icons/unlink';
   import Pin from '@lucide/svelte/icons/pin';
+  import LastHeardTable from './LastHeardTable.svelte';
+  import { dvHeardItems } from '../lib/lastheard';
 
   // `page`: the DV tab shows the network status strip; its Last heard list is a card of its own (DvPage).
   let { page = false }: { page?: boolean } = $props();
@@ -329,9 +331,7 @@
     {#if !page && snap.heard?.length}
       <details class="text-xs" data-testid="dv-heard">
         <summary class="cursor-pointer text-muted">Last heard <span class="ml-1 font-mono">{heardLine(snap.heard[0])}</span></summary>
-        <ul class="mt-1 space-y-0.5 font-mono">
-          {#each snap.heard as h, i (i)}<li title={h.dmrId ? `DMR ID ${h.dmrId}` : undefined}>{heardLine(h)}</li>{/each}
-        </ul>
+        <LastHeardTable rows={dvHeardItems(snap.heard)} />
       </details>
     {/if}
   </section>

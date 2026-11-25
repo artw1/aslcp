@@ -1,6 +1,6 @@
 // Pure logic of the overview dashboard: pinned favourites, the bridge-node filter for the node tiles,
 // the alerts strip and the merged activity feed. Tested in pins.test.ts.
-import { bridgeLinked, callerLabel, heardLine, isDMRFamily, modeLabel, nodeLabel, PRIVATE_MARK } from './dvpanel.ts';
+import { bridgeLinked, callerLabel, isDMRFamily, modeLabel, nodeLabel, PRIVATE_MARK } from './dvpanel.ts';
 import { who } from './nowcalling.ts';
 import type { DVCaller, DVFavorite, DVSnapshot, DVTuneMode, Favorite, NodeStatus, NowCall } from './types';
 
@@ -64,20 +64,7 @@ export function buildAlerts(nodes: NodeStatus[], haveNodes: boolean, dv: DVSnaps
   return out;
 }
 
-export interface Activity { key: string; src: 'ASL' | 'DV'; text: string; at: number }
 export const dvAt = (c: DVCaller): number => { const t = c.at ? Date.parse(c.at.replace(' ', 'T')) : NaN; return Number.isFinite(t) ? t : 0; };
-const aslText = (c: NowCall): string => [(c.call ?? '').trim() || (c.node ? `Node ${c.node}` : 'Unknown'), c.node && c.call ? `node ${c.node}` : '', (c.desc ?? '').trim()].filter(Boolean).join(' · ');
-/** AllStar last heard (the Now Calling list, AllStar calls only) and DV last heard merged, newest first. */
-export function mergeActivity(recent: NowCall[] | undefined, heard: DVCaller[] | undefined, limit = 12): Activity[] {
-  const out: Activity[] = [];
-  for (const c of recent ?? []) {
-    if (c.kind !== 'allstar') continue;
-    const t = Date.parse(c.end || c.start);
-    out.push({ key: `asl:${c.id}`, src: 'ASL', text: aslText(c), at: Number.isFinite(t) ? t : 0 });
-  }
-  (heard ?? []).forEach((c, i) => out.push({ key: `dv:${i}:${c.at ?? ''}`, src: 'DV', text: heardLine({ ...c, at: undefined }), at: dvAt(c) }));
-  return out.sort((a, b) => b.at - a.at).slice(0, limit);
-}
 
 /** One connected link on a node tile: its node number and the callsign or name when known. */
 export interface TileLink { node: string; label: string }

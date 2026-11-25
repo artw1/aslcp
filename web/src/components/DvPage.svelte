@@ -1,14 +1,13 @@
 <script lang="ts">
   // The DV tab: the digital modes card with the level meter, the mode buttons card (status for everyone, one mode's Enable
-  // switch and settings opening in place for an admin) and Last heard as a table in a card of its own.
+  // switch and settings opening in place for an admin) and Last heard as a table (callsigns link to QRZ and radioid.net) in a card of its own.
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
   import type { DVIdentity, DVNetView } from '../lib/types';
-  import { app, clock, isAdmin } from '../lib/store.svelte';
+  import { app, isAdmin } from '../lib/store.svelte';
   import DvCard from './DvCard.svelte';
-  import { agoText } from '../lib/nowcalling';
-  import { dvAt } from '../lib/pins';
-  import { heardRow } from '../lib/dvpanel';
+  import LastHeardTable from './LastHeardTable.svelte';
+  import { dvHeardItems } from '../lib/lastheard';
   import DvModes from './DvModes.svelte';
   import Footer from './Footer.svelte';
 
@@ -35,24 +34,7 @@
     <section class="card space-y-1 p-4" aria-label="Last heard" data-testid="dv-heard">
       <h2 class="text-base font-semibold">Last heard</h2>
       {#if app.dv.heard?.length}
-        <div class="overflow-x-auto">
-          <table class="w-full text-left text-xs sm:text-sm">
-            <thead class="text-muted">
-              <tr><th class="py-1 pr-3 font-medium">Time</th><th class="py-1 pr-3 font-medium">Callsign</th><th class="hidden py-1 pr-3 font-medium sm:table-cell">Mode</th><th class="py-1 font-medium">Target</th></tr>
-            </thead>
-            <tbody class="divide-y divide-line">
-              {#each app.dv.heard as h, i (i)}
-                {@const r = heardRow(h)}
-                <tr title={h.dmrId ? `DMR ID ${h.dmrId}` : undefined}>
-                  <td class="whitespace-nowrap py-1 pr-3 text-muted">{dvAt(h) ? agoText((clock.now - dvAt(h)) / 1000) : ''}</td>
-                  <td class="whitespace-nowrap py-1 pr-3 font-mono">{r.call}</td>
-                  <td class="hidden py-1 pr-3 sm:table-cell">{r.mode}</td>
-                  <td class="py-1 font-mono">{[r.target, r.slot].filter(Boolean).join(' · ')}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
+        <LastHeardTable rows={dvHeardItems(app.dv.heard)} />
       {:else}<p class="text-xs text-muted">Nothing heard yet.</p>{/if}
     </section>
   {/if}
