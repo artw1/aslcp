@@ -18,6 +18,7 @@ type PublicSettingsJSON struct {
 	ShowCallsigns  bool        `json:"showCallsigns"`
 	ShowNetwork    bool        `json:"showNetwork"`
 	ShowActivity   bool        `json:"showActivity"`
+	ShowDV         bool        `json:"showDV"` // digital modes Now calling and heard calls (off by default)
 	AllowEmbedding bool        `json:"allowEmbedding"`
 	TrustProxy     bool        `json:"trustProxy"`
 	DefaultTitle   string      `json:"defaultTitle"`
@@ -45,7 +46,7 @@ func (s *Server) publicJSON() PublicSettingsJSON {
 	c := s.pub.Settings()
 	out := PublicSettingsJSON{
 		Enabled: c.Enabled, Title: c.Title, Nodes: append([]string{}, c.Nodes...),
-		ShowCallsigns: c.ShowCallsigns, ShowNetwork: c.ShowNetwork, ShowActivity: c.ShowActivity,
+		ShowCallsigns: c.ShowCallsigns, ShowNetwork: c.ShowNetwork, ShowActivity: c.ShowActivity, ShowDV: c.ShowDV,
 		AllowEmbedding: c.AllowEmbedding, TrustProxy: c.TrustProxy,
 		DefaultTitle: "AllStarLink node status", LocalNodes: s.localNodes(), Clients: s.pub.Clients(),
 	}
@@ -69,6 +70,7 @@ func (s *Server) handlePublicPut(w http.ResponseWriter, r *http.Request, u store
 		ShowCallsigns  *bool     `json:"showCallsigns"`
 		ShowNetwork    *bool     `json:"showNetwork"`
 		ShowActivity   *bool     `json:"showActivity"`
+		ShowDV         *bool     `json:"showDV"`
 		AllowEmbedding *bool     `json:"allowEmbedding"`
 		TrustProxy     *bool     `json:"trustProxy"`
 	}
@@ -85,6 +87,7 @@ func (s *Server) handlePublicPut(w http.ResponseWriter, r *http.Request, u store
 	set(&c.ShowCallsigns, in.ShowCallsigns)
 	set(&c.ShowNetwork, in.ShowNetwork)
 	set(&c.ShowActivity, in.ShowActivity)
+	set(&c.ShowDV, in.ShowDV)
 	set(&c.AllowEmbedding, in.AllowEmbedding)
 	set(&c.TrustProxy, in.TrustProxy)
 	if in.Title != nil {
@@ -121,7 +124,7 @@ func (s *Server) handlePublicPut(w http.ResponseWriter, r *http.Request, u store
 		writeErr(w, 400, "bad_request", err.Error())
 		return
 	}
-	s.d.Logger.Printf("public page settings changed by %s (enabled=%v)", u.Username, c.Enabled)
+	s.d.Logger.Printf("public page settings changed by %s (enabled=%v, showDV=%v)", u.Username, c.Enabled, c.ShowDV)
 	writeJSON(w, 200, s.publicJSON())
 }
 

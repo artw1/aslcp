@@ -22,6 +22,7 @@ const (
 	keyCallsigns = "public.callsigns"
 	keyNetwork   = "public.network"
 	keyActivity  = "public.activity"
+	keyDV        = "public.dv"
 	keyEmbed     = "public.embed"
 	keyTrustProx = "public.trust_proxy"
 )
@@ -36,10 +37,12 @@ type Settings struct {
 	// Title is the page title; "" selects the automatic title.
 	Title string
 	// Nodes are the local nodes to show; empty means all of them.
-	Nodes          []string
-	ShowCallsigns  bool
-	ShowNetwork    bool
-	ShowActivity   bool
+	Nodes         []string
+	ShowCallsigns bool
+	ShowNetwork   bool
+	ShowActivity  bool
+	// ShowDV adds the digital modes Now calling and heard calls (off by default).
+	ShowDV         bool
 	AllowEmbedding bool
 	// TrustProxy: take the client address from X-Forwarded-For (only for use
 	// behind a reverse proxy or tunnel that sets it).
@@ -79,6 +82,7 @@ func LoadSettings(st SettingsStore, defaultEnabled bool) Settings {
 	boolv(keyCallsigns, &s.ShowCallsigns)
 	boolv(keyNetwork, &s.ShowNetwork)
 	boolv(keyActivity, &s.ShowActivity)
+	boolv(keyDV, &s.ShowDV)
 	boolv(keyEmbed, &s.AllowEmbedding)
 	boolv(keyTrustProx, &s.TrustProxy)
 	if v, ok := get(keyTitle); ok {
@@ -106,7 +110,7 @@ func SaveSettings(st SettingsStore, s Settings) error {
 		{keyEnabled, b(s.Enabled)}, {keyTitle, s.Title},
 		{keyNodes, strings.Join(s.Nodes, ",")}, {keyCallsigns, b(s.ShowCallsigns)},
 		{keyNetwork, b(s.ShowNetwork)}, {keyActivity, b(s.ShowActivity)},
-		{keyEmbed, b(s.AllowEmbedding)}, {keyTrustProx, b(s.TrustProxy)},
+		{keyDV, b(s.ShowDV)}, {keyEmbed, b(s.AllowEmbedding)}, {keyTrustProx, b(s.TrustProxy)},
 	} {
 		if err := st.SetSetting(kv[0], kv[1]); err != nil {
 			return err

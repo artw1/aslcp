@@ -534,7 +534,7 @@ Optional, off by default (admin setting). Served on the main port. While disable
 PublicSnapshot = {
   "title": "N0AAD AllStarLink node 2001",   // setting, else "<callsign> AllStarLink node <n>", else "AllStarLink node status"
   "now": 1794725912,                          // server time, unix seconds
-  "callsigns": true, "showNetwork": true, "showActivity": true,
+  "callsigns": true, "showNetwork": true, "showActivity": true, "showDV": false,
   "nodes": [{
     "node": "2001", "info": {"callsign","description","location"} | null,
     "stale": false, "txKeyed": false, "rxKeyed": false, "numLinks": 27,
@@ -543,22 +543,27 @@ PublicSnapshot = {
                "sinceKey": 12 | null, "sinceUnkey": 3 | null}],
     "network": [{"node": "1021", "callsign": "N0AAA" /* omitted when hidden */}]   // omitted when disabled or empty
   }],
-  "activity": [{"node": "2001", "link": "50241" | "local", "callsign"?: "N0AAF", "at": 1794725900, "duration": 7, "kerchunk": false}]   // newest first, at most 25; omitted when disabled
+  "activity": [{"node": "2001", "link": "50241" | "local", "callsign"?: "N0AAF", "at": 1794725900, "duration": 7, "kerchunk": false}],   // newest first, at most 25; omitted when disabled
+  "dv": {"now": DVCall | null, "heard": [DVCall]}   // only while showDV is on; omitted otherwise
 }
+DVCall = {"mode": "DMR"|"YSF"|"P25"|"NXDN"|"M17", "callsign"?, "target"?: "TG 91" | "YSF-TEST", "slot"?: 2, "at": 1794725900,
+          "name"?, "location"?}   // callsign, name and location omitted when callsigns are hidden
 ```
+
+`dv` is an allowlist and exists only while the admin setting `showDV` ("Show digital modes activity", default off) is on; with it off no digital modes data is sent. `heard` has at most 10 calls, newest first; private calls are dropped. `name` and `location` come from the local radioid list or the HamDB cache only: a public request never causes a lookup. It never contains a master or server host, login state, bridge node or link state, DMR ID, identity or settings, address or version. The bridge node's own rows in `activity` carry `label` (its display name).
 
 Ages (`connected`, `sinceKey`, `sinceUnkey`) are as of `now`; the page advances them locally. Link nodes that are not node numbers, callsigns or EchoLink numbers (an address, for example) are published as `"unknown"`.
 
-SSE events: `snapshot` (`PublicSnapshot`; on connect, after a stale/recovered transition, and when an admin changes the settings), `node` (one node without `network`), `network` (`{"node", "network": [...]}`), `activity` (`{"now", "activity": [...]}`). A comment line (`: ping`) is sent every 20 s and a stream is closed after 6 hours (the page reconnects). If SSE is unavailable the page polls `/api/public/status` every 10 s.
+SSE events: `snapshot` (`PublicSnapshot`; on connect, after a stale/recovered transition, and when an admin changes the settings), `node` (one node without `network`), `network` (`{"node", "network": [...]}`), `activity` (`{"now", "activity": [...]}`), `dv` (`{"now", "dv": {...}}`, only while `showDV` is on; coalesced to at most about one per second). A comment line (`: ping`) is sent every 20 s and a stream is closed after 6 hours (the page reconnects). If SSE is unavailable the page polls `/api/public/status` every 10 s.
 
 ### Public page settings (admin)
 
-`PublicSettings = {"enabled", "title", "nodes": [str], "showCallsigns", "showNetwork", "showActivity", "allowEmbedding", "trustProxy", "defaultTitle", "localNodes": [{"node","info"}], "clients": int}`. Defaults: disabled, empty title (automatic), `nodes: []` (all local nodes), callsigns/network/activity on, embedding off, trust proxy off. Stored as settings `public.*`.
+`PublicSettings = {"enabled", "title", "nodes": [str], "showCallsigns", "showNetwork", "showActivity", "showDV", "allowEmbedding", "trustProxy", "defaultTitle", "localNodes": [{"node","info"}], "clients": int}`. Defaults: disabled, empty title (automatic), `nodes: []` (all local nodes), callsigns/network/activity on, digital modes activity (`showDV`) off, embedding off, trust proxy off. Stored as settings `public.*`.
 
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/api/public` | | `200` `PublicSettings` (admin) |
-| PUT | `/api/public` | any subset of `enabled`, `title` (at most 80 characters, no control characters), `nodes` (local node numbers; all of them or `[]` means all), `showCallsigns`, `showNetwork`, `showActivity`, `allowEmbedding`, `trustProxy` | `200` `PublicSettings`; `400 {"code":"bad_request"}` for invalid input. Applies immediately to connected visitors; disabling closes their streams. |
+| PUT | `/api/public` | any subset of `enabled`, `title` (at most 80 characters, no control characters), `nodes` (local node numbers; all of them or `[]` means all), `showCallsigns`, `showNetwork`, `showActivity`, `showDV`, `allowEmbedding`, `trustProxy` | `200` `PublicSettings`; `400 {"code":"bad_request"}` for invalid input. Applies immediately to connected visitors; disabling closes their streams. |
 
 `trustProxy`: use the last `X-Forwarded-For` entry as the client address for the rate limit and connection caps (only behind a reverse proxy or tunnel that sets it; otherwise clients could forge it).
 

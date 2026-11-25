@@ -2,13 +2,13 @@
 // An AllStar call and a digital call end up in the same shape: callsign, mode, target, when, and the lookup links the callsign opens.
 import { heardRow } from './dvpanel.ts';
 import { qrzUrl, radioidUrl } from './nowcalling.ts';
-import type { DVCaller, NowCall } from './types';
+import type { DVCaller, NowCall, PubSnapshot } from './types';
 
 export interface HeardItem {
   key: string;
   /** What the callsign cell shows ("N0CALL", a DMR ID, "Echo test", "Private call"). */
   call: string;
-  /** "AllStar", "DMR", "YSF", "M17", ... */
+  /** "ASL", "DMR", "YSF", "M17", ... */
   mode: string;
   /** "TG 91 · TS2", "YSF-TEST" (the Mode column says YSF), "Node 2001"; '' when not known. */
   target: string;
@@ -52,7 +52,7 @@ export function dvHeardItems(heard: DVCaller[] | undefined): HeardItem[] {
   });
 }
 
-/** AllStar calls (the Now Calling list; digital calls come from the snapshot instead) as table rows: mode "AllStar", target the node. */
+/** AllStar calls (the Now Calling list; digital calls come from the snapshot instead) as table rows: mode "ASL", target the node. */
 export function aslHeardItems(recent: NowCall[] | undefined): HeardItem[] {
   const out: HeardItem[] = [];
   for (const c of recent ?? []) {
@@ -61,7 +61,7 @@ export function aslHeardItems(recent: NowCall[] | undefined): HeardItem[] {
     out.push({
       key: `asl:${c.id}`,
       call: call || (c.node ? `Node ${c.node}` : 'Unknown'),
-      mode: 'AllStar',
+      mode: 'ASL',
       target: c.node ? `Node ${c.node}` : '',
       at: parseAt(c.end || c.start),
       person: '',
@@ -76,4 +76,25 @@ export function aslHeardItems(recent: NowCall[] | undefined): HeardItem[] {
 /** AllStar and digital rows together, newest first, at most `limit`. */
 export function mergeHeard(recent: NowCall[] | undefined, heard: DVCaller[] | undefined, limit = 12): HeardItem[] {
   return [...aslHeardItems(recent), ...dvHeardItems(heard)].sort((a, b) => b.at - a.at).slice(0, limit);
+}
+
+/** The public page's Last heard rows: ASL transmissions (the public activity list) and, when the digital modes setting is on, DV calls, newest first.
+ *  Only what the public API sends: no IDs, so a callsign opens QRZ and nothing opens radioid.net. A bridge node's ASL row is the DV call itself, so it is left out when DV is shown. */
+export function pubHeardItems(snap: Pick<PubSnapshot, 'activity' | 'dv' | 'showDV' | 'showActivity'> | null | undefined, limit = 12): HeardItem[] {
+  const out: HeardItem[] = [];
+  (snap?.showActivity ? snap.activity ?? [] : []).forEach((a, i) => {
+    if (a.link === 'local' || (snap?.showDV && a.label)) return;
+    out.push({
+      key: `asl:${i}:${a.at}`, call: a.callsign || a.label || `Node ${a.link}`, mode: 'ASL', target: `Node ${a.link}`, at: a.at * 1000,
+      person: '', qrz: lookupCall(a.callsign), radioid: '',
+    });
+  });
+  (snap?.showDV ? snap.dv?.heard ?? [] : []).forEach((c, i) => {
+    out.push({
+      key: `dv:${i}:${c.at}`, call: c.callsign || `${c.mode} caller`, mode: c.mode,
+      target: [c.target, c.slot ? `TS${c.slot}` : ''].filter(Boolean).join(' \u00b7 '), at: c.at * 1000,
+      person: personLine(c.name, c.location), qrz: lookupCall(c.callsign), radioid: '',
+    });
+  });
+  return out.sort((a, b) => b.at - a.at).slice(0, limit);
 }

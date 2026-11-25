@@ -6,11 +6,11 @@
   import Globe from '@lucide/svelte/icons/globe';
 
   let cur = $state<PublicSettings | null>(null);
-  let f = $state({ enabled: false, title: '', nodes: [] as string[], showCallsigns: true, showNetwork: true, showActivity: true, allowEmbedding: false, trustProxy: false });
+  let f = $state({ enabled: false, title: '', nodes: [] as string[], showCallsigns: true, showNetwork: true, showActivity: true, showDV: false, allowEmbedding: false, trustProxy: false });
   let busy = $state(false);
   function adopt(s: PublicSettings) {
     cur = s;
-    f = { enabled: s.enabled, title: s.title, nodes: s.nodes.length ? [...s.nodes] : s.localNodes.map((n) => n.node), showCallsigns: s.showCallsigns, showNetwork: s.showNetwork, showActivity: s.showActivity, allowEmbedding: s.allowEmbedding, trustProxy: s.trustProxy };
+    f = { enabled: s.enabled, title: s.title, nodes: s.nodes.length ? [...s.nodes] : s.localNodes.map((n) => n.node), showCallsigns: s.showCallsigns, showNetwork: s.showNetwork, showActivity: s.showActivity, showDV: s.showDV, allowEmbedding: s.allowEmbedding, trustProxy: s.trustProxy };
   }
   async function load() { try { adopt(await api.publicSettings()); } catch (e) { toastError(e); } }
   $effect(() => { load(); });
@@ -19,7 +19,7 @@
     const all = cur.localNodes.map((n) => n.node);
     const base = cur.nodes.length ? cur.nodes : all;
     return f.enabled !== cur.enabled || f.title !== cur.title || f.showCallsigns !== cur.showCallsigns || f.showNetwork !== cur.showNetwork
-      || f.showActivity !== cur.showActivity || f.allowEmbedding !== cur.allowEmbedding || f.trustProxy !== cur.trustProxy
+      || f.showActivity !== cur.showActivity || f.showDV !== cur.showDV || f.allowEmbedding !== cur.allowEmbedding || f.trustProxy !== cur.trustProxy
       || [...f.nodes].sort().join() !== [...base].sort().join();
   });
   function toggleNode(n: string, on: boolean) { f.nodes = on ? [...f.nodes, n] : f.nodes.filter((x) => x !== n); }
@@ -39,7 +39,7 @@
   <h2 class="flex items-center gap-2 text-base font-semibold"><Globe size={16} />Public page</h2>
   {#if !cur}<p class="text-sm text-muted">Loading…</p>
   {:else}
-    <p class="text-sm text-muted">A read-only status page for visitors who are not logged in, replacing public Allmon3/Supermon pages. It shows keying and links only: never IP addresses, system information, favorites or users. Off by default.</p>
+    <p class="text-sm text-muted">A read-only status page for visitors who are not logged in, replacing public Allmon3/Supermon pages. It looks like the Dashboard (node tiles, Now calling, Last heard) but has no buttons: it shows keying and links only, never IP addresses, system information, favorites or users. Off by default.</p>
     <form class="space-y-3" onsubmit={save}>
       <label class="flex cursor-pointer items-start gap-2 text-sm"><input type="checkbox" class={checkbox} bind:checked={f.enabled} /><span class="font-medium">Show the public status page to visitors who are not logged in<span class="block text-xs font-normal text-muted">When on, the address of this panel ({origin}/) shows the status page with a "Log in" button instead of the login form.</span></span></label>
       <div class="grid gap-4 md:grid-cols-2">
@@ -56,7 +56,8 @@
         <fieldset class="space-y-2"><legend class="label">What visitors can see</legend>
           <label class="flex cursor-pointer items-start gap-2 text-sm"><input type="checkbox" class={checkbox} bind:checked={f.showCallsigns} /><span>Callsigns and node info of linked nodes<span class="block text-xs text-muted">Off: linked nodes show only their number and type.</span></span></label>
           <label class="flex cursor-pointer items-start gap-2 text-sm"><input type="checkbox" class={checkbox} bind:checked={f.showNetwork} /><span>Linked network list</span></label>
-          <label class="flex cursor-pointer items-start gap-2 text-sm"><input type="checkbox" class={checkbox} bind:checked={f.showActivity} /><span>Recent activity (the last 25 transmissions)</span></label>
+          <label class="flex cursor-pointer items-start gap-2 text-sm"><input type="checkbox" class={checkbox} bind:checked={f.showActivity} /><span>Last heard (the last 25 AllStarLink transmissions)</span></label>
+          <label class="flex cursor-pointer items-start gap-2 text-sm"><input type="checkbox" class={checkbox} bind:checked={f.showDV} data-testid="pub-show-dv" /><span>Show digital modes activity<span class="block text-xs text-muted">Adds the digital modes Now calling banner and the digital calls in Last heard: mode, callsign, talkgroup or reflector, time slot and time, and the name and place when already known. Never the digital modes server, login, IDs or settings. With “Callsigns” off, callsigns, names and places are left out too. Off by default.</span></span></label>
           <label class="flex cursor-pointer items-start gap-2 text-sm"><input type="checkbox" class={checkbox} bind:checked={f.allowEmbedding} /><span>Allow embedding in other web pages<span class="block text-xs text-muted">Lets other sites show the status page in an iframe, at <code>/embed</code> only. The login page can never be embedded.</span></span></label>
           <label class="flex cursor-pointer items-start gap-2 text-sm"><input type="checkbox" class={checkbox} bind:checked={f.trustProxy} /><span>Trust proxy headers (X-Forwarded-For)<span class="block text-xs text-muted">Turn on only when this panel is behind a reverse proxy or tunnel (Caddy, Cloudflare Tunnel) so the per-visitor limits use the real visitor address. Leave it off otherwise: visitors could fake the header.</span></span></label>
         </fieldset>

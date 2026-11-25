@@ -4,17 +4,19 @@
   import { api } from '../lib/api';
   import { app, canOperate, clock } from '../lib/store.svelte';
   import { navigate } from '../lib/router.svelte';
-  import { connectTo } from '../lib/actions.svelte';
+  import { connectTo, disconnectFrom } from '../lib/actions.svelte';
   import { exclusive } from '../lib/settings.svelte';
   import { toast, toastError } from '../lib/toast.svelte';
   import { dvErrorMessage } from '../lib/dvmsg';
   import { stateLine, reflectorSilent, stateTone, modeLabel } from '../lib/dvpanel';
   import { agoText } from '../lib/nowcalling';
-  import { buildAlerts, buildPins, dvLastCaller, dvPinPlan, pinActive, pinLocalNode, tileLinks, tileNodes, tileTalker } from '../lib/pins';
+  import { buildAlerts, buildPins, dvLastCaller, dvPinPlan, pinActive, pinLocalNode, tileNodes } from '../lib/pins';
+  import { nodeTile } from '../lib/tiles';
   import type { PinItem } from '../lib/pins';
   import type { DVFavorite } from '../lib/types';
   import { mergeHeard } from '../lib/lastheard';
   import LastHeardTable from './LastHeardTable.svelte';
+  import NodeTile from './NodeTile.svelte';
   import Footer from './Footer.svelte';
   import RadioTower from '@lucide/svelte/icons/radio-tower';
   import Pin from '@lucide/svelte/icons/pin';
@@ -40,9 +42,12 @@
   const dvLast = $derived(dvLastCaller(dv));
 
   function open(node: string) { app.selectedNode = node; navigate('/allstar'); }
-  const tileState = (n: (typeof app.nodes)[number]) => (n.stale ? 'Stale' : n.txKeyed ? 'TX keyed' : n.rxKeyed ? 'RX keyed' : 'Idle');
-  const tileClass = (n: (typeof app.nodes)[number]) => (n.stale ? 'border-warn/50' : n.txKeyed ? 'border-danger' : n.rxKeyed ? 'border-rx' : 'border-line');
-  const nodeName = (n: (typeof app.nodes)[number]) => n.info?.callsign || n.info?.description || '';
+  let unlinking = $state('');
+  async function unlink(local: string, target: string) {
+    if (unlinking || !op) return;
+    unlinking = `${local}/${target}`;
+    try { await disconnectFrom(local, target); } finally { unlinking = ''; }
+  }
 
   let busyKey = $state('');
   async function tap(p: PinItem) {
@@ -85,28 +90,7 @@
 
     <section class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" aria-label="Nodes" data-testid="tiles">
       {#each tiles as n (n.node)}
-        <button type="button" class="flex flex-col justify-start rounded-md border bg-surface px-3 py-2 text-left hover:bg-surface-2 {tileClass(n)} {app.selectedNode === n.node && tiles.length > 1 ? 'ring-1 ring-accent' : ''}" onclick={() => open(n.node)} aria-label="Node {n.node}, open the AllStarLink tab" data-testid="tile-{n.node}">
-          <div class="flex items-baseline gap-2">
-            <span class="font-mono text-base font-semibold">{n.node}</span>
-            <span class="min-w-0 flex-1 truncate text-xs text-muted">{nodeName(n)}</span>
-          </div>
-          <div class="mt-1 flex items-center gap-2 text-xs">
-            <span class="font-medium {n.stale ? 'text-warn' : n.txKeyed ? 'text-danger' : n.rxKeyed ? 'text-rx' : 'text-muted'}">{tileState(n)}</span>
-            <span class="text-muted">{n.links.length} link{n.links.length === 1 ? '' : 's'}</span>
-          </div>
-          {#if tileTalker(n, app.nowcalling?.current, dv)}
-            <div class="mt-1 truncate text-xs font-medium {n.txKeyed ? 'text-danger' : 'text-rx'}" data-testid="tile-talker-{n.node}">{n.txKeyed ? 'Talking' : 'Heard'}: <span class="font-mono">{tileTalker(n, app.nowcalling?.current, dv)}</span></div>
-          {/if}
-          {#if n.links.length}
-            {@const tl = tileLinks(n, dv)}
-            <ul class="mt-1.5 space-y-0.5 border-t border-line pt-1.5 text-xs" aria-label="Links" data-testid="tile-links-{n.node}">
-              {#each tl.shown as l (l.node)}
-                <li class="flex gap-1.5"><span class="shrink-0 font-mono">{l.node}</span><span class="min-w-0 truncate text-muted">{l.label}</span></li>
-              {/each}
-              {#if tl.more}<li class="text-muted">+{tl.more} more</li>{/if}
-            </ul>
-          {/if}
-        </button>
+        <NodeTile tile={nodeTile(n, app.nowcalling?.current, dv)} selected={app.selectedNode === n.node && tiles.length > 1} busy={!!unlinking} onopen={() => open(n.node)} onunlink={op ? (target) => unlink(n.node, target) : undefined} />
       {/each}
       {#if dvOn && dv}
         {@const tone = stateTone(dv)}

@@ -42,6 +42,7 @@ func (s *Server) initNowCalling() {
 	n.tr.OnChange = func(sn nowcalling.Snapshot) {
 		f := frame("nowcalling", sn)
 		s.hub.broadcast(sseMsg{priv: f, pub: f})
+		s.pub.DVChanged()
 	}
 	s.nc = n
 }

@@ -118,13 +118,27 @@ function status(id: string, role = 'admin') {
   return { node: id, info: info(id), stale: false, rxKeyed: s.rx > t, txKeyed: s.tx > t || links.some((l) => l.keyed && l.mode === 'T'), extTxKeyed: false, numLinks: network.length, links, network, flags: { txDisabled: false, linkFunsDisabled: false, parrot: false }, updated: new Date().toISOString() };
 }
 // Public status view (docs/API.md "Public page"): on by default in the mock so the logged-out view can be developed.
-const pubCfg = { enabled: true, title: '', nodes: [] as string[], showCallsigns: true, showNetwork: true, showActivity: true, allowEmbedding: false, trustProxy: false };
+const pubCfg = { enabled: true, title: '', nodes: [] as string[], showCallsigns: true, showNetwork: true, showActivity: true, showDV: false, allowEmbedding: false, trustProxy: false };
 const activity: { node: string; link: string; at: number; duration: number }[] = [
   { node: '2001', link: '1000', at: Date.now() - 95e3, duration: 14 },
   { node: '2001', link: 'local', at: Date.now() - 260e3, duration: 6 },
   { node: '1997', link: '1148', at: Date.now() - 700e3, duration: 1 },
   { node: '2001', link: '1074', at: Date.now() - 3.2e6, duration: 41 },
 ];
+// Digital modes calls of the public page (placeholders): only sent while "Show digital modes activity" is on, without callsigns/names when callsigns are hidden.
+const pubDVCalls = [
+  { mode: 'DMR', call: 'N0CALL', target: 'TG 91', slot: 2, ago: 240, name: 'Pat Example', place: 'Springfield, XX' },
+  { mode: 'YSF', call: 'N1CALL', target: 'YSF-TEST', slot: 0, ago: 780, name: 'Sam Example', place: 'Shelbyville, XX' },
+  { mode: 'M17', call: 'N1CALL', target: 'M17-XXX C', slot: 0, ago: 1500, name: '', place: '' },
+  { mode: 'DMR', call: 'N0CALL', target: 'TG 9', slot: 1, ago: 3300, name: 'Pat Example', place: 'Springfield, XX' },
+];
+function pubDV() {
+  const t = Date.now(), cs = pubCfg.showCallsigns;
+  const row = (c: (typeof pubDVCalls)[number], ago: number) => ({ mode: c.mode, ...(cs ? { callsign: c.call, ...(c.name ? { name: c.name } : {}), ...(c.place ? { location: c.place } : {}) } : {}), target: c.target, ...(c.slot ? { slot: c.slot } : {}), at: Math.floor((t - ago * 1000) / 1000) });
+  // one call in progress for 20 s of every minute
+  const talking = Math.floor(t / 1000) % 60 < 20;
+  return { now: talking ? row(pubDVCalls[0], Math.floor(t / 1000) % 60) : null, heard: pubDVCalls.map((c) => row(c, c.ago)) };
+}
 const pubDefaultTitle = () => `${info('2001')?.callsign} AllStarLink node 2001`;
 function pubSnapshot() {
   const ids = Object.keys(locals).filter((id) => !pubCfg.nodes.length || pubCfg.nodes.includes(id));
@@ -133,13 +147,13 @@ function pubSnapshot() {
     return {
       node: s.node, info: s.info && { callsign: s.info.callsign, description: s.info.description, location: s.info.location }, stale: false,
       txKeyed: s.txKeyed, rxKeyed: s.rxKeyed, numLinks: s.numLinks,
-      links: s.links.map((l) => ({ node: l.node, kind: l.kind, ...(pubCfg.showCallsigns && l.info ? { info: { callsign: l.info.callsign, description: l.info.description, location: l.info.location } } : {}), direction: l.direction, mode: l.mode, connected: l.connected, keyed: l.keyed, sinceKey: l.sinceKey, sinceUnkey: l.sinceUnkey })),
+      links: s.links.map((l) => ({ node: l.node, ...(l.node === BRIDGE_NODE ? { label: 'Digital modes linked node' } : {}), kind: l.kind, ...(pubCfg.showCallsigns && l.info ? { info: { callsign: l.info.callsign, description: l.info.description, location: l.info.location } } : {}), direction: l.direction, mode: l.mode, connected: l.connected, keyed: l.keyed, sinceKey: l.sinceKey, sinceUnkey: l.sinceUnkey })),
       ...(pubCfg.showNetwork ? { network: s.network.map((n) => ({ node: n.node, ...(pubCfg.showCallsigns && n.info ? { callsign: n.info.callsign } : {}) })) } : {}),
     };
   });
   const acts = activity.filter((a) => ids.includes(a.node)).sort((a, b) => b.at - a.at).slice(0, 25)
-    .map((a) => ({ node: a.node, link: a.link, ...(pubCfg.showCallsigns && a.link !== 'local' && info(a.link) ? { callsign: info(a.link)!.callsign } : {}), at: Math.floor(a.at / 1000), duration: a.duration, kerchunk: a.duration < 2 }));
-  return { title: pubCfg.title || pubDefaultTitle(), now: Math.floor(now() / 1000), callsigns: pubCfg.showCallsigns, showNetwork: pubCfg.showNetwork, showActivity: pubCfg.showActivity, nodes, ...(pubCfg.showActivity ? { activity: acts } : {}) };
+    .map((a) => ({ node: a.node, link: a.link, ...(a.link === BRIDGE_NODE ? { label: "Digital modes linked node" } : {}), ...(pubCfg.showCallsigns && a.link !== 'local' && info(a.link) ? { callsign: info(a.link)!.callsign } : {}), at: Math.floor(a.at / 1000), duration: a.duration, kerchunk: a.duration < 2 }));
+  return { title: pubCfg.title || pubDefaultTitle(), now: Math.floor(now() / 1000), callsigns: pubCfg.showCallsigns, showNetwork: pubCfg.showNetwork, showActivity: pubCfg.showActivity, showDV: pubCfg.showDV, nodes, ...(pubCfg.showActivity ? { activity: acts } : {}), ...(pubCfg.showDV ? { dv: pubDV() } : {}) };
 }
 // Simulated update: apply runs ~6s, then the "server" restarts (SSE streams close) and reports the new version.
 let mockVersion = '2.0.0';
@@ -276,7 +290,7 @@ export function mockApi(): Plugin {
         if (p === '/public') {
           if (!isAdmin) return forbid();
           if (m === 'PUT') {
-            for (const k of ['enabled', 'showCallsigns', 'showNetwork', 'showActivity', 'allowEmbedding', 'trustProxy'] as const) if (typeof body[k] === 'boolean') pubCfg[k] = body[k];
+            for (const k of ['enabled', 'showCallsigns', 'showNetwork', 'showActivity', 'showDV', 'allowEmbedding', 'trustProxy'] as const) if (typeof body[k] === 'boolean') pubCfg[k] = body[k];
             if (typeof body.title === 'string') { if (body.title.length > 80) return err(res, 400, 'title is too long', 'bad_request'); pubCfg.title = body.title; }
             if (Array.isArray(body.nodes)) { if (body.nodes.some((n: string) => !locals[n])) return err(res, 400, 'not a local node', 'bad_request'); pubCfg.nodes = body.nodes.length === Object.keys(locals).length ? [] : body.nodes; }
             if (!pubCfg.enabled) { pubClients.forEach((r) => r.end()); pubClients.clear(); }

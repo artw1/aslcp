@@ -206,6 +206,7 @@ func New(d Deps) *Server {
 		Store: pst, Lookup: lk, Logger: d.Logger, DefaultEnabled: d.PublicDefaultEnabled,
 		OnClients: func(int) { s.updateInterval(0) },
 		Bridge:    s.publicBridge(),
+		DV:        s.publicDV,
 	})
 	if d.Store != nil {
 		s.rec = activity.New(d.Store, d.Logger)

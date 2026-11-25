@@ -67,14 +67,18 @@ export interface PubNode {
   links: PubLink[]; network?: PubNetNode[];
 }
 export interface PubActivity { node: string; link: string; label?: string; callsign?: string; at: number; duration: number; kerchunk: boolean }
+/** A digital modes call on the public page: no IDs, hosts or addresses. `callsign`, `name` and `location` are absent when callsigns are hidden. */
+export interface PubDVCall { mode: string; callsign?: string; target?: string; slot?: number; at: number; name?: string; location?: string }
+/** The digital modes part of the public page; sent only while the "Show digital modes activity" setting is on. */
+export interface PubDV { now: PubDVCall | null; heard: PubDVCall[] }
 export interface PubSnapshot {
-  title: string; now: number; callsigns: boolean; showNetwork: boolean; showActivity: boolean;
-  nodes: PubNode[]; activity?: PubActivity[];
+  title: string; now: number; callsigns: boolean; showNetwork: boolean; showActivity: boolean; showDV: boolean;
+  nodes: PubNode[]; activity?: PubActivity[]; dv?: PubDV;
 }
 export interface PublicInfo { enabled: boolean; title: string; loggedIn: boolean }
 /** GET/PUT /api/public (admin). */
 export interface PublicSettings {
-  enabled: boolean; title: string; nodes: string[]; showCallsigns: boolean; showNetwork: boolean; showActivity: boolean;
+  enabled: boolean; title: string; nodes: string[]; showCallsigns: boolean; showNetwork: boolean; showActivity: boolean; showDV: boolean;
   allowEmbedding: boolean; trustProxy: boolean; defaultTitle: string;
   localNodes: { node: string; info: NodeInfo | null }[]; clients: number;
 }

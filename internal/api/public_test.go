@@ -417,3 +417,29 @@ func TestActivityAPI(t *testing.T) {
 func storeActivity(node, link string, start time.Time, d time.Duration) store.Activity {
 	return store.Activity{Node: node, Link: link, Start: start, Duration: d, Kerchunk: d < 1500*time.Millisecond}
 }
+
+func TestPublicDVSettingDefaultOffAndPersists(t *testing.T) {
+	e := newEnv(t, opts{})
+	var cur struct {
+		ShowDV bool `json:"showDV"`
+	}
+	if code := e.do("admin", "GET", "/api/public", nil, &cur); code != 200 || cur.ShowDV {
+		t.Fatalf("default: %d %+v", code, cur)
+	}
+	enablePublic(t, e, nil)
+	_, raw, _ := e.raw("GET", "/api/public/status", nil, "", nil)
+	if strings.Contains(string(raw), `"dv"`) || !strings.Contains(string(raw), `"showDV":false`) {
+		t.Fatalf("DV data with the setting off: %s", raw)
+	}
+	if code := e.do("admin", "PUT", "/api/public", map[string]any{"showDV": true}, &cur); code != 200 || !cur.ShowDV {
+		t.Fatalf("%d %+v", code, cur)
+	}
+	if v, err := e.st.GetSetting("public.dv"); err != nil || v != "true" {
+		t.Fatalf("%q %v", v, err)
+	}
+	_, raw, _ = e.raw("GET", "/api/public/status", nil, "", nil)
+	if !strings.Contains(string(raw), `"dv":{"now":null,"heard":[]}`) {
+		t.Fatalf("%s", raw)
+	}
+	expectErr(t, e, "viewer", "PUT", "/api/public", map[string]any{"showDV": false}, 403, "forbidden")
+}

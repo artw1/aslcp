@@ -76,8 +76,10 @@ type Snapshot struct {
 	Callsigns    bool       `json:"callsigns"`
 	ShowNetwork  bool       `json:"showNetwork"`
 	ShowActivity bool       `json:"showActivity"`
+	ShowDV       bool       `json:"showDV"` // the digital modes setting; DV is sent only when it is on
 	Nodes        []Node     `json:"nodes"`
 	Activity     []Activity `json:"activity,omitempty"`
+	DV           *DV        `json:"dv,omitempty"`
 }
 
 // ActivityEvent is the SSE "activity" payload.
