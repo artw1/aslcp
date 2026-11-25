@@ -49,6 +49,8 @@ body { background: var(--bg); color: var(--fg); font-family: var(--font-sans); -
 .tap::after { content: ''; position: absolute; inset: -10px -6px; }
 
 @layer components {
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
   .btn { @apply inline-flex items-center justify-center gap-1 rounded border border-line bg-surface px-2.5 py-1 text-[13px] font-medium text-fg transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45; min-height: 1.9rem; }
   .btn-primary { @apply border-transparent bg-accent text-accent-fg hover:opacity-90 hover:bg-accent; }
   .btn-ok { @apply border-transparent bg-ok text-accent-fg hover:bg-ok hover:opacity-90; }

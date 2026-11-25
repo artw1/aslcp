@@ -8,7 +8,7 @@ export interface SettingsTab {
   /** URL part: #/settings/<group>/<id>. Lowercase letters, digits and hyphens. */
   id: string;
   label: string;
-  /** Heading above the tab's page; defaults to the label. */
+  /** Longer name of the page; the shell draws no heading, so the page uses it itself if it wants one. */
   title?: string;
   /** The component draws its own heading, so the shell adds none. */
   bare?: boolean;

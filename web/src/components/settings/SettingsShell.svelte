@@ -18,48 +18,48 @@
   // Updates carries the same badge as the header, on the System group and on its Updates tab.
   const updCount = $derived((app.updates.aslcp || (app.system?.updateAvailable ?? false) ? 1 : 0) + app.updates.os);
   const hasBadge = $derived(admin && (updCount > 0 || app.updates.reboot));
+  // Keep the active pill and tab visible in the one-line rows on phones.
+  $effect(() => {
+    void route.group; void route.tab;
+    queueMicrotask(() => document.querySelectorAll('nav[aria-label^="Settings groups"] [aria-current], nav[aria-label$=" sections"] [aria-current]')
+      .forEach((el) => el.scrollIntoView({ block: 'nearest', inline: 'center' })));
+  });
   const badgeClass = $derived(app.updates.security > 0 || app.updates.reboot ? 'bg-warn' : 'bg-accent');
 </script>
 
-<div class="space-y-3">
-  <h1 class="text-xl font-bold tracking-tight">Settings</h1>
-  <div class="flex flex-col gap-3 md:flex-row md:items-start md:gap-5">
-    <!-- Phones: a select; desktop: a list on the left. Operators and viewers get just Account and About. -->
-    <label class="md:hidden">
-      <span class="label">Section</span>
-      <select class="input" value={grp.id} onchange={(e) => (location.hash = '/settings/' + e.currentTarget.value)}>
-        {#each openable as g (g.id)}<option value={g.id}>{g.label}</option>{/each}
-      </select>
-    </label>
-    <nav class="hidden w-44 shrink-0 flex-col gap-0.5 md:flex" aria-label="Settings sections">
+<div class="space-y-4">
+  <!-- Two bars: groups as pills, then (tabbed groups only) a tinted strip of underlined tabs. Each row is one line and scrolls sideways on phones. -->
+  <div class="border-b border-line pb-4">
+    <nav class="no-scrollbar flex gap-1.5 overflow-x-auto" aria-label="Settings groups">
       {#each openable as g (g.id)}
         <a href={'#/settings/' + g.id} aria-current={g.id === grp.id ? 'page' : undefined}
-          class="flex items-center justify-between rounded px-2.5 py-1.5 text-[13px] font-medium {g.id === grp.id ? 'bg-surface-2 text-fg' : 'text-muted hover:bg-surface-2 hover:text-fg'}">
+          class="inline-flex min-h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-[13px] font-medium transition-colors {g.id === grp.id ? 'border-transparent bg-accent text-accent-fg' : 'border-line bg-surface text-muted hover:bg-surface-2 hover:text-fg'}">
           {g.label}{#if g.id === 'system' && hasBadge}<span class="size-2 rounded-full {badgeClass}" aria-label="updates available"></span>{/if}
         </a>
       {/each}
     </nav>
-    <section class="min-w-0 flex-1 space-y-3" aria-label={grp.label}>
-      {#if grp.tabs}
-        <nav class="flex flex-wrap gap-0.5" aria-label="{grp.label} tabs">
-          {#each tabs as t (t.id)}
-            <a href={'#/settings/' + grp.id + '/' + t.id} aria-current={t.id === route.tab ? 'page' : undefined}
-              class="inline-flex items-center gap-1.5 rounded px-2 py-1 text-[13px] font-medium {t.id === route.tab ? 'bg-surface-2 text-fg' : 'text-muted hover:text-fg'}">
-              {t.label}{#if t.id === 'updates' && hasBadge}<span class="size-2 rounded-full {badgeClass}" aria-label="updates available"></span>{/if}
-            </a>
-          {/each}
-        </nav>
-        {#if tab}
-          {#if !tab.bare}<h2 class="text-lg font-semibold tracking-tight">{tab.title ?? tab.label}</h2>{/if}
-          {#key tab.id}
-            {#await tab.load() then m}<m.default />{:catch}<p class="text-sm text-danger">Could not load this page. Reload the page.</p>{/await}
-          {/key}
-        {/if}
-      {:else}
-        {#each grp.pages ?? [] as load, i (i)}
-          {#await load() then m}<m.default />{:catch}<p class="text-sm text-danger">Could not load this page. Reload the page.</p>{/await}
+    {#if grp.tabs}
+      <nav class="no-scrollbar mt-2 flex gap-1 overflow-x-auto rounded border border-line bg-surface-2 px-2" aria-label="{grp.label} sections">
+        {#each tabs as t (t.id)}
+          <a href={'#/settings/' + grp.id + '/' + t.id} aria-current={t.id === route.tab ? 'page' : undefined}
+            class="-mb-px inline-flex min-h-11 shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-[13px] font-medium transition-colors md:min-h-10 {t.id === route.tab ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-fg'}">
+            {t.label}{#if t.id === 'updates' && hasBadge}<span class="size-2 rounded-full {badgeClass}" aria-label="updates available"></span>{/if}
+          </a>
         {/each}
-      {/if}
-    </section>
+      </nav>
+    {/if}
   </div>
+  <section class="min-w-0 space-y-3" aria-label={grp.label}>
+    {#if grp.tabs}
+      {#if tab}
+        {#key tab.id}
+          {#await tab.load() then m}<m.default />{:catch}<p class="text-sm text-danger">Could not load this page. Reload the page.</p>{/await}
+        {/key}
+      {/if}
+    {:else}
+      {#each grp.pages ?? [] as load, i (i)}
+        {#await load() then m}<m.default />{:catch}<p class="text-sm text-danger">Could not load this page. Reload the page.</p>{/await}
+      {/each}
+    {/if}
+  </section>
 </div>
