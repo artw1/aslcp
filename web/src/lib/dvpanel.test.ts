@@ -313,7 +313,9 @@ test('the echo test has no mode button and the state line says it runs', () => {
     { id: 'TGIF', enabled: false, available: true, unlink: '4000' },
     { id: 'YSF', enabled: false, available: false, unlink: 'disconnect' },
   ];
-  assert.deepEqual(dashboardModes(modes).map((m) => m.id), ['BM', 'YSF']);
+  assert.deepEqual(dashboardModes(modes).map((m) => m.id), ['BM']);
+  assert.deepEqual(dashboardModes(modes, 'YSF').map((m) => m.id), ['BM', 'YSF']);
+  assert.deepEqual(dashboardModes(modes, 'LOOP').map((m) => m.id), ['BM']);
   assert.equal(stateLine({ mode: 'LOOP', tune: '', source: 'aslcp-dv' }), 'Echo test running');
   assert.equal(stateLine({ mode: 'LOOP', tune: '9990', targetName: 'Parrot', source: 'aslcp-dv' }), 'Echo test running');
   assert.equal(stateLine({ mode: 'LOOP', tune: '', source: 'none' }), 'Mode unknown');

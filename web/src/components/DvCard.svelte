@@ -260,17 +260,18 @@
     {/if}
 
     {#if op && live}
-      {@const modes = dashboardModes(snap.modes)}
+      {@const modes = dashboardModes(snap.modes, shown)}
       <form class="space-y-1.5" data-testid="dv-controls" onsubmit={(e) => { e.preventDefault(); void go(); }}>
+        {#if modes.length === 0}
+          <p class="text-muted" data-testid="dv-no-modes">No modes enabled.{#if admin} <a href="#/digital" class="text-accent underline hover:no-underline">Setup</a>{/if}</p>
+        {:else}
         <div class="text-[11px] uppercase tracking-wide text-muted">Mode</div>
         <div class="flex flex-wrap items-stretch gap-1.5 md:flex-nowrap">
           <div class="flex w-full flex-wrap gap-1.5 md:w-auto md:flex-nowrap md:shrink-0" role="group" aria-label="Mode" data-testid="dv-modes">
             {#each modes as m (m.id)}
               {@const on = shown === m.id}
-              <button type="button" class="btn !min-h-10 !px-3 !text-sm shrink-0 grow md:min-w-20 md:flex-none md:grow-0 {on ? 'btn-primary' : ''} {!m.enabled ? '!border-dashed !bg-surface-2 !text-muted' : ''}" aria-pressed={on}
-                disabled={!m.enabled || locked}
-                title={m.enabled ? undefined : `${modeButtonLabel(m)}: enable in setup${admin ? ' (Digital modes tab)' : ''}`}
-                aria-label={m.enabled ? undefined : `${modeButtonLabel(m)}, not enabled. Enable in setup`}
+              <button type="button" class="btn !min-h-10 !px-3 !text-sm shrink-0 grow md:min-w-20 md:flex-none md:grow-0 {on ? 'btn-primary' : ''}" aria-pressed={on}
+                disabled={locked}
                 onclick={() => setMode(m.id)}>{#if on}<Check size={16} strokeWidth={3} aria-hidden="true" />{/if}{modeButtonLabel(m)}{#if pending?.mode === m.id && outcome === 'waiting'}…{/if}</button>
             {/each}
           </div>
@@ -296,6 +297,7 @@
             </div>
           {/if}
         </div>
+        {/if}
       </form>
     {/if}
 
