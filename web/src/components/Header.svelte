@@ -66,11 +66,11 @@
   <div class="mx-auto flex max-w-[1100px] items-center gap-2 px-3 py-1 sm:px-4 xl:gap-3">
     <a href="#/" class="flex shrink-0 items-center gap-1.5 font-bold tracking-tight"><Radio size={18} class="text-accent" /><span class="text-base">ASLCP</span></a>
     <span class="min-w-0 flex-1 truncate text-sm font-medium text-muted xl:hidden" data-pagename>{pageName}</span>
-    <nav class="hidden items-center gap-0.5 xl:flex" aria-label="Main">
+    <nav class="-my-1 hidden items-stretch gap-0.5 self-stretch xl:flex" aria-label="Main">
       {#each nav as [path, label]}
         {@const here = isHere(path)}
         <a href={'#' + path} aria-current={here ? 'page' : undefined}
-          class="rounded px-2 py-1 text-[13px] font-medium {here ? 'bg-surface-2 text-fg' : 'text-muted hover:text-fg'}">{label}</a>
+          class="relative flex items-center px-2.5 text-sm font-semibold {here ? 'text-accent' : 'text-muted hover:text-fg'}">{label}{#if here}<span class="absolute inset-x-1 bottom-0 h-0.5 bg-accent" aria-hidden="true"></span>{/if}</a>
       {/each}
     </nav>
     <div class="flex items-center gap-1.5 xl:ml-auto">
@@ -105,7 +105,7 @@
     </div>
   </div>
   {#if open}
-    {@const item = (here: boolean) => `flex min-h-11 w-full items-center justify-between gap-2 rounded px-3 text-left text-sm font-medium ${here ? 'bg-surface-2 text-fg' : 'text-muted hover:bg-surface-2 hover:text-fg'}`}
+    {@const item = (here: boolean) => `flex min-h-11 w-full items-center justify-between gap-2 rounded px-3 text-left text-sm font-medium ${here ? 'bg-surface-2 text-accent' : 'text-muted hover:bg-surface-2 hover:text-fg'}`}
     <div id="mobile-menu" class="absolute inset-x-0 top-full z-10 max-h-[calc(100dvh-3rem)] overflow-y-auto overscroll-contain border-b border-line bg-surface shadow-md xl:hidden" transition:fly={{ y: -8, duration: dur() }}>
       <div class="mx-auto max-w-[1100px] px-3 py-2 sm:px-4">
         <nav class="sm:ml-auto sm:max-w-xs" aria-label="Main">

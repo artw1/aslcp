@@ -3,6 +3,11 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [2.4.2] - 2026-11-25
+
+### Changed
+- The top menu stands out more: its items are larger and bolder, and the current page is shown in the accent color with an accent bar on the header's bottom edge instead of a gray fill. The active Settings group button is now an accent outline instead of a solid button, so it no longer outweighs the top menu. The phone menu shows the current page in the accent color.
+
 ## [2.4.1] - 2026-11-25
 
 ### Fixed

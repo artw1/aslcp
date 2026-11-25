@@ -53,6 +53,7 @@ body { background: var(--bg); color: var(--fg); font-family: var(--font-sans); -
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .btn { @apply inline-flex items-center justify-center gap-1 rounded border border-line bg-surface px-2.5 py-1 text-[13px] font-medium text-fg transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45; min-height: 1.9rem; }
   .btn-primary { @apply border-transparent bg-accent text-accent-fg hover:opacity-90 hover:bg-accent; }
+  .btn-accent-outline { @apply border-accent bg-transparent text-accent hover:bg-accent/10; }
   .btn-ok { @apply border-transparent bg-ok text-accent-fg hover:bg-ok hover:opacity-90; }
   .btn-bad { @apply border-transparent bg-danger text-accent-fg hover:bg-danger hover:opacity-90; }
   .btn-bad-outline { @apply border-danger/50 bg-transparent text-danger hover:bg-danger/10; }
