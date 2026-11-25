@@ -184,3 +184,40 @@ func TestFillMasters(t *testing.T) {
 		t.Fatal("name not stable")
 	}
 }
+
+// A DMR call carries a DMR ID, so Last heard gets the name and place of the
+// ID from the radioid.net list (it used to skip every caller with an ID).
+func TestDMRCallerGetsNameAndPlace(t *testing.T) {
+	s := &Server{d: Deps{RadioID: testRadioID(t)}, nc: &ncState{}}
+	d := &dvSnapper{s: s, now: time.Now}
+	for _, mode := range []string{ctl.ModeBM, ctl.ModeDMR} {
+		call := "N0CALL"
+		if mode == ctl.ModeDMR {
+			call = "1234567" // a Homebrew master sends the ID
+		}
+		tk := ctl.Talk{ID: 7, Dir: "rx", Mode: mode, Call: call, DMRID: 1234567, TG: 91, Start: time.Now()}
+		c := d.caller(tk, nil)
+		if c.Call != "N0CALL" || c.Name != "Alex Example" || c.Place != "Springfield, Illinois" {
+			t.Fatalf("%s: %+v", mode, c)
+		}
+		// the entry kept in the heard list and filled again at snapshot time
+		d.heard = nil
+		d.endTalkLocked(tk, time.Now())
+		h := d.heard[0]
+		h.Name, h.Place = "", ""
+		d.fillPerson(&h)
+		if h.Name != "Alex Example" || h.Place != "Springfield, Illinois" {
+			t.Fatalf("%s heard: %+v", mode, h)
+		}
+	}
+	// an ID the list does not know: no person, and no panic
+	un := ctl.Talk{Dir: "rx", Mode: ctl.ModeDMR, Call: "2345678", DMRID: 2345678, TG: 91}
+	if c := d.caller(un, nil); c.Name != "" || c.Place != "" {
+		t.Fatalf("unknown: %+v", c)
+	}
+	// a private call shows no person
+	pr := ctl.Talk{Dir: "rx", Mode: ctl.ModeDMR, DMRID: 1234567, Private: true}
+	if c := d.caller(pr, nil); c.Name != "" {
+		t.Fatalf("private: %+v", c)
+	}
+}
