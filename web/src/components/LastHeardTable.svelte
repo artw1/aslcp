@@ -75,6 +75,7 @@
             {#if r.qrz || r.radioid}
               <button type="button" class="-ml-2 inline-flex min-h-11 items-center rounded px-2 font-mono text-accent underline decoration-dotted underline-offset-2 hover:bg-surface-2" aria-haspopup="true" aria-expanded={openKey === r.key} aria-label="{r.call}: look up" onclick={(e) => toggle(r, e)}>{r.call}</button>
             {:else}<span class="inline-flex min-h-11 items-center">{r.call}</span>{/if}
+            {#if r.person}<span class="-mt-2.5 mb-1 block max-w-[14rem] truncate font-sans text-xs text-muted sm:max-w-xs" title={r.person} data-testid="heard-person">{r.person}</span>{/if}
           </td>
           <td class="hidden pr-3 sm:table-cell">{r.mode}</td>
           <td class="pr-3 font-mono">{r.target}</td>

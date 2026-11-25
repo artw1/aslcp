@@ -35,4 +35,9 @@ type Caller struct {
 	DstName string `json:"dstName,omitempty"`
 	Slot    int    `json:"slot,omitempty"`
 	At      string `json:"at,omitempty"`
+	// Name and Place are the caller's name and "City, ST" for a callsign-only
+	// call (YSF, P25, NXDN, M17) when the radioid.net list or hamdb.org knows
+	// the callsign.
+	Name  string `json:"name,omitempty"`
+	Place string `json:"place,omitempty"`
 }

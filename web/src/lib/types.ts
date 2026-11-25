@@ -229,7 +229,7 @@ export interface DVResume { resume: boolean; lastMode?: string; perMode: Partial
 /** GET /api/dv/snapshot and the SSE `dv` event (all roles; docs/API.md "Digital modes panel"). No install log, no identity, no secret. */
 export interface DVBridge { mode: string; tune: string; targetName?: string; slot: number; muted: boolean; /** The last tune was a DMR private call (the BrandMeister Parrot): `tune` is empty then. */ private?: boolean; source: 'aslcp-dv' | 'abinfo' | 'none'; updated: string }
 /** One talker from the Analog_Bridge log. `at` is the log's own time, no zone. */
-export interface DVCaller { call?: string; private?: boolean; dmrId?: string; dst?: string; slot?: number; at?: string; /** "YSF" for a YSF call: `dst` is then the reflector (address or id), not a talkgroup, and `dstName` its name when known. */ mode?: string; dstName?: string }
+export interface DVCaller { call?: string; private?: boolean; dmrId?: string; dst?: string; slot?: number; at?: string; /** "YSF" for a YSF call: `dst` is then the reflector (address or id), not a talkgroup, and `dstName` its name when known. */ mode?: string; dstName?: string; /** The caller's name and "City, ST" for a callsign-only call (YSF, P25, NXDN, M17), from the radioid.net list or, when the admin turned it on, hamdb.org. */ name?: string; place?: string }
 export interface DVSnapshot {
   installed: boolean; running: boolean; configured: boolean;
   bridge: DVBridge;
@@ -316,8 +316,10 @@ export interface NowCall {
   id: string; kind: 'allstar' | 'dmr' | 'ysf' | 'm17'; call?: string; first?: string; name?: string;
   city?: string; state?: string; country?: string; location?: string; dmrId?: string;
   node?: string; desc?: string; local?: string; network?: string; tg?: string; tgName?: string;
-  slot?: number; private?: boolean; room?: string; start: string; end?: string; active: boolean;
+  slot?: number; private?: boolean; room?: string; /** Where the name and place came from when not the radioid.net list ("hamdb.org"). */ source?: string; start: string; end?: string; active: boolean;
 }
 export interface NowCalling { current: NowCall | null; recent: NowCall[] }
+/** The hamdb.org callsign lookup (admin, digital modes settings): off by default. `cached` answers are kept, `today` requests were made in the last 24 hours (at most `dailyMax`); `pausedUntil` while a back-off holds requests back. */
+export interface HamDBStatus { enabled: boolean; cached: number; today: number; dailyMax: number; pausedUntil?: string }
 /** The radioid.net user list (admin, digital modes settings). */
 export interface UserListStatus { enabled: boolean; entries: number; updated?: string; checked?: string; error?: string; busy?: boolean; size?: number }

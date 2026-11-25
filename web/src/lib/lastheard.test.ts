@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { aslHeardItems, dvHeardItems, lookupCall, mergeHeard } from './lastheard.ts';
+import { aslHeardItems, dvHeardItems, lookupCall, mergeHeard, personLine } from './lastheard.ts';
 import type { NowCall } from './types';
 
 test('lookup: only a real callsign gets a QRZ link', () => {
@@ -25,7 +25,7 @@ test('DV rows: cells, links, time', () => {
   assert.equal(a.radioid, 'https://radioid.net/database/view?id=1234567');
   assert.equal(a.at, Date.parse('2026-11-25T10:00:01'));
   assert.equal(a.title, 'DMR ID 1234567');
-  assert.deepEqual([b.mode, b.target, b.radioid], ['YSF', 'YSF YSF-TEST', '']);
+  assert.deepEqual([b.mode, b.target, b.radioid], ['YSF', 'YSF-TEST', '']);
   assert.ok(b.qrz);
   assert.deepEqual([c.qrz, c.radioid, c.at], ['', '', 0]);
   assert.deepEqual([d.qrz, d.radioid], ['', '']);
@@ -62,4 +62,21 @@ test('merge: ASL and DV together, newest first, limited', () => {
   assert.deepEqual(out.map((o) => o.mode), ['DMR', 'AllStar']);
   assert.equal(mergeHeard(undefined, undefined).length, 0);
   assert.equal(mergeHeard(recent, heard, 1).length, 1);
+});
+
+test('person: name and place under the callsign, not for a private call or an AllStar row', () => {
+  assert.equal(personLine('Pat Example', 'Springfield, XX'), 'Pat Example · Springfield, XX');
+  assert.equal(personLine('Pat Example', ''), 'Pat Example');
+  assert.equal(personLine(undefined, ' Springfield, XX '), 'Springfield, XX');
+  assert.equal(personLine(undefined, undefined), '');
+  const [a, b, c] = dvHeardItems([
+    { call: 'N1CALL', mode: 'YSF', dst: '203.0.113.5:42000', dstName: 'YSF-TEST', name: 'Pat Example', place: 'Springfield, XX' },
+    { call: 'N0CALL', dmrId: '1234567', dst: '91' },
+    { dmrId: '9990', private: true, dst: '1234567', name: 'Nobody', place: 'Nowhere' },
+  ]);
+  assert.equal(a.person, 'Pat Example · Springfield, XX');
+  assert.equal(a.target, 'YSF-TEST');
+  assert.equal(b.person, '');
+  assert.equal(c.person, '');
+  assert.equal(aslHeardItems([{ id: 'x', kind: 'allstar', call: 'N1CALL', node: '1998', name: 'Pat', start: '2026-01-01T12:00:00Z', active: false }])[0].person, '');
 });

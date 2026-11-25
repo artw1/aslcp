@@ -432,6 +432,7 @@ func allDigits(s string) bool {
 // when the talk carries none.
 func (d *dvSnapper) caller(t ctl.Talk, tuned *ctl.Target) dvpanel.Caller {
 	c := dvCaller(t)
+	d.fillPerson(&c)
 	if t.Mode == ctl.ModeYSF && c.Dst != "" {
 		c.Mode = dvpanel.ModeYSF
 		c.DstName = d.ysfReflectorName(c.Dst, tuned)
@@ -442,6 +443,15 @@ func (d *dvSnapper) caller(t ctl.Talk, tuned *ctl.Target) dvpanel.Caller {
 		}
 	}
 	return c
+}
+
+// fillPerson puts the name and place of a callsign-only caller (no DMR ID) on
+// c, from the radioid.net list or the cache of hamdb.org. It never waits.
+func (d *dvSnapper) fillPerson(c *dvpanel.Caller) {
+	if c.Private || c.DMRID != "" || c.Call == "" || c.Call == ctl.EchoTestName {
+		return
+	}
+	c.Name, c.Place = d.s.callerPerson(c.Call)
 }
 
 // ysfReflectorName is the name of the YSF reflector a call came in on: the
@@ -515,6 +525,9 @@ func (d *dvSnapper) snapshot(ctx context.Context) DVSnapshot {
 		talk = &t
 	}
 	heard := append([]dvpanel.Caller(nil), d.heard...)
+	for i := range heard {
+		d.fillPerson(&heard[i]) // from the caches, so a later answer shows on the next snapshot
+	}
 	quiet := time.Time{}
 	if d.quietKey != "" && d.talk == nil {
 		quiet = d.quietAt

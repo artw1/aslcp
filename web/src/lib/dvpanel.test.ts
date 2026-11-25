@@ -429,7 +429,7 @@ test('modes without a login show their link, never "Logging in"', () => {
 
 test('Last heard table row', () => {
   assert.deepEqual(heardRow({ call: 'N0CALL', dst: '91', slot: 2, at: '2026-11-18 10:00:01' }), { call: 'N0CALL', mode: 'DMR', target: 'TG 91', slot: 'TS2', time: '10:00:01' });
-  assert.deepEqual(heardRow({ call: 'N1CALL', dst: '203.0.113.5:42000', mode: 'YSF', dstName: 'Example room' }), { call: 'N1CALL', mode: 'YSF', target: 'YSF Example room', slot: '', time: '' });
+  assert.deepEqual(heardRow({ call: 'N1CALL', dst: '203.0.113.5:42000', mode: 'YSF', dstName: 'Example room' }), { call: 'N1CALL', mode: 'YSF', target: 'Example room', slot: '', time: '' });
   assert.equal(heardRow({ call: 'N0CALL', dst: 'M17-XXX C' }).mode, 'M17');
   assert.deepEqual(heardRow({ dmrId: '1234567' }), { call: '1234567', mode: '', target: '', slot: '', time: '' });
   assert.equal(heardRow({ dmrId: '9990', private: true, dst: '1234567' }).call, 'Parrot (private call)');

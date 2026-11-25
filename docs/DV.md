@@ -107,6 +107,8 @@ ASLCP downloads the DMR, YSF, P25, NXDN and M17 host lists itself (the lists the
 
 The YSF, P25, NXDN and M17 lists are reflector data provided by DVRef (https://dvref.com/) under CC BY 4.0. ASLCP downloads and caches them as above, does not change them, and is not affiliated with or endorsed by DVRef. The DMR list is not DVRef data.
 
+Callsign-only modes (YSF, P25, NXDN, M17): when the radioid.net list has no entry for a heard callsign, the *Look up callsigns on hamdb.org* switch in the Engine card (admin, off by default) asks hamdb.org for the name and place. It sends the callsigns heard on this node to hamdb.org, only real-looking amateur callsigns that were actually heard, one at a time, at least 10 s apart and at most 100 a day, and keeps the answers on the node (30 days, 7 days when not found). After 5 failures in a row or a 429/503 it backs off (at most 1 h). The name shows in Now Calling and under the callsign in Last heard; see docs/API.md "hamdb.org lookup".
+
 The DMR user list (`DMRIds.dat`) is **not** downloaded: ASLCP shows names and callsigns from the radioid.net list it already keeps for Now Calling.
 
 ## Resume after restart

@@ -10,16 +10,21 @@ export interface HeardItem {
   call: string;
   /** "AllStar", "DMR", "YSF", "M17", ... */
   mode: string;
-  /** "TG 91 · TS2", "YSF YSF-TEST", "Node 2001"; '' when not known. */
+  /** "TG 91 · TS2", "YSF-TEST" (the Mode column says YSF), "Node 2001"; '' when not known. */
   target: string;
   /** When it was heard (ms); 0 when unknown. */
   at: number;
+  /** The caller's name and place for the muted second line under the callsign ("Pat Example · Springfield, XX"); '' when not known. */
+  person: string;
   /** Tooltip for the row. */
   title?: string;
   /** Lookup links; '' when there is nothing to look up (a pseudo-callsign, no DMR ID). */
   qrz: string;
   radioid: string;
 }
+
+/** The second line under a callsign: the name and the place, whichever are known. */
+export const personLine = (name: string | undefined, place: string | undefined): string => [name, place].map((x) => (x ?? '').trim()).filter(Boolean).join(' · ');
 
 /** A callsign worth a lookup: letters and a digit, so "Echo test", a bare DMR ID and "Private call" are not. */
 export function lookupCall(call: string | undefined): string {
@@ -39,6 +44,7 @@ export function dvHeardItems(heard: DVCaller[] | undefined): HeardItem[] {
       mode: r.mode,
       target: [r.target, r.slot].filter(Boolean).join(' · '),
       at: parseAt(c.at),
+      person: c.private ? '' : personLine(c.name, c.place),
       title: c.dmrId ? `DMR ID ${c.dmrId}` : undefined,
       qrz: c.private ? '' : lookupCall(c.call),
       radioid: c.private ? '' : radioidUrl({ kind: 'dmr', dmrId: c.dmrId }),
@@ -58,6 +64,7 @@ export function aslHeardItems(recent: NowCall[] | undefined): HeardItem[] {
       mode: 'AllStar',
       target: c.node ? `Node ${c.node}` : '',
       at: parseAt(c.end || c.start),
+      person: '',
       title: (c.desc ?? '').trim() || undefined,
       qrz: lookupCall(call),
       radioid: '',

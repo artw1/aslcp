@@ -274,9 +274,9 @@ export function callerLabel(c: DVCaller): string {
   return c.call?.trim() || c.dmrId || '';
 }
 
-/** The target of a heard call: "YSF <reflector name>" for YSF, the module for M17, else "TG 91". Empty when there is no destination. */
+/** The target of a heard call: the reflector name for YSF (the Mode column says YSF), the module for M17, else "TG 91". Empty when there is no destination. */
 function heardTarget(c: DVCaller): string {
-  return !c.dst ? '' : c.mode === 'YSF' ? `YSF ${c.dstName || c.dst}` : /^M17-/.test(c.dst) ? m17Display(c.dst) : `TG ${c.dst}`;
+  return !c.dst ? '' : c.mode === 'YSF' ? c.dstName || c.dst : /^M17-/.test(c.dst) ? m17Display(c.dst) : `TG ${c.dst}`;
 }
 
 /** The cells of one Last heard table row: callsign (or DMR ID, or "Private call"), mode (the call's own, else M17 for an M17 target, DMR for a talkgroup), target, time slot and the log time (HH:MM:SS). Empty strings for what is not known. */
@@ -288,7 +288,8 @@ export function heardRow(c: DVCaller): { call: string; mode: string; target: str
 /** One line for the dashboard's Last heard list: callsign, target, time slot, log time. */
 export function heardLine(c: DVCaller): string {
   const r = heardRow(c);
-  return [r.call, r.target, r.slot, r.time].filter(Boolean).join(' · ');
+  // there is no Mode column in this line, so a YSF reflector keeps its "YSF" label
+  return [r.call, r.mode === 'YSF' && r.target ? `YSF ${r.target}` : r.target, r.slot, r.time].filter(Boolean).join(' · ');
 }
 
 /** The Frequency field in MHz as Hz (an integer), or null when it is not a number in the 30 to 3000 MHz range the server accepts. Hz input (30000000 to 3000000000) is taken as it is. */

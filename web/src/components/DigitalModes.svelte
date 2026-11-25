@@ -12,6 +12,7 @@
   import Dialog from './Dialog.svelte';
   import DvSetup from './DvSetup.svelte';
   import UserListCard from './UserListCard.svelte';
+  import HamDBCard from './HamDBCard.svelte';
   import Refresh from '@lucide/svelte/icons/refresh-cw';
   import Power from '@lucide/svelte/icons/power';
 
@@ -118,7 +119,7 @@
       </div>
     {/if}
 
-    {#if st.enabled && !running}<UserListCard compact />{/if}
+    {#if st.enabled && !running}<UserListCard compact /><HamDBCard />{/if}
 
     {#if running || job.state === 'failed' || (job.state === 'succeeded' && (!dismissed || logOpen))}
       <div class="space-y-2 border-t border-line pt-3" aria-label="Job">

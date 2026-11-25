@@ -1,4 +1,4 @@
-import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVStatus, DVJob, DVSetup, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVNetworks, DVAudio, DVMeter, DVNetView, DVNetPut, DVIdentity, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage, WifiState, WifiScan, TerminalStatus, TerminalTicket, TerminalSessionInfo, DiagPlan, NowCalling, UserListStatus } from './types';
+import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVStatus, DVJob, DVSetup, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVNetworks, DVAudio, DVMeter, DVNetView, DVNetPut, DVIdentity, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage, WifiState, WifiScan, TerminalStatus, TerminalTicket, TerminalSessionInfo, DiagPlan, NowCalling, UserListStatus, HamDBStatus } from './types';
 import type { SvcStatus, SvcSetResult, WebPortStatus } from './svcweb';
 
 export class ApiError extends Error {
@@ -196,6 +196,8 @@ export const api = {
   nowcalling: () => req<NowCalling>('GET', '/nowcalling'),
   userList: () => req<UserListStatus>('GET', '/dv/userlist'),
   setUserList: (enabled: boolean) => req<UserListStatus>('PUT', '/dv/userlist', { enabled }),
+  hamdb: () => req<HamDBStatus>('GET', '/dv/hamdb'),
+  setHamDB: (enabled: boolean) => req<HamDBStatus>('PUT', '/dv/hamdb', { enabled }),
   downloadUserList: () => req<UserListStatus>('POST', '/dv/userlist/download', {}),
   dvMode: (mode: DVTuneMode) => req<DVCmdReply>('POST', '/dv/mode', { mode }),
   dvUnlink: () => req<DVCmdReply>('POST', '/dv/unlink', {}),

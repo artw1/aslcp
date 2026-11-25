@@ -1,5 +1,6 @@
 // In-memory /api/dv/* for `npm run dev:mock` (plan 2.0 M1: the native engine aslcp-dv with md380-emu). Dev only.
 // Placeholders only: callsign N0CALL, nodes 2001 (local) and 1999 (bridge), DMR ID 1234567, RFC 5737 addresses.
+import { hamdb, HAMDB_PERSON } from './nowcalling.ts';
 type Body = Record<string, unknown>;
 const ENABLE_MS = 6000;
 const ENABLE_LOG = ['Hit:1 http://deb.debian.org/debian bookworm InRelease', 'Get:2 https://packages.example.invalid/aslcp bookworm InRelease', 'key fingerprint matches the pinned one', 'Setting up md380-emu ...', 'Setting up aslcp-dv ...', 'previous digital voice services stopped and disabled', 'aslcp-dv started', 'enable finished'];
@@ -338,7 +339,7 @@ function callers() {
   const n = Math.floor(Date.now() / 30_000);
   const at = (k: number) => new Date(Date.now() - k * 30_000).toISOString().slice(0, 19).replace('T', ' ');
   const heard = bridge.mode === 'LOOP'
-    ? [{ call: 'Echo test', at: at(0) }, { call: 'N0CALL', dmrId: '1234567', dst: '91', slot: 2, at: at(1) }, { call: 'N1CALL', dst: '203.0.113.5:42000', mode: 'YSF', dstName: 'YSF-TEST', at: at(2) }]
+    ? [{ call: 'Echo test', at: at(0) }, { call: 'N0CALL', dmrId: '1234567', dst: '91', slot: 2, at: at(1) }, { call: 'N1CALL', dst: '203.0.113.5:42000', mode: 'YSF', dstName: 'YSF-TEST', at: at(2), ...(hamdb.enabled ? { name: HAMDB_PERSON.name, place: 'Springfield, XX' } : {}) }]
     : bridge.mode === 'M17'
     ? [0, 1, 2].map((k) => ({ call: 'N0CALL', ...(bridge.tune && bridge.tune !== 'disconnect' ? { dst: bridge.tune } : {}), at: at(k) }))
     : [0, 1, 2].map((k) => ({ ...TALKERS[(n - k + 3 * 100) % 3], dst: '91', slot: 2, at: at(k) }));

@@ -59,6 +59,9 @@ type Call struct {
 	// Location is free text (the node list's location) for AllStar calls
 	// that the user list does not know.
 	Location string `json:"location,omitempty"`
+	// Source names where First, Name and the place came from when it was not
+	// the radioid.net list ("hamdb.org"); empty otherwise.
+	Source string `json:"source,omitempty"`
 	// DMRID is the talker's DMR ID (DMR, and YSF when the line has one).
 	DMRID string `json:"dmrId,omitempty"`
 	// AllStar: the adjacent link that is keyed, its description and our
@@ -254,6 +257,28 @@ func (t *Tracker) emit(s Snapshot, changed bool) {
 	if changed && t.OnChange != nil {
 		t.OnChange(s)
 	}
+}
+
+// Refill runs f on the talking call and on the finished calls that still have
+// no name (an online lookup may have answered since they were resolved). When
+// f reports a change for any of them, OnChange gets the new snapshot.
+func (t *Tracker) Refill(f func(*Call) bool) {
+	t.mu.Lock()
+	changed := false
+	one := func(c *Call) {
+		if c.Name == "" && c.Kind != KindAllStar && f(c) {
+			changed = true
+		}
+	}
+	if t.dv != nil {
+		one(t.dv)
+	}
+	for i := range t.recent {
+		one(&t.recent[i])
+	}
+	s, _ := t.snapshotLocked(t.now())
+	t.mu.Unlock()
+	t.emit(s, changed)
 }
 
 func (t *Tracker) fill(c *Call) {
