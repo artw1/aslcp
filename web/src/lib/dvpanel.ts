@@ -1,5 +1,5 @@
 // Pure logic of the dashboard digital modes card (docs/DV.md "Dashboard card"): the state line,
-// favourite and tune validation (the same rules as the server), and the pending/confirm logic.
+// favorite and tune validation (the same rules as the server), and the pending/confirm logic.
 import { ECHO_RUNNING } from './dvecho.ts';
 import { isDVNetwork, networkLabel } from './dvnetworks.ts';
 import { slotLabel } from './nowcalling.ts';
@@ -37,7 +37,7 @@ export function linkChip(m: ChipMode, b?: Pick<DVBridge, 'mode' | 'tune' | 'targ
   return { tone: 'off', text: 'Enabled' };
 }
 
-/** One button of the DV tab's mode buttons card: dot tone (ok green, err red, warn amber, off grey) and the short state. A DMR network shows its login: `idle` (BrandMeister outside its mode, no session on purpose) is a grey "Not in use". YSF, P25, NXDN and M17 have no login and show their link instead (linkChip): "Enabled", "Linking" or "Linked". */
+/** One button of the DV tab's mode buttons card: dot tone (ok green, err red, warn amber, off gray) and the short state. A DMR network shows its login: `idle` (BrandMeister outside its mode, no session on purpose) is a gray "Not in use". YSF, P25, NXDN and M17 have no login and show their link instead (linkChip): "Enabled", "Linking" or "Linked". */
 export function netChip(m: ChipMode, bridge?: Pick<DVBridge, 'mode' | 'tune' | 'targetName' | 'source'> | null): Chip {
   if (!m.enabled) return { tone: 'off', text: 'Disabled' };
   if (!isDMRFamily(m.id)) return linkChip(m, bridge);
@@ -124,7 +124,7 @@ export function serviceDots(s: DVSnapshot | null | undefined): { unit: string; o
 }
 export const allOk = (s: DVSnapshot | null | undefined): boolean => !!s && s.bridge.source !== 'none' && serviceDots(s).every((d) => d.ok);
 
-/** Colour of the state line: warn when a service is down, the state is unknown or the reflector does not answer, ok when all is well and a target is tuned, else neutral. */
+/** Color of the state line: warn when a service is down, the state is unknown or the reflector does not answer, ok when all is well and a target is tuned, else neutral. */
 export function stateTone(s: DVSnapshot | null | undefined): 'ok' | 'warn' | '' {
   if (!s || !allOk(s) || !s.bridge.mode) return 'warn';
   if (reflectorSilent(s)) return 'warn';
@@ -145,7 +145,7 @@ export function stateTitle(s: DVSnapshot | null | undefined): string {
 export const bridgeLinked = (s: Pick<DVSnapshot, 'bridgeNode' | 'link'> | null | undefined): boolean => !!s && !!s.bridgeNode?.present && !!s.bridgeNode.node && !!s.link?.linked;
 
 const printable = (s: string) => ![...s].some((c) => { const n = c.codePointAt(0)!; return n < 0x20 || (n >= 0x7f && n < 0xa0); });
-/** The trimmed favourite name, or null when it is not 1 to 40 printable characters. */
+/** The trimmed favorite name, or null when it is not 1 to 40 printable characters. */
 export function validFavName(name: string): string | null {
   const t = name.trim();
   const n = [...t].length;
@@ -186,17 +186,17 @@ export function withPrivate(mode: string, value: string, priv: boolean): string 
   return priv ? bare + PRIVATE_MARK : bare;
 }
 
-/** The favourite of `mode` with this value, if any (decides whether the star is filled). */
+/** The favorite of `mode` with this value, if any (decides whether the star is filled). */
 export function findFavorite(favs: DVFavorite[], mode: string, value: string): DVFavorite | undefined {
   return favs.find((f) => f.mode === mode && f.value === value);
 }
 export const favoritesFor = (favs: DVFavorite[], mode: string): DVFavorite[] => favs.filter((f) => f.mode === mode).sort((a, b) => a.sort - b.sort || a.id - b.id);
 
-/** Why a favourite cannot be saved now (null: it can). */
+/** Why a favorite cannot be saved now (null: it can). */
 export function favoriteBlock(favs: DVFavorite[], mode: string, value: string): string | null {
   if (!validTune(mode, value)) return 'Nothing to save: no valid target is tuned';
-  if (findFavorite(favs, mode, value)) return 'Already a favourite';
-  if (favs.filter((f) => f.mode === mode).length >= FAV_PER_MODE) return `At most ${FAV_PER_MODE} favourites per mode`;
+  if (findFavorite(favs, mode, value)) return 'Already a favorite';
+  if (favs.filter((f) => f.mode === mode).length >= FAV_PER_MODE) return `At most ${FAV_PER_MODE} favorites per mode`;
   return null;
 }
 
@@ -219,7 +219,7 @@ export function shownMode(p: Pending | null, outcome: Outcome, bridgeMode: strin
   return p && outcome === 'waiting' ? p.mode : bridgeMode ?? '';
 }
 
-/** True while a command is in flight or its mode switch still waits for confirmation: the mode buttons, Go, the favourite chips and Unlink are disabled then (one command at a time). */
+/** True while a command is in flight or its mode switch still waits for confirmation: the mode buttons, Go, the favorite chips and Unlink are disabled then (one command at a time). */
 export const controlsLocked = (busy: boolean, outcome: Outcome): boolean => busy || outcome === 'waiting';
 
 /** The label of the bridge node when the operator set no name (the same default as the server). */
@@ -241,7 +241,7 @@ export function validNodeName(name: string): string | null {
   return [...t].length <= NODE_NAME_MAX && printable(t) ? t : null;
 }
 
-/** Button class of the node link button: green to link, red to unlink (solid colours, readable in both themes). */
+/** Button class of the node link button: green to link, red to unlink (solid colors, readable in both themes). */
 export const nodeLinkClass = (action: 'connect' | 'disconnect'): string => (action === 'connect' ? 'btn-ok' : 'btn-bad');
 
 /** A mode's tune is linked when it is set and is not the mode's unlink value (the "nothing linked" target). */

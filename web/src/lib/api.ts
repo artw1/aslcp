@@ -93,7 +93,7 @@ function restoreUpload(file: File, auth: { password?: string; code?: string }, o
     xhr.setRequestHeader('Accept', 'application/json');
     xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
     xhr.onerror = () => reject(new ApiError(0, 'network', 'Cannot reach the server'));
-    xhr.onabort = () => reject(new ApiError(0, 'aborted', 'Upload cancelled'));
+    xhr.onabort = () => reject(new ApiError(0, 'aborted', 'Upload canceled'));
     xhr.onload = () => {
       let j: any = null;
       try { j = JSON.parse(xhr.responseText); } catch { /* not json */ }

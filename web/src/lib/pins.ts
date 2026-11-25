@@ -1,10 +1,10 @@
-// Pure logic of the overview dashboard: pinned favourites, the bridge-node filter for the node tiles,
+// Pure logic of the overview dashboard: pinned favorites, the bridge-node filter for the node tiles,
 // the alerts strip and the merged activity feed. Tested in pins.test.ts.
 import { bridgeLinked, callerLabel, isDMRFamily, modeLabel, nodeLabel, PRIVATE_MARK } from './dvpanel.ts';
 import { who } from './nowcalling.ts';
 import type { DVCaller, DVFavorite, DVSnapshot, DVTuneMode, Favorite, NodeStatus, NowCall } from './types';
 
-// A pin is the `pinned` flag of a favourite, stored on the server (GET/PUT /api/favorites, /api/dv/favorites).
+// A pin is the `pinned` flag of a favorite, stored on the server (GET/PUT /api/favorites, /api/dv/favorites).
 
 /** The local node that shows as a tile: every node except the digital modes bridge node (it only links DV in). */
 export function bridgeNodeNumber(dv: Pick<DVSnapshot, 'bridgeNode'> | null | undefined): string {
@@ -25,7 +25,7 @@ export interface PinItem {
   /** asl: the node to connect to. dv: the mode and value to tune. */
   node?: string; fav?: DVFavorite;
 }
-/** The pinned favourites: AllStar ones first, then digital modes ones, each in the order of its list. A deleted favourite takes its pin with it. */
+/** The pinned favorites: AllStar ones first, then digital modes ones, each in the order of its list. A deleted favorite takes its pin with it. */
 export function buildPins(asl: Favorite[], dv: DVFavorite[]): PinItem[] {
   const out: PinItem[] = [];
   for (const f of asl) if (f.pinned) out.push({ key: `asl:${f.id}`, kind: 'asl', label: f.label || f.info?.callsign || f.node, sub: f.node, node: f.node });

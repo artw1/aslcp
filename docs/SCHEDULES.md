@@ -32,7 +32,7 @@ Schedules run in the node's local time zone (`time.Local`, from `/etc/localtime`
 
 DST: a start time that does not exist on a given day (spring forward gap) runs at the first valid minute after it; a time that occurs twice runs once, at the first occurrence (Go's `time.Date` normalisation gives this).
 
-## Behaviour
+## Behavior
 
 - **Global switch.** Setting `schedules.enabled` (store settings, default `true`). While paused nothing runs. The API also reports why it is paused: `pausedReason` (`""` when paused from the switch, or e.g. `manual connect 1000 on 2001 by op`), `pausedAt` and, when the pause ends by itself, `resumeAt`.
 - **Manual action.** Any connect, disconnect or disconnect-all sent through the panel's API (`POST /api/nodes/{node}/connect|disconnect|disconnect-all`, by any user) is handled according to the setting `schedules.manual_action` (since 1.1.24, see below): `pause` (default) cancels the occurrences running now and pauses all schedules until the operator turns the switch back on; `pause_today` does the same but resumes at the next local midnight; `cancel` cancels only the running occurrences on that node and keeps schedules on. Cancelled occurrences stay cancelled after re-enabling (they are not caught up); their next occurrence runs normally. Changes made outside the panel (DTMF, Allmon3, links dropping by themselves) are not detected and do not trigger it. The scheduler's own commands never do.

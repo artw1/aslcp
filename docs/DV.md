@@ -76,13 +76,13 @@ BrandMeister is a native client of the Rewind protocol: the engine logs in to a 
 
 - Entering BrandMeister (a mode switch, a tune, a pin, or a resume after a restart that lands in it) starts the session and waits for the login, up to 12 seconds, before it tunes. If the master refuses the login or does not answer in time, the request fails with `502 login_failed` and the master's reason (engine error code `login_failed`), the session is stopped again and the engine is in no mode. The dashboard shows the message and the card shows the login state.
 - Leaving it (switching to another mode, or tuning another mode) tunes TG 4000 (unlink), then ends the session with the Rewind close packet, so the master sees the terminal go away and the ID is free. While another mode is active BrandMeister never reconnects by itself.
-- Until it is entered, the card and the status strip say "Not in use" (engine login state `idle`, grey). That is not a failure: the overview raises no alert for it.
+- Until it is entered, the card and the status strip say "Not in use" (engine login state `idle`, gray). That is not a failure: the overview raises no alert for it.
 - After a restart, "Resume after restart" follows the resumed mode: BrandMeister is logged in only if it is the mode that comes back (the tracker's mode switch or tune logs in like any other).
 - The mode switch into BrandMeister takes as long as the login (normally a second or two) instead of being instant.
 
-Turn on *Stay logged in when not in BrandMeister mode* to keep the old behaviour (a session from the start of the engine, in every mode); it costs you the free ID. TGIF and DMR - Other always stay logged in. Changing the option re-renders the engine config and reloads the engine, like any other setting. In the engine config (`/var/lib/aslcp-dv/config.json`) this is the per-network flag `onDemand`; when it is absent it defaults to true for `BM` unless the option `stay_logged_in` is `"true"`, and to false for the other networks.
+Turn on *Stay logged in when not in BrandMeister mode* to keep the old behavior (a session from the start of the engine, in every mode); it costs you the free ID. TGIF and DMR - Other always stay logged in. Changing the option re-renders the engine config and reloads the engine, like any other setting. In the engine config (`/var/lib/aslcp-dv/config.json`) this is the per-network flag `onDemand`; when it is absent it defaults to true for `BM` unless the option `stay_logged_in` is `"true"`, and to false for the other networks.
 
-**Using it.** On the dashboard, choose BrandMeister, type a talkgroup and press Tune, or pick a favourite. The *Private call* switch (or a trailing `#`) calls the number as a private call. The dashboard's **Parrot** button (BrandMeister's Parrot, not the Echo test) calls 9990 as a private call: key up, release, and the master plays your transmission back as a private call from 9990 to you. That tests the whole path over the real network without disturbing a talkgroup. **Unlink** tunes TG 4000, BrandMeister's disconnect talkgroup.
+**Using it.** On the dashboard, choose BrandMeister, type a talkgroup and press Tune, or pick a favorite. The *Private call* switch (or a trailing `#`) calls the number as a private call. The dashboard's **Parrot** button (BrandMeister's Parrot, not the Echo test) calls 9990 as a private call: key up, release, and the master plays your transmission back as a private call from 9990 to you. That tests the whole path over the real network without disturbing a talkgroup. **Unlink** tunes TG 4000, BrandMeister's disconnect talkgroup.
 
 **Upgrade from 1.x.** Nothing of the old bridge program is imported: pick the master and enter the password once on the BrandMeister card.
 
@@ -145,10 +145,10 @@ TGIF is a native Homebrew (MMDVM) client: the engine logs in to a TGIF master wi
 
 - *Master*: there is no address or port field. The master follows the DMR host list: the address and port of its first TGIF entry, else `tgif.network` port 62031 when the list is not downloaded or has no TGIF entry. The password is never taken from the list. A change of the list is picked up the next time the engine's config is written (a settings save, or the engine start); an address or port saved by an earlier version is dropped and has no effect.
 - *Password*: write-only, like the BrandMeister password; the page shows only "Password set" and a Change button.
-- *Options*: under "advanced" the repeater ID, colour code, link by short key-up, unlink talkgroup, frequencies, location, description, URL and the keep-alive, timeout and back-off timers. A blank option uses the engine default. TGIF has no master options or timeslot field: it always uses timeslot 2.
+- *Options*: under "advanced" the repeater ID, color code, link by short key-up, unlink talkgroup, frequencies, location, description, URL and the keep-alive, timeout and back-off timers. A blank option uses the engine default. TGIF has no master options or timeslot field: it always uses timeslot 2.
 - *Enable* needs the password and the identity (callsign and DMR ID). The card shows the login state.
 
-On the dashboard, choose TGIF, type a talkgroup and press Tune, or pick a favourite. With *link by short key-up* on (the default), a short key-up on a talkgroup is enough for the master to link it.
+On the dashboard, choose TGIF, type a talkgroup and press Tune, or pick a favorite. With *link by short key-up* on (the default), a short key-up on a talkgroup is enough for the master to link it.
 
 ## DMR - Other (Homebrew master)
 
@@ -168,7 +168,7 @@ M17 is a native client for M17 reflectors (mrefd, urfd style) over UDP, default 
 - RX: stream packets, two Codec2 frames each, grouped by stream id; the call ends at the last-frame flag or after 1.5 s of silence. Packets with a bad CRC are counted and still played. Encrypted streams are ignored.
 - TX: a new random stream id per call, destination `M17-XXX C`, source your callsign, no META, no encryption or signature.
 
-Tested against an in-process fake reflector and an echo reflector through the bridge; the protocol layer is checked against the mrefd sources. Not verified without a live reflector: acceptance of your callsign, suffix and destination form by real mrefd/urfd builds, the TYPE/CAN bits against live traffic, voice level and quality of the Go Codec2, behaviour behind NAT and on busy modules. The dashboard panel, the host list and the settings card for M17 are not part of this stage.
+Tested against an in-process fake reflector and an echo reflector through the bridge; the protocol layer is checked against the mrefd sources. Not verified without a live reflector: acceptance of your callsign, suffix and destination form by real mrefd/urfd builds, the TYPE/CAN bits against live traffic, voice level and quality of the Go Codec2, behavior behind NAT and on busy modules. The dashboard panel, the host list and the settings card for M17 are not part of this stage.
 
 ## YSF (System Fusion)
 

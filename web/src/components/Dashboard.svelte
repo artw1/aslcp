@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Overview: node tiles, the digital modes tile, alerts, pinned favourites and one activity feed.
+  // Overview: node tiles, the digital modes tile, alerts, pinned favorites and one activity feed.
   // The full controls live on the AllStarLink (/allstar) and DV (/dv) tabs.
   import { api } from '../lib/api';
   import { app, canOperate, clock } from '../lib/store.svelte';
@@ -28,7 +28,7 @@
   const alerts = $derived(buildAlerts(app.nodes, app.haveNodes, dv));
   const feed = $derived(mergeHeard(app.nowcalling?.recent, dv?.heard));
 
-  // DV favourites are not in the store: load them once the engine is known to be installed.
+  // DV favorites are not in the store: load them once the engine is known to be installed.
   let dvFavs = $state<DVFavorite[]>([]);
   let loaded = false;
   $effect(() => {

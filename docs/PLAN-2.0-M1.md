@@ -13,7 +13,7 @@ The DMR, YSF, P25 and NXDN protocols are out of scope. Their cards show "not yet
 
 Naming rule (minimal churn):
 - New engine code lives in `internal/dv/...`.
-- The panel-side Go package is renamed `internal/dvpanel`, the REST paths move to `/api/dv/...`, the SSE event is `dv`, the settings keys are `dv.*` (migrated once at store load), the favourites table is `dv_favorites`, and the web files are `Dv*.svelte` and `DigitalModes.svelte` at route `/digital`. The old names live only in `internal/legacy`. No aliases are kept (hard cut-over).
+- The panel-side Go package is renamed `internal/dvpanel`, the REST paths move to `/api/dv/...`, the SSE event is `dv`, the settings keys are `dv.*` (migrated once at store load), the favorites table is `dv_favorites`, and the web files are `Dv*.svelte` and `DigitalModes.svelte` at route `/digital`. The old names live only in `internal/legacy`. No aliases are kept (hard cut-over).
 - Helper ops are rewritten anyway, so they get new `dv-*` names.
 
 ---
@@ -243,7 +243,7 @@ Paths are relative to /home/user/wt-200. Tags: [T1]/[T2]/[T3] = track owner.
 
 - internal/legacy/ini/* (no importers after M1; kept with ini_test.go for the M6 import).
 - internal/dvpanel/linkrec.go and its test.
-- The favourites store code, configsvc/mask.go, susb/files.go `USRPNode`, api/public_bridge.go, internal/public/*, internal/radioid/*, nowcalling package internals.
+- The favorites store code, configsvc/mask.go, susb/files.go `USRPNode`, api/public_bridge.go, internal/public/*, internal/radioid/*, nowcalling package internals.
 - internal/backup/backup.go: the the previous stack part, file constants and manifest stay, so old backups still restore; the ini files keep staging into pending for M6.
 
 ### B.4 MODIFY
@@ -252,7 +252,7 @@ Paths are relative to /home/user/wt-200. Tags: [T1]/[T2]/[T3] = track owner.
 |---|---|
 | internal/dvpanel/resume.go, resume_test.go [T3] | `Source` becomes `Info(ctx) (dv.Info, error)` and `Tune(ctx, mode, tune string) (bool, error)`. Validators come from tune.go. The `BootMode` hook is dropped and `ModeEnabled` kept. Test values: TG 91 is replaced by placeholder TGs such as 1997/1998. |
 | internal/api/handlers_dv.go, tests [T3] | The previous interface becomes `DVEngine` (C.2 shows the routes kept). |
-| internal/api/handlers_dv_ctl.go, tests [T3] | mode, unlink and tune go through ctl. The `dvCmdReply` drops BMLoginPending, STFUStopFailed, NetRestarted and NetLoginPending. Favourites are unchanged. |
+| internal/api/handlers_dv_ctl.go, tests [T3] | mode, unlink and tune go through ctl. The `dvCmdReply` drops BMLoginPending, STFUStopFailed, NetRestarted and NetLoginPending. Favorites are unchanged. |
 | internal/api/handlers_dv_private.go, tests [T3] | Steps: "ini" becomes "engine_config" (helper dv-config) and "bridge_restart" becomes "engine_reload" (ctl reload; falls back to helper `dv-restart` when ctl is unreachable). The record set/clear goes through helper op dv-private. |
 | internal/api/nowcalling.go [T3] | `ncDV(info the old helper info type, ...)` becomes `ncDV(talks []nowcalling.Talk, sn DVSnapshot)`, fed from TalkEvents. Via becomes "aslcp-dv". `ncTGName` uses `dv.DMRFamily`. `ncKick` becomes a no-op, because events arrive in real time; remove it and its call. |
 | internal/api/server.go [T3] | The previous dependency becomes `DVEngine DVEngine` (the helper part), plus `DVCtl *ctl.Client` and `HostLists *hostlists.Manager`. `DVInstalled` becomes `DVEnabled func() bool`. Keep DVResume, DVBridgeNode, RadioID and DVLink. `initthe previous stack` becomes `initDVEngine`. |
@@ -268,7 +268,7 @@ Paths are relative to /home/user/wt-200. Tags: [T1]/[T2]/[T3] = track owner.
 | packaging/README.package [T1] | Mention aslcp-dv and its state dir. |
 | .github/workflows/ci.yml [T1] | Package-contents check for aslcp-dv; add `npm test` in web; add `go run ./cmd/aslcp-dv bench -fake -frames 200`. |
 | web/src/components/DigitalModes.svelte [T3] | Becomes "Digital modes": an Enable/Disable button, job log (via dv-job), status of aslcp-dv/md380-emu, restore-pending notice. No uninstall. |
-| web/src/components/DvSetup.svelte [T3] | Keep Resume, the per-mode cards, DvBridge (private node) and favourites. A card whose mode has `available:false` shows "Not yet available in this build" and disabled controls; loopback shows as "Parrot (test)". |
+| web/src/components/DvSetup.svelte [T3] | Keep Resume, the per-mode cards, DvBridge (private node) and favorites. A card whose mode has `available:false` shows "Not yet available in this build" and disabled controls; loopback shows as "Parrot (test)". |
 | web/src/components/DvCard.svelte, lib/dvpanel, dvmodes, dvlist, dvmsg, dvnetworks, dvbridge (+tests) [T3] | Adapt to the snapshot changes (C.3); dvnetworks stays read-only. |
 | web/src/lib/store.svelte.ts [T3] | The `dv` SSE stays; the type gains the new fields. |
 | docs/API.md, docs/DESIGN.md, docs/BACKUP.md [T3] | Update the endpoints, process model and backup notes. |
@@ -335,7 +335,7 @@ Steps of `RunDVStep`: install-plan, config, check. ARMv6 (detected through /proc
 - POST /tune
 - GET and PUT /resume
 - GET /lists?mode=
-- favourites CRUD
+- favorites CRUD
 - private-node PUT/DELETE, adopt, rollback, name
 - PUT /link
 - the userlist routes
@@ -388,7 +388,7 @@ GET /job is kept as the job log for the enable unit, so the UI's job poller logi
 
 - **Header nav:** "the previous stack" becomes "Digital modes", still at route `/dv`.
 - **DigitalModes.svelte:** enable/disable, job log, status rows for both units, the legacy-units notice ("the previous stack services were stopped; they will be removed in a later version"), the ARMv6 notice and restore-pending.
-- **DvSetup.svelte:** Resume, Bridge (private node), the mode cards (unavailable ones grey with "Not yet available in this build"), favourites, and a Parrot card with a "Tune parrot" button.
+- **DvSetup.svelte:** Resume, Bridge (private node), the mode cards (unavailable ones gray with "Not yet available in this build"), favorites, and a Parrot card with a "Tune parrot" button.
 - **Dashboard DvCard:** unchanged layout; it shows the parrot as the mode and the callers from events.
 - **UserListCard:** unchanged.
 
@@ -764,7 +764,7 @@ func MetaTLV(s string) []byte // tag 0x08, len, ASCII (<= 64)
 4. **md380-emu binds 0.0.0.0.** The drop-in IP restriction is written by enable.
 5. **Secrets leakage.** Config 0600 aslcp-dv, `Status` never carries NetConfig, diagnostics mask passwords, and the server never reads the file.
 6. **Socket permissions after upgrade.** The aslcp process gains group aslcp-dv only after restart; postinst restarts aslcp.service after `adduser`. SO_PEERCRED is the real gate anyway.
-7. **Hard cut-over loses features** (BM/TGIF/DMR/YSF/P25/NXDN until later milestones). This is clearly stated in the CHANGELOG and the UI; settings (networks.json, favourites, resume) are kept so later milestones pick them up.
+7. **Hard cut-over loses features** (BM/TGIF/DMR/YSF/P25/NXDN until later milestones). This is clearly stated in the CHANGELOG and the UI; settings (networks.json, favorites, resume) are kept so later milestones pick them up.
 8. **Breakage breadth in T3** (helper symbols used by kept files). Do the B.2 relocation list before deleting files; `go build ./...` after each file group.
 9. **Pi-Star list formats/names** differ from what the old parsers expected. Verify them against a live download before finalising the parsers; there are fixture tests per format.
 10. **Backups from 1.x restore the previous stack ini files that are no longer used.** They stage into pending (unchanged) for M6; the UI notice explains this.
@@ -805,13 +805,13 @@ func MetaTLV(s string) []byte // tag 0x08, len, ASCII (<= 64)
   - Now Calling shows PARROT;
   - disable stops aslcp-dv and md380-emu stays installed;
   - the real bench passes on armhf and on one arm64 board.
-- [ ] Upgrade from 1.4.x with the previous stack configured: favourites, resume, networks.json and the private node survive; the cards show "Not yet available in this build".
+- [ ] Upgrade from 1.4.x with the previous stack configured: favorites, resume, networks.json and the private node survive; the cards show "Not yet available in this build".
 
 ### E.4 CHANGELOG (operator-visible only)
 
 - Digital modes now run on the built-in ASLCP engine; the previous stack is no longer used, and its services are stopped when you enable digital modes.
 - "Enable digital modes" installs only the md380-emu vocoder (plus qemu-user-static on 64-bit and x86 systems). ARMv6 boards are not supported.
-- BrandMeister, TGIF, DMR, YSF, P25 and NXDN show "Not yet available in this build". Your settings and favourites are kept.
+- BrandMeister, TGIF, DMR, YSF, P25 and NXDN show "Not yet available in this build". Your settings and favorites are kept.
 - New Parrot test mode echoes your transmission back through the bridge node.
 - ASLCP downloads the YSF, P25, NXDN and DMR host lists itself, once a day, while digital modes are enabled.
 - Removed: the the previous stack uninstall, BrandMeister/STFU and network credential pages, and the the previous stack service restart and rollback buttons.

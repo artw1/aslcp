@@ -9,7 +9,7 @@ export const AUDIO_DEFAULTS: DVAudio = { agcTx: false, agcRx: true, agcTargetDb:
 /** The width of the meter bar in percent: the peak over a 90 dB range, as the Tune page does. */
 export function meterPct(pk: number): number { return Math.max(0, Math.min(100, ((pk + 90) / 90) * 100)); }
 
-/** The colour class of the bar: danger on clipping, warn above -6 dBFS, ok otherwise. */
+/** The color class of the bar: danger on clipping, warn above -6 dBFS, ok otherwise. */
 export function meterColor(pk: number, clipping = false): 'bg-danger' | 'bg-warn' | 'bg-ok' {
   return clipping || pk >= -0.5 ? 'bg-danger' : pk > -6 ? 'bg-warn' : 'bg-ok';
 }

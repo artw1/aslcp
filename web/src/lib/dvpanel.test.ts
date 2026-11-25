@@ -31,7 +31,7 @@ test('service dots are amber for a down unit or an unknown state', () => {
   assert.ok(!allOk(null));
 });
 
-test('favourite names', () => {
+test('favorite names', () => {
   assert.equal(validFavName('  Example room '), 'Example room');
   assert.equal(validFavName(''), null);
   assert.equal(validFavName('   '), null);
@@ -50,7 +50,7 @@ test('tune values follow the server rules', () => {
   assert.ok(validTune('YSF', '00001') && validTune('YSF', 'US-Example') && validTune('YSF', '192.0.2.10:42000') && validTune('YSF', 'disconnect'));
   assert.ok(!validTune('YSF', '192.0.2.10:70000') && !validTune('YSF', 'a=b') && !validTune('YSF', '-x') && !validTune('YSF', 'a;b') && !validTune('YSF', 'x'.repeat(33)));
   assert.ok(validTune('M17', 'M17-XXX C') && validTune('M17', 'M17-0A9 Z'));
-  assert.ok(!validTune('M17', 'disconnect')); // never a favourite or a Go value; Unlink sends it
+  assert.ok(!validTune('M17', 'disconnect')); // never a favorite or a Go value; Unlink sends it
   assert.ok(!validTune('M17', 'M17-XXX') && !validTune('M17', 'M17-XXX c') && !validTune('M17', 'M17-XX C') && !validTune('M17', 'M17-XXXX C') && !validTune('M17', 'M17-XXX CC'));
   assert.ok(!validTune('DSTAR', '1'));
   assert.ok(validTune('DMR', ' 91 '));
@@ -58,18 +58,18 @@ test('tune values follow the server rules', () => {
 
 const fav = (id: number, mode: DVFavorite['mode'], value: string, sort = id): DVFavorite => ({ id, mode, value, name: `f${id}`, sort, pinned: false });
 
-test('favourites per mode, ordered, and why a save is blocked', () => {
+test('favorites per mode, ordered, and why a save is blocked', () => {
   const favs = [fav(1, 'YSF', '00001', 5), fav(2, 'DMR', '91'), fav(3, 'YSF', '00002', 1)];
   assert.deepEqual(favoritesFor(favs, 'YSF').map((f) => f.id), [3, 1]);
   assert.equal(favoriteBlock(favs, 'YSF', '00003'), null);
-  assert.equal(favoriteBlock(favs, 'YSF', '00001'), 'Already a favourite');
+  assert.equal(favoriteBlock(favs, 'YSF', '00001'), 'Already a favorite');
   assert.match(favoriteBlock(favs, 'DMR', '') ?? '', /no valid target/);
   const many = Array.from({ length: 50 }, (_, i) => fav(i + 10, 'P25', String(i + 1)));
   assert.match(favoriteBlock(many, 'P25', '99') ?? '', /At most 50/);
   assert.equal(favoriteBlock(many, 'NXDN', '99'), null);
 });
 
-test('default favourite name', () => {
+test('default favorite name', () => {
   assert.equal(defaultFavName({ tune: '91', targetName: 'World wide' }), 'World wide');
   assert.equal(defaultFavName({ tune: '91' }), '91');
   assert.equal(defaultFavName({ tune: '', targetName: undefined }), '');
@@ -195,10 +195,10 @@ test('DMR private call: a trailing # is accepted for DMR only', () => {
   assert.equal(withPrivate('P25', '10100', true), '10100');
 });
 
-test('a private call is a favourite with its #, apart from the plain talkgroup', () => {
+test('a private call is a favorite with its #, apart from the plain talkgroup', () => {
   const favs: DVFavorite[] = [{ id: 1, mode: 'DMR', value: '9990', name: 'x', sort: 0, pinned: false }];
   assert.equal(favoriteBlock(favs, 'DMR', '9990#'), null);
-  assert.equal(favoriteBlock(favs, 'DMR', '9990'), 'Already a favourite');
+  assert.equal(favoriteBlock(favs, 'DMR', '9990'), 'Already a favorite');
 });
 
 test('bridge RX target of a private call, and the caller', () => {
@@ -379,7 +379,7 @@ test('M17: tune value, split and display', () => {
   assert.equal(modeLabel('M17'), 'M17');
   assert.ok(PANEL_MODES.includes('M17'));
   assert.equal(favoriteBlock([], 'M17', 'M17-XXX C'), null);
-  assert.equal(favoriteBlock([fav(1, 'M17', 'M17-XXX C')], 'M17', 'M17-XXX C'), 'Already a favourite');
+  assert.equal(favoriteBlock([fav(1, 'M17', 'M17-XXX C')], 'M17', 'M17-XXX C'), 'Already a favorite');
   assert.match(favoriteBlock([], 'M17', 'M17-XXX') ?? '', /no valid target/);
 });
 
@@ -395,7 +395,7 @@ test('mode button states', () => {
   assert.deepEqual(netChip({ id: 'DMR', enabled: true, login: 'failed' }), { tone: 'err', text: 'Login failed' });
   assert.deepEqual(netChip({ id: 'BM', enabled: true, login: 'pending' }), { tone: 'warn', text: 'Logging in' });
   assert.deepEqual(netChip({ id: 'BM', enabled: true }), { tone: 'off', text: 'Enabled' });
-  // an on-demand network outside its mode (BrandMeister): grey, and a disabled one still reads Disabled
+  // an on-demand network outside its mode (BrandMeister): gray, and a disabled one still reads Disabled
   assert.deepEqual(netChip({ id: 'BM', enabled: true, login: 'idle' }), { tone: 'off', text: 'Not in use' });
   assert.deepEqual(netChip({ id: 'BM', enabled: false, login: 'idle' }), { tone: 'off', text: 'Disabled' });
   assert.deepEqual(stripModes([{ id: 'LOOP', available: true }, { id: 'BM', available: true }, { id: 'TGIF', available: false }]).map((m) => m.id), ['BM']);
@@ -406,7 +406,7 @@ test('modes without a login show their link, never "Logging in"', () => {
   const on = (mode: string, tune: string, targetName?: string) => ({ mode, tune, targetName, slot: 2, muted: false, source: 'aslcp-dv' as const, updated: '' });
   for (const id of ['YSF', 'P25', 'NXDN', 'M17']) {
     assert.deepEqual(netChip({ id, enabled: false, login: 'off' }), { tone: 'off', text: 'Disabled' });
-    // enabled, not the active mode, nothing tuned: grey Enabled
+    // enabled, not the active mode, nothing tuned: gray Enabled
     assert.deepEqual(netChip({ id, enabled: true, login: 'off' }, on('BM', '91')), { tone: 'off', text: 'Enabled' });
     assert.deepEqual(netChip({ id, enabled: true, login: 'off' }, on(id, '')), { tone: 'off', text: 'Enabled' });
     assert.deepEqual(netChip({ id, enabled: true }), { tone: 'off', text: 'Enabled' });

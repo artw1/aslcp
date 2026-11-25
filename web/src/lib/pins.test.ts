@@ -29,7 +29,7 @@ test('pin local node: selected, else first', () => {
   assert.equal(pinLocalNode('', []), '');
 });
 
-test('buildPins lists the pinned favourites only: AllStar first, then DV', () => {
+test('buildPins lists the pinned favorites only: AllStar first, then DV', () => {
   const items = buildPins(
     [aslFav(1, '2000', 'Example hub'), { ...aslFav(2, '1000', 'Other'), pinned: true }, { ...aslFav(3, '1001', 'Third'), pinned: true }],
     [{ ...dvFav(2, 'YSF', '00001', 'US-Example'), pinned: true }, dvFav(3, 'P25', '10100', 'Not pinned')]);

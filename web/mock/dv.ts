@@ -179,7 +179,7 @@ const LISTS: Record<string, { value: string; name: string; detail?: string; addr
   ],
 };
 
-// Dashboard panel (GET /dv/snapshot, /mode, /unlink, /tune, favourites). LOOP (the echo test, always on, shown as
+// Dashboard panel (GET /dv/snapshot, /mode, /unlink, /tune, favorites). LOOP (the echo test, always on, shown as
 // "Echo test", started from Digital modes setup) and BM are available; the other modes answer 409 not_available, and BM answers 409
 // mode_disabled until it is set up (PUT /dv/networks/BM with the identity set).
 type PMode = 'LOOP' | 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN' | 'M17';
@@ -217,7 +217,7 @@ const boolOpt = (key: string, label: string, def: string, advanced = false) => (
 const HB_OPTS = (optionsHelp: string) => [
   ...(optionsHelp ? [txtOpt('options', 'Master options', '', 200, false, optionsHelp), intOpt('slot', 'Timeslot', '2', 1, 2)] : []),
   intOpt('repeater_id', 'Repeater ID', '', 1, 999999999, true),
-  intOpt('colour_code', 'Colour code', '1', 0, 15, true),
+  intOpt('colour_code', 'Color code', '1', 0, 15, true),
   boolOpt('tune_kerchunk', 'Link by short key-up', 'true', true),
   intOpt('unlink_tg', 'Unlink talkgroup', '4000', 0, 16777215, true),
   intOpt('rx_freq', 'RX frequency (Hz)', '0', 0, 999999999, true),
@@ -411,7 +411,7 @@ function panelHandler(c: DVCtx): boolean {
   if (c.m === 'POST' && c.p === '/dv/favorites') {
     const mode = String(body.mode ?? '').toUpperCase() as PMode, value = typeof body.value === 'string' ? body.value : '', name = typeof body.name === 'string' ? body.name.trim() : '';
     if (!(mode in tuneRe) || !tuneRe[mode].test(value) || [...name].length < 1 || [...name].length > 40) return c.err(400, 'bad_request: check the mode, the value and the name (1 to 40 characters)', 'bad_request'), true;
-    if (favs.some((f) => f.mode === mode && f.value === value)) return c.err(409, 'duplicate: this target is already a favourite', 'duplicate'), true;
+    if (favs.some((f) => f.mode === mode && f.value === value)) return c.err(409, 'duplicate: this target is already a favorite', 'duplicate'), true;
     const f = { id: ++favSeq, mode, value, name, sort: favs.filter((x) => x.mode === mode).length, pinned: false };
     favs.push(f);
     c.json(201, favView(f));
@@ -420,7 +420,7 @@ function panelHandler(c: DVCtx): boolean {
   const m = /^\/dv\/favorites\/(\d+)$/.exec(c.p);
   if (m) {
     const i = favs.findIndex((f) => f.id === Number(m[1]));
-    if (i < 0) return c.err(404, 'not_found: no such favourite', 'not_found'), true;
+    if (i < 0) return c.err(404, 'not_found: no such favorite', 'not_found'), true;
     if (!op) return forbid();
     if (c.m === 'DELETE') { favs.splice(i, 1); c.json(204); return true; }
     if (c.m === 'PUT') {

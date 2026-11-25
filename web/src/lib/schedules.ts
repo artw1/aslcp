@@ -74,7 +74,7 @@ export const evLabel = (e: Pick<ScheduleEvent, 'action' | 'node' | 'target'>, wi
 
 export const MODE_NAMES = { transceive: 'Transceive', monitor: 'Monitor', localmonitor: 'Local monitor' } as const;
 
-/** Colour class for the last result. */
+/** Color class for the last result. */
 export function resultClass(r: string): string {
   return r === 'ok' ? 'text-ok' : r.startsWith('error') ? 'text-danger' : 'text-muted';
 }
@@ -165,5 +165,5 @@ export const MANUAL_ACTIONS: { value: 'pause' | 'pause_today' | 'cancel'; label:
 ];
 export const manualActionLabel = (m: string) => MANUAL_ACTIONS.find((x) => x.value === m)?.label ?? m;
 
-/** `"Tuesday net" cancelled by manual connect 41234 on 2006 by op` */
-export const cancelText = (n: { names: string[]; reason: string }) => `${n.names.map((x) => JSON.stringify(x)).join(', ')} cancelled by ${n.reason}`;
+/** `"Tuesday net" canceled by manual connect 41234 on 2006 by op` */
+export const cancelText = (n: { names: string[]; reason: string }) => `${n.names.map((x) => JSON.stringify(x)).join(', ')} canceled by ${n.reason}`;

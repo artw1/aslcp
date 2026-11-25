@@ -18,7 +18,7 @@
   import NowCalling from './NowCalling.svelte';
 
   const nav = $derived([['/', 'Dashboard'], ['/allstar', 'AllStarLink'], ...(app.dv?.installed ? [['/dv', 'DV']] : []), ['/schedules', 'Schedules'], ['/lookup', 'Lookup'], ...(isAdmin() ? [['/config', 'Config']] : []), ...(isAdmin() && app.tune.devices.length ? [['/tune', 'Audio Tuning']] : []), ...(isAdmin() ? [['/digital', 'Digital modes']] : []), ['/settings', 'Settings'], ...(isAdmin() ? [['/backup', 'Backup'], ['/system', 'System']] : [])] as [string, string][]);
-  // Admin only: counts only (SSE "updates"); security updates or a reboot use the warn colour.
+  // Admin only: counts only (SSE "updates"); security updates or a reboot use the warn color.
   const updCount = $derived((app.updates.aslcp || (app.system?.updateAvailable ?? false) ? 1 : 0) + app.updates.os);
   const updWarn = $derived(app.updates.security > 0 || app.updates.reboot);
   const updTitle = $derived([app.updates.aslcp || app.system?.updateAvailable ? 'ASLCP update' : '', app.updates.os ? `${app.updates.os} system package${app.updates.os === 1 ? '' : 's'}${app.updates.security ? ` (${app.updates.security} security)` : ''}` : '', app.updates.reboot ? 'reboot required' : ''].filter(Boolean).join(', '));

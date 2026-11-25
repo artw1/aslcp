@@ -7,10 +7,10 @@ Status: implemented in 1.1.10 (package `internal/favstats`, API in `docs/API.md`
 - The on/off switch is a "Scan" checkbox (a toggle button since beta.11) in the Favorites header on the dashboard (operators and admins, like the other favorites controls; viewers see "Scan on" and the values). Setting `favstats.enabled`, default off, `PUT /api/favorites/scan`. Its tooltip says "Show activity for favorite nodes from stats.allstarlink.org". The header also shows "updated Ns ago", or "rate limited, retrying" during a backoff.
 - The rate is not a UI setting: `[favstats] rate` in `aslcp.conf` (default 20 requests per minute, 1..25; 10 in beta.11 and beta.12, 20 again since beta.13), and `[favstats] url` overrides the base URL.
 - Activity is a separate snapshot (`GET /api/favorites/stats`) plus the SSE event `favstats`; the favorites objects are unchanged. Nothing is exposed on the public page.
-- Token bucket: capacity 4, refill at the configured rate, requests at least 2 s apart. Backoff doubles from 15 s to 5 min, honours Retry-After, and ends on the next success. A 404 for one node drops that node's values without backing off.
+- Token bucket: capacity 4, refill at the configured rate, requests at least 2 s apart. Backoff doubles from 15 s to 5 min, honors Retry-After, and ends on the next success. A 404 for one node drops that node's values without backing off.
 - Keyed state uses the API's own `keyed` flag only for a node's first sample; afterwards it is derived from counter changes between distinct reports (`stats.data.time`, which the service refreshes about every 30 s). A poll that returns the same report again repeats the previous keyed state and changes no counters. The elapsed time is the difference of the two report times (poll time when a report time is missing). An implausible delta is a TX time increase larger than the elapsed time plus 2 s. A favorite linked to a local node shows keyed from the local link state immediately (the scan lags by up to 30 s). Keyed is cleared once the node's data is older than 15 minutes (like Active).
 - Only `apprptuptime`, `totaltxtime`, `totalkeyups`, `keyed`, `links` (counted) and the top-level `node` object's `Status` / `access_webtransceiver` are decoded; `linkedNodes` is never read. The decoder tolerates numbers as well as strings, and a `node` that is not an object.
-- The Node cell is highlighted when the favorite is linked to any local node (the status store data), and the # cell carries the activity colour (red keyed, green active, brighter green with WebTransceiver). With the scan on, Description and Location hide below lg / xl widths.
+- The Node cell is highlighted when the favorite is linked to any local node (the status store data), and the # cell carries the activity color (red keyed, green active, brighter green with WebTransceiver). With the scan on, Description and Location hide below lg / xl widths.
 - Demo mode (`--demo`) uses synthetic samples with no rate limit (`favstats.DemoFetcher`).
 
 ### Answers to the open questions
@@ -24,7 +24,7 @@ On real hardware the stats service answered 429 after about 10 requests at 20 pe
 
 - Valid range is 2000..999999. EchoLink favorites (3000000..3999999) are never queried and show no values.
 - Defaults: 10 requests per minute (`[favstats] rate`, 1..25, now a ceiling). (Burst 2 and the token bucket were replaced by even pacing in beta.13, see below.)
-- Adaptive rate: each 429 halves the rate in use (floor 3 per minute, or the configured rate if lower) on top of the 15 s to 5 min backoff, which honours Retry-After. After every 20 consecutive successful requests the rate rises by 1 per minute, up to the configured rate. The API reports it as `effRate`, and `retryAt` when the backoff ends.
+- Adaptive rate: each 429 halves the rate in use (floor 3 per minute, or the configured rate if lower) on top of the 15 s to 5 min backoff, which honors Retry-After. After every 20 consecutive successful requests the rate rises by 1 per minute, up to the configured rate. The API reports it as `effRate`, and `retryAt` when the backoff ends.
 - A 429 is not a sample: existing values and the "updated" time are kept.
 - Polling order: nodes never queried first, then the one queried longest ago, so a backoff cannot starve the end of the list.
 - `[favstats] log = true` (default false) writes one journal line per request: `favstats: GET node=<n> status=<code or error> took=<ms> rate=<n>/min gap=<s> retry-after=<s or ->`, plus `favstats: rate lowered to N/min after 429` and `favstats: rate raised to N/min`. Never the response body, other headers or linkedNodes data. To find the real limit, turn it on and watch for the request count before the first 429.
@@ -41,7 +41,7 @@ Sources:
 
 UI:
 - The favorites table gets two columns, **Rx%** (remote TxTime / Uptime) and **LCnt** (number of connected links). Both are sortable; the first click sorts descending.
-- The # cell is colour-coded: red while keyed (brighter with recent TX), dark green when Active, slightly brighter green when Active with WebTransceiver.
+- The # cell is color-coded: red while keyed (brighter with recent TX), dark green when Active, slightly brighter green when Active with WebTransceiver.
 - The Node cell is highlighted when it is linked to our node.
 
 Data:
@@ -103,7 +103,7 @@ Settings:
 
 UI (`web/src/components/Favorites.svelte`):
 - Rx% and LCnt columns after Location, both sortable.
-- # cell colours as AllScan, reusing the existing `row-tx` / `row-rx` tokens. Keep the contrast fix: white text on red and green.
+- # cell colors as AllScan, reusing the existing `row-tx` / `row-rx` tokens. Keep the contrast fix: white text on red and green.
 - Rx% tooltip: "Lifetime TX time as % of uptime".
 - Header shows scan state and "updated Ns ago".
 - Columns hidden when the scan is off.
