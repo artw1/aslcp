@@ -1,5 +1,5 @@
 {
-  "version": "2.4.1",
-  "notes": "Merge pull request #36 from w1jar/try/dv-bridge-unlink\n\n2.4.1: release the DV target when ASLCP unlinks the bridge node",
+  "version": "2.4.2",
+  "notes": "Merge pull request #37 from w1jar/try/menu-hierarchy\n\n2.4.2: stronger top menu, calls in progress in Now Calling, DMR names in Last heard",
   "date": "2026-11-25"
 }
