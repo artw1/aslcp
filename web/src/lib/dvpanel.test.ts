@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner; no extra dependency). svelte-check type-checks this file too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIRM_MS, dashboardModes, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, masterLine, MASTER_MAX, quietHint, QUIET_MS, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, isTargetLinked, pendingOutcome, rxCaller, reflectorSilent, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate, m17Tune, m17Split, m17Display, M17_MODULES } from './dvpanel.ts';
+import { netChip, stripModes, heardRow, CONFIRM_MS, dashboardModes, PANEL_MODES, allOk, bridgeLinked, bridgeNodeName, bridgeRx, bridgeRxTarget, controlsLocked, DEFAULT_NODE_NAME, defaultFavName, favoriteBlock, favoritesFor, freqToHz, heardLine, hzToMHz, masterLine, MASTER_MAX, quietHint, QUIET_MS, isDMRFamily, isPrivateTune, modeButtonLabel, modeLabel, nodeLabel, nodeLinkClass, isTargetLinked, pendingOutcome, rxCaller, reflectorSilent, serviceDots, shownMode, stateLine, stateTitle, stateTone, validFavName, validCoord, validInfoText, validInfoUrl, validNodeName, validTune, withPrivate, m17Tune, m17Split, m17Display, M17_MODULES } from './dvpanel.ts';
 import type { DVFavorite, DVSnapshot } from './types';
 
 const bridge = { mode: 'YSF', tune: '192.0.2.10:42000', targetName: 'Example room', slot: 2, muted: false, source: 'abinfo' as const, updated: '' };
@@ -387,4 +387,24 @@ test('Last heard: a YSF call shows the reflector, never a talkgroup', () => {
   assert.equal(heardLine({ call: 'N0CALL', dst: '203.0.113.5:42000', mode: 'YSF', dstName: 'US-EXAMPLE', at: '2026-11-25T10:00:00' }), 'N0CALL · YSF US-EXAMPLE · 10:00:00');
   assert.equal(heardLine({ call: 'N0CALL', dst: '203.0.113.5:42000', mode: 'YSF' }), 'N0CALL · YSF 203.0.113.5:42000');
   assert.equal(heardLine({ call: 'N0CALL', dst: '91', slot: 2, mode: undefined }), 'N0CALL · TG 91 · TS2');
+});
+
+test('mode button states', () => {
+  assert.deepEqual(netChip({ enabled: false, login: 'ok' }), { tone: 'off', text: 'Disabled' });
+  assert.deepEqual(netChip({ enabled: true, login: 'ok' }), { tone: 'ok', text: 'Logged in' });
+  assert.deepEqual(netChip({ enabled: true, login: 'failed' }), { tone: 'err', text: 'Login failed' });
+  assert.deepEqual(netChip({ enabled: true, login: 'pending' }), { tone: 'warn', text: 'Logging in' });
+  assert.deepEqual(netChip({ enabled: true }), { tone: 'off', text: 'Enabled' });
+  // an on-demand network outside its mode (BrandMeister): grey, and a disabled one still reads Disabled
+  assert.deepEqual(netChip({ enabled: true, login: 'idle' }), { tone: 'off', text: 'Not in use' });
+  assert.deepEqual(netChip({ enabled: false, login: 'idle' }), { tone: 'off', text: 'Disabled' });
+  assert.deepEqual(stripModes([{ id: 'LOOP', available: true }, { id: 'BM', available: true }, { id: 'TGIF', available: false }]).map((m) => m.id), ['BM']);
+});
+
+test('Last heard table row', () => {
+  assert.deepEqual(heardRow({ call: 'N0CALL', dst: '91', slot: 2, at: '2026-11-18 10:00:01' }), { call: 'N0CALL', mode: 'DMR', target: 'TG 91', slot: 'TS2', time: '10:00:01' });
+  assert.deepEqual(heardRow({ call: 'N1CALL', dst: '203.0.113.5:42000', mode: 'YSF', dstName: 'Example room' }), { call: 'N1CALL', mode: 'YSF', target: 'YSF Example room', slot: '', time: '' });
+  assert.equal(heardRow({ call: 'N0CALL', dst: 'M17-XXX C' }).mode, 'M17');
+  assert.deepEqual(heardRow({ dmrId: '1234567' }), { call: '1234567', mode: '', target: '', slot: '', time: '' });
+  assert.equal(heardRow({ dmrId: '9990', private: true, dst: '1234567' }).call, 'Parrot (private call)');
 });

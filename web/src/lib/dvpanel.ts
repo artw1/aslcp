@@ -12,6 +12,18 @@ export const isDMRFamily = (mode: string): boolean => isDVNetwork(mode);
 export const modeLabel = (mode: string): string => networkLabel(mode);
 /** The name of a panel mode button: the snapshot's label when it has one, else modeLabel. */
 export const modeButtonLabel = (m: { id: string; label?: string }): string => m.label || modeLabel(m.id);
+/** One button of the DV tab's mode buttons card: dot tone (ok green, err red, warn amber, off grey) and the short state. `idle` (BrandMeister outside its mode, no session on purpose) is a grey "Not in use". A network the engine reports no login for (YSF, P25, NXDN, M17) shows "Enabled". */
+export function netChip(m: { enabled: boolean; login?: string }): { tone: 'ok' | 'err' | 'warn' | 'off'; text: string } {
+  if (!m.enabled) return { tone: 'off', text: 'Disabled' };
+  if (m.login === 'ok') return { tone: 'ok', text: 'Logged in' };
+  if (m.login === 'failed') return { tone: 'err', text: 'Login failed' };
+  if (m.login === 'pending') return { tone: 'warn', text: 'Logging in' };
+  if (m.login === 'idle') return { tone: 'off', text: 'Not in use' };
+  return { tone: 'off', text: 'Enabled' };
+}
+/** The networks of the mode buttons card: every available network except the echo test. */
+export const stripModes = <M extends { id: string; available: boolean }>(modes: M[]): M[] => modes.filter((m) => m.available && m.id !== 'LOOP');
+
 /** The mode buttons of the dashboard card: the echo test has none (it starts in Digital modes setup), and a disabled DMR network has none. */
 export const dashboardModes = <M extends { id: string; enabled: boolean }>(modes: M[]): M[] => modes.filter((m) => m.id !== 'LOOP' && (!isDMRFamily(m.id) || m.enabled));
 /** How long a mode switch may stay unconfirmed before the card says so. */
@@ -236,10 +248,21 @@ export function callerLabel(c: DVCaller): string {
   return c.call?.trim() || c.dmrId || '';
 }
 
-/** "N0CALL" or "N0CALL (1234567)" for the Last heard list, with the target ("TG 91") and the log time. */
+/** The target of a heard call: "YSF <reflector name>" for YSF, the module for M17, else "TG 91". Empty when there is no destination. */
+function heardTarget(c: DVCaller): string {
+  return !c.dst ? '' : c.mode === 'YSF' ? `YSF ${c.dstName || c.dst}` : /^M17-/.test(c.dst) ? m17Display(c.dst) : `TG ${c.dst}`;
+}
+
+/** The cells of one Last heard table row: callsign (or DMR ID, or "Private call"), mode (the call's own, else M17 for an M17 target, DMR for a talkgroup), target, time slot and the log time (HH:MM:SS). Empty strings for what is not known. */
+export function heardRow(c: DVCaller): { call: string; mode: string; target: string; slot: string; time: string } {
+  const mode = c.mode || (!c.dst ? '' : /^M17-/.test(c.dst) ? 'M17' : 'DMR');
+  return { call: callerLabel(c), mode, target: heardTarget(c), slot: slotLabel(c.slot), time: c.at ? c.at.slice(11, 19) : '' };
+}
+
+/** One line for the dashboard's Last heard list: callsign, target, time slot, log time. */
 export function heardLine(c: DVCaller): string {
-  const dst = !c.dst ? '' : c.mode === 'YSF' ? `YSF ${c.dstName || c.dst}` : /^M17-/.test(c.dst) ? m17Display(c.dst) : `TG ${c.dst}`;
-  return [callerLabel(c), dst, slotLabel(c.slot), c.at ? c.at.slice(11, 19) : ''].filter(Boolean).join(' · ');
+  const r = heardRow(c);
+  return [r.call, r.target, r.slot, r.time].filter(Boolean).join(' · ');
 }
 
 /** The Frequency field in MHz as Hz (an integer), or null when it is not a number in the 30 to 3000 MHz range the server accepts. Hz input (30000000 to 3000000000) is taken as it is. */

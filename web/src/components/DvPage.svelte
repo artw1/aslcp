@@ -1,6 +1,6 @@
 <script lang="ts">
-  // The DV tab: the digital modes card with the level meter, the Networks card (the setup's component: state and Enable switch
-  // for everyone viewing, settings opening in place for an admin) and Last heard as a card of its own.
+  // The DV tab: the digital modes card with the level meter, the mode buttons card (status for everyone, one mode's Enable
+  // switch and settings opening in place for an admin) and Last heard as a table in a card of its own.
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
   import type { DVIdentity, DVNetView } from '../lib/types';
@@ -8,8 +8,8 @@
   import DvCard from './DvCard.svelte';
   import { agoText } from '../lib/nowcalling';
   import { dvAt } from '../lib/pins';
-  import { heardLine } from '../lib/dvpanel';
-  import DvNetworks from './DvNetworks.svelte';
+  import { heardRow } from '../lib/dvpanel';
+  import DvModes from './DvModes.svelte';
   import Footer from './Footer.svelte';
 
   // The network settings and identity are admin only (an operator gets 403): a viewer gets the state rows from the snapshot.
@@ -31,18 +31,28 @@
     </p>
   {:else}
     <DvCard page />
-    <DvNetworks card deepLink={false} readonly={!isAdmin()} {nets} {identity} modes={app.dv.modes} onsaved={netSaved} />
+    <DvModes admin={isAdmin()} {nets} {identity} modes={app.dv.modes} onsaved={netSaved} />
     <section class="card space-y-1 p-4" aria-label="Last heard" data-testid="dv-heard">
       <h2 class="text-base font-semibold">Last heard</h2>
       {#if app.dv.heard?.length}
-        <ul class="divide-y divide-line font-mono text-xs sm:text-sm">
-          {#each app.dv.heard as h, i (i)}
-            <li class="flex items-baseline gap-2 py-1" title={h.dmrId ? `DMR ID ${h.dmrId}` : undefined}>
-              <span class="min-w-0 flex-1 truncate">{heardLine({ ...h, at: undefined })}</span>
-              {#if dvAt(h)}<span class="shrink-0 font-sans text-xs text-muted">{agoText((clock.now - dvAt(h)) / 1000)}</span>{/if}
-            </li>
-          {/each}
-        </ul>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs sm:text-sm">
+            <thead class="text-muted">
+              <tr><th class="py-1 pr-3 font-medium">Time</th><th class="py-1 pr-3 font-medium">Callsign</th><th class="hidden py-1 pr-3 font-medium sm:table-cell">Mode</th><th class="py-1 font-medium">Target</th></tr>
+            </thead>
+            <tbody class="divide-y divide-line">
+              {#each app.dv.heard as h, i (i)}
+                {@const r = heardRow(h)}
+                <tr title={h.dmrId ? `DMR ID ${h.dmrId}` : undefined}>
+                  <td class="whitespace-nowrap py-1 pr-3 text-muted">{dvAt(h) ? agoText((clock.now - dvAt(h)) / 1000) : ''}</td>
+                  <td class="whitespace-nowrap py-1 pr-3 font-mono">{r.call}</td>
+                  <td class="hidden py-1 pr-3 sm:table-cell">{r.mode}</td>
+                  <td class="py-1 font-mono">{[r.target, r.slot].filter(Boolean).join(' · ')}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       {:else}<p class="text-xs text-muted">Nothing heard yet.</p>{/if}
     </section>
   {/if}
