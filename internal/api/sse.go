@@ -10,12 +10,11 @@ import (
 	"time"
 
 	"github.com/artw1/aslcp/internal/auth"
-	"github.com/artw1/aslcp/internal/rpt"
 	"github.com/artw1/aslcp/internal/store"
 )
 
 // sseMsg is a pre-framed SSE message in two variants: for privileged
-// clients (admin/operator) and for viewers (link IPs removed).
+// clients (admin/operator) and for viewers.
 type sseMsg struct {
 	priv, pub []byte
 	// admin, when set, is sent to admin clients instead of priv/pub; a
@@ -117,34 +116,11 @@ func (h *hub) closeAll() {
 	}
 }
 
-func (s *Server) broadcastNode(st rpt.NodeStatus, event string) {
-	s.hub.broadcast(sseMsg{priv: frame(event, s.nodeJSON(st, true)), pub: frame(event, s.nodeJSON(st, false))})
-}
-
-func (s *Server) allNodes(priv bool) []NodeStatusJSON {
-	out := []NodeStatusJSON{}
-	m := s.monitor()
-	if m == nil {
-		return out
-	}
-	snap := m.Snapshot()
-	for _, n := range m.Nodes() {
-		if st, ok := snap[n]; ok {
-			out = append(out, s.nodeJSON(st, priv))
-		}
-	}
-	return out
-}
-
-func (s *Server) broadcastNodes() {
-	s.hub.broadcast(sseMsg{priv: frame("nodes", s.allNodes(true)), pub: frame("nodes", s.allNodes(false))})
-}
-
 func (s *Server) broadcastFavorites() {
 	if s.d.FavStats != nil {
 		s.d.FavStats.Refresh() // the next node to scan may have changed
 	}
-	favs, err := s.favoritesJSON()
+	favs, err := s.favoritesJSON("")
 	if err != nil {
 		s.d.Logger.Printf("favorites broadcast: %v", err)
 		return
@@ -163,67 +139,12 @@ func (s *Server) broadcastSchedules() {
 	s.hub.broadcast(sseMsg{priv: f, pub: f})
 }
 
-// updateInterval re-evaluates the poll interval; the argument is ignored
-// (admin and public SSE clients are both counted).
+// updateInterval follows the number of SSE clients; the argument is
+// ignored.
 func (s *Server) updateInterval(int) {
 	if s.d.FavStats != nil {
 		s.d.FavStats.SetViewers(s.hub.count())
 	}
-	if m := s.monitor(); m != nil {
-		s.applyInterval(m, s.hub.count()+s.pub.Clients())
-	}
-}
-
-func (s *Server) applyInterval(m *rpt.Monitor, clients int) {
-	if clients > 0 {
-		m.SetInterval(s.FastInterval)
-	} else {
-		m.SetInterval(s.SlowInterval)
-	}
-}
-
-// AttachMonitor wires a running (or about to run) Monitor: it forwards
-// updates to SSE clients and sets the poll interval from client count.
-// It blocks until ctx is done or the monitor closes.
-func (s *Server) AttachMonitor(ctx context.Context, m *rpt.Monitor) {
-	s.monMu.Lock()
-	s.mon = m
-	s.monMu.Unlock()
-	s.pub.SetMonitor(m)
-	s.applyInterval(m, s.hub.count()+s.pub.Clients())
-	ch, cancel := m.Subscribe(256)
-	defer cancel()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case u, ok := <-ch:
-			if !ok {
-				return
-			}
-			s.rec.Process(u)
-			s.ncRPT(u)
-			s.pub.HandleUpdate(u)
-			if linkStateChanged(u.Changes) {
-				// The dv snapshot carries the bridge node's link (Link.Linked, read from
-				// this monitor); without this it only changed when something else did.
-				s.dvLinkChanged()
-			}
-			if u.Changes.Recovered || u.Changes.Resync || u.Changes.Added || u.Changes.Removed {
-				// Full state after an AMI reconnect, a dropped-update resync or a
-				// change of the node set (the client drops nodes missing from it).
-				s.broadcastNodes()
-				continue
-			}
-			s.broadcastNode(u.Status, "node")
-		}
-	}
-}
-
-func (s *Server) monitor() *rpt.Monitor {
-	s.monMu.RLock()
-	defer s.monMu.RUnlock()
-	return s.mon
 }
 
 // systemLoop pushes System to clients every SystemInterval while any are
@@ -268,9 +189,10 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request, u store.Us
 	c.admin.Store(u.Role == store.RoleAdmin)
 	defer s.hub.remove(c)
 
-	priv := c.priv.Load()
-	if !write(frame("hello", map[string]any{"user": userJSON(u), "version": s.d.Version, "instance": s.instance, "settings": s.settings()})) ||
-		!write(frame("nodes", s.allNodes(priv))) {
+	nj := s.nw.json()
+	if !write(frame("hello", map[string]any{"user": userJSON(u), "version": s.d.Version, "instance": s.instance,
+		"settings": s.settings(), "setupNeeded": nj.SetupNeeded})) ||
+		!write(frame("node", nj)) {
 		return
 	}
 	if !write(frame("nowcalling", s.nc.tr.Snapshot())) {
@@ -279,20 +201,6 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request, u store.Us
 	if c.admin.Load() && s.d.Updates != nil && !write(frame("updates", s.updatesBadge())) {
 		return
 	}
-	// The digital modes snapshot is sent on every connect too: the browser
-	// reconnects by itself after a restart of the panel, and a change that was
-	// published while it was away (or before it came back) is never repeated.
-	if s.dvs != nil {
-		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-		sn := s.dvs.snapshot(ctx)
-		cancel()
-		if !write(frame("dv", sn)) {
-			return
-		}
-	}
-	// Initial favorites/system are available via REST; the contract only
-	// requires hello + nodes on connect.
-
 	ping := time.NewTicker(s.PingInterval)
 	defer ping.Stop()
 	token := auth.TokenFrom(r)
@@ -334,10 +242,4 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request, u store.Us
 			}
 		}
 	}
-}
-
-// linkStateChanged says whether an update can change a node's direct links,
-// which the dv snapshot reports as link.linked.
-func linkStateChanged(c rpt.Changes) bool {
-	return len(c.LinksAdded) > 0 || len(c.LinksRemoved) > 0 || c.Initial || c.Added || c.Removed || c.Stale || c.Recovered || c.Resync
 }

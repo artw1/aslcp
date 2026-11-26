@@ -61,14 +61,15 @@ type Store interface {
 	SetSetting(k, v string) error
 }
 
-// Linker sends link commands to the node. LinkMode reports the target's
-// state from the monitor's latest status: mode is "transceive", "monitor",
-// "localmonitor" or "connecting"; known is false when the node is not a
-// current local node (or has no status yet).
+// Linker sends commands to the node. Connect selects mode (when it is not
+// the active one) and links it to target; Disconnect drops the link of mode
+// (target "" or the linked one). Linked reports whether mode is active and
+// linked (or linking) to target ("" matches any target); known is false
+// when the node cannot be reached.
 type Linker interface {
-	Connect(ctx context.Context, node, target, mode string, permanent, exclusive bool) error
-	Disconnect(ctx context.Context, node, target string, permanent bool) error
-	LinkMode(node, target string) (mode string, linked bool, known bool)
+	Connect(ctx context.Context, mode, target string) error
+	Disconnect(ctx context.Context, mode, target string) error
+	Linked(mode, target string) (linked bool, known bool)
 }
 
 // Engine executes schedules. Create it with a struct literal (Store and
@@ -268,10 +269,10 @@ func (e *Engine) SetEnabled(on bool) {
 }
 
 // cancelRunning marks the occurrences running now as cancelled: all of them, or
-// only those of schedules on node when node is not empty. It returns the
+// only those of schedules on mode net when net is not empty. It returns the
 // cancelled windows that are still running (end in the future) and the
 // latest end among them; the caller holds mu.
-func (e *Engine) cancelRunning(node string, now time.Time) (ids []int64, until time.Time) {
+func (e *Engine) cancelRunning(net string, now time.Time) (ids []int64, until time.Time) {
 	list, err := e.Store.ListSchedules()
 	if err != nil {
 		e.logf("schedules: cancel: %v", err)
@@ -281,11 +282,11 @@ func (e *Engine) cancelRunning(node string, now time.Time) (ids []int64, until t
 		byID[s.ID] = s
 	}
 	mine := func(id int64) bool {
-		if node == "" {
+		if net == "" {
 			return true
 		}
 		s, ok := byID[id]
-		return ok && s.Node == node
+		return ok && s.Mode == net
 	}
 	seen := map[int64]bool{}
 	note := func(id int64, end time.Time) {
@@ -316,8 +317,8 @@ func (e *Engine) cancelRunning(node string, now time.Time) (ids []int64, until t
 			}
 		}
 	}
-	if node != "" {
-		// pending retries of single events on that node
+	if net != "" {
+		// pending retries of single events on that net
 		for k, at := range e.pending {
 			if mine(k.id) {
 				delete(e.pending, k)
@@ -325,7 +326,7 @@ func (e *Engine) cancelRunning(node string, now time.Time) (ids []int64, until t
 				note(k.id, at.Add(RetrySingle))
 			}
 		}
-		// retries of window starts and ends of that node
+		// retries of window starts and ends of that net
 		for k := range e.tries {
 			if mine(k.id) {
 				delete(e.tries, k)
@@ -343,22 +344,22 @@ func (e *Engine) cancelRunning(node string, now time.Time) (ids []int64, until t
 func (e *Engine) Pause(reason string) { e.manualAction("", reason, ManualPause) }
 
 // ManualAction is called after a manual connect, disconnect or disconnect-all
-// on node (never for the scheduler's own commands). It applies the
+// on mode net ("" for any; never for the scheduler's own commands). It applies the
 // configured mode: pause, pause_today or cancel.
-func (e *Engine) ManualAction(node, reason string) {
+func (e *Engine) ManualAction(net, reason string) {
 	e.mu.Lock()
 	e.init()
 	mode := e.manual
 	e.mu.Unlock()
-	e.manualAction(node, reason, mode)
+	e.manualAction(net, reason, mode)
 }
 
-func (e *Engine) manualAction(node, reason, mode string) {
+func (e *Engine) manualAction(net, reason, mode string) {
 	e.mu.Lock()
 	e.init()
 	now := e.now()
 	if mode == ManualCancel {
-		ids, until := e.cancelRunning(node, now)
+		ids, until := e.cancelRunning(net, now)
 		if len(ids) == 0 {
 			e.mu.Unlock()
 			return
@@ -763,23 +764,23 @@ func (e *Engine) cmdCtx(ctx context.Context) (context.Context, context.CancelFun
 func (e *Engine) exec(ctx context.Context, it item) (string, bool) {
 	s := it.s
 	if it.key.kind == 'c' {
-		mode, linked, known := e.Linker.LinkMode(s.Node, s.Target)
+		linked, known := e.Linker.Linked(s.Mode, s.Target)
 		if !known {
 			return "error: node not available", false
 		}
-		if linked && (mode == s.Mode || mode == "connecting") {
+		if linked {
 			return "skipped: already connected", true
 		}
 		c, cancel := e.cmdCtx(ctx)
 		defer cancel()
-		if err := e.Linker.Connect(c, s.Node, s.Target, s.Mode, s.Permanent, s.Exclusive); err != nil {
-			e.logf("schedule %d: connect %s -> %s: %v", s.ID, s.Node, s.Target, err)
+		if err := e.Linker.Connect(c, s.Mode, s.Target); err != nil {
+			e.logf("schedule %d: connect %s %s: %v", s.ID, s.Mode, s.Target, err)
 			return "error: " + err.Error(), false
 		}
-		e.logf("schedule %d: connected %s -> %s (%s)", s.ID, s.Node, s.Target, s.Mode)
+		e.logf("schedule %d: connected %s %s", s.ID, s.Mode, s.Target)
 		return "ok", true
 	}
-	_, linked, known := e.Linker.LinkMode(s.Node, s.Target)
+	linked, known := e.Linker.Linked(s.Mode, s.Target)
 	if !known {
 		return "error: node not available", false
 	}
@@ -788,11 +789,11 @@ func (e *Engine) exec(ctx context.Context, it item) (string, bool) {
 	}
 	c, cancel := e.cmdCtx(ctx)
 	defer cancel()
-	if err := e.Linker.Disconnect(c, s.Node, s.Target, s.Permanent); err != nil {
-		e.logf("schedule %d: disconnect %s -> %s: %v", s.ID, s.Node, s.Target, err)
+	if err := e.Linker.Disconnect(c, s.Mode, s.Target); err != nil {
+		e.logf("schedule %d: disconnect %s %s: %v", s.ID, s.Mode, s.Target, err)
 		return "error: " + err.Error(), false
 	}
-	e.logf("schedule %d: disconnected %s -> %s", s.ID, s.Node, s.Target)
+	e.logf("schedule %d: disconnected %s %s", s.ID, s.Mode, s.Target)
 	return "ok", true
 }
 
@@ -894,8 +895,8 @@ func (e *Engine) Snapshot() Snapshot {
 	}
 	sort.SliceStable(list, func(i, j int) bool {
 		a, b := list[i], list[j]
-		if a.Node != b.Node {
-			return a.Node < b.Node
+		if a.Mode != b.Mode {
+			return a.Mode < b.Mode
 		}
 		if a.Start != b.Start {
 			return a.Start < b.Start

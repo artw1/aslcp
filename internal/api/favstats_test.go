@@ -13,7 +13,7 @@ import (
 	"github.com/artw1/aslcp/internal/favstats"
 )
 
-const favFixture = `{"stats":{"node":50001,"data":{"apprptuptime":"1047840","totaltxtime":"358786","totalkeyups":"14834","keyed":false,"links":["50002","50003"]}},"node":{"Status":"Active","access_webtransceiver":"0"}}`
+const favFixture = `{"stats":{"node":2001,"data":{"apprptuptime":"1047840","totaltxtime":"358786","totalkeyups":"14834","keyed":false,"links":["2002","1998"]}},"node":{"Status":"Active","access_webtransceiver":"0"}}`
 
 func favStatsEnv(t *testing.T) (*env, *atomic.Int32) {
 	t.Helper()
@@ -47,7 +47,7 @@ func TestFavStatsEndpointsRequireLogin(t *testing.T) {
 func TestFavStatsOffMeansNoRequests(t *testing.T) {
 	e, hits := favStatsEnv(t)
 	var f struct{ ID int64 }
-	e.do("op", "POST", "/api/favorites", map[string]string{"node": "50001"}, &f)
+	e.do("op", "POST", "/api/favorites", map[string]string{"mode": "allstar", "target": "2001"}, &f)
 	st := e.stream("viewer")
 	defer st.cancel()
 	time.Sleep(700 * time.Millisecond)
@@ -65,9 +65,9 @@ func TestFavStatsOffMeansNoRequests(t *testing.T) {
 
 func TestFavStatsScanFlow(t *testing.T) {
 	e, hits := favStatsEnv(t)
-	e.do("op", "POST", "/api/favorites", map[string]string{"node": "50001"}, nil)
-	e.do("op", "POST", "/api/favorites", map[string]string{"node": "3500000"}, nil)
-	e.do("op", "POST", "/api/favorites", map[string]string{"node": "1999"}, nil) // a local node: never queried
+	e.do("op", "POST", "/api/favorites", map[string]string{"mode": "allstar", "target": "2001"}, nil)
+	e.do("op", "POST", "/api/favorites", map[string]string{"mode": "bm", "target": "91"}, nil)           // not AllStar: never queried
+	e.do("op", "POST", "/api/favorites", map[string]string{"mode": "allstar", "target": localNode}, nil) // this station: never queried
 
 	// Nobody watching: switching on sends nothing yet.
 	if code := e.do("op", "PUT", "/api/favorites/scan", map[string]any{"enabled": true}, nil); code != 200 {
@@ -84,17 +84,17 @@ func TestFavStatsScanFlow(t *testing.T) {
 	st := e.stream("viewer")
 	defer st.cancel()
 	ev := st.wait(func(ev sseEvent) bool {
-		return ev.name == "favstats" && strings.Contains(ev.data, `"stats":{"50001"`)
+		return ev.name == "favstats" && strings.Contains(ev.data, `"stats":{"2001"`)
 	})
 	var u favstats.Update
 	if err := json.Unmarshal([]byte(ev.data), &u); err != nil {
 		t.Fatal(err)
 	}
-	a := u.Stats["50001"]
+	a := u.Stats["2001"]
 	if !u.Enabled || a.LinkCnt != 2 || !a.Active || a.RxPct == nil || *a.RxPct != 34 {
 		t.Fatalf("%+v", u)
 	}
-	if u.Checking != "" || u.Total != 1 || u.Checked != 1 || u.CheckedAt["50001"].IsZero() {
+	if u.Checking != "" || u.Total != 1 || u.Checked != 1 || u.CheckedAt["2001"].IsZero() {
 		t.Fatalf("progress: %+v", u)
 	}
 	// Snapshot and settings agree; the favorites list itself never carries activity.

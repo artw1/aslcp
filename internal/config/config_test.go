@@ -22,51 +22,42 @@ func TestDefaultsWhenMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Listen != ":8080" || c.DataDir != "/var/lib/aslcp" || c.AMIPort != 5038 || c.NodelistRefresh != 24*time.Hour {
+	if c.Listen != ":8080" || c.DataDir != "/var/lib/aslcp" || c.NodeSocket != DefaultNodeSocket || c.NodeConfig != DefaultNodeConfig || c.NodelistRefresh != 24*time.Hour {
 		t.Fatalf("defaults: %+v", c)
 	}
 }
 
-func TestParseAndAuto(t *testing.T) {
+func TestParse(t *testing.T) {
 	dir := t.TempDir()
-	mgr := write(t, dir, "manager.conf", "[general]\nenabled = yes\n\n[admin]\nsecret = hunter2 ; c\nread = all\n\n[other]\nsecret = zzz\n")
-	conf := write(t, dir, "aslcp.conf", "[server]\nlisten = 127.0.0.1:9999\ndatadir = /x\n[ami]\nhost = 10.0.0.1\nport = 5039\nusername = auto\nsecret = auto\n[nodelist]\nurl = http://example/\nrefresh = 2h\n")
-	c, err := LoadWithManager(conf, mgr)
+	conf := write(t, dir, "aslcp.conf", "; comment\n[server]\nlisten = 127.0.0.1:9999 ; inline\ndatadir = /x\n"+
+		"[ami]\nhost = 192.0.2.1\n# old section, ignored\n[Node]\nSocket = /tmp/n.sock\nconfig = /tmp/node.json\n"+
+		"[nodelist]\nurl = http://nodes.example.net/#a\nrefresh = 2h\n")
+	c, err := Load(conf)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Listen != "127.0.0.1:9999" || c.AMIAddr() != "10.0.0.1:5039" || c.NodelistRefresh != 2*time.Hour {
+	if c.Listen != "127.0.0.1:9999" || c.DataDir != "/x" || c.NodeSocket != "/tmp/n.sock" || c.NodeConfig != "/tmp/node.json" ||
+		c.NodelistURL != "http://nodes.example.net/#a" || c.NodelistRefresh != 2*time.Hour {
 		t.Fatalf("%+v", c)
 	}
-	if err := c.ResolveAMI(); err != nil {
-		t.Fatal(err)
-	}
-	if c.AMIUsername != "admin" || c.AMISecret != "hunter2" {
-		t.Fatalf("auto creds: %q %q", c.AMIUsername, c.AMISecret)
-	}
 }
 
-func TestExplicitCredsNotOverridden(t *testing.T) {
-	c := Defaults()
-	c.AMIUsername, c.AMISecret = "u", "s"
-	c.ManagerConf = "/nonexistent"
-	if err := c.ResolveAMI(); err != nil || c.AMIUsername != "u" {
-		t.Fatal(err, c)
-	}
-}
-
-func TestAutoMissingFileErrorHasNoSecret(t *testing.T) {
-	c := Defaults()
-	c.ManagerConf = "/nonexistent/manager.conf"
-	err := c.ResolveAMI()
-	if err == nil || strings.Contains(err.Error(), "secret =") {
-		t.Fatal(err)
+func TestParseErrors(t *testing.T) {
+	dir := t.TempDir()
+	for name, body := range map[string]string{
+		"header": "[server\n",
+		"no eq":  "[server]\nlisten\n",
+		"no key": "[server]\n = 1\n",
+	} {
+		if _, err := Load(write(t, dir, name+".conf", body)); err == nil || !strings.Contains(err.Error(), "line") {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }
 
 func TestBadValues(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := Load(write(t, dir, "a.conf", "[ami]\nport = abc\n")); err == nil {
+	if _, err := Load(write(t, dir, "a.conf", "[server]\nlisten\n")); err == nil {
 		t.Fatal("want error")
 	}
 	if _, err := Load(write(t, dir, "b.conf", "[nodelist]\nrefresh = 1s\n")); err == nil {

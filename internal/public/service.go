@@ -10,47 +10,34 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/artw1/aslcp/internal/rpt"
-	"github.com/artw1/aslcp/internal/store"
 )
-
-// Store is what the service needs from the database.
-type Store interface {
-	SettingsStore
-	ListActivity(nodes []string, limit int) ([]store.Activity, error)
-}
 
 // Options configure a Service.
 type Options struct {
-	Store          Store
-	Lookup         Lookup
+	Store          SettingsStore
 	Logger         *log.Logger
 	DefaultEnabled bool // initial value of "enabled" when never set (demo mode)
 	// OnClients is called with the number of connected SSE clients whenever
-	// it changes (the monitor polls fast while anyone watches).
+	// it changes.
 	OnClients func(n int)
-	// Bridge returns the private digital modes bridge node and its display name,
-	// or "" when there is none. Optional.
-	Bridge func() (node, name string)
-	// DV returns the digital modes calls (Now calling and heard), already
-	// resolved from local caches. Optional; only read while Settings.ShowDV is on.
-	DV  func() DVInput
-	Now func() time.Time
+	// Input returns the node's state and calls, already resolved from local
+	// caches (the service never looks anything up itself, so a request of a
+	// visitor can never cause a lookup). Optional.
+	Input func() Input
+	Now   func() time.Time
 }
 
 // Service serves the public status data.
 type Service struct {
 	opt Options
 	cfg atomic.Pointer[Settings]
-	mon atomic.Pointer[rpt.Monitor]
 	lim *limiter
 	hub *hub
 
-	dvMu    sync.Mutex
-	dvLast  time.Time
-	dvTimer *time.Timer
-	dvSent  []byte
+	chMu    sync.Mutex
+	chLast  time.Time
+	chTimer *time.Timer
+	chSent  []byte
 
 	// Limits and timing; set before the service is used (tests change them).
 	MaxPerIP     int           // SSE connections per client address (default 4)
@@ -58,7 +45,7 @@ type Service struct {
 	PingInterval time.Duration // default 20s
 	MaxStream    time.Duration // an SSE stream is closed after this long (default 6h)
 	WriteTimeout time.Duration // per write on an SSE stream (default 10s)
-	DVInterval   time.Duration // shortest time between two "dv" events (default 1s)
+	Interval     time.Duration // shortest time between two "snapshot" events (default 1s)
 }
 
 // New returns a Service with the persisted settings loaded.
@@ -71,7 +58,7 @@ func New(o Options) *Service {
 	}
 	s := &Service{
 		opt: o, lim: newLimiter(2, 10),
-		MaxPerIP: 4, MaxClients: 200, PingInterval: 20 * time.Second, MaxStream: 6 * time.Hour, WriteTimeout: 10 * time.Second, DVInterval: dvInterval,
+		MaxPerIP: 4, MaxClients: 200, PingInterval: 20 * time.Second, MaxStream: 6 * time.Hour, WriteTimeout: 10 * time.Second, Interval: time.Second,
 	}
 	s.hub = newHub(s)
 	st := LoadSettings(o.Store, o.DefaultEnabled)
@@ -92,9 +79,6 @@ func (s *Service) Clients() int { return s.hub.count() }
 // second, burst).
 func (s *Service) SetRateLimit(rate float64, burst int) { s.lim.set(rate, burst) }
 
-// SetMonitor tells the service where node status comes from.
-func (s *Service) SetMonitor(m *rpt.Monitor) { s.mon.Store(m) }
-
 // Update validates, persists and applies new settings, and refreshes the
 // connected clients (so a changed selection or visibility applies live).
 func (s *Service) Update(ns Settings) error {
@@ -114,123 +98,71 @@ func (s *Service) Update(ns Settings) error {
 }
 
 // Close ends all SSE streams.
-func (s *Service) Close() { s.stopDV(); s.hub.closeAll() }
-
-func (s *Service) selected(cfg *Settings) map[string]bool {
-	if len(cfg.Nodes) == 0 {
-		return nil
-	}
-	m := map[string]bool{}
-	for _, n := range cfg.Nodes {
-		m[n] = true
-	}
-	return m
-}
-
-// nodeIDs returns the shown local nodes in monitor order.
-func (s *Service) nodeIDs(cfg *Settings, m *rpt.Monitor) []string {
-	if m == nil {
-		return nil
-	}
-	sel := s.selected(cfg)
-	var out []string
-	for _, n := range m.Nodes() {
-		if sel == nil || sel[n] {
-			out = append(out, n)
-		}
-	}
-	return out
-}
+func (s *Service) Close() { s.stopTimer(); s.hub.closeAll() }
 
 // Snapshot builds the whole page state under the current settings.
-func (s *Service) Snapshot() Snapshot { return s.build(true) }
-
-func (s *Service) build(withActivity bool) Snapshot {
-	cfg := s.cfg.Load()
-	now := s.opt.Now()
-	v := s.view(cfg, now)
-	snap := Snapshot{Now: now.Unix(), Callsigns: cfg.ShowCallsigns, ShowNetwork: cfg.ShowNetwork, ShowActivity: cfg.ShowActivity, ShowDV: cfg.ShowDV, Nodes: []Node{}}
-	m := s.mon.Load()
-	ids := s.nodeIDs(cfg, m)
-	if m != nil {
-		all := m.Snapshot()
-		for _, id := range ids {
-			if st, ok := all[id]; ok {
-				snap.Nodes = append(snap.Nodes, BuildNode(st, s.opt.Lookup, v, true))
-			}
-		}
+func (s *Service) Snapshot() Snapshot {
+	var in Input
+	if s.opt.Input != nil {
+		in = s.opt.Input()
 	}
-	snap.Title = cfg.Title
-	if snap.Title == "" {
-		snap.Title = "AllStarLink node status"
-		if len(snap.Nodes) > 0 {
-			if in := snap.Nodes[0].Info; in != nil && in.Callsign != "" {
-				snap.Title = in.Callsign + " AllStarLink node " + snap.Nodes[0].Node
-			}
-		}
-	}
-	snap.Title = scrub(snap.Title)
-	if cfg.ShowActivity && withActivity {
-		snap.Activity = s.activity(cfg, ids, v)
-	}
-	if withActivity {
-		snap.DV = s.dv(cfg, v)
-	}
-	return snap
+	return Build(in, *s.cfg.Load(), s.opt.Now())
 }
 
-func (s *Service) activity(cfg *Settings, ids []string, v View) []Activity {
-	if len(ids) == 0 || s.opt.Store == nil {
-		return []Activity{}
-	}
-	rows, err := s.opt.Store.ListActivity(ids, ActivityLimit)
-	if err != nil {
-		s.opt.Logger.Printf("public: activity: %v", err)
-		return []Activity{}
-	}
-	return BuildActivity(rows, s.opt.Lookup, v)
-}
-
-// HandleUpdate forwards a monitor update to the connected clients.
-func (s *Service) HandleUpdate(u rpt.Update) {
-	if s.hub.count() == 0 {
+// Changed tells the service that the node's state or calls changed.
+// Updates are coalesced: at most one "snapshot" event per Interval goes to
+// the clients, only when it differs from the last one, and nothing at all
+// while the page is off or nobody is watching.
+func (s *Service) Changed() {
+	if !s.cfg.Load().Enabled || s.hub.count() == 0 {
 		return
 	}
-	cfg := s.cfg.Load()
-	if !cfg.Enabled {
-		return
-	}
-	c := u.Changes
-	if c.Added || c.Removed {
-		s.hub.broadcast(frame("snapshot", s.Snapshot()))
-		return
-	}
-	if sel := s.selected(cfg); sel != nil && !sel[u.Node] {
-		return
-	}
-	if c.Resync || c.Recovered || c.Stale || c.Initial {
-		s.hub.broadcast(frame("snapshot", s.Snapshot()))
-		return
-	}
-	v := s.view(cfg, s.opt.Now())
-	s.hub.broadcast(frame("node", BuildNode(u.Status, s.opt.Lookup, v, false)))
-	if c.Network && cfg.ShowNetwork {
-		s.hub.broadcast(frame("network", NetworkEvent{Node: scrubNode(u.Node), Network: BuildNetwork(u.Status, s.opt.Lookup, v)}))
-	}
-}
-
-// ActivityRecorded tells the service a transmission was stored.
-func (s *Service) ActivityRecorded(a store.Activity) {
-	cfg := s.cfg.Load()
-	if s.hub.count() == 0 || !cfg.Enabled || !cfg.ShowActivity {
-		return
-	}
-	if sel := s.selected(cfg); sel != nil && !sel[a.Node] {
+	s.chMu.Lock()
+	if s.chTimer != nil { // one is scheduled already and will read the newest data
+		s.chMu.Unlock()
 		return
 	}
 	now := s.opt.Now()
-	v := s.view(cfg, now)
-	s.hub.broadcast(frame("activity", ActivityEvent{Now: now.Unix(), Activity: s.activity(cfg, s.nodeIDs(cfg, s.mon.Load()), v)}))
+	wait := s.Interval - now.Sub(s.chLast)
+	if wait <= 0 {
+		s.chLast = now
+		s.chMu.Unlock()
+		s.send()
+		return
+	}
+	s.chTimer = time.AfterFunc(wait, func() {
+		s.chMu.Lock()
+		s.chTimer = nil
+		s.chLast = s.opt.Now()
+		s.chMu.Unlock()
+		s.send()
+	})
+	s.chMu.Unlock()
+}
+
+func (s *Service) send() {
+	if !s.cfg.Load().Enabled || s.hub.count() == 0 {
+		return
+	}
+	sn := s.Snapshot()
+	sn.Now = 0 // compared without the clock
+	cmp := frame("snapshot", sn)
+	s.chMu.Lock()
+	same := string(cmp) == string(s.chSent)
+	s.chSent = cmp
+	s.chMu.Unlock()
+	if !same {
+		s.hub.broadcast(frame("snapshot", s.Snapshot()))
+	}
+}
+
+func (s *Service) stopTimer() {
+	s.chMu.Lock()
+	if s.chTimer != nil {
+		s.chTimer.Stop()
+		s.chTimer = nil
+	}
+	s.chMu.Unlock()
 }
 
 func frame(event string, v any) []byte {
@@ -306,7 +238,7 @@ func (s *Service) Info(w http.ResponseWriter, r *http.Request, loggedIn bool) {
 	}
 	out := InfoResponse{Enabled: cfg.Enabled, LoggedIn: loggedIn}
 	if cfg.Enabled {
-		out.Title = s.build(false).Title
+		out.Title = s.Snapshot().Title
 	}
 	writeJSON(w, 200, out)
 }
@@ -566,13 +498,4 @@ func (l *limiter) allow(key string, now time.Time) bool {
 	}
 	b.tokens--
 	return true
-}
-
-// view is the build configuration for the current settings.
-func (s *Service) view(cfg *Settings, now time.Time) View {
-	v := View{Callsigns: cfg.ShowCallsigns, Network: cfg.ShowNetwork, Now: now}
-	if s.opt.Bridge != nil {
-		v.Bridge, v.BridgeName = s.opt.Bridge()
-	}
-	return v
 }

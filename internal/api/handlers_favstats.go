@@ -8,8 +8,8 @@ import (
 	"github.com/artw1/aslcp/internal/store"
 )
 
-// initFavStats wires the favorites activity scan to this server's favorites,
-// local nodes and SSE hub.
+// initFavStats wires the favorites activity scan to this server's AllStar
+// favorites, the station's own AllStar node and the SSE hub.
 func (s *Server) initFavStats() {
 	fs := s.d.FavStats
 	if fs == nil {
@@ -19,19 +19,21 @@ func (s *Server) initFavStats() {
 		if s.d.Store == nil {
 			return nil
 		}
-		list, err := s.d.Store.ListFavorites()
+		list, err := s.d.Store.ListFavorites(modeAllStar)
 		if err != nil {
 			return nil
 		}
 		out := make([]string, 0, len(list))
 		for _, f := range list {
-			out = append(out, f.Node)
+			out = append(out, f.Target)
 		}
 		return out
 	}
+	// Local is this station's own AllStar node number (from the allstar
+	// mode's settings), which the scan skips.
 	fs.Local = func() []string {
-		if m := s.monitor(); m != nil {
-			return m.Nodes()
+		if n := s.nw.allStarNode(); n != "" {
+			return []string{n}
 		}
 		return nil
 	}

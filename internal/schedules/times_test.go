@@ -29,7 +29,7 @@ func TestUpcomingWeekly(t *testing.T) {
 		"2026-11-17 19:00 -0500 connect #1", "2026-11-17 20:30 -0500 disconnect #1",
 		"2026-11-19 19:00 -0500 connect #1", "2026-11-19 20:30 -0500 disconnect #1",
 		"2026-11-24 19:00 -0500 connect #1", "2026-11-24 20:30 -0500 disconnect #1")
-	if got[0].Mode != "transceive" || got[1].Mode != "" {
+	if got[0].Mode != "allstar" || got[1].Mode != "allstar" {
 		t.Fatalf("modes %+v", got[:2])
 	}
 	// limit n
@@ -89,7 +89,7 @@ func TestUpcomingDisabledAndCancelled(t *testing.T) {
 func TestUpcomingOrderSameMinute(t *testing.T) {
 	a := win(1, []int{2}, "19:00", "20:00")
 	b := win(2, []int{2}, "20:00", "21:00")
-	c := Schedule{ID: 3, Enabled: true, Node: "1997", Target: "40003", Action: ActionDisconnect, Days: []int{2}, Start: "20:00"}
+	c := Schedule{ID: 3, Enabled: true, Mode: "allstar", Target: "40003", Action: ActionDisconnect, Days: []int{2}, Start: "20:00"}
 	got := Upcoming([]Schedule{b, c, a}, nil, tue(19, 30, 0), ny, 3)
 	wantEvs(t, got, "2026-11-17 20:00 -0500 disconnect #1", "2026-11-17 20:00 -0500 disconnect #3", "2026-11-17 20:00 -0500 connect #2")
 }
@@ -119,5 +119,5 @@ func TestDSTGapEngineRunsAtThree(t *testing.T) {
 	s := win(1, []int{0}, "02:30", "")
 	h := newHarness(t, tm(2026, 3, 8, 1, 59, 0), s)
 	same(t, h.at(tm(2026, 3, 8, 3, 0, 0).Add(-time.Second)))
-	same(t, h.at(tm(2026, 3, 8, 3, 0, 5)), "connect 1997>41234 transceive perm=false excl=false")
+	same(t, h.at(tm(2026, 3, 8, 3, 0, 5)), "connect allstar>41234")
 }

@@ -26,10 +26,9 @@ type Event struct {
 	At     time.Time `json:"at"`
 	ID     int64     `json:"id"`
 	Name   string    `json:"name"`
-	Node   string    `json:"node"`
+	Mode   string    `json:"mode"`
 	Target string    `json:"target"`
 	Action string    `json:"action"`
-	Mode   string    `json:"mode"`
 }
 
 // Horizon is how far ahead Upcoming looks.
@@ -149,11 +148,7 @@ func Upcoming(list []Schedule, state []Occ, now time.Time, loc *time.Location, n
 				continue
 			}
 			mk := func(at time.Time, action string) Event {
-				e := Event{At: at.In(loc), ID: s.ID, Name: s.Name, Node: s.Node, Target: s.Target, Action: action}
-				if action == ActionConnect {
-					e.Mode = s.Mode
-				}
-				return e
+				return Event{At: at.In(loc), ID: s.ID, Name: s.Name, Mode: s.Mode, Target: s.Target, Action: action}
 			}
 			rank := rankConnect
 			if s.Action == ActionDisconnect {

@@ -12,17 +12,12 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 
-	"github.com/artw1/aslcp/internal/activity"
-	"github.com/artw1/aslcp/internal/ami"
 	"github.com/artw1/aslcp/internal/auth"
 	"github.com/artw1/aslcp/internal/backupsvc"
 	"github.com/artw1/aslcp/internal/config"
-	"github.com/artw1/aslcp/internal/configsvc"
 	"github.com/artw1/aslcp/internal/diag"
-	"github.com/artw1/aslcp/internal/dvpanel"
 	"github.com/artw1/aslcp/internal/favstats"
 	"github.com/artw1/aslcp/internal/hamdb"
 	"github.com/artw1/aslcp/internal/helper"
@@ -30,19 +25,19 @@ import (
 	"github.com/artw1/aslcp/internal/nodelist"
 	"github.com/artw1/aslcp/internal/public"
 	"github.com/artw1/aslcp/internal/radioid"
-	"github.com/artw1/aslcp/internal/rpt"
 	"github.com/artw1/aslcp/internal/schedules"
 	"github.com/artw1/aslcp/internal/store"
-	"github.com/artw1/aslcp/internal/susb"
 	"github.com/artw1/aslcp/internal/system"
 	"github.com/artw1/aslcp/internal/updates"
 )
 
 // Deps are the server's collaborators.
 type Deps struct {
-	Auth     *auth.Service
-	Store    *store.Store
-	AMI      system.AMI // rpt.API + connection State
+	Auth  *auth.Service
+	Store *store.Store
+	// Node is the node daemon's control socket (nil: 503 node_unavailable).
+	// node.Client implements it.
+	Node     Node
 	Nodelist *nodelist.DB
 	System   *system.Collector
 	// Updates reports and applies package updates (may be nil: unavailable).
@@ -53,40 +48,21 @@ type Deps struct {
 	// SysHost is the helper behind the System tab: hostname and time, logs
 	// and services, network status (nil: 503 system_unavailable).
 	SysHost SystemHost
-	// DVEngine is the helper's digital modes part: enable, disable, config,
-	// the private node record (nil: 503 dv_unavailable).
-	DVEngine DVEngine
-	// DVCtl is the engine's control socket (nil: 503 dv_unavailable).
-	DVCtl DVCtl
-	// HostLists serves the DMR, YSF, P25, NXDN and M17 pickers and resolves the
-	// targets of a tune (nil: no lists).
+	// HostLists serves the DMR, YSF, P25, NXDN and M17 pickers and fills
+	// the address of a picked reflector (nil: no lists).
 	HostLists *hostlists.Manager
-	// DVResume holds the last tune per mode and the resume setting (nil: 503
-	// dv_unavailable).
-	DVResume DVResume
-	// DVEnabled says whether digital modes are on, without asking the helper
-	// (nil: the helper's status, cached for a few seconds).
-	DVEnabled func() bool
-	// DVBridgeNode finds the local node that uses a USRP channel (rpt.conf,
-	// read-only; nil: never found).
-	DVBridgeNode func(ctx context.Context) (string, bool)
 	// RadioID is the radioid.net user list: names and places of DMR and YSF
 	// callers for the "Now calling" strip (nil: bare callsigns only).
 	RadioID *radioid.Manager
 	// HamDB is the opt-in hamdb.org fallback for the name and place of a
 	// callsign-only caller the radioid.net list does not know (nil: none).
-	HamDB *hamdb.Manager
-	// ConfigEditor is the configuration editing service (nil: 503
-	// config_unavailable).
-	ConfigEditor *configsvc.Service
-	Version      string
+	HamDB   *hamdb.Manager
+	Version string
 	// UI serves the embedded SPA for non-/api paths (may be nil).
 	UI http.Handler
 	// AllowedOrigins are extra CSRF-allowed Origins (the Vite dev server).
 	AllowedOrigins []string
-	// AllScanDirs are searched for favorites*.ini.
-	AllScanDirs []string
-	Logger      *log.Logger
+	Logger         *log.Logger
 	// Diagnostics (GET /api/diagnostics): the in-memory log, the effective
 	// configuration, the helper's firewall status (nil: n/a) and platform
 	// file locations (nil: the real ones; tests inject others).
@@ -103,76 +79,43 @@ type Deps struct {
 	// restore (nil: no restart, demo mode).
 	Backup  *backupsvc.Service
 	Restart func()
-	// Tuning is the SimpleUSB tuning service (nil: 503 radio_unavailable).
-	// New wires its node state check to the monitor.
-	Tuning *susb.Service
-	// RescanNodes asks for the local node list to be re-read after the panel
-	// reloaded or restarted Asterisk (nil: no-op).
-	RescanNodes func()
-	// FavStats is the favorites activity scan (nil: feature unavailable).
-	// New wires its sources and update broadcast.
+	// FavStats is the favorites activity scan of the AllStar favorites
+	// (nil: feature unavailable). New wires its sources and update
+	// broadcast.
 	FavStats *favstats.Service
 	// Schedules runs the scheduled connects (nil: feature unavailable, 503
 	// schedules_unavailable). New wires its link controller (unless set) and
 	// its change broadcast.
 	Schedules *schedules.Engine
-	// DVLink keeps the permanent link of the private bridge node (nil: the
-	// link features are off). New wires its Linker (unless set), Store (unless
-	// set) and its change notification; Run starts it.
-	DVLink *dvpanel.LinkReconciler
 }
 
 // Server is the HTTP API.
 type Server struct {
 	d   Deps
-	rpt *rpt.Client
 	hub *hub
 	pub *public.Service
-	rec *activity.Recorder
 	mux *http.ServeMux
 
 	// Intervals (exported for tests).
-	FastInterval   time.Duration // monitor poll while SSE clients are connected
-	SlowInterval   time.Duration // monitor poll otherwise
 	PingInterval   time.Duration
 	SystemInterval time.Duration
-	// LinkGoneWait bounds how long an exclusive connect waits for each
-	// disconnected link to disappear before connecting anyway (a permanent
-	// link never goes away).
-	LinkGoneWait time.Duration
-	// AsteriskBackWait bounds how long a flow that restarted Asterisk (the
-	// digital modes bridge node apply and rollback) waits for it to answer again,
-	// polling every AsteriskBackPoll.
-	AsteriskBackWait time.Duration
-	AsteriskBackPoll time.Duration
+	// NodeRetry is the wait before subscribing to the node again after the
+	// stream ended or could not be opened (doubling up to 8 times this).
+	NodeRetry time.Duration
 
-	schedMu sync.Mutex // serialises schedule saves (overlap check + write)
+	schedMu sync.Mutex // serializes schedule saves (overlap check + write)
 
 	secretsMu sync.Mutex
 	secrets   []string
 	platOnce  sync.Once
 	plat      diag.Platform
 
-	// dvTuning counts tunes in flight (dvSendTune); the re-tune after a bridge
-	// node link does not run while one is. dvBridgeMu serializes the release
-	// and the re-tune; dvRetuneDelay is the wait before the latter.
-	dvTuning      atomic.Int32
-	dvBridgeMu    sync.Mutex
-	dvRetuneDelay time.Duration
-
-	monMu sync.RWMutex
-	mon   *rpt.Monitor
-
 	// term is the browser terminal: tickets, limits, open sessions.
 	term termState
 
-	dvs *dvSnapper // digital modes snapshot and its change events
-	nc  *ncState   // "Now calling" (nowcalling.go)
-	// dvUndo is what the last private-node apply changed (for its rollback).
-	dvUndo   *dvPrivateUndo
-	dvUndoMu sync.Mutex
-	// dvAdoptMu serializes the take-over of a bridge node.
-	dvAdoptMu sync.Mutex
+	nw     *nodeWatch    // the node's status, kept from its event stream (node_watch.go)
+	nwKick chan struct{} // asks refreshLoop for a fresh status
+	nc     *ncState      // "Now calling" (nowcalling.go)
 
 	stop     chan struct{}
 	stopOnce sync.Once
@@ -191,70 +134,45 @@ func New(d Deps) *Server {
 	_, _ = rand.Read(ib)
 	s := &Server{
 		instance: hex.EncodeToString(ib),
-		d:        d, rpt: rpt.New(d.AMI), mux: http.NewServeMux(),
-		FastInterval: time.Second, SlowInterval: 10 * time.Second,
+		d:        d, mux: http.NewServeMux(),
 		PingInterval: 15 * time.Second, SystemInterval: 10 * time.Second,
-		LinkGoneWait: 3 * time.Second, dvRetuneDelay: dvDefaultRetuneDelay,
-		AsteriskBackWait: 90 * time.Second, AsteriskBackPoll: time.Second,
-		stop: make(chan struct{}),
+		NodeRetry: 2 * time.Second,
+		stop:      make(chan struct{}),
 	}
 	s.hub = newHub(func(int) { s.updateInterval(0) })
+	s.nw = newNodeWatch()
+	s.nwKick = make(chan struct{}, 1)
 	if d.Updates != nil && d.Updates.OS != nil {
 		d.Updates.OS.OnChange = s.broadcastUpdates
 	}
-	var pst public.Store
+	var pst public.SettingsStore
 	if d.Store != nil {
 		pst = d.Store
 	}
-	var lk public.Lookup
-	if d.Nodelist != nil {
-		lk = d.Nodelist
-	}
 	s.pub = public.New(public.Options{
-		Store: pst, Lookup: lk, Logger: d.Logger, DefaultEnabled: d.PublicDefaultEnabled,
-		OnClients: func(int) { s.updateInterval(0) },
-		Bridge:    s.publicBridge(),
-		DV:        s.publicDV,
+		Store: pst, Logger: d.Logger, DefaultEnabled: d.PublicDefaultEnabled,
+		Input: s.publicInput,
 	})
-	if d.Store != nil {
-		s.rec = activity.New(d.Store, d.Logger)
-	} else {
-		s.rec = activity.New(noActivity{}, d.Logger)
-	}
-	s.rec.OnRecord = s.pub.ActivityRecorded
+	s.initNowCalling()
 	s.initFavStats()
 	s.initSchedules()
-	s.initNowCalling()
 	if d.HamDB != nil {
 		d.HamDB.SetOnChange(s.hamdbChanged)
 	}
-	s.initDV()
-	s.initDVLink()
 	s.routes()
 	return s
 }
 
-// SetCommandGap sets the minimum spacing between app_rpt commands to one
-// node (see rpt.Client.MinGap); tests use a small value.
-func (s *Server) SetCommandGap(d time.Duration) { s.rpt.MinGap = d }
-
 // Run starts background loops (system pushes) until ctx is done.
 func (s *Server) Run(ctx context.Context) {
 	go s.systemLoop(ctx)
-	go s.rec.Run(ctx)
-	go s.ncTick(ctx)
+	go s.watchNode(ctx)
 	go s.terminalLoop(ctx)
-	if s.dvs != nil {
-		go s.dvs.run(ctx)
-	}
 	if s.d.FavStats != nil {
 		go s.d.FavStats.Run(ctx)
 	}
 	if s.d.Schedules != nil {
 		go s.d.Schedules.Run(ctx)
-	}
-	if s.d.DVLink != nil {
-		go s.d.DVLink.Run(ctx)
 	}
 	<-ctx.Done()
 	s.Shutdown()
@@ -346,10 +264,6 @@ func (s *Server) authed(min string, h handlerFunc) http.HandlerFunc {
 	}
 }
 
-func (s *Server) amiUp() bool { return s.d.AMI != nil && s.d.AMI.State().Connected }
-
-var errAMIDown = ami.ErrNotConnected
-
 // ---------------------------------------------------------------- routing
 
 func (s *Server) routes() {
@@ -366,20 +280,14 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/users", s.authed(store.RoleAdmin, s.handleUsersCreate))
 	m.HandleFunc("PUT /api/users/{id}", s.authed(store.RoleAdmin, s.handleUsersUpdate))
 	m.HandleFunc("DELETE /api/users/{id}", s.authed(store.RoleAdmin, s.handleUsersDelete))
-	// nodes
-	m.HandleFunc("GET /api/nodes", s.authed(store.RoleViewer, s.handleNodes))
-	m.HandleFunc("POST /api/nodes/{node}/connect", s.authed(store.RoleOperator, s.handleConnect))
-	m.HandleFunc("POST /api/nodes/{node}/disconnect", s.authed(store.RoleOperator, s.handleDisconnect))
-	m.HandleFunc("POST /api/nodes/{node}/disconnect-all", s.authed(store.RoleOperator, s.handleDisconnectAll))
-	m.HandleFunc("GET /api/nodes/{node}/stats", s.authed(store.RoleViewer, s.handleNodeStats))
+	// the node: status, modes, station, the link, last heard, the radio
+	s.nodeRoutes()
 	// favorites
 	m.HandleFunc("GET /api/favorites", s.authed(store.RoleViewer, s.handleFavList))
 	m.HandleFunc("GET /api/favorites/stats", s.authed(store.RoleViewer, s.handleFavStats))
 	m.HandleFunc("PUT /api/favorites/scan", s.authed(store.RoleOperator, s.handleFavScan))
 	m.HandleFunc("POST /api/favorites", s.authed(store.RoleOperator, s.handleFavCreate))
 	m.HandleFunc("POST /api/favorites/reorder", s.authed(store.RoleOperator, s.handleFavReorder))
-	m.HandleFunc("GET /api/favorites/import/allscan", s.authed(store.RoleOperator, s.handleImportPreview))
-	m.HandleFunc("POST /api/favorites/import/allscan", s.authed(store.RoleOperator, s.handleImport))
 	m.HandleFunc("PUT /api/favorites/{id}", s.authed(store.RoleOperator, s.handleFavUpdate))
 	m.HandleFunc("DELETE /api/favorites/{id}", s.authed(store.RoleOperator, s.handleFavDelete))
 	// schedules
@@ -397,13 +305,9 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/nodelist", s.authed(store.RoleViewer, s.handleNodelist))
 	m.HandleFunc("POST /api/nodelist/refresh", s.authed(store.RoleAdmin, s.handleNodelistRefresh))
 	m.HandleFunc("GET /api/system", s.authed(store.RoleViewer, s.handleSystem))
-	m.HandleFunc("POST /api/system/restart-asterisk", s.authed(store.RoleAdmin, s.handleRestartAsterisk))
 	m.HandleFunc("GET /api/about", s.authed(store.RoleViewer, s.handleAbout))
 	m.HandleFunc("GET /api/diagnostics", s.authed(store.RoleAdmin, s.handleDiagnostics))
-	s.configRoutes()
 	s.backupRoutes()
-	s.radioRoutes()
-	s.dvRoutes()
 	s.nowCallingRoutes()
 	s.systemRoutes()
 	m.HandleFunc("GET /api/updates", s.authed(store.RoleAdmin, s.handleUpdatesGet))
@@ -424,7 +328,6 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/public/events", s.pub.Events)
 	m.HandleFunc("GET /api/public", s.authed(store.RoleAdmin, s.handlePublicGet))
 	m.HandleFunc("PUT /api/public", s.authed(store.RoleAdmin, s.handlePublicPut))
-	m.HandleFunc("GET /api/activity", s.authed(store.RoleViewer, s.handleActivity))
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})
@@ -471,9 +374,3 @@ func (s *Server) secure(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-
-// noActivity discards activity when there is no store (tests).
-type noActivity struct{}
-
-func (noActivity) AddActivity(store.Activity) error            { return nil }
-func (noActivity) PruneActivity(time.Time, int) (int64, error) { return 0, nil }

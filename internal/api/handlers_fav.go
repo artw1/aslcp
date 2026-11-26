@@ -6,25 +6,33 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/artw1/aslcp/internal/allscan"
 	"github.com/artw1/aslcp/internal/store"
 )
 
 const (
 	maxLabel = 120
 	maxGroup = 60
+	// maxTarget is the longest favorite target (a node number, talkgroup or
+	// reflector name).
+	maxTarget = 64
 )
 
-func (s *Server) defaultLabel(node string) string {
-	if s.d.Nodelist != nil {
-		if in, ok := s.d.Nodelist.Lookup(node); ok {
+// defaultLabel is the label of a favorite saved without one: for an
+// AllStar node its callsign and description from the node list, for a
+// reflector the name the host lists know, else the target itself.
+func (s *Server) defaultLabel(m, target string) string {
+	if m == modeAllStar && s.d.Nodelist != nil {
+		if in, ok := s.d.Nodelist.Lookup(target); ok {
 			l := strings.TrimSpace(in.Callsign + " " + in.Description)
 			if l != "" {
 				return truncate(l, maxLabel)
 			}
 		}
 	}
-	return node
+	if t := s.resolveTarget(m, target); t.Name != "" && t.Name != target {
+		return truncate(t.Name, maxLabel)
+	}
+	return target
 }
 
 func truncate(s string, n int) string {
@@ -47,8 +55,71 @@ func cleanText(s string, max int) (string, bool) {
 	return s, true
 }
 
+// cleanTarget checks a favorite's target: not empty, short, no control
+// characters, and for AllStar and EchoLink a node number.
+func cleanTarget(m, t string) (string, string) {
+	t, ok := cleanText(t, maxTarget)
+	if !ok || t == "" {
+		return "", "target must be 1 to 64 characters without control characters"
+	}
+	if (m == modeAllStar || m == modeEchoLink) && !isDigits(t) {
+		return "", "target must be a node number"
+	}
+	return t, ""
+}
+
+func isDigits(s string) bool {
+	if s == "" || len(s) > 7 {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// favMode reads and checks a mode name from a request ("" allowed when
+// optional).
+func (s *Server) favMode(w http.ResponseWriter, m string, optional bool) (string, bool) {
+	m = strings.ToLower(strings.TrimSpace(m))
+	if m == "" && optional {
+		return "", true
+	}
+	if m == "" || !reModeName.MatchString(m) {
+		writeErr(w, 400, "bad_mode", "mode must be one of the node's modes")
+		return "", false
+	}
+	if ms := s.nw.modeNames(); len(ms) > 0 && !contains(ms, m) {
+		writeErr(w, 400, "bad_mode", "the node has no mode "+m)
+		return "", false
+	}
+	return m, true
+}
+
+func (s *Server) favErr(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeErr(w, 404, "not_found", "no such favorite")
+	case errors.Is(err, store.ErrDuplicate):
+		writeErr(w, 409, "duplicate", "that target is a favorite already")
+	case errors.Is(err, store.ErrLimit):
+		writeErr(w, 409, "limit", "too many favorites for this mode")
+	case errors.Is(err, store.ErrMismatch):
+		writeErr(w, 400, "bad_request", "ids must list every favorite of the mode once")
+	default:
+		s.internal(w, err)
+	}
+}
+
+// handleFavList serves GET /api/favorites?mode= (every mode when absent).
 func (s *Server) handleFavList(w http.ResponseWriter, r *http.Request, _ store.User) {
-	favs, err := s.favoritesJSON()
+	m, ok := s.favMode(w, r.URL.Query().Get("mode"), true)
+	if !ok {
+		return
+	}
+	favs, err := s.favoritesJSON(m)
 	if err != nil {
 		s.internal(w, err)
 		return
@@ -57,13 +128,22 @@ func (s *Server) handleFavList(w http.ResponseWriter, r *http.Request, _ store.U
 }
 
 func (s *Server) handleFavCreate(w http.ResponseWriter, r *http.Request, _ store.User) {
-	var in struct{ Node, Label, Group string }
+	var in struct {
+		Mode   string `json:"mode"`
+		Target string `json:"target"`
+		Label  string `json:"label"`
+		Group  string `json:"group"`
+	}
 	if !decode(w, r, &in, false) {
 		return
 	}
-	node := strings.TrimSpace(in.Node)
-	if !reConnectTarget.MatchString(node) {
-		writeErr(w, 400, "bad_target", "node must be a node number")
+	m, ok := s.favMode(w, in.Mode, false)
+	if !ok {
+		return
+	}
+	target, msg := cleanTarget(m, in.Target)
+	if msg != "" {
+		writeErr(w, 400, "bad_target", msg)
 		return
 	}
 	label, ok1 := cleanText(in.Label, maxLabel)
@@ -73,11 +153,11 @@ func (s *Server) handleFavCreate(w http.ResponseWriter, r *http.Request, _ store
 		return
 	}
 	if label == "" {
-		label = s.defaultLabel(node)
+		label = s.defaultLabel(m, target)
 	}
-	f, err := s.d.Store.AddFavorite(node, label, group)
+	f, err := s.d.Store.AddFavorite(m, target, label, group)
 	if err != nil {
-		s.internal(w, err)
+		s.favErr(w, err)
 		return
 	}
 	s.broadcastFavorites()
@@ -90,20 +170,27 @@ func (s *Server) handleFavUpdate(w http.ResponseWriter, r *http.Request, _ store
 		return
 	}
 	var in struct {
-		Node, Label, Group *string
-		Pinned             *bool
+		Target *string `json:"target"`
+		Label  *string `json:"label"`
+		Group  *string `json:"group"`
+		Pinned *bool   `json:"pinned"`
 	}
 	if !decode(w, r, &in, false) {
 		return
 	}
-	var node, label, group *string
-	if in.Node != nil {
-		n := strings.TrimSpace(*in.Node)
-		if !reConnectTarget.MatchString(n) {
-			writeErr(w, 400, "bad_target", "node must be a node number")
+	cur, err := s.d.Store.GetFavorite(id)
+	if err != nil {
+		s.favErr(w, err)
+		return
+	}
+	var target, label, group *string
+	if in.Target != nil {
+		t, msg := cleanTarget(cur.Mode, *in.Target)
+		if msg != "" {
+			writeErr(w, 400, "bad_target", msg)
 			return
 		}
-		node = &n
+		target = &t
 	}
 	if in.Label != nil {
 		l, ok := cleanText(*in.Label, maxLabel)
@@ -112,13 +199,11 @@ func (s *Server) handleFavUpdate(w http.ResponseWriter, r *http.Request, _ store
 			return
 		}
 		if l == "" {
-			n := ""
-			if node != nil {
-				n = *node
-			} else if cur, err := s.d.Store.GetFavorite(id); err == nil {
-				n = cur.Node
+			t := cur.Target
+			if target != nil {
+				t = *target
 			}
-			l = s.defaultLabel(n)
+			l = s.defaultLabel(cur.Mode, t)
 		}
 		label = &l
 	}
@@ -130,13 +215,9 @@ func (s *Server) handleFavUpdate(w http.ResponseWriter, r *http.Request, _ store
 		}
 		group = &g
 	}
-	f, err := s.d.Store.UpdateFavorite(id, node, label, group, in.Pinned)
-	if errors.Is(err, store.ErrNotFound) {
-		writeErr(w, 404, "not_found", "no such favorite")
-		return
-	}
+	f, err := s.d.Store.UpdateFavorite(id, target, label, group, in.Pinned)
 	if err != nil {
-		s.internal(w, err)
+		s.favErr(w, err)
 		return
 	}
 	s.broadcastFavorites()
@@ -148,91 +229,32 @@ func (s *Server) handleFavDelete(w http.ResponseWriter, r *http.Request, _ store
 	if !ok {
 		return
 	}
-	err := s.d.Store.DeleteFavorite(id)
-	if errors.Is(err, store.ErrNotFound) {
-		writeErr(w, 404, "not_found", "no such favorite")
-		return
-	}
-	if err != nil {
-		s.internal(w, err)
+	if err := s.d.Store.DeleteFavorite(id); err != nil {
+		s.favErr(w, err)
 		return
 	}
 	s.broadcastFavorites()
 	noContent(w)
 }
 
+// handleFavReorder serves POST /api/favorites/reorder {mode, ids}: ids is
+// every favorite of the mode in the new order.
 func (s *Server) handleFavReorder(w http.ResponseWriter, r *http.Request, _ store.User) {
 	var in struct {
-		IDs []int64 `json:"ids"`
+		Mode string  `json:"mode"`
+		IDs  []int64 `json:"ids"`
 	}
 	if !decode(w, r, &in, false) {
 		return
 	}
-	err := s.d.Store.ReorderFavorites(in.IDs)
-	if errors.Is(err, store.ErrNotFound) {
-		writeErr(w, 404, "not_found", "unknown favorite id")
+	m, ok := s.favMode(w, in.Mode, false)
+	if !ok {
 		return
 	}
-	if err != nil {
-		s.internal(w, err)
+	if err := s.d.Store.ReorderFavorites(m, in.IDs); err != nil {
+		s.favErr(w, err)
 		return
 	}
 	s.broadcastFavorites()
 	noContent(w)
-}
-
-// -------------------------------------------------------- AllScan import
-
-func (s *Server) handleImportPreview(w http.ResponseWriter, r *http.Request, _ store.User) {
-	res, err := allscan.Find(s.d.AllScanDirs)
-	if err != nil {
-		s.d.Logger.Printf("allscan import: %v", err)
-	}
-	writeJSON(w, 200, res)
-}
-
-func (s *Server) handleImport(w http.ResponseWriter, r *http.Request, _ store.User) {
-	res, err := allscan.Find(s.d.AllScanDirs)
-	if err != nil {
-		s.d.Logger.Printf("allscan import: %v", err)
-	}
-	existing, err := s.d.Store.ListFavorites()
-	if err != nil {
-		s.internal(w, err)
-		return
-	}
-	have := map[string]bool{}
-	for _, f := range existing {
-		have[f.Node] = true
-	}
-	imported, skipped := 0, 0
-	for _, it := range res.Items {
-		if have[it.Node] {
-			skipped++
-			continue
-		}
-		label, ok := cleanText(it.Label, maxLabel)
-		if !ok {
-			label = truncate(strings.Map(func(r rune) rune {
-				if r < 0x20 || r == 0x7f {
-					return -1
-				}
-				return r
-			}, it.Label), maxLabel)
-			label = strings.TrimSpace(label)
-		}
-		if label == "" {
-			label = s.defaultLabel(it.Node)
-		}
-		if _, err := s.d.Store.AddFavorite(it.Node, label, ""); err != nil {
-			s.internal(w, err)
-			return
-		}
-		have[it.Node] = true
-		imported++
-	}
-	if imported > 0 {
-		s.broadcastFavorites()
-	}
-	writeJSON(w, 200, map[string]int{"imported": imported, "skipped": skipped})
 }

@@ -1,6 +1,0 @@
-<?xml version="1.0"?>
-<nodes>
-  <node>1999</node>
-  <node>2000</node>
-</nodes>
-

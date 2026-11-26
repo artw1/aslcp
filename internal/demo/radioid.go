@@ -19,6 +19,9 @@ const radioIDCSV = `RADIO_ID,CALLSIGN,FIRST_NAME,LAST_NAME,CITY,STATE,COUNTRY
 1234573,N0AAG,Jo,Example,Nowhere,Utah,United States
 1234574,N0AAH,Max,Example,Metropolis,Illinois,United States
 1234575,N0AAI,Sky,Example,Shelbyville,,Germany
+1234576,N1CALL,Drew,Example,Springfield,Illinois,United States
+1234577,N2CALL,Casey,Example,Metropolis,Illinois,United States
+1234578,N3CALL,Jamie,Example,Anytown,Ohio,United States
 `
 
 type radioIDTransport struct{}

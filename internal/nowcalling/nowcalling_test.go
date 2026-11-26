@@ -3,419 +3,116 @@ package nowcalling
 import (
 	"testing"
 	"time"
-)
 
-var t0 = time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	"github.com/artw1/aslcp/internal/native/mode"
+)
 
 type clk struct{ t time.Time }
 
 func (c *clk) now() time.Time      { return c.t }
 func (c *clk) add(d time.Duration) { c.t = c.t.Add(d) }
-func newT(c *clk) (*Tracker, *[]Snapshot) {
+
+func newT() (*Tracker, *clk, *int) {
+	c := &clk{t: time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)}
 	tr := New()
 	tr.Now = c.now
-	var got []Snapshot
-	tr.OnChange = func(s Snapshot) { got = append(got, s) }
-	return tr, &got
+	n := 0
+	tr.OnChange = func(Snapshot) { n++ }
+	return tr, c, &n
 }
 
-func TestSelectMostRecentlyKeyed(t *testing.T) {
-	if Select(nil) != nil {
-		t.Fatal("empty")
+func TestTalkStartEnd(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    string
+		talker  mode.Talker
+		hold    time.Duration
+		recent  int
+		call    string
+		node    string
+		dmrID   string
+		endMode string
+	}{
+		{"dmr call", mode.BM, mode.Talker{Callsign: "N0CALL", ID: 1234567, Target: "91"}, 3 * time.Second, 1, "N0CALL", "", "1234567", mode.BM},
+		{"allstar node", mode.AllStar, mode.Talker{Callsign: "1999"}, 2 * time.Second, 1, "", "1999", "", mode.AllStar},
+		{"glitch", mode.YSF, mode.Talker{Callsign: "N1CALL"}, 100 * time.Millisecond, 0, "N1CALL", "", "", mode.YSF},
+		{"end any", mode.M17, mode.Talker{Callsign: "N1CALL"}, time.Second, 1, "N1CALL", "", "", ""},
 	}
-	a := Call{ID: "a", start: t0}
-	b := Call{ID: "b", start: t0.Add(2 * time.Second)}
-	c := Call{ID: "c", start: t0.Add(time.Second)}
-	if got := Select([]Call{a, b, c}); got.ID != "b" {
-		t.Fatalf("got %s, want the most recently keyed", got.ID)
-	}
-	d := Call{ID: "d", start: t0}
-	if got := Select([]Call{a, d}); got.ID != "d" {
-		t.Fatalf("tie: %s", got.ID)
-	}
-}
-
-func TestAllStarKeyUnkey(t *testing.T) {
-	c := &clk{t0}
-	tr, got := newT(c)
-	tr.Resolve = func(x *Call) { x.Call = "N0CALL" }
-	tr.UpdateAllStar("1998", []Keyed{{Node: "1999", Since: 2 * time.Second}}, false, false, false)
-	s := tr.Snapshot()
-	if s.Current == nil || s.Current.Kind != KindAllStar || s.Current.Call != "N0CALL" || s.Current.Node != "1999" || s.Current.Local != "1998" {
-		t.Fatalf("current = %+v", s.Current)
-	}
-	if want := t0.Add(-2 * time.Second).Format(time.RFC3339); s.Current.Start != want {
-		t.Fatalf("start = %s, want %s (now - since key)", s.Current.Start, want)
-	}
-	// the same update again is no change
-	n := len(*got)
-	tr.UpdateAllStar("1998", []Keyed{{Node: "1999", Since: 3 * time.Second}}, false, false, false)
-	if len(*got) != n {
-		t.Fatal("repeated update published")
-	}
-	c.add(5 * time.Second)
-	tr.UpdateAllStar("1998", nil, false, false, false)
-	s = tr.Snapshot()
-	if s.Current != nil || len(s.Recent) != 1 || s.Recent[0].End == "" || s.Recent[0].Active {
-		t.Fatalf("after unkey = %+v", s)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tr, c, _ := newT()
+			tr.TalkStart(tt.mode, tt.talker)
+			s := tr.Snapshot()
+			if s.Current == nil || s.Current.Call != tt.call || s.Current.Node != tt.node || s.Current.DMRID != tt.dmrID || !s.Current.Active {
+				t.Fatalf("current %+v", s.Current)
+			}
+			c.add(tt.hold)
+			tr.TalkEnd(tt.endMode)
+			s = tr.Snapshot()
+			if s.Current != nil || len(s.Recent) != tt.recent {
+				t.Fatalf("after end: %+v", s)
+			}
+		})
 	}
 }
 
-func TestAllStarGlitchAndStale(t *testing.T) {
-	c := &clk{t0}
-	tr, _ := newT(c)
-	tr.UpdateAllStar("1998", []Keyed{{Node: "1999"}}, false, false, false)
-	c.add(200 * time.Millisecond)
-	tr.UpdateAllStar("1998", nil, false, false, false)
-	if len(tr.Snapshot().Recent) != 0 {
-		t.Fatal("a 200 ms keyup was recorded")
-	}
-	tr.UpdateAllStar("1998", []Keyed{{Node: "1999"}}, false, false, false)
-	tr.UpdateAllStar("1998", nil, false, false, true) // stale: forget, no record
-	s := tr.Snapshot()
-	if s.Current != nil || len(s.Recent) != 0 {
-		t.Fatalf("stale = %+v", s)
-	}
-}
-
-func TestOnlyOneShown(t *testing.T) {
-	c := &clk{t0}
-	tr, _ := newT(c)
-	tr.UpdateAllStar("1998", []Keyed{{Node: "1999"}}, false, false, false)
-	c.add(3 * time.Second)
-	tr.UpdateAllStar("1998", []Keyed{{Node: "1999"}, {Node: "1997"}}, false, false, false)
-	if cur := tr.Snapshot().Current; cur == nil || cur.Node != "1997" {
-		t.Fatalf("shown = %+v, want the newer", cur)
-	}
-	tr.UpdateAllStar("1998", []Keyed{{Node: "1999"}}, false, false, false)
-	if cur := tr.Snapshot().Current; cur == nil || cur.Node != "1999" {
-		t.Fatalf("shown = %+v", cur)
-	}
-}
-
-func talk(kind, via, id string, start time.Time, end time.Time) Talk {
-	return Talk{Kind: kind, Via: via, DMRID: id, Dst: "91", Slot: 2, Start: start, End: end}
-}
-
-func TestDMRWithEndLine(t *testing.T) {
-	c := &clk{t0}
-	tr, _ := newT(c)
-	tr.UpdateAllStar("1998", nil, true, false, false)
-	tr.UpdateDV([]Talk{talk(KindDMR, "stfu", "1234567", t0, time.Time{})})
-	cur := tr.Snapshot().Current
-	if cur == nil || cur.Kind != KindDMR || cur.Network != "BrandMeister" || cur.TG != "91" || cur.DMRID != "1234567" || !cur.Active {
-		t.Fatalf("current = %+v", cur)
-	}
-	c.add(2500 * time.Millisecond)
-	tr.UpdateDV([]Talk{talk(KindDMR, "stfu", "1234567", t0, t0.Add(2520*time.Millisecond))})
-	s := tr.Snapshot()
-	if s.Current != nil || len(s.Recent) != 1 || s.Recent[0].End != t0.Add(2520*time.Millisecond).Format(time.RFC3339) {
-		t.Fatalf("after end = %+v", s)
-	}
-	// the same history again adds nothing
-	tr.UpdateDV([]Talk{talk(KindDMR, "stfu", "1234567", t0, t0.Add(2520*time.Millisecond))})
-	if len(tr.Snapshot().Recent) != 1 {
-		t.Fatal("duplicate")
-	}
-}
-
-func TestYSFEndsWithBridgeUnkey(t *testing.T) {
-	c := &clk{t0}
-	tr, _ := newT(c)
-	tr.Resolve = func(x *Call) {
-		if x.Kind == KindYSF {
-			x.Room = "R1"
-		}
-	}
-	// the bridge link is keyed first, the log line follows
-	tr.UpdateAllStar("1998", nil, true, true, false)
-	if tr.Snapshot().Current != nil {
-		t.Fatal("bridge keyed alone is no talker")
-	}
-	c.add(300 * time.Millisecond)
-	tr.UpdateDV([]Talk{{Kind: KindYSF, Via: "analog_bridge", Call: "N1CALL", Start: t0.Add(100 * time.Millisecond)}})
-	cur := tr.Snapshot().Current
-	if cur == nil || cur.Kind != KindYSF || cur.Call != "N1CALL" || cur.Room != "R1" {
-		t.Fatalf("current = %+v", cur)
-	}
-	c.add(20 * time.Second)
-	tr.UpdateAllStar("1998", nil, true, true, false) // still keyed after the grace time: still talking
+func TestOtherModeEndIgnored(t *testing.T) {
+	tr, c, _ := newT()
+	tr.TalkStart(mode.YSF, mode.Talker{Callsign: "N0CALL"})
+	c.add(time.Second)
+	tr.TalkEnd(mode.BM)
 	if tr.Snapshot().Current == nil {
-		t.Fatal("ended while the bridge link is keyed")
-	}
-	c.add(4 * time.Second)
-	unkey := c.t
-	tr.UpdateAllStar("1998", nil, true, false, false)
-	if tr.Snapshot().Current == nil {
-		t.Fatal("ended at the unkey, want the hangover")
-	}
-	c.add(dvHangover)
-	tr.Tick()
-	s := tr.Snapshot()
-	if s.Current != nil || len(s.Recent) != 1 || s.Recent[0].End != unkey.Format(time.RFC3339) {
-		t.Fatalf("after unkey = %+v", s)
+		t.Fatal("an end on another mode ended the call")
 	}
 }
 
-func ysfTalk(start time.Time) Talk {
-	return Talk{Kind: KindYSF, Via: "analog_bridge", Call: "N1CALL", Start: start}
-}
-
-func TestYSFBridgeDropAndRekeyIsOneCall(t *testing.T) {
-	c := &clk{t0}
-	tr, _ := newT(c)
-	tr.UpdateAllStar("1998", nil, true, true, false)
-	tr.UpdateDV([]Talk{ysfTalk(t0)})
-	first := tr.Snapshot().Current
-	if first == nil {
-		t.Fatal("not shown")
-	}
-	c.add(10 * time.Second)
-	tr.UpdateAllStar("1998", nil, true, false, false) // choppy: unkey
+func TestNewTalkerReplaces(t *testing.T) {
+	tr, c, _ := newT()
+	tr.TalkStart(mode.BM, mode.Talker{Callsign: "N0CALL"})
 	c.add(2 * time.Second)
-	tr.Tick()
-	cur := tr.Snapshot().Current
-	if cur == nil || !cur.Active || cur.ID != first.ID || cur.Start != first.Start {
-		t.Fatalf("in the gap = %+v", cur)
-	}
-	tr.UpdateAllStar("1998", nil, true, true, false) // audio resumes
-	c.add(8 * time.Second)
-	tr.UpdateAllStar("1998", nil, true, true, false)
-	cur = tr.Snapshot().Current
-	if cur == nil || cur.ID != first.ID || !cur.Active {
-		t.Fatalf("after rekey = %+v", cur)
-	}
-	unkey := c.t
-	tr.UpdateAllStar("1998", nil, true, false, false) // final unkey
-	c.add(4 * time.Second)
-	tr.Tick()
-	if tr.Snapshot().Current == nil {
-		t.Fatal("ended inside the hangover")
-	}
-	c.add(1100 * time.Millisecond)
-	tr.Tick()
+	tr.TalkStart(mode.BM, mode.Talker{Callsign: "N1CALL"})
 	s := tr.Snapshot()
-	if s.Current != nil || len(s.Recent) != 1 || s.Recent[0].ID != first.ID || s.Recent[0].End != unkey.Format(time.RFC3339) {
-		t.Fatalf("after final unkey = %+v", s)
-	}
-	if d := s.Recent[0].end.Sub(s.Recent[0].start); d != 20*time.Second {
-		t.Fatalf("duration = %v, want 20s", d)
+	if s.Current.Call != "N1CALL" || len(s.Recent) != 1 || s.Recent[0].Call != "N0CALL" {
+		t.Fatalf("%+v", s)
 	}
 }
 
-func TestYSFBridgeDropNeverRekeys(t *testing.T) {
-	c := &clk{t0}
-	tr, _ := newT(c)
-	tr.UpdateAllStar("1998", nil, true, true, false)
-	tr.UpdateDV([]Talk{ysfTalk(t0)})
-	c.add(3 * time.Second)
-	unkey := c.t
-	tr.UpdateAllStar("1998", nil, true, false, false)
-	c.add(4 * time.Second)
-	tr.Tick()
-	if cur := tr.Snapshot().Current; cur == nil || !cur.Active {
-		t.Fatalf("at +4s = %+v", cur)
+func TestRecentBoundedAndSeed(t *testing.T) {
+	tr, c, _ := newT()
+	base := c.t
+	var heard []mode.Heard
+	for i := 0; i < RecentMax+5; i++ {
+		st := base.Add(-time.Duration(i+1) * time.Minute)
+		heard = append(heard, mode.Heard{Mode: mode.DMR, Callsign: "N0CALL", Start: st, End: st.Add(5 * time.Second)})
 	}
-	c.add(1100 * time.Millisecond)
-	tr.Tick()
+	heard = append(heard, mode.Heard{Mode: mode.DMR, Callsign: "N1CALL", Start: base}) // ongoing: skipped
+	tr.Seed(heard)
+	tr.Seed(heard) // idempotent
 	s := tr.Snapshot()
-	if s.Current != nil || len(s.Recent) != 1 || s.Recent[0].End != unkey.Format(time.RFC3339) {
-		t.Fatalf("at +5s = %+v", s)
+	if len(s.Recent) != RecentMax || s.Current != nil {
+		t.Fatalf("recent %d", len(s.Recent))
 	}
-}
-
-func TestYSFNewBeginTxDuringHangoverReplaces(t *testing.T) {
-	c := &clk{t0}
-	tr, _ := newT(c)
-	tr.UpdateAllStar("1998", nil, true, true, false)
-	tr.UpdateDV([]Talk{ysfTalk(t0)})
-	c.add(3 * time.Second)
-	tr.UpdateAllStar("1998", nil, true, false, false)
-	c.add(time.Second)
-	second := ysfTalk(c.t)
-	second.Call = "N2CALL"
-	tr.UpdateAllStar("1998", nil, true, true, false)
-	tr.UpdateDV([]Talk{ysfTalk(t0), second})
-	s := tr.Snapshot()
-	if s.Current == nil || s.Current.Call != "N2CALL" || len(s.Recent) != 1 || s.Recent[0].Call != "N1CALL" {
-		t.Fatalf("snapshot = %+v", s)
-	}
-}
-
-func TestDVTalkWhileUnlinkedShowsNothing(t *testing.T) {
-	c := &clk{t0}
-	tr, _ := newT(c)
-	tr.UpdateAllStar("1998", nil, false, false, false) // bridge node not linked
-	for _, k := range []Talk{
-		{Kind: KindYSF, Via: "analog_bridge", Call: "N0CALL", Start: t0},
-		talk(KindDMR, "stfu", "1234567", t0, time.Time{}),
-		talk(KindDMR, "stfu", "1234567", t0, t0.Add(2*time.Second)),
-	} {
-		tr.UpdateDV([]Talk{k})
-		c.add(10 * time.Second)
-		tr.Tick()
-		if s := tr.Snapshot(); s.Current != nil || len(s.Recent) != 0 {
-			t.Fatalf("unlinked %+v: %+v", k, s)
+	for i := 1; i < len(s.Recent); i++ {
+		if s.Recent[i].start.After(s.Recent[i-1].start) {
+			t.Fatal("not newest first")
 		}
 	}
 }
 
-func TestDVTalkWhileLinkedShows(t *testing.T) {
-	c := &clk{t0}
-	tr, _ := newT(c)
-	tr.UpdateAllStar("1998", nil, true, true, false)
-	tr.UpdateDV([]Talk{{Kind: KindYSF, Via: "analog_bridge", Call: "N0CALL", Start: t0}})
-	if cur := tr.Snapshot().Current; cur == nil || cur.Call != "N0CALL" {
-		t.Fatalf("linked: %+v", cur)
-	}
+func TestResolveAndRefill(t *testing.T) {
+	tr, c, n := newT()
+	tr.Resolve = func(c *Call) { c.Desc = "resolved" }
+	tr.TalkStart(mode.YSF, mode.Talker{Callsign: "N0CALL"})
 	c.add(time.Second)
-	tr.UpdateAllStar("1998", nil, true, false, false)
-	c.add(dvHangover)
-	tr.UpdateAllStar("1998", nil, true, false, false)
-	if s := tr.Snapshot(); s.Current != nil || len(s.Recent) != 1 {
-		t.Fatalf("after unkey: %+v", s)
-	}
-}
-
-func TestDVUnlinkedTalkNotShownWhenLinkComesUp(t *testing.T) {
-	c := &clk{t0}
-	tr, _ := newT(c)
-	old := []Talk{
-		talk(KindDMR, "stfu", "1234567", t0, t0.Add(2*time.Second)),
-		{Kind: KindYSF, Via: "analog_bridge", Call: "N0CALL", Start: t0.Add(5 * time.Second)},
-	}
-	tr.UpdateDV(old)
-	c.add(8 * time.Second)
-	tr.UpdateAllStar("1998", nil, true, true, false) // linked now, keyed; logs re-read
-	tr.UpdateDV(old)
-	tr.Tick()
-	if s := tr.Snapshot(); s.Current != nil || len(s.Recent) != 0 {
-		t.Fatalf("retroactive: %+v", s)
-	}
-	// a new talk after the link does show
-	c.add(time.Second)
-	tr.UpdateDV(append(old, talk(KindDMR, "stfu", "1234568", c.t, time.Time{})))
-	if cur := tr.Snapshot().Current; cur == nil || cur.DMRID != "1234568" {
-		t.Fatalf("new talk: %+v", cur)
-	}
-}
-
-func TestDVLinkDropEndsActiveCall(t *testing.T) {
-	c := &clk{t0}
-	tr, _ := newT(c)
-	tr.UpdateAllStar("1998", nil, true, true, false)
-	tk := []Talk{{Kind: KindYSF, Via: "analog_bridge", Call: "N0CALL", Start: t0}}
-	tr.UpdateDV(tk)
-	if tr.Snapshot().Current == nil {
-		t.Fatal("not shown")
-	}
-	c.add(3 * time.Second)
-	tr.UpdateAllStar("1998", nil, false, false, false) // the bridge node was unlinked
+	tr.TalkEnd(mode.YSF)
+	before := *n
+	tr.Refill(func(c *Call) bool { c.Name = "Pat"; return true })
 	s := tr.Snapshot()
-	if s.Current != nil || len(s.Recent) != 1 || s.Recent[0].End != c.t.Format(time.RFC3339) {
-		t.Fatalf("after drop: %+v", s)
+	if s.Recent[0].Desc != "resolved" || s.Recent[0].Name != "Pat" || *n != before+1 {
+		t.Fatalf("%+v %d", s.Recent[0], *n)
 	}
-	// the same log lines again, and a re-link, add nothing
-	tr.UpdateDV(tk)
-	c.add(time.Second)
-	tr.UpdateAllStar("1998", nil, true, true, false)
-	tr.UpdateDV(tk)
-	if s := tr.Snapshot(); s.Current != nil || len(s.Recent) != 1 {
-		t.Fatalf("after relink: %+v", s)
-	}
-}
-
-func TestDVStaleIsNotLinked(t *testing.T) {
-	c := &clk{t0}
-	tr, _ := newT(c)
-	tr.UpdateAllStar("1998", nil, true, true, false)
-	tr.UpdateDV([]Talk{talk(KindDMR, "stfu", "1234567", t0, time.Time{})})
-	c.add(time.Second)
-	tr.UpdateAllStar("1998", nil, true, true, true) // stale: state unknown
-	if s := tr.Snapshot(); s.Current != nil || len(s.Recent) != 1 {
-		t.Fatalf("stale: %+v", s)
-	}
-}
-
-func TestDVAndAllStarMostRecentWins(t *testing.T) {
-	c := &clk{t0}
-	tr, _ := newT(c)
-	tr.UpdateAllStar("1998", []Keyed{{Node: "1999"}}, true, false, false)
-	c.add(time.Second)
-	tr.UpdateDV([]Talk{talk(KindDMR, "stfu", "1234567", c.t, time.Time{})})
-	if cur := tr.Snapshot().Current; cur == nil || cur.Kind != KindDMR {
-		t.Fatalf("current = %+v", cur)
-	}
-}
-
-func TestRecentBounded(t *testing.T) {
-	c := &clk{t0}
-	tr, _ := newT(c)
-	for i := 0; i < RecentMax+5; i++ {
-		tr.UpdateAllStar("1998", []Keyed{{Node: "1999"}}, false, false, false)
-		c.add(time.Second)
-		tr.UpdateAllStar("1998", nil, false, false, false)
-		c.add(time.Second)
-	}
-	if n := len(tr.Snapshot().Recent); n != RecentMax {
-		t.Fatalf("recent = %d", n)
-	}
-}
-
-func TestSTFULostEndLine(t *testing.T) {
-	c := &clk{t0}
-	tr, _ := newT(c)
-	tr.UpdateAllStar("1998", nil, true, true, false)
-	tr.UpdateDV([]Talk{talk(KindDMR, "stfu", "1234567", t0, time.Time{})})
-	if tr.Snapshot().Current == nil {
-		t.Fatal("not shown")
-	}
-	c.add(10 * time.Second)
-	tr.UpdateAllStar("1998", nil, true, false, false) // the bridge link went quiet, no end line came
-	if s := tr.Snapshot(); s.Current != nil || len(s.Recent) != 1 {
-		t.Fatalf("stuck: %+v", s)
-	}
-}
-
-func TestM17CallShowsReflectorAsRoom(t *testing.T) {
-	c := &clk{t0}
-	tr, _ := newT(c)
-	tr.UpdateAllStar("1998", nil, true, false, false)
-	c.add(time.Second)
-	tr.UpdateDV([]Talk{{Kind: KindM17, Via: ViaEngine, Network: "M17", Call: "N0CALL", Dst: "M17-XXX C", Slot: 2, Start: t0.Add(time.Second)}})
-	cur := tr.Snapshot().Current
-	if cur == nil || cur.Kind != KindM17 || cur.Room != "M17-XXX C" || cur.TG != "" || cur.Slot != 0 || cur.Network != "M17" {
-		t.Fatalf("current = %+v", cur)
-	}
-}
-
-// A call of the engine that is already in progress when the bridge node is
-// linked is shown at once, with its real start, and is recorded once when it
-// ends. One that ended before the link is history and stays out.
-func TestEngineCallInProgressWhenLinkComesUp(t *testing.T) {
-	c := &clk{t0}
-	tr, _ := newT(c)
-	over := Talk{Kind: KindDMR, Via: ViaEngine, Call: "N1CALL", DMRID: "1234567", Dst: "91", Slot: 2, Start: t0.Add(-30 * time.Second), End: t0.Add(-20 * time.Second)}
-	live := Talk{Kind: KindDMR, Via: ViaEngine, Call: "N0CALL", DMRID: "1234568", Dst: "91", Slot: 2, Start: t0.Add(-4 * time.Second)}
-	tr.UpdateAllStar("1998", nil, false, false, false) // unlinked: the engine hears both
-	tr.UpdateDV([]Talk{live, over})
-	if s := tr.Snapshot(); s.Current != nil || len(s.Recent) != 0 {
-		t.Fatalf("unlinked: %+v", s)
-	}
-	tr.UpdateAllStar("1998", nil, true, false, false) // the node links to the bridge mid-call
-	tr.UpdateDV([]Talk{over, live})
-	s := tr.Snapshot()
-	if s.Current == nil || s.Current.Call != "N0CALL" || s.Current.DMRID != "1234568" || s.Current.TG != "91" || !s.Current.Active || len(s.Recent) != 0 {
-		t.Fatalf("linked mid-call: %+v", s)
-	}
-	if s.Current.Start != live.Start.Format(time.RFC3339) {
-		t.Fatalf("start %s", s.Current.Start)
-	}
-	c.add(3 * time.Second)
-	live.End = c.t
-	tr.UpdateDV([]Talk{over, live})
-	tr.UpdateDV([]Talk{over, live})
-	if s := tr.Snapshot(); s.Current != nil || len(s.Recent) != 1 || s.Recent[0].Call != "N0CALL" {
-		t.Fatalf("after end: %+v", s)
+	tr.Refill(func(c *Call) bool { return true }) // all named now
+	if *n != before+1 {
+		t.Fatal("refill without change emitted")
 	}
 }

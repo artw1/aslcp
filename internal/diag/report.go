@@ -2,36 +2,35 @@ package diag
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 )
 
-// Link is one link of a local node (no peer IP).
-type Link struct {
-	Node      string
-	Mode      string
-	State     string
-	Direction string
-	Kind      string
-}
-
-// LocalNode is the monitor state of one local node.
-type LocalNode struct {
-	Node     string
-	Callsign string // from the node list, "" when unknown
-	NumLinks int
-	Links    []Link
-	Stale    bool
-	StaleErr string
-	Updated  time.Time
+// NodeState is what the node daemon reported (no peer addresses).
+type NodeState struct {
+	Socket  string
+	Running bool
+	Error   string // why it could not be asked
+	// Callsign is the station's own callsign (kept by Redact).
+	Callsign     string
+	Started      time.Time
+	Configured   bool
+	RadioPresent bool
+	// Active is the active mode ("" idle), State its state, Target the
+	// target it is linked to, Detail and ModeErr its last lines.
+	Active  string
+	State   string
+	Target  string
+	Detail  string
+	ModeErr string
+	// Modes lists the configured modes.
+	Modes []string
 }
 
 // Report holds everything the diagnostics file shows.
 type Report struct {
 	Now      time.Time
 	Version  string
-	Asterisk string
 	Platform Platform
 	Username string // not printed; reserved
 
@@ -41,12 +40,7 @@ type Report struct {
 	MemAvailable uint64
 	CPUTemp      *float64
 
-	AMIConnected bool
-	AMIError     string
-	AMISince     time.Time
-	AMIAddr      string
-
-	Nodes []LocalNode
+	Node NodeState
 
 	NodelistCount   int
 	NodelistSource  string
@@ -90,15 +84,12 @@ func orNA(s string) string {
 	return s
 }
 
-// KeepCalls returns the callsigns of the local nodes (kept by Redact).
+// KeepCalls returns the station's own callsign (kept by Redact).
 func (r Report) KeepCalls() []string {
-	var out []string
-	for _, n := range r.Nodes {
-		if n.Callsign != "" {
-			out = append(out, n.Callsign)
-		}
+	if r.Node.Callsign == "" {
+		return nil
 	}
-	return out
+	return []string{r.Node.Callsign}
 }
 
 // Render produces the plain-text report and runs it through Redact.
@@ -113,7 +104,6 @@ func (r Report) Render() string {
 
 	h("Versions and platform")
 	p("ASLCP:    %s", orNA(r.Version))
-	p("Asterisk: %s", orNA(r.Asterisk))
 	p("OS:       %s", orNA(r.Platform.Distro))
 	p("Kernel:   %s", orNA(r.Platform.Kernel))
 	p("Arch:     %s/%s", r.Platform.GOOS, r.Platform.GOARCH)
@@ -129,50 +119,29 @@ func (r Report) Render() string {
 		p("CPU temperature: n/a")
 	}
 
-	h("Asterisk Manager Interface")
-	p("Address:   %s", orNA(r.AMIAddr))
-	p("Connected: %s", yesno(r.AMIConnected))
-	if !r.AMISince.IsZero() {
-		p("State since: %s", r.AMISince.UTC().Format(time.RFC3339))
+	h("Node")
+	n := r.Node
+	p("Socket:  %s", orNA(n.Socket))
+	p("Running: %s", yesno(n.Running))
+	if n.Error != "" {
+		p("Error:   %s", n.Error)
 	}
-	if r.AMIError != "" {
-		p("Last error: %s", r.AMIError)
-	}
-
-	h("Local nodes")
-	if len(r.Nodes) == 0 {
-		p("(none known)")
-	}
-	for _, n := range r.Nodes {
-		call := n.Callsign
-		if call == "" {
-			call = "unknown callsign"
+	if n.Running {
+		p("Station: %s  configured=%s  radio=%s", orNA(n.Callsign), yesno(n.Configured), yesno(n.RadioPresent))
+		if !n.Started.IsZero() {
+			p("Started: %s", n.Started.UTC().Format(time.RFC3339))
 		}
-		p("Node %s (%s): links=%d stale=%s", n.Node, call, n.NumLinks, yesno(n.Stale))
-		if n.StaleErr != "" {
-			p("  stale reason: %s", n.StaleErr)
-		}
-		if !n.Updated.IsZero() {
-			p("  last poll: %s", n.Updated.UTC().Format(time.RFC3339))
-		}
-		modes := map[string]int{}
-		for _, l := range n.Links {
-			modes[l.Mode]++
-		}
-		keys := make([]string, 0, len(modes))
-		for k := range modes {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		var ms []string
-		for _, k := range keys {
-			ms = append(ms, fmt.Sprintf("%s=%d", orNA(k), modes[k]))
-		}
-		if len(ms) > 0 {
-			p("  modes: %s", strings.Join(ms, " "))
-		}
-		for _, l := range n.Links {
-			p("  link %s mode=%s state=%s dir=%s kind=%s", l.Node, orNA(l.Mode), orNA(l.State), orNA(l.Direction), orNA(l.Kind))
+		p("Modes configured: %s", orNA(strings.Join(n.Modes, " ")))
+		if n.Active == "" {
+			p("Active mode: none")
+		} else {
+			p("Active mode: %s state=%s target=%s", n.Active, orNA(n.State), orNA(n.Target))
+			if n.Detail != "" {
+				p("  detail: %s", n.Detail)
+			}
+			if n.ModeErr != "" {
+				p("  last error: %s", n.ModeErr)
+			}
 		}
 	}
 

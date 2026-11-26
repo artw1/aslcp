@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-func cs(id int64, days []int, date, start, end string, excl bool) Schedule {
-	return Schedule{ID: id, Enabled: true, Node: "1997", Target: "41234", Action: ActionConnect, Mode: ModeTransceive,
-		Exclusive: excl, Days: days, Date: date, Start: start, End: end}
+func cs(id int64, days []int, date, start, end string, _ bool) Schedule {
+	return Schedule{ID: id, Enabled: true, Mode: "allstar", Target: "41234", Action: ActionConnect,
+		Days: days, Date: date, Start: start, End: end}
 }
 
 func TestConflicts(t *testing.T) {
@@ -26,7 +26,7 @@ func TestConflicts(t *testing.T) {
 		{"touching end/start", cs(1, tuesday, "", "19:00", "20:00", true), cs(2, tuesday, "", "20:00", "21:00", true), false},
 		{"different day", cs(1, tuesday, "", "19:00", "20:00", true), cs(2, []int{3}, "", "19:00", "20:00", true), false},
 		{"multi day share one", cs(1, []int{1, 2, 3}, "", "19:00", "20:00", true), cs(2, []int{3, 4}, "", "19:30", "20:30", false), true},
-		{"non-exclusive both allowed", cs(1, tuesday, "", "19:00", "20:00", false), cs(2, tuesday, "", "19:00", "20:00", false), false},
+		{"one radio: any overlap clashes", cs(1, tuesday, "", "19:00", "20:00", false), cs(2, tuesday, "", "19:00", "20:00", false), true},
 		{"midnight crossing vs next day early", cs(1, tuesday, "", "23:00", "01:00", true), cs(2, []int{3}, "", "00:30", "02:00", false), true},
 		{"midnight crossing vs next day after end", cs(1, tuesday, "", "23:00", "01:00", true), cs(2, []int{3}, "", "01:00", "02:00", false), false},
 		{"midnight crossing vs same day before", cs(1, tuesday, "", "23:00", "01:00", true), cs(2, tuesday, "", "00:30", "02:00", false), false},
@@ -39,8 +39,8 @@ func TestConflicts(t *testing.T) {
 		{"instant at window end", cs(1, tuesday, "", "19:00", "20:00", true), cs(2, tuesday, "", "20:00", "", false), false},
 		{"instant in spill", cs(1, sat, "", "23:00", "01:00", true), cs(2, sun, "", "00:10", "", false), true},
 		{"instant vs instant", cs(1, tuesday, "", "19:00", "", true), cs(2, tuesday, "", "19:00", "", true), false},
-		{"exclusive instant inside non-exclusive window", cs(1, tuesday, "", "19:00", "20:00", false), cs(2, tuesday, "", "19:30", "", true), true},
-		{"non-exclusive instant in non-exclusive window", cs(1, tuesday, "", "19:00", "20:00", false), cs(2, tuesday, "", "19:30", "", false), false},
+		{"instant inside window, other order", cs(1, tuesday, "", "19:00", "20:00", false), cs(2, tuesday, "", "19:30", "", true), true},
+		{"instant in a window", cs(1, tuesday, "", "19:00", "20:00", false), cs(2, tuesday, "", "19:30", "", false), true},
 		{"once vs weekly same weekday", cs(1, nil, "2026-11-17", "19:30", "21:00", true), cs(2, tuesday, "", "19:00", "20:00", false), true},
 		{"once vs weekly other weekday", cs(1, nil, "2026-11-18", "19:30", "21:00", true), cs(2, tuesday, "", "19:00", "20:00", false), false},
 		{"once vs weekly spill from previous day", cs(1, nil, "2026-11-18", "00:30", "01:30", true), cs(2, tuesday, "", "23:00", "01:00", false), true},
@@ -84,9 +84,9 @@ func TestConflictsFilters(t *testing.T) {
 		t.Error("disabled subject must not conflict")
 	}
 	nd := other
-	nd.Node = "1998"
-	if len(Conflicts(base, []Schedule{nd})) != 0 {
-		t.Error("different node must not conflict")
+	nd.Mode = "echolink"
+	if len(Conflicts(base, []Schedule{nd})) != 1 {
+		t.Error("another mode must conflict: there is one radio")
 	}
 	dc := other
 	dc.Action, dc.End, dc.Mode = ActionDisconnect, "", ""
@@ -95,11 +95,6 @@ func TestConflictsFilters(t *testing.T) {
 	}
 	if len(Conflicts(dc, []Schedule{base})) != 0 {
 		t.Error("disconnect subject must be ignored")
-	}
-	lm := base
-	lm.Mode = ModeLocalMonitor // Exclusive true but never effective
-	if len(Conflicts(lm, []Schedule{other})) != 0 {
-		t.Error("localmonitor is never exclusive")
 	}
 	if len(Conflicts(base, []Schedule{base})) != 0 {
 		t.Error("a schedule must not conflict with itself")
@@ -120,11 +115,11 @@ func TestConflictMessage(t *testing.T) {
 	a.Name = "Tuesday net"
 	b := cs(6, nil, "2026-12-01", "19:00", "", false)
 	c := cs(7, []int{1, 2, 3, 4, 5}, "", "07:00", "08:00", false)
-	if m := ConflictMessage("2006", []Schedule{a}); m != `overlaps "Tuesday net" (Tue 19:00–20:30) on node 2006` {
+	if m := ConflictMessage([]Schedule{a}); m != `overlaps "Tuesday net" (Tue 19:00–20:30)` {
 		t.Fatal(m)
 	}
-	m := ConflictMessage("2006", []Schedule{a, b, c})
-	if !strings.Contains(m, `"Tuesday net" (Tue 19:00–20:30), #6 (2026-12-01 19:00) and #7 (Mon–Fri 07:00–08:00) on node 2006`) {
+	m := ConflictMessage([]Schedule{a, b, c})
+	if !strings.Contains(m, `"Tuesday net" (Tue 19:00–20:30), #6 (2026-12-01 19:00) and #7 (Mon–Fri 07:00–08:00)`) {
 		t.Fatal(m)
 	}
 }

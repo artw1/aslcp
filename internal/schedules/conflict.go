@@ -58,8 +58,6 @@ func overlap(a, b iv) bool {
 
 func shift(a iv, by int) iv { return iv{a.s + by, a.e + by, a.instant} }
 
-func effExclusive(s Schedule) bool { return s.Exclusive && s.Mode != ModeLocalMonitor }
-
 // weeklySpans lists the spans of a weekly schedule on the week circle.
 func weeklySpans(s Schedule) []iv {
 	out := make([]iv, 0, len(s.Days))
@@ -120,8 +118,9 @@ func pairOverlap(a, b Schedule) bool {
 }
 
 // Conflicts returns the schedules in others that s conflicts with (see
-// docs/SCHEDULES.md, "Overlap check"): same node, both connects, both
-// enabled, at least one exclusive, and overlapping on some actual date.
+// docs/SCHEDULES.md, "Overlap check"): both connects, both enabled and
+// overlapping on some actual date. The node has one radio and one active
+// mode, so any two overlapping windows clash, whatever their modes.
 // Wall-clock minutes are compared, so DST edge cases are ignored. An entry
 // of others with the same ID as s is skipped (s being saved over it).
 func Conflicts(s Schedule, others []Schedule) []Schedule {
@@ -133,10 +132,7 @@ func Conflicts(s Schedule, others []Schedule) []Schedule {
 		if o.ID == s.ID && s.ID != 0 {
 			continue
 		}
-		if o.Node != s.Node || o.Action != ActionConnect || !o.Enabled {
-			continue
-		}
-		if !effExclusive(s) && !effExclusive(o) {
+		if o.Action != ActionConnect || !o.Enabled {
 			continue
 		}
 		if pairOverlap(s, o) {
@@ -196,8 +192,8 @@ func When(s Schedule) string {
 }
 
 // ConflictMessage names the clashing schedules for the user, for example
-// `overlaps "Tuesday net" (Tue 19:00–20:30) on node 2006`.
-func ConflictMessage(node string, clash []Schedule) string {
+// `overlaps "Tuesday net" (Tue 19:00–20:30)`.
+func ConflictMessage(clash []Schedule) string {
 	parts := make([]string, len(clash))
 	for i, c := range clash {
 		name := fmt.Sprintf("#%d", c.ID)
@@ -210,5 +206,5 @@ func ConflictMessage(node string, clash []Schedule) string {
 	if n := len(parts); n > 1 {
 		list = strings.Join(parts[:n-1], ", ") + " and " + parts[n-1]
 	}
-	return fmt.Sprintf("overlaps %s on node %s", list, node)
+	return "overlaps " + list
 }

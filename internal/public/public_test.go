@@ -6,241 +6,245 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
-
-	"github.com/artw1/aslcp/internal/nodelist"
-	"github.com/artw1/aslcp/internal/rpt"
-	"github.com/artw1/aslcp/internal/store"
 )
 
 var ipLike = regexp.MustCompile(`\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|[0-9a-f]{1,4}(:[0-9a-f]{0,4}){3,}`)
 
-type lookup map[string]nodelist.Info
+// memStore is a settings store in memory.
+type memStore struct {
+	mu sync.Mutex
+	m  map[string]string
+}
 
-func (l lookup) Lookup(n string) (nodelist.Info, bool) { i, ok := l[n]; return i, ok }
+func (s *memStore) GetSetting(k string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.m[k]
+	if !ok {
+		return "", errNotFound
+	}
+	return v, nil
+}
 
-func ptr(d time.Duration) *time.Duration { return &d }
+func (s *memStore) SetSetting(k, v string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.m == nil {
+		s.m = map[string]string{}
+	}
+	s.m[k] = v
+	return nil
+}
 
-func sampleStatus(now time.Time) rpt.NodeStatus {
-	return rpt.NodeStatus{
-		Node: "1000", RxKeyed: true, NumLinks: 3, Updated: now.Add(-3 * time.Second),
-		Links: []rpt.Link{
-			{Node: "2000", Kind: rpt.KindAllStar, IP: "192.0.2.58", Direction: rpt.DirOut, Connected: time.Minute, State: rpt.StateEstablished, Mode: rpt.ModeTransceive, Keyed: true, SinceKey: ptr(time.Second), SinceUnkey: ptr(5 * time.Second)},
-			{Node: "198.51.100.9", Kind: rpt.KindUnknown, IP: "198.51.100.9", Direction: rpt.DirIn, Connected: time.Second, State: rpt.StateConnecting, Mode: rpt.ModeTransceive},
-			{Node: "N0CALL-IP-2001:db8::1", Kind: rpt.KindClient, IP: "2001:db8::1", Direction: rpt.DirIn, State: rpt.StateEstablished, Mode: rpt.ModeMonitor},
+type notFound struct{}
+
+func (notFound) Error() string { return "not found" }
+
+var errNotFound = notFound{}
+
+var t0 = time.Unix(1_800_000_000, 0)
+
+func sample() Input {
+	return Input{
+		Callsign: "n0call", Mode: "ysf", Target: "Room 1", State: "connected", TxKeyed: true,
+		Calling: &CallIn{Mode: "ysf", Call: "N1CALL", Target: "Room 1", Start: t0, Name: "Pat", Place: "Town 192.0.2.7"},
+		Heard: []CallIn{
+			{Mode: "allstar", Node: "1999", Target: "1998", Start: t0.Add(-time.Minute), End: t0.Add(-50 * time.Second)},
+			{Mode: "bm", Call: "1234567", Target: "91", Start: t0.Add(-2 * time.Minute), End: t0.Add(-2*time.Minute + 200*time.Millisecond)},
+			{Mode: "nosuch", Call: "N1CALL", Start: t0},
+			{Mode: "ysf", Call: "N1CALL", Target: "host.example.net:42000", Start: t0.Add(-3 * time.Minute), End: t0.Add(-2 * time.Minute)},
 		},
-		Network: []rpt.LinkedNode{{Node: "2000", Mode: rpt.ModeTransceive}, {Node: "2001", Mode: rpt.ModeTransceive}},
 	}
 }
 
-func TestBuildNodeNeverContainsIPs(t *testing.T) {
-	now := time.Now()
-	l := lookup{
-		"1000": {Node: "1000", Callsign: "N0AAA", Description: "Home 10.1.2.3 node", Location: "Here"},
-		"2000": {Node: "2000", Callsign: "N0BBB", Description: "Hub at 192.168.0.5", Location: "fe80:0:0:0:1:2:3:4"},
-	}
-	for _, v := range []View{{Callsigns: true, Network: true, Now: now}, {Callsigns: false, Network: true, Now: now}} {
-		n := BuildNode(sampleStatus(now), l, v, true)
-		b, _ := json.Marshal(n)
-		if m := ipLike.Find(b); m != nil {
-			t.Fatalf("IP-like text %q in %s", m, b)
-		}
-		for _, k := range []string{`"ip"`, "192.0.2.58", "198.51.100", "2001:db8"} {
-			if strings.Contains(string(b), k) {
-				t.Fatalf("%s in %s", k, b)
+func TestBuild(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  Settings
+		in   Input
+		chk  func(t *testing.T, s Snapshot)
+	}{
+		{"everything", Settings{ShowCallsigns: true, ShowHeard: true}, sample(), func(t *testing.T, s Snapshot) {
+			if s.Title != "N0CALL node status" || s.Station.Callsign != "N0CALL" || s.Station.Mode != "ysf" || s.Station.ModeTitle == "" ||
+				s.Station.Target != "Room 1" || s.Station.State != "connected" || !s.Station.TxKeyed {
+				t.Fatalf("station %+v title %q", s.Station, s.Title)
 			}
-		}
-		if len(n.Links) != 3 || n.Links[1].Node != "unknown" || n.Links[2].Node != "unknown" {
-			t.Fatalf("%+v", n.Links)
-		}
-	}
-	// field names of the public structs: no IP/system-like fields exist
-	for _, v := range []any{Node{}, Link{}, NetNode{}, Activity{}, Snapshot{}, Info{}} {
-		b, _ := json.Marshal(v)
-		for _, bad := range []string{"ip", "host", "load", "version", "temp", "secret"} {
-			if regexp.MustCompile(`"` + bad + `"`).Match(b) {
-				t.Errorf("%T has a %q field", v, bad)
+			if s.Calling == nil || s.Calling.Callsign != "N1CALL" || s.Calling.Name != "Pat" || s.Calling.Location != "Town" || s.Calling.Duration != 0 {
+				t.Fatalf("calling %+v", s.Calling)
 			}
+			if len(s.Heard) != 3 {
+				t.Fatalf("heard %+v", s.Heard)
+			}
+			if h := s.Heard[0]; h.Callsign != "1999" || h.Duration != 10 || h.Target != "1998" {
+				t.Errorf("allstar node %+v", h)
+			}
+			if h := s.Heard[1]; h.Callsign != "" || h.Duration != 1 {
+				t.Errorf("a DMR ID is not a callsign: %+v", h)
+			}
+			if h := s.Heard[2]; h.Target != "" {
+				t.Errorf("a host is not published: %+v", h)
+			}
+		}},
+		{"no callsigns", Settings{ShowHeard: true}, sample(), func(t *testing.T, s Snapshot) {
+			if s.Calling == nil || s.Calling.Callsign != "" || s.Calling.Name != "" || s.Calling.Location != "" {
+				t.Fatalf("calling %+v", s.Calling)
+			}
+			for _, h := range s.Heard {
+				if h.Callsign != "" {
+					t.Fatalf("heard %+v", h)
+				}
+			}
+		}},
+		{"no heard", Settings{ShowCallsigns: true}, sample(), func(t *testing.T, s Snapshot) {
+			if s.Heard != nil {
+				t.Fatalf("heard %+v", s.Heard)
+			}
+		}},
+		{"idle", Settings{Title: "My page"}, Input{Mode: "", Target: "1999", State: "connected"}, func(t *testing.T, s Snapshot) {
+			if s.Title != "My page" || s.Station.Mode != "" || s.Station.Target != "" || s.Station.State != "" || s.Calling != nil {
+				t.Fatalf("%+v", s)
+			}
+		}},
+		{"offline", Settings{}, Input{State: "offline"}, func(t *testing.T, s Snapshot) {
+			if s.Station.State != "offline" || s.Station.Mode != "" {
+				t.Fatalf("%+v", s)
+			}
+		}},
+		{"default title", Settings{}, Input{}, func(t *testing.T, s Snapshot) {
+			if s.Title != "Node status" {
+				t.Fatalf("%q", s.Title)
+			}
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := Build(c.in, c.cfg, t0)
+			b, _ := json.Marshal(s)
+			if m := ipLike.Find(b); m != nil {
+				t.Fatalf("IP-like text %q in %s", m, b)
+			}
+			if strings.Contains(string(b), "example.net") {
+				t.Fatalf("host name in %s", b)
+			}
+			c.chk(t, s)
+		})
+	}
+}
+
+func TestSettingsRoundTrip(t *testing.T) {
+	st := &memStore{}
+	def := LoadSettings(st, false)
+	if def.Enabled || !def.ShowCallsigns || !def.ShowHeard || def.AllowEmbedding {
+		t.Fatalf("defaults %+v", def)
+	}
+	want := Settings{Enabled: true, Title: "T", ShowHeard: false, ShowCallsigns: false, AllowEmbedding: true, TrustProxy: true}
+	if err := SaveSettings(st, want); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadSettings(st, false); got != want {
+		t.Fatalf("got %+v", got)
+	}
+	bad := []Settings{{Title: strings.Repeat("x", MaxTitle+1)}, {Title: "a\nb"}}
+	for _, b := range bad {
+		if b.Validate() == nil {
+			t.Errorf("%+v accepted", b)
 		}
 	}
 }
 
-func TestBuildNodeCallsignHidingAndAges(t *testing.T) {
-	now := time.Now()
-	l := lookup{"2000": {Node: "2000", Callsign: "N0BBB", Description: "Hub", Location: "X"}, "1000": {Node: "1000", Callsign: "N0AAA"}}
-	shown := BuildNode(sampleStatus(now), l, View{Callsigns: true, Network: true, Now: now}, true)
-	if shown.Info == nil || shown.Info.Callsign != "N0AAA" || shown.Links[0].Info == nil || shown.Links[0].Info.Callsign != "N0BBB" || shown.Network[0].Callsign != "N0BBB" {
-		t.Fatalf("%+v", shown)
+func TestStatusGate(t *testing.T) {
+	st := &memStore{}
+	s := New(Options{Store: st, Input: sample, Now: func() time.Time { return t0 }})
+	rec := httptest.NewRecorder()
+	s.Status(rec, httptest.NewRequest("GET", "/api/public/status", nil))
+	if rec.Code != 404 {
+		t.Fatalf("disabled: %d", rec.Code)
 	}
-	// ages are brought forward by the 3 s since the data was updated
-	if shown.Links[0].Connected != 63 || *shown.Links[0].SinceKey != 4 || *shown.Links[0].SinceUnkey != 8 || shown.Links[1].SinceKey != nil {
-		t.Fatalf("%+v", shown.Links)
+	if err := s.Update(Settings{Enabled: true, ShowHeard: true}); err != nil {
+		t.Fatal(err)
 	}
-	if shown.Links[1].Mode != "C" || shown.Links[0].Kind != "allstar" {
-		t.Fatalf("%+v", shown.Links)
+	rec = httptest.NewRecorder()
+	s.Status(rec, httptest.NewRequest("GET", "/api/public/status", nil))
+	var sn Snapshot
+	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &sn) != nil || sn.Station.Mode != "ysf" || sn.Calling == nil {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
-	hidden := BuildNode(sampleStatus(now), l, View{Callsigns: false, Network: true, Now: now}, true)
-	if hidden.Info == nil || hidden.Info.Callsign != "N0AAA" { // the owner's own node stays
-		t.Fatalf("%+v", hidden.Info)
+	rec = httptest.NewRecorder()
+	s.Info(rec, httptest.NewRequest("GET", "/api/public/info", nil), true)
+	if !strings.Contains(rec.Body.String(), `"enabled":true`) || !strings.Contains(rec.Body.String(), `"loggedIn":true`) {
+		t.Fatalf("info %s", rec.Body)
 	}
-	b, _ := json.Marshal(hidden.Links)
-	if strings.Contains(string(b), "N0BBB") || strings.Contains(string(b), `"info"`) {
-		t.Fatalf("%s", b)
+	s.SetRateLimit(0, 1) // no refill: the bucket runs dry
+	codes := []int{}
+	for i := 0; i < 12; i++ {
+		rec = httptest.NewRecorder()
+		s.Status(rec, httptest.NewRequest("GET", "/api/public/status", nil))
+		codes = append(codes, rec.Code)
 	}
-	if hidden.Network[0].Callsign != "" || hidden.Network[0].Node != "2000" {
-		t.Fatalf("%+v", hidden.Network)
-	}
-	if n := BuildNode(sampleStatus(now), l, View{Network: false, Now: now}, true); n.Network != nil {
-		t.Fatal("network must be omitted when disabled")
-	}
-	if n := BuildNode(sampleStatus(now), l, View{Network: true, Now: now}, false); n.Network != nil {
-		t.Fatal("network must be omitted from node events")
-	}
-}
-
-func TestScrub(t *testing.T) {
-	for in, want := range map[string]string{
-		"plain text":              "plain text",
-		"Net at 20:00":            "Net at 20:00",
-		"Node 10.0.0.1 here":      "Node  here",
-		"v6 2001:db8:0:0:1:2:3:4": "v6",
-		"fe80::1":                 "",
-		"Rm 12.5":                 "Rm 12.5",
-	} {
-		if got := scrub(in); strings.TrimSpace(got) != strings.TrimSpace(want) {
-			t.Errorf("scrub(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-func TestNodeSelection(t *testing.T) {
-	m := rpt.NewMonitor(nil, rpt.MonitorConfig{Nodes: []string{"1", "2", "3"}})
-	s := New(Options{Store: nil})
-	s.SetMonitor(m)
-	ids := func(nodes ...string) []string {
-		c := s.Settings()
-		c.Nodes = nodes
-		c.Enabled = true
-		s.cfg.Store(&c)
-		var out []string
-		for _, n := range s.Snapshot().Nodes {
-			out = append(out, n.Node)
-		}
-		return out
-	}
-	if got := strings.Join(ids(), ","); got != "1,2,3" {
-		t.Fatal(got)
-	}
-	if got := strings.Join(ids("3", "1"), ","); got != "1,3" {
-		t.Fatal(got)
-	}
-	if got := strings.Join(ids("9"), ","); got != "" {
-		t.Fatal(got)
+	if codes[len(codes)-1] != http.StatusTooManyRequests {
+		t.Fatalf("rate limit: %v", codes)
 	}
 }
 
 func TestClientKey(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
-	r.RemoteAddr = "192.0.2.1:5555"
-	r.Header.Set("X-Forwarded-For", "10.9.9.9, 198.51.100.4")
-	if k := ClientKey(r, false); k != "192.0.2.1" {
-		t.Fatal(k)
+	cases := []struct {
+		remote, xff string
+		trust       bool
+		want        string
+	}{
+		{"192.0.2.1:1234", "", false, "192.0.2.1"},
+		{"192.0.2.1:1234", "203.0.113.9", false, "192.0.2.1"},
+		{"192.0.2.1:1234", "198.51.100.1, 203.0.113.9", true, "203.0.113.9"},
+		{"[2001:db8:1:2:3:4:5:6]:1", "", false, "2001:db8:1:2::"},
 	}
-	if k := ClientKey(r, true); k != "198.51.100.4" { // rightmost: added by the trusted proxy
-		t.Fatal(k)
-	}
-	r.Header.Set("X-Forwarded-For", "garbage")
-	if k := ClientKey(r, true); k != "192.0.2.1" {
-		t.Fatal(k)
-	}
-	r.RemoteAddr = "[2001:db8:1:2:aaaa:bbbb:cccc:dddd]:1"
-	r.Header.Del("X-Forwarded-For")
-	if k := ClientKey(r, false); k != "2001:db8:1:2::" {
-		t.Fatal(k)
-	}
-}
-
-func TestLimiter(t *testing.T) {
-	l := newLimiter(2, 3)
-	now := time.Now()
-	for i := 0; i < 3; i++ {
-		if !l.allow("a", now) {
-			t.Fatal(i)
+	for _, c := range cases {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = c.remote
+		if c.xff != "" {
+			r.Header.Set("X-Forwarded-For", c.xff)
+		}
+		if got := ClientKey(r, c.trust); got != c.want {
+			t.Errorf("%+v: %q", c, got)
 		}
 	}
-	if l.allow("a", now) || !l.allow("b", now) {
-		t.Fatal("burst")
-	}
-	if !l.allow("a", now.Add(500*time.Millisecond)) || l.allow("a", now.Add(500*time.Millisecond)) {
-		t.Fatal("refill at 2/s")
-	}
 }
 
-func TestMethodsAndDisabled(t *testing.T) {
-	s := New(Options{})
-	w := httptest.NewRecorder()
-	s.Status(w, httptest.NewRequest("GET", "/api/public/status", nil))
-	if w.Code != http.StatusNotFound {
-		t.Fatal(w.Code)
-	}
-}
-
-func TestSettingsValidate(t *testing.T) {
-	ok := DefaultSettings()
-	if err := ok.Validate(); err != nil {
+// Changed sends a snapshot to stream clients only when it differs.
+func TestChangedCoalesces(t *testing.T) {
+	in := sample()
+	var mu sync.Mutex
+	s := New(Options{Store: &memStore{}, Input: func() Input { mu.Lock(); defer mu.Unlock(); return in }})
+	s.Interval = 0
+	if err := s.Update(Settings{Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	bad := ok
-	bad.Nodes = []string{"12;rm"}
-	if bad.Validate() == nil {
-		t.Fatal("node")
+	c, herr := s.hub.add("k")
+	if herr != nil {
+		t.Fatal(herr.msg)
 	}
-	bad = ok
-	bad.Title = strings.Repeat("é", 81)
-	if bad.Validate() == nil {
-		t.Fatal("title")
-	}
-}
-
-func TestBuildNetworkDedupesScrubbed(t *testing.T) {
-	st := rpt.NodeStatus{Node: "1997", Network: []rpt.LinkedNode{
-		{Node: "1998", Mode: rpt.ModeTransceive},
-		{Node: "192.0.2.10", Mode: rpt.ModeTransceive},
-		{Node: "192.0.2.11", Mode: rpt.ModeTransceive},
-		{Node: "1999", Mode: rpt.ModeTransceive},
-	}}
-	got := BuildNetwork(st, nil, View{})
-	seen := map[string]bool{}
-	for _, n := range got {
-		if seen[n.Node] {
-			t.Fatalf("duplicate %q in %+v", n.Node, got)
+	s.Changed()
+	s.Changed() // same data: nothing new
+	mu.Lock()
+	in.Target = "Room 2"
+	mu.Unlock()
+	s.Changed()
+	n := 0
+	for {
+		select {
+		case b := <-c.ch:
+			if !strings.HasPrefix(string(b), "event: snapshot") {
+				t.Fatalf("%s", b)
+			}
+			n++
+			continue
+		default:
 		}
-		seen[n.Node] = true
+		break
 	}
-	if len(got) != 3 {
-		t.Fatalf("want 3 entries, got %+v", got)
-	}
-}
-
-func TestBridgeNodeLabelled(t *testing.T) {
-	now := time.Now()
-	v := View{Callsigns: false, Network: true, Now: now, Bridge: "1999", BridgeName: "Digital modes linked node"}
-	st := rpt.NodeStatus{Node: "1997", Updated: now,
-		Links:   []rpt.Link{{Node: "1999", Kind: rpt.KindAllStar, State: rpt.StateEstablished, Mode: rpt.ModeTransceive}, {Node: "1998", Kind: rpt.KindAllStar, State: rpt.StateEstablished, Mode: rpt.ModeTransceive}},
-		Network: []rpt.LinkedNode{{Node: "1999", Mode: rpt.ModeTransceive}, {Node: "1998", Mode: rpt.ModeTransceive}}}
-	n := BuildNode(st, nil, v, true)
-	if n.Links[0].Node != "1999" || n.Links[0].Label != "Digital modes linked node" || n.Links[1].Label != "" {
-		t.Fatalf("links: %+v", n.Links)
-	}
-	if n.Network[0].Label != "Digital modes linked node" || n.Network[1].Label != "" {
-		t.Fatalf("network: %+v", n.Network)
-	}
-	act := BuildActivity([]store.Activity{{Node: "1997", Link: "1999", Start: now, Duration: time.Second}, {Node: "1997", Link: "1998", Start: now, Duration: time.Second}}, nil, v)
-	if act[0].Label != "Digital modes linked node" || act[1].Label != "" {
-		t.Fatalf("activity: %+v", act)
-	}
-	if got := BuildNode(st, nil, View{Now: now}, false).Links[0].Label; got != "" {
-		t.Fatalf("no bridge configured but label %q", got)
+	if n != 2 {
+		t.Fatalf("%d events", n)
 	}
 }

@@ -1,6 +1,8 @@
-// Package schedules runs scheduled connects and disconnects of links (see
-// docs/SCHEDULES.md). It depends on small interfaces only: the store and the
-// link controller are injected.
+// Package schedules runs scheduled connects and disconnects (see
+// docs/SCHEDULES.md). A schedule names a mode (allstar, echolink, bm, ysf,
+// ...) and a target on it; the node has one radio and one active mode, so
+// connecting selects that mode. It depends on small interfaces only: the
+// store and the link controller are injected.
 package schedules
 
 import (
@@ -13,30 +15,32 @@ import (
 	"unicode/utf8"
 )
 
-// Actions and modes.
+// Actions.
 const (
 	ActionConnect    = "connect"
 	ActionDisconnect = "disconnect"
-
-	ModeTransceive   = "transceive"
-	ModeMonitor      = "monitor"
-	ModeLocalMonitor = "localmonitor"
 )
+
+// MaxTarget is the longest target.
+const MaxTarget = 64
+
+// ValidMode reports whether a mode name is known (set by the caller to the
+// node's mode list; nil accepts any non-empty name).
+var ValidMode func(string) bool
 
 // MaxName is the longest schedule name.
 const MaxName = 60
 
 // Schedule is one scheduled connect or disconnect (the API's JSON shape).
 type Schedule struct {
-	ID         int64      `json:"id"`
-	Name       string     `json:"name"`
-	Enabled    bool       `json:"enabled"`
-	Node       string     `json:"node"`
+	ID      int64  `json:"id"`
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	// Mode is the node mode the schedule acts on, Target the node,
+	// talkgroup or reflector on it (a disconnect may leave it empty: any).
+	Mode       string     `json:"mode"`
 	Target     string     `json:"target"`
 	Action     string     `json:"action"`
-	Mode       string     `json:"mode"`
-	Permanent  bool       `json:"permanent"`
-	Exclusive  bool       `json:"exclusive"`
 	Days       []int      `json:"days"`
 	Date       string     `json:"date"`
 	Start      string     `json:"start"`
@@ -46,8 +50,7 @@ type Schedule struct {
 }
 
 var (
-	reTarget = regexp.MustCompile(`^[1-9][0-9]{0,9}$`)
-	reClock  = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
+	reClock = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
 )
 
 // ErrInvalid wraps every validation error.
@@ -59,7 +62,7 @@ func invalid(format string, a ...any) error {
 
 // Normalize validates the user-editable fields and puts them in canonical
 // form (trimmed, sorted days, defaults, fields that do not apply cleared).
-// It does not check that Node is a local node. The returned error wraps
+// The returned error wraps
 // ErrInvalid; its text is meant for the user.
 func (s *Schedule) Normalize() error {
 	s.Name = strings.TrimSpace(s.Name)
@@ -71,29 +74,25 @@ func (s *Schedule) Normalize() error {
 			return invalid("name has control characters")
 		}
 	}
-	s.Node = strings.TrimSpace(s.Node)
-	s.Target = strings.TrimSpace(s.Target)
-	if !reTarget.MatchString(s.Target) {
-		return invalid("target must be a node number")
+	s.Mode = strings.ToLower(strings.TrimSpace(s.Mode))
+	if s.Mode == "" || (ValidMode != nil && !ValidMode(s.Mode)) {
+		return invalid("mode must be one of the node's modes")
 	}
-	if s.Target == s.Node {
-		return invalid("target must not be the local node")
+	s.Target = strings.TrimSpace(s.Target)
+	if utf8.RuneCountInString(s.Target) > MaxTarget {
+		return invalid("target is longer than %d characters", MaxTarget)
+	}
+	for _, r := range s.Target {
+		if r < 0x20 || r == 0x7f {
+			return invalid("target has control characters")
+		}
 	}
 	switch s.Action {
 	case ActionConnect:
-		switch s.Mode {
-		case "":
-			s.Mode = ModeTransceive
-		case ModeTransceive, ModeMonitor, ModeLocalMonitor:
-		default:
-			return invalid(`mode must be "transceive", "monitor" or "localmonitor"`)
-		}
-		if s.Mode == ModeLocalMonitor {
-			s.Exclusive = false
+		if s.Target == "" {
+			return invalid("a connect needs a target")
 		}
 	case ActionDisconnect:
-		s.Mode = ""
-		s.Exclusive = false
 		if s.End != "" {
 			return invalid("a disconnect has no end time")
 		}
@@ -156,8 +155,12 @@ func (s Schedule) title() string {
 	if s.Name != "" {
 		return s.Name
 	}
-	if s.Action == ActionConnect {
-		return "Connect " + s.Target
+	t := s.Target
+	if t == "" {
+		t = s.Mode
 	}
-	return "Disconnect " + s.Target
+	if s.Action == ActionConnect {
+		return "Connect " + t
+	}
+	return "Disconnect " + t
 }

@@ -1,9 +1,0 @@
-Response: Success
-ActionID: test-3
-Node: 1999
-Conn: 2000 1 5 300
-Conn: 55555 0 120 100
-Conn: N0CALL 0 -1 -1
-Conn: 3141592 0 60 55
-Conn: 2001 0 -1 -1
-

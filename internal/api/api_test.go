@@ -17,135 +17,40 @@ import (
 	"testing"
 	"time"
 
-	"github.com/artw1/aslcp/internal/ami"
-	"github.com/artw1/aslcp/internal/ami/amitest"
 	"github.com/artw1/aslcp/internal/api"
 	"github.com/artw1/aslcp/internal/auth"
 	"github.com/artw1/aslcp/internal/backupsvc"
 	"github.com/artw1/aslcp/internal/config"
-	"github.com/artw1/aslcp/internal/configsvc"
 	"github.com/artw1/aslcp/internal/diag"
-	"github.com/artw1/aslcp/internal/dvpanel"
 	"github.com/artw1/aslcp/internal/favstats"
 	"github.com/artw1/aslcp/internal/hostlists"
+	"github.com/artw1/aslcp/internal/native/mode"
+	"github.com/artw1/aslcp/internal/native/mode/modetest"
+	"github.com/artw1/aslcp/internal/native/node"
+	"github.com/artw1/aslcp/internal/native/node/nodetest"
 	"github.com/artw1/aslcp/internal/nodelist"
-	"github.com/artw1/aslcp/internal/rpt"
+	"github.com/artw1/aslcp/internal/nowcalling"
 	"github.com/artw1/aslcp/internal/schedules"
 	"github.com/artw1/aslcp/internal/store"
-	"github.com/artw1/aslcp/internal/susb"
 	"github.com/artw1/aslcp/internal/system"
 	"github.com/artw1/aslcp/internal/updates"
 )
 
+// localNode is the test station's AllStar node number.
 const localNode = "1997"
 
-// fakeNode answers app_rpt actions from mutable state.
-type fakeNode struct {
-	*amitest.Server
-	mu       sync.Mutex
-	rx, tx   bool
-	links    []string
-	commands []string
-}
-
-func newFakeNode(t *testing.T) *fakeNode {
-	f := &fakeNode{Server: amitest.New(t), links: []string{"50241"}}
-	f.Handle("RptLocalNodes", func(_ *amitest.Session, r *amitest.Request) string {
-		return amitest.Raw(`<?xml version="1.0"?>`, `<nodes>`, `  <node>`+localNode+`</node>`, `</nodes>`)
-	})
-	f.Handle("RptStatus", f.rptStatus)
-	f.Handle("Command", func(_ *amitest.Session, r *amitest.Request) string {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		cmd := r.Get("Command")
-		f.commands = append(f.commands, cmd)
-		switch cmd {
-		case "core show uptime seconds":
-			return amitest.CommandOutput(r, "System uptime: 120660", "Last reload: 120660")
-		case "core show version":
-			return amitest.CommandOutput(r, "Asterisk 22.10.1+asl3-3.10.8-1.deb12 built by x @ y on a aarch64 running Linux on 2026-10-11 15:31:58 UTC")
-		}
-		if strings.Contains(cmd, "ilink") && strings.Contains(cmd, "unknownnode") {
-			return amitest.CommandOutput(r, "Unknown node number")
-		}
-		return amitest.CommandOutput(r)
-	})
-	return f
-}
-
-func b01(b bool) string {
-	if b {
-		return "1"
-	}
-	return "0"
-}
-
-func (f *fakeNode) rptStatus(_ *amitest.Session, r *amitest.Request) string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	switch r.Get("Command") {
-	case "XStat":
-		kv := []string{"Node", localNode}
-		var net, al []string
-		for _, l := range f.links {
-			kv = append(kv, "Conn", fmt.Sprintf("%-10s%-20s%-12d%-11s%-20s%-20s", l, "192.0.2.58", 0, "OUT", "00:00:29", "ESTABLISHED"))
-			net = append(net, "T"+l)
-			al = append(al, l+"TU")
-		}
-		ln := "<NONE>"
-		if len(net) > 0 {
-			ln = strings.Join(net, ", ")
-		}
-		kv = append(kv, "LinkedNodes", ln,
-			"Var", "RPT_RXKEYED="+b01(f.rx), "Var", "RPT_TXKEYED="+b01(f.tx), "Var", "RPT_ETXKEYED=0",
-			"Var", fmt.Sprintf("RPT_NUMLINKS=%d", len(net)), "Var", fmt.Sprintf("RPT_NUMALINKS=%d", len(al)))
-		kv = append(kv, "parrot_ena", "0", "sys_ena", "0", "tot_ena", "0", "link_ena", "0", "patch_ena", "1",
-			"patch_state", "4", "sch_ena", "0", "user_funs", "0", "tail_type", "0", "iconns", "0",
-			"tot_state", "2", "ider_state", "2", "tel_mode", "1")
-		return amitest.Success(r, kv...)
-	case "SawStat":
-		kv := []string{"Node", localNode}
-		for _, l := range f.links {
-			kv = append(kv, "Conn", l+" 0 -1 -1")
-		}
-		return amitest.Success(r, kv...)
-	case "NodeStat":
-		return amitest.Success(r, "IsRemoteBase", "NO", "KeyupsToday", "2", "TxTimeToday", "00:00:33:172")
-	}
-	return amitest.Error(r, "RptStatus unknown command")
-}
-
-func (f *fakeNode) setRx(v bool) {
-	f.mu.Lock()
-	f.rx = v
-	f.mu.Unlock()
-}
-
-func (f *fakeNode) ilinkCommands() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	var out []string
-	for _, c := range f.commands {
-		if strings.HasPrefix(c, "rpt cmd ") {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
 type env struct {
-	t     *testing.T
-	fake  *fakeNode
-	st    *store.Store
-	as    *auth.Service
-	srv   *api.Server
-	ts    *httptest.Server
-	nl    *nodelist.DB
-	mon   *rpt.Monitor
-	favDr string
-	ck    map[string]string // role -> cookie header
-	clk   *fakeClock        // with opts.schedules
-	eng   *schedules.Engine // with opts.schedules
+	t    *testing.T
+	node *nodetest.Rig // nil with opts.noNode
+	dir  string        // the node's socket and config
+	st   *store.Store
+	as   *auth.Service
+	srv  *api.Server
+	ts   *httptest.Server
+	nl   *nodelist.DB
+	ck   map[string]string // role -> cookie header
+	clk  *fakeClock        // with opts.schedules
+	eng  *schedules.Engine // with opts.schedules
 }
 
 type fakeClock struct {
@@ -167,28 +72,97 @@ type opts struct {
 	updatesFn func(st *store.Store) *updates.Manager
 	power     api.Power
 	sysHost   api.SystemHost
-	dvengine  api.DVEngine
-	dvctl     api.DVCtl
 	hostlists *hostlists.Manager
-	dvresume  api.DVResume
-	// dvEnabled and dvNode feed the digital modes snapshot; without dvEnabled
-	// the node has them off and the snapshot never calls the fakes.
-	dvEnabled func() bool
-	dvNode    func(context.Context) (string, bool)
-	config    *configsvc.Service
-	configFn  func(rpt.API) *configsvc.Service
 	log       *diag.Ring
-	cfg       func(secret string) config.Config
+	cfg       func() config.Config
 	backupFn  func(st *store.Store) *backupsvc.Service
 	restart   func()
-	tuning    func() *susb.Service
 	favstats  *favstats.Service
 	// schedules builds a schedule engine on a fake clock (env.clk), in New
 	// York time; the clock starts on Tuesday 2026-11-17 18:59:50.
 	schedules bool
-	// dvlink runs the permanent-link reconciler of the private bridge node
-	// with short timers (M2).
-	dvlink bool
+	// noNode leaves Deps.Node nil; nodeCfg replaces the default node config.
+	noNode  bool
+	nodeCfg *node.Config
+}
+
+// testNodeConfig is a station with AllStar and BrandMeister set up, the ID
+// and the tones off so the fake radio stays quiet.
+func testNodeConfig() *node.Config {
+	off := false
+	return &node.Config{
+		Version: node.ConfigVersion,
+		Station: node.Station{
+			Callsign: "N0CALL",
+			ID:       node.IDConfig{Enabled: &off},
+			Advanced: node.Advanced{CourtesyTone: &off, ModeAGC: &off, RadioAGC: &off},
+		},
+		Modes: map[string]mode.Settings{
+			mode.AllStar: {Values: map[string]string{"node": localNode, "password": "test-node-secret"}},
+			mode.BM:      {Values: map[string]string{"dmr_id": "1234567", "password": "test-bm-secret", "address": "master.example.net"}},
+		},
+	}
+}
+
+// startNode starts (or restarts) the fake node on the env's socket.
+func (e *env) startNode(cfg *node.Config) {
+	e.t.Helper()
+	if cfg == nil {
+		cfg = testNodeConfig()
+	}
+	rig, err := nodetest.Start(cfg, nodetest.Options{Dir: e.dir})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	e.node = rig
+}
+
+// stopNode stops the fake node (the API keeps running).
+func (e *env) stopNode() {
+	if e.node != nil {
+		e.node.Close()
+		e.node = nil
+	}
+}
+
+// fake returns the fake mode n, waiting for the engine to build it.
+func (e *env) fake(n string) *modetest.Fake {
+	e.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if f := e.node.Fake(n); f != nil {
+			return f
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	e.t.Fatalf("mode %s was never built", n)
+	return nil
+}
+
+// nodeJSON reads GET /api/node as the admin.
+func (e *env) nodeJSON() api.NodeJSON {
+	e.t.Helper()
+	var n api.NodeJSON
+	if c := e.do("admin", "GET", "/api/node", nil, &n); c != 200 {
+		e.t.Fatalf("GET /api/node: %d", c)
+	}
+	return n
+}
+
+// waitNode waits until GET /api/node satisfies pred.
+func (e *env) waitNode(what string, pred func(api.NodeJSON) bool) api.NodeJSON {
+	e.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		n := e.nodeJSON()
+		if pred(n) {
+			return n
+		}
+		if time.Now().After(deadline) {
+			e.t.Fatalf("timed out waiting for the node: %s (%+v)", what, n)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func newEnv(t *testing.T, o opts) *env {
@@ -205,84 +179,66 @@ func newEnv(t *testing.T, o opts) *env {
 	}
 	as.Limiter.Max = 1000 // tests log in often; rate limit has its own test
 
-	fake := newFakeNode(t)
-	client := ami.NewClient(ami.Config{Addr: fake.Addr, Username: fake.Username, Secret: fake.Secret, Events: "call",
-		ReconnectMin: 20 * time.Millisecond, ReconnectMax: 80 * time.Millisecond})
-	t.Cleanup(func() { client.Close() })
-	wctx, wcancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer wcancel()
-	if err := client.WaitConnected(wctx); err != nil {
+	// A Unix socket path must be short, so not t.TempDir.
+	dir, err := os.MkdirTemp("", "aslcp-at")
+	if err != nil {
 		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	e := &env{t: t, dir: dir, st: st, as: as, ck: map[string]string{}}
+	if !o.noNode {
+		e.startNode(o.nodeCfg)
+		t.Cleanup(e.stopNode)
 	}
 
 	nl := nodelist.New(nodelist.Options{Logger: quiet})
 	nl.Set([]nodelist.Info{
-		{Node: "50241", Callsign: "N0AAC", Description: "Metro Hub", Location: "Springfield, ST"},
-		{Node: "2000", Callsign: "N0AAE", Description: "Reflector", Location: "Nowhere, XX"},
-		{Node: localNode, Callsign: "N0AAD", Description: "Home node", Location: "Home, ST"},
-		{Node: "1999", Callsign: "N0AAA", Description: "Test Hub", Location: "Metropolis, ST"},
+		{Node: "1998", Callsign: "N1CALL", Description: "Metro Hub", Location: "Springfield, ST"},
+		{Node: "2000", Callsign: "N2CALL", Description: "Reflector", Location: "Nowhere, XX"},
+		{Node: localNode, Callsign: "N0CALL", Description: "Home node", Location: "Home, ST"},
+		{Node: "1999", Callsign: "N3CALL", Description: "Test Hub", Location: "Metropolis, ST"},
 	}, "test", time.Now())
+	e.nl = nl
 
-	favDir := t.TempDir()
 	var origins []string
 	if o.dev {
 		origins = []string{"http://localhost:5173"}
 	}
+	var nd api.Node
+	if !o.noNode {
+		nd = node.NewClient(filepath.Join(dir, "control.sock"))
+	}
 	deps := api.Deps{
-		Auth: as, Store: st, AMI: client, Nodelist: nl, System: system.New("test", client), Updates: o.updates, ConfigEditor: o.config, Version: "test",
-		AllowedOrigins: origins, AllScanDirs: []string{favDir}, Logger: quiet,
+		Auth: as, Store: st, Node: nd, Nodelist: nl, System: system.New("test", api.SystemNode(nd)), Updates: o.updates, Version: "test",
+		AllowedOrigins: origins, Logger: quiet,
 		Log: o.log, PlatformPaths: &diag.PlatformPaths{DeviceModel: "/nonexistent"},
+		Power: o.power, SysHost: o.sysHost, HostLists: o.hostlists, FavStats: o.favstats,
 	}
 	if o.updatesFn != nil {
 		deps.Updates = o.updatesFn(st)
-	}
-	deps.Power = o.power
-	deps.SysHost = o.sysHost
-	deps.DVEngine, deps.DVCtl, deps.HostLists = o.dvengine, o.dvctl, o.hostlists
-	deps.DVResume = o.dvresume
-	deps.DVEnabled, deps.DVBridgeNode = o.dvEnabled, o.dvNode
-	if deps.DVEnabled == nil {
-		deps.DVEnabled = func() bool { return false }
 	}
 	if o.backupFn != nil {
 		deps.Backup = o.backupFn(st)
 		deps.Restart = o.restart
 	}
-	if o.tuning != nil {
-		deps.Tuning = o.tuning()
-	}
-	deps.FavStats = o.favstats
-	var clk *fakeClock
-	var eng *schedules.Engine
 	if o.schedules {
 		ny, err := time.LoadLocation("America/New_York")
 		if err != nil {
 			t.Fatal(err)
 		}
-		clk = &fakeClock{t: time.Date(2026, 11, 17, 18, 59, 50, 0, ny)}
-		eng = &schedules.Engine{Store: st, Now: clk.now, Loc: ny, Zone: "America/New_York", Tick: time.Hour}
-		deps.Schedules = eng
-	}
-	if o.dvlink {
-		deps.DVLink = &dvpanel.LinkReconciler{Tick: 100 * time.Millisecond, Retry: 150 * time.Millisecond}
+		e.clk = &fakeClock{t: time.Date(2026, 11, 17, 18, 59, 50, 0, ny)}
+		e.eng = &schedules.Engine{Store: st, Now: e.clk.now, Loc: ny, Zone: "America/New_York", Tick: time.Hour}
+		deps.Schedules = e.eng
 	}
 	if o.cfg != nil {
-		deps.Config = o.cfg(fake.Secret)
-	}
-	if o.configFn != nil {
-		deps.ConfigEditor = o.configFn(client)
+		deps.Config = o.cfg()
 	}
 	srv := api.New(deps)
-	srv.FastInterval, srv.SlowInterval = 100*time.Millisecond, 400*time.Millisecond
 	srv.PingInterval = 100 * time.Millisecond
 	srv.SystemInterval = 200 * time.Millisecond
-	srv.SetCommandGap(20 * time.Millisecond)
-	srv.LinkGoneWait = 300 * time.Millisecond
+	srv.NodeRetry = 20 * time.Millisecond
 
 	ctx, cancel := context.WithCancel(context.Background())
-	mon := rpt.NewMonitor(client, rpt.MonitorConfig{Nodes: []string{localNode}, Interval: 80 * time.Millisecond})
-	go mon.Run(ctx)
-	go srv.AttachMonitor(ctx, mon)
 	go srv.Run(ctx)
 
 	ts := httptest.NewServer(srv.Handler())
@@ -291,16 +247,8 @@ func newEnv(t *testing.T, o opts) *env {
 		srv.Shutdown()
 		ts.Close()
 	})
-	e := &env{t: t, fake: fake, st: st, as: as, srv: srv, ts: ts, nl: nl, mon: mon, favDr: favDir, ck: map[string]string{}, clk: clk, eng: eng}
+	e.srv, e.ts = srv, ts
 
-	// wait for a real (non-stale) status
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if s, ok := mon.Status(localNode); ok && !s.Stale && !s.Updated.IsZero() {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 	if !o.noUsers {
 		for _, u := range []struct{ name, role string }{{"admin", "admin"}, {"op", "operator"}, {"viewer", "viewer"}} {
 			if _, err := st.CreateUser(u.name, testHash(u.name), u.role); err != nil {
@@ -310,12 +258,13 @@ func newEnv(t *testing.T, o opts) *env {
 		e.session("admin")
 		e.session("op")
 		e.session("viewer")
+		if !o.noNode {
+			e.waitNode("running", func(n api.NodeJSON) bool { return n.Running })
+		}
 	}
 	return e
 }
 
-// session starts a session directly (argon2 is slow under -race); the HTTP
-// login path has its own tests.
 func (e *env) session(name string) {
 	e.t.Helper()
 	u, err := e.st.UserByName(name)
@@ -417,7 +366,7 @@ func TestSetupAndSession(t *testing.T) {
 	if e.do("", "GET", "/api/setup", nil, &need) != 200 || !need.Needed {
 		t.Fatal("setup should be needed")
 	}
-	expectErr(t, e, "", "GET", "/api/nodes", nil, 401, "unauthorized")
+	expectErr(t, e, "", "GET", "/api/node", nil, 401, "unauthorized")
 	code, err := e.as.EnsureSetupCode()
 	if err != nil || code == "" {
 		t.Fatal(err)
@@ -490,12 +439,12 @@ func TestCSRFAndOrigin(t *testing.T) {
 		t.Fatalf("vite origin without --dev: %d", code)
 	}
 	// authenticated state-changing request without the header is rejected too
-	code, _, _ = e.raw("POST", "/api/nodes/"+localNode+"/disconnect-all", nil, e.ck["op"], map[string]string{"X-ASLCP": ""})
+	code, _, _ = e.raw("POST", "/api/select", map[string]string{"mode": "allstar", "target": "2000"}, e.ck["op"], map[string]string{"X-ASLCP": ""})
 	if code != 403 {
 		t.Fatalf("authed no header: %d", code)
 	}
-	if n := len(e.fake.ilinkCommands()); n != 0 {
-		t.Fatalf("command executed despite CSRF rejection (%d)", n)
+	if n := len(e.fake(mode.AllStar).Connects()); n != 0 {
+		t.Fatalf("select ran despite CSRF rejection (%d)", n)
 	}
 
 	d := newEnv(t, opts{dev: true})
@@ -507,26 +456,39 @@ func TestCSRFAndOrigin(t *testing.T) {
 
 func TestRoles(t *testing.T) {
 	e := newEnv(t, opts{})
-	connect := map[string]string{"target": "2000"}
-	expectErr(t, e, "viewer", "POST", "/api/nodes/"+localNode+"/connect", connect, 403, "forbidden")
-	expectErr(t, e, "viewer", "POST", "/api/nodes/"+localNode+"/disconnect", connect, 403, "forbidden")
-	expectErr(t, e, "viewer", "POST", "/api/nodes/"+localNode+"/disconnect-all", nil, 403, "forbidden")
-	expectErr(t, e, "viewer", "POST", "/api/favorites", map[string]string{"node": "2000"}, 403, "forbidden")
-	expectErr(t, e, "viewer", "GET", "/api/favorites/import/allscan", nil, 403, "forbidden")
-	expectErr(t, e, "viewer", "GET", "/api/users", nil, 403, "forbidden")
-	expectErr(t, e, "op", "GET", "/api/users", nil, 403, "forbidden")
-	expectErr(t, e, "op", "POST", "/api/nodelist/refresh", nil, 403, "forbidden")
-	if len(e.fake.ilinkCommands()) != 0 {
-		t.Fatal("forbidden request reached AMI")
+	sel := map[string]string{"mode": "allstar", "target": "2000"}
+	forbidden := []struct{ role, method, path string }{
+		{"viewer", "POST", "/api/select"},
+		{"viewer", "POST", "/api/connect"},
+		{"viewer", "POST", "/api/disconnect"},
+		{"viewer", "POST", "/api/favorites"},
+		{"viewer", "GET", "/api/hostlists?mode=ysf"},
+		{"viewer", "GET", "/api/users"},
+		{"op", "GET", "/api/users"},
+		{"op", "POST", "/api/nodelist/refresh"},
+		{"op", "PUT", "/api/modes/allstar"},
+		{"op", "DELETE", "/api/modes/allstar"},
+		{"op", "GET", "/api/station"},
+		{"op", "PUT", "/api/station"},
+		{"op", "GET", "/api/radio"},
+		{"op", "PUT", "/api/radio"},
+		{"op", "POST", "/api/radio/program"},
+		{"op", "POST", "/api/node/reload"},
 	}
-	if c := e.do("op", "POST", "/api/nodes/"+localNode+"/connect", connect, nil); c != 202 {
-		t.Fatalf("operator connect: %d", c)
+	for _, f := range forbidden {
+		expectErr(t, e, f.role, f.method, f.path, sel, 403, "forbidden")
+	}
+	if len(e.fake(mode.AllStar).Connects()) != 0 {
+		t.Fatal("a forbidden request reached the node")
+	}
+	if c := e.do("op", "POST", "/api/select", sel, nil); c != 200 {
+		t.Fatalf("operator select: %d", c)
 	}
 	if c := e.do("admin", "POST", "/api/nodelist/refresh", nil, nil); c != 202 {
 		t.Fatalf("admin refresh: %d", c)
 	}
 	for _, r := range []string{"viewer", "op", "admin"} {
-		for _, p := range []string{"/api/nodes", "/api/favorites", "/api/system", "/api/nodelist", "/api/lookup/2000", "/api/lookup?q=n0"} {
+		for _, p := range []string{"/api/node", "/api/modes", "/api/heard", "/api/favorites", "/api/system", "/api/nodelist", "/api/lookup/2000", "/api/lookup?q=n0", "/api/nowcalling"} {
 			if c := e.do(r, "GET", p, nil, nil); c != 200 {
 				t.Errorf("%s GET %s: %d", r, p, c)
 			}
@@ -535,184 +497,337 @@ func TestRoles(t *testing.T) {
 	expectErr(t, e, "admin", "GET", "/api/nope", nil, 404, "not_found")
 }
 
-func TestNodesIPsAndInfo(t *testing.T) {
+func TestNodeStatus(t *testing.T) {
 	e := newEnv(t, opts{})
-	var admin, viewer []api.NodeStatusJSON
-	if e.do("admin", "GET", "/api/nodes", nil, &admin) != 200 || e.do("viewer", "GET", "/api/nodes", nil, &viewer) != 200 {
-		t.Fatal("GET /api/nodes")
+	n := e.nodeJSON()
+	if !n.Running || n.Error != "" || n.SetupNeeded || !n.Configured || n.Callsign != "N0CALL" || n.Active != "" || n.Started.IsZero() {
+		t.Fatalf("%+v", n)
 	}
-	if len(admin) != 1 || admin[0].Node != localNode || admin[0].Stale {
-		t.Fatalf("%+v", admin)
-	}
-	n := admin[0]
-	if n.Info == nil || n.Info.Callsign != "N0AAD" {
-		t.Fatalf("node info: %+v", n.Info)
-	}
-	if len(n.Links) != 1 {
-		t.Fatalf("links: %+v", n.Links)
-	}
-	l := n.Links[0]
-	if l.Node != "50241" || l.IP != "192.0.2.58" || l.Direction != "OUT" || l.State != "ESTABLISHED" ||
-		l.Mode != "T" || l.Kind != "allstar" || l.Connected != 29 || l.Info == nil || l.Info.Callsign != "N0AAC" {
-		t.Fatalf("link: %+v", l)
-	}
-	if len(n.Network) != 1 || n.Network[0].Node != "50241" || n.Network[0].Mode != "T" || n.Network[0].Info == nil {
-		t.Fatalf("network: %+v", n.Network)
-	}
-	if n.Flags == nil || n.Flags["txDisabled"] {
-		t.Fatalf("flags: %+v", n.Flags)
-	}
-	if n.Updated == "" {
-		t.Fatal("updated missing")
-	}
-	// viewers never see IPs, anywhere
-	if viewer[0].Links[0].IP != "" {
-		t.Fatalf("viewer saw IP: %+v", viewer[0].Links[0])
-	}
-	_, raw, _ := e.raw("GET", "/api/nodes", nil, e.ck["viewer"], nil)
-	if bytes.Contains(raw, []byte("192.0.2.58")) {
-		t.Fatal("viewer response contains the IP")
-	}
-	// JSON shape: nulls and empty strings, not omitted
-	var generic []map[string]any
-	_, raw, _ = e.raw("GET", "/api/nodes", nil, e.ck["viewer"], nil)
-	json.Unmarshal(raw, &generic)
-	lk := generic[0]["links"].([]any)[0].(map[string]any)
-	for _, k := range []string{"node", "kind", "info", "ip", "direction", "connected", "state", "mode", "keyed", "sinceKey", "sinceUnkey"} {
-		if _, ok := lk[k]; !ok {
-			t.Errorf("link missing key %q", k)
+	_, raw, _ := e.raw("GET", "/api/node", nil, e.ck["viewer"], nil)
+	for _, k := range []string{`"running"`, `"setupNeeded"`, `"callsign"`, `"radio"`, `"configured"`, `"id"`} {
+		if !bytes.Contains(raw, []byte(k)) {
+			t.Errorf("missing %s in %s", k, raw)
 		}
+	}
+	var setup struct{ Needed, Station bool }
+	if e.do("", "GET", "/api/setup", nil, &setup); setup.Needed || setup.Station {
+		t.Fatalf("setup: %+v", setup)
+	}
+	if c := e.do("admin", "POST", "/api/node/reload", nil, nil); c != 200 {
+		t.Fatalf("reload: %d", c)
 	}
 }
 
-func TestConnectDisconnectCommands(t *testing.T) {
+func TestStationSetupFlag(t *testing.T) {
+	cfg := testNodeConfig()
+	cfg.Station.Callsign = ""
+	e := newEnv(t, opts{nodeCfg: cfg})
+	if n := e.nodeJSON(); !n.SetupNeeded || n.Configured {
+		t.Fatalf("a station without a callsign needs setup: %+v", n)
+	}
+	var setup struct{ Station bool }
+	if e.do("", "GET", "/api/setup", nil, &setup); !setup.Station {
+		t.Fatal("GET /api/setup: station setup not flagged")
+	}
+	var stn node.Station
+	if c := e.do("admin", "GET", "/api/station", nil, &stn); c != 200 || stn.Callsign != "" {
+		t.Fatal(c, stn)
+	}
+	stn.Callsign = " n1call "
+	var n api.NodeJSON
+	if c := e.do("admin", "PUT", "/api/station", stn, &n); c != 200 || n.Callsign != "N1CALL" || n.SetupNeeded {
+		t.Fatal(c, n)
+	}
+	e.waitNode("configured", func(n api.NodeJSON) bool { return !n.SetupNeeded })
+	if e.do("admin", "GET", "/api/station", nil, &stn); stn.Callsign != "N1CALL" {
+		t.Fatalf("%+v", stn)
+	}
+}
+
+func modeByName(l []node.ModeInfo, n string) *node.ModeInfo {
+	for i := range l {
+		if l[i].Name == n {
+			return &l[i]
+		}
+	}
+	return nil
+}
+
+func TestModesSettingsAndSecrets(t *testing.T) {
 	e := newEnv(t, opts{})
-	base := "/api/nodes/" + localNode
-	steps := []struct {
+	var l []node.ModeInfo
+	if c := e.do("admin", "GET", "/api/modes", nil, &l); c != 200 {
+		t.Fatal(c)
+	}
+	for _, n := range []string{mode.AllStar, mode.EchoLink, mode.BM, mode.TGIF, mode.YSF, mode.P25, mode.NXDN, mode.M17} {
+		if modeByName(l, n) == nil {
+			t.Errorf("mode %s missing", n)
+		}
+	}
+	as := modeByName(l, mode.AllStar)
+	if !as.Configured || len(as.Fields) == 0 || as.Settings.Values["node"] != localNode || !as.SecretsSet["password"] {
+		t.Fatalf("allstar: %+v", as)
+	}
+	if as.Settings.Values["password"] != "" {
+		t.Fatal("the password was sent back")
+	}
+	_, raw, _ := e.raw("GET", "/api/modes", nil, e.ck["admin"], nil)
+	if bytes.Contains(raw, []byte("test-node-secret")) {
+		t.Fatal("GET /api/modes leaks a password")
+	}
+	// viewers see the modes but not their settings
+	var vl []node.ModeInfo
+	e.do("viewer", "GET", "/api/modes", nil, &vl)
+	if v := modeByName(vl, mode.AllStar); v == nil || !v.Configured || len(v.Settings.Values) != 0 || v.SecretsSet != nil || v.Fields != nil {
+		t.Fatalf("viewer: %+v", v)
+	}
+
+	// passwords are write-only: an empty one keeps the saved one
+	put := mode.Settings{Values: map[string]string{"callsign": "N0CALL-L", "password": "echo-pass"}}
+	if c := e.do("admin", "PUT", "/api/modes/echolink", put, &l); c != 200 {
+		t.Fatal(c)
+	}
+	el := modeByName(l, mode.EchoLink)
+	if el == nil || !el.Configured || !el.SecretsSet["password"] || el.Settings.Values["password"] != "" || el.Settings.Values["callsign"] != "N0CALL-L" {
+		t.Fatalf("echolink: %+v", el)
+	}
+	put = mode.Settings{Values: map[string]string{"callsign": "N1CALL-L", "password": ""}}
+	e.do("admin", "PUT", "/api/modes/echolink", put, &l)
+	if el = modeByName(l, mode.EchoLink); !el.SecretsSet["password"] || el.Settings.Values["callsign"] != "N1CALL-L" {
+		t.Fatalf("empty password should keep the saved one: %+v", el)
+	}
+	cfg, err := os.ReadFile(e.node.ConfigPath)
+	if err != nil || !bytes.Contains(cfg, []byte("echo-pass")) {
+		t.Fatalf("the node config should keep the password (%v)", err)
+	}
+	expectErr(t, e, "admin", "PUT", "/api/modes/Bad%20Mode", put, 400, "bad_mode")
+	expectErr(t, e, "admin", "PUT", "/api/modes/nosuchmode", put, 409, "node_refused")
+
+	if c := e.do("admin", "DELETE", "/api/modes/echolink", nil, nil); c != 204 {
+		t.Fatal(c)
+	}
+	e.do("admin", "GET", "/api/modes", nil, &l)
+	if el = modeByName(l, mode.EchoLink); el.Configured {
+		t.Fatalf("deleted: %+v", el)
+	}
+}
+
+func TestSelectConnectDisconnect(t *testing.T) {
+	e := newEnv(t, opts{})
+	var n api.NodeJSON
+	if c := e.do("op", "POST", "/api/select", map[string]string{"mode": "AllStar", "target": "2000"}, &n); c != 200 {
+		t.Fatal(c)
+	}
+	if n.Active != mode.AllStar || n.Mode == nil {
+		t.Fatalf("%+v", n)
+	}
+	as := e.fake(mode.AllStar)
+	if c := as.Connects(); len(c) != 1 || c[0].ID != "2000" {
+		t.Fatalf("connects: %+v", c)
+	}
+	if c := e.do("op", "POST", "/api/connect", map[string]string{"target": "1999"}, &n); c != 200 || n.Active != mode.AllStar {
+		t.Fatal(c, n)
+	}
+	if c := as.Connects(); len(c) != 2 || c[1].ID != "1999" {
+		t.Fatalf("connects: %+v", c)
+	}
+	if c := e.do("op", "POST", "/api/disconnect", nil, &n); c != 200 || n.Active != mode.AllStar {
+		t.Fatal(c, n)
+	}
+	if _, _, d, _ := as.Counts(); d != 1 {
+		t.Fatalf("disconnects: %d", d)
+	}
+
+	// one radio, one mode: selecting BM stops AllStar
+	if c := e.do("op", "POST", "/api/select", map[string]any{"mode": "bm", "target": "91", "slot": 1}, &n); c != 200 || n.Active != mode.BM {
+		t.Fatal(c, n)
+	}
+	if as.Running() {
+		t.Fatal("AllStar still runs next to BM")
+	}
+	if c := e.fake(mode.BM).Connects(); len(c) != 1 || c[0].ID != "91" || c[0].Slot != 1 {
+		t.Fatalf("bm connects: %+v", c)
+	}
+	// idle
+	n = api.NodeJSON{}
+	if c := e.do("op", "POST", "/api/select", map[string]string{"mode": ""}, &n); c != 200 || n.Active != "" {
+		t.Fatal(c, n)
+	}
+
+	bad := []struct {
 		path string
 		body any
-		want string
+		code int
+		err  string
 	}{
-		{"/connect", map[string]any{"target": "2000"}, "rpt cmd 1997 ilink 3 2000"},
-		{"/connect", map[string]any{"target": "2000", "mode": "transceive"}, "rpt cmd 1997 ilink 3 2000"},
-		{"/connect", map[string]any{"target": "2000", "mode": "monitor"}, "rpt cmd 1997 ilink 2 2000"},
-		{"/connect", map[string]any{"target": "2000", "mode": "localmonitor"}, "rpt cmd 1997 ilink 8 2000"},
-		{"/connect", map[string]any{"target": "2000", "mode": "transceive", "permanent": true}, "rpt cmd 1997 ilink 13 2000"},
-		{"/connect", map[string]any{"target": "2000", "mode": "monitor", "permanent": true}, "rpt cmd 1997 ilink 12 2000"},
-		{"/connect", map[string]any{"target": "3001234", "mode": "localmonitor", "permanent": true}, "rpt cmd 1997 ilink 18 3001234"},
-		{"/disconnect", map[string]any{"target": "2000"}, "rpt cmd 1997 ilink 1 2000"},
-		{"/disconnect", map[string]any{"target": "2000", "permanent": true}, "rpt cmd 1997 ilink 11 2000"},
-		{"/disconnect", map[string]any{"target": "W1AW-P"}, "rpt cmd 1997 ilink 1 W1AW-P"},
-		{"/disconnect-all", nil, "rpt cmd 1997 ilink 6"},
+		{"/api/select", map[string]string{"mode": "all star"}, 400, "bad_mode"},
+		{"/api/select", map[string]string{"mode": "", "target": "2000"}, 400, "bad_request"},
+		{"/api/select", map[string]string{"mode": "allstar", "target": "2000\nx"}, 400, "bad_target"},
+		{"/api/select", map[string]any{"mode": "allstar", "target": "2000", "port": 70000}, 400, "bad_target"},
+		{"/api/select", map[string]any{"mode": "bm", "target": "91", "slot": 3}, 400, "bad_target"},
+		{"/api/select", map[string]string{"mode": "allstar", "target": strings.Repeat("1", 65)}, 400, "bad_target"},
+		{"/api/select", map[string]string{"mode": "nosuchmode"}, 409, "node_refused"},
+		{"/api/connect", map[string]string{"target": "2000"}, 409, "node_refused"}, // idle
+		{"/api/connect", map[string]string{"target": ""}, 400, "bad_target"},
+		{"/api/disconnect", nil, 409, "node_refused"},
 	}
-	var want []string
-	for _, s := range steps {
-		if c := e.do("op", "POST", base+s.path, s.body, nil); c != 202 {
-			t.Fatalf("%s %v: %d", s.path, s.body, c)
-		}
-		want = append(want, s.want)
+	for _, b := range bad {
+		expectErr(t, e, "op", "POST", b.path, b.body, b.code, b.err)
 	}
-	got := e.fake.ilinkCommands()
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("commands:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	if c := as.Connects(); len(c) != 2 {
+		t.Fatalf("a bad request reached the node: %+v", c)
 	}
-
-	n := len(e.fake.ilinkCommands())
-	for _, bad := range []any{
-		map[string]any{"target": ""},
-		map[string]any{"target": "0"},
-		map[string]any{"target": "-5"},
-		map[string]any{"target": "2000; core restart now"},
-		map[string]any{"target": "2000\nAction: Logoff"},
-		map[string]any{"target": "1997"}, // itself
-		map[string]any{"target": "abc"},
-	} {
-		expectErr(t, e, "op", "POST", base+"/connect", bad, 400, "bad_target")
-	}
-	expectErr(t, e, "op", "POST", base+"/disconnect", map[string]any{"target": "x y"}, 400, "bad_target")
-	expectErr(t, e, "op", "POST", base+"/disconnect", map[string]any{"target": "0"}, 400, "bad_target")
-	expectErr(t, e, "op", "POST", base+"/connect", map[string]any{"target": "2000", "mode": "bogus"}, 400, "bad_request")
-	if c, _ := e.errCode("op", "POST", base+"/connect", nil); c != 400 {
-		t.Fatalf("empty body: %d", c)
-	}
-	expectErr(t, e, "op", "POST", "/api/nodes/99999/connect", map[string]any{"target": "2000"}, 404, "unknown_node")
-	expectErr(t, e, "op", "POST", "/api/nodes/99999/disconnect-all", nil, 404, "unknown_node")
-	if len(e.fake.ilinkCommands()) != n {
-		t.Fatal("invalid request reached AMI")
+	// the node keeps the selection across restarts
+	e.do("op", "POST", "/api/select", map[string]string{"mode": "allstar", "target": "1998"}, nil)
+	cfg, _ := os.ReadFile(e.node.ConfigPath)
+	if !bytes.Contains(cfg, []byte(`"1998"`)) {
+		t.Fatalf("selection not saved: %s", cfg)
 	}
 }
 
-func TestAMIDown(t *testing.T) {
+func TestNodeDown(t *testing.T) {
 	e := newEnv(t, opts{})
-	e.fake.Stop()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		var ns []api.NodeStatusJSON
-		e.do("viewer", "GET", "/api/nodes", nil, &ns)
-		if len(ns) == 1 && ns[0].Stale {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
+	e.stopNode()
+	n := e.waitNode("down", func(n api.NodeJSON) bool { return !n.Running })
+	if n.Error == "" || n.Callsign != "N0CALL" {
+		t.Fatalf("down keeps the last status and says why: %+v", n)
 	}
-	expectErr(t, e, "op", "POST", "/api/nodes/"+localNode+"/connect", map[string]any{"target": "2000"}, 503, "ami_down")
-	expectErr(t, e, "op", "POST", "/api/nodes/"+localNode+"/disconnect-all", nil, 503, "ami_down")
-	var ns []api.NodeStatusJSON
-	e.do("viewer", "GET", "/api/nodes", nil, &ns)
-	if len(ns) != 1 || !ns[0].Stale {
-		t.Fatalf("node should be stale: %+v", ns)
-	}
+	expectErr(t, e, "op", "POST", "/api/select", map[string]string{"mode": "allstar"}, 503, "node_unavailable")
+	expectErr(t, e, "op", "POST", "/api/disconnect", nil, 503, "node_unavailable")
+	expectErr(t, e, "viewer", "GET", "/api/modes", nil, 503, "node_unavailable")
+	expectErr(t, e, "viewer", "GET", "/api/heard", nil, 503, "node_unavailable")
 	var sys system.System
 	e.do("viewer", "GET", "/api/system", nil, &sys)
-	if sys.Asterisk.Connected || sys.Asterisk.Error == nil {
-		t.Fatalf("%+v", sys.Asterisk)
+	if sys.Node.Running || sys.Node.Error == nil {
+		t.Fatalf("%+v", sys.Node)
 	}
+	// it comes back by itself
+	e.startNode(nil)
+	e.waitNode("back", func(n api.NodeJSON) bool { return n.Running && n.Error == "" })
+	if c := e.do("op", "POST", "/api/select", map[string]string{"mode": "allstar"}, nil); c != 200 {
+		t.Fatal(c)
+	}
+}
+
+func TestNoNode(t *testing.T) {
+	e := newEnv(t, opts{noNode: true})
+	if n := e.nodeJSON(); n.Running {
+		t.Fatalf("%+v", n)
+	}
+	expectErr(t, e, "op", "POST", "/api/select", map[string]string{"mode": "allstar"}, 503, "node_unavailable")
+	expectErr(t, e, "admin", "GET", "/api/radio", nil, 503, "node_unavailable")
+}
+
+func TestHeard(t *testing.T) {
+	e := newEnv(t, opts{})
+	e.do("op", "POST", "/api/select", map[string]string{"mode": "allstar", "target": "2000"}, nil)
+	f := e.fake(mode.AllStar)
+	f.Key("N1CALL")
+	time.Sleep(nowcalling.MinDuration + 100*time.Millisecond) // shorter is a glitch
+	f.Unkey()
+	var l []mode.Heard
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if e.do("viewer", "GET", "/api/heard?limit=5", nil, &l); len(l) == 1 && !l[0].End.IsZero() {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(l) != 1 || l[0].Callsign != "N1CALL" || l[0].Mode != mode.AllStar {
+		t.Fatalf("%+v", l)
+	}
+	expectErr(t, e, "viewer", "GET", "/api/heard?limit=0", nil, 400, "bad_request")
+	expectErr(t, e, "viewer", "GET", "/api/heard?limit=501", nil, 400, "bad_request")
+	var nc struct {
+		Recent []struct{ Kind, Call string }
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if e.do("viewer", "GET", "/api/nowcalling", nil, &nc); len(nc.Recent) == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(nc.Recent) != 1 || nc.Recent[0].Kind != mode.AllStar || nc.Recent[0].Call != "N1CALL" {
+		t.Fatalf("now calling: %+v", nc)
+	}
+}
+
+func TestRadioLevels(t *testing.T) {
+	e := newEnv(t, opts{})
+	var l map[string]any
+	if c := e.do("admin", "GET", "/api/radio", nil, &l); c != 200 {
+		t.Fatal(c)
+	}
+	if c := e.do("admin", "PUT", "/api/radio", map[string]float64{"rxVolume": 0.5}, &l); c != 200 {
+		t.Fatal(c, l)
+	}
+	if v, ok := l["CaptureVolume"].(float64); !ok || v < 0.49 || v > 0.51 {
+		t.Fatalf("%+v", l)
+	}
+	expectErr(t, e, "admin", "PUT", "/api/radio", map[string]float64{"txVolume": 1.5}, 400, "bad_request")
+	expectErr(t, e, "admin", "PUT", "/api/radio", map[string]float64{}, 400, "bad_request")
 }
 
 func TestFavorites(t *testing.T) {
 	e := newEnv(t, opts{})
-	var f1, f2, f3 api.FavoriteJSON
-	if c := e.do("op", "POST", "/api/favorites", map[string]string{"node": "50241"}, &f1); c != 201 {
+	var f1, f2, f3, f4 api.FavoriteJSON
+	if c := e.do("op", "POST", "/api/favorites", map[string]string{"mode": "allstar", "target": "1998"}, &f1); c != 201 {
 		t.Fatal(c)
 	}
-	if f1.Label != "N0AAC Metro Hub" || f1.Info == nil || f1.Info.Callsign != "N0AAC" || f1.Group != "" {
+	if f1.Label != "N1CALL Metro Hub" || f1.Info == nil || f1.Info.Callsign != "N1CALL" || f1.Group != "" || f1.Mode != mode.AllStar {
 		t.Fatalf("default label: %+v", f1)
 	}
-	e.do("op", "POST", "/api/favorites", map[string]string{"node": "2000", "label": " My hub ", "group": "Hubs"}, &f2)
+	e.do("op", "POST", "/api/favorites", map[string]string{"mode": "allstar", "target": "2000", "label": " My hub ", "group": "Hubs"}, &f2)
 	if f2.Label != "My hub" || f2.Group != "Hubs" || f2.Position <= f1.Position {
 		t.Fatalf("%+v", f2)
 	}
-	e.do("op", "POST", "/api/favorites", map[string]string{"node": "424242"}, &f3)
+	e.do("op", "POST", "/api/favorites", map[string]string{"mode": "allstar", "target": "424242"}, &f3)
 	if f3.Label != "424242" || f3.Info != nil {
 		t.Fatalf("unknown node label: %+v", f3)
 	}
-	expectErr(t, e, "op", "POST", "/api/favorites", map[string]string{"node": "abc"}, 400, "bad_target")
-	expectErr(t, e, "op", "POST", "/api/favorites", map[string]string{"node": "2000", "label": strings.Repeat("x", 500)}, 400, "bad_request")
+	if c := e.do("op", "POST", "/api/favorites", map[string]string{"mode": "bm", "target": "91", "label": "Worldwide"}, &f4); c != 201 || f4.Mode != mode.BM || f4.Info != nil {
+		t.Fatal(c, f4)
+	}
+	expectErr(t, e, "op", "POST", "/api/favorites", map[string]string{"mode": "allstar", "target": "abc"}, 400, "bad_target")
+	expectErr(t, e, "op", "POST", "/api/favorites", map[string]string{"mode": "nosuchmode", "target": "1"}, 400, "bad_mode")
+	expectErr(t, e, "op", "POST", "/api/favorites", map[string]string{"target": "1"}, 400, "bad_mode")
+	expectErr(t, e, "op", "POST", "/api/favorites", map[string]string{"mode": "allstar", "target": "2000"}, 409, "duplicate")
+	expectErr(t, e, "op", "POST", "/api/favorites", map[string]string{"mode": "allstar", "target": "1999", "label": strings.Repeat("x", 500)}, 400, "bad_request")
 
 	var list []api.FavoriteJSON
-	e.do("viewer", "GET", "/api/favorites", nil, &list)
-	if len(list) != 3 || list[0].ID != f1.ID || list[1].ID != f3.ID && list[1].ID != f2.ID {
+	e.do("viewer", "GET", "/api/favorites?mode=allstar", nil, &list)
+	if len(list) != 3 || list[0].ID != f1.ID {
 		t.Fatalf("%+v", list)
 	}
-	// ordered by group then position: "" group first
-	if list[0].Group != "" || list[2].Group != "Hubs" {
+	// ordered by position (the UI groups them)
+	if list[1].Group != "Hubs" || list[0].Position != 0 || list[2].Position != 2 {
 		t.Fatalf("order: %+v", list)
+	}
+	e.do("viewer", "GET", "/api/favorites", nil, &list)
+	if len(list) != 4 {
+		t.Fatalf("all modes: %+v", list)
+	}
+	e.do("viewer", "GET", "/api/favorites?mode=bm", nil, &list)
+	if len(list) != 1 || list[0].Target != "91" {
+		t.Fatalf("bm: %+v", list)
 	}
 
 	var up api.FavoriteJSON
-	if c := e.do("op", "PUT", fmt.Sprintf("/api/favorites/%d", f2.ID), map[string]string{"label": "Renamed", "group": ""}, &up); c != 200 || up.Label != "Renamed" || up.Group != "" || up.Node != "2000" {
+	if c := e.do("op", "PUT", fmt.Sprintf("/api/favorites/%d", f2.ID), map[string]string{"label": "Renamed", "group": ""}, &up); c != 200 || up.Label != "Renamed" || up.Group != "" || up.Target != "2000" {
 		t.Fatal(c, up)
 	}
-	if c := e.do("op", "PUT", fmt.Sprintf("/api/favorites/%d", f2.ID), map[string]string{"node": "1999"}, &up); c != 200 || up.Node != "1999" || up.Info == nil || up.Info.Callsign != "N0AAA" {
+	if c := e.do("op", "PUT", fmt.Sprintf("/api/favorites/%d", f2.ID), map[string]string{"target": "1999"}, &up); c != 200 || up.Target != "1999" || up.Info == nil || up.Info.Callsign != "N3CALL" {
 		t.Fatal(c, up)
 	}
 	expectErr(t, e, "op", "PUT", "/api/favorites/9999", map[string]string{"label": "x"}, 404, "not_found")
-	expectErr(t, e, "op", "PUT", fmt.Sprintf("/api/favorites/%d", f2.ID), map[string]string{"node": "bad"}, 400, "bad_target")
+	expectErr(t, e, "op", "PUT", fmt.Sprintf("/api/favorites/%d", f2.ID), map[string]string{"target": "bad"}, 400, "bad_target")
 
-	// reorder: all in one group now, positions follow array order
-	if c := e.do("op", "POST", "/api/favorites/reorder", map[string][]int64{"ids": {f3.ID, f2.ID, f1.ID}}, nil); c != 204 {
+	// reorder within a mode: all in one group now, positions follow the order
+	if c := e.do("op", "POST", "/api/favorites/reorder", map[string]any{"mode": "allstar", "ids": []int64{f3.ID, f2.ID, f1.ID}}, nil); c != 204 {
 		t.Fatal(c)
 	}
-	e.do("op", "GET", "/api/favorites", nil, &list)
+	e.do("op", "GET", "/api/favorites?mode=allstar", nil, &list)
 	if len(list) != 3 || list[0].ID != f3.ID || list[1].ID != f2.ID || list[2].ID != f1.ID {
 		t.Fatalf("after reorder: %+v", list)
 	}
@@ -721,13 +836,13 @@ func TestFavorites(t *testing.T) {
 			t.Fatalf("positions: %+v", list)
 		}
 	}
-	expectErr(t, e, "op", "POST", "/api/favorites/reorder", map[string][]int64{"ids": {12345}}, 404, "not_found")
+	expectErr(t, e, "op", "POST", "/api/favorites/reorder", map[string]any{"mode": "allstar", "ids": []int64{f3.ID, f4.ID}}, 400, "bad_request")
 
 	if c := e.do("op", "DELETE", fmt.Sprintf("/api/favorites/%d", f1.ID), nil, nil); c != 204 {
 		t.Fatal(c)
 	}
 	expectErr(t, e, "op", "DELETE", fmt.Sprintf("/api/favorites/%d", f1.ID), nil, 404, "not_found")
-	e.do("op", "GET", "/api/favorites", nil, &list)
+	e.do("op", "GET", "/api/favorites?mode=allstar", nil, &list)
 	if len(list) != 2 {
 		t.Fatalf("%+v", list)
 	}
@@ -736,9 +851,9 @@ func TestFavorites(t *testing.T) {
 func TestFavoritePins(t *testing.T) {
 	e := newEnv(t, opts{})
 	var f api.FavoriteJSON
-	e.do("op", "POST", "/api/favorites", map[string]string{"node": "2000"}, &f)
+	e.do("op", "POST", "/api/favorites", map[string]string{"mode": "allstar", "target": "2000"}, &f)
 	if f.Pinned {
-		t.Fatalf("new favourites are not pinned: %+v", f)
+		t.Fatalf("new favorites are not pinned: %+v", f)
 	}
 	path := fmt.Sprintf("/api/favorites/%d", f.ID)
 	expectErr(t, e, "viewer", "PUT", path, map[string]bool{"pinned": true}, 403, "forbidden")
@@ -758,7 +873,6 @@ func TestFavoritePins(t *testing.T) {
 	if c := e.do("op", "PUT", path, map[string]bool{"pinned": false}, &up); c != 200 || up.Pinned {
 		t.Fatal(c, up)
 	}
-	e.do("op", "PUT", path, map[string]bool{"pinned": true}, nil)
 	e.do("op", "DELETE", path, nil, nil)
 	e.do("op", "GET", "/api/favorites", nil, &list)
 	if len(list) != 0 {
@@ -766,54 +880,15 @@ func TestFavoritePins(t *testing.T) {
 	}
 }
 
-func TestImportAllScan(t *testing.T) {
-	e := newEnv(t, opts{})
-	var pre struct {
-		Found bool
-		Path  string
-		Items []map[string]string
-	}
-	if c := e.do("op", "GET", "/api/favorites/import/allscan", nil, &pre); c != 200 || pre.Found || pre.Items == nil || len(pre.Items) != 0 {
-		t.Fatalf("no install: %d %+v", c, pre)
-	}
-	sample := "[general]\nlabel[] = \"Hub A 2000\"\ncmd[] = \"rpt cmd %node% ilink 3 2000\"\n" +
-		"label[] = \"Hub B 1999\"\ncmd[] = \"rpt cmd %node% ilink 3 1999\"\n" +
-		"label[] = \"Dup\"\ncmd[] = \"rpt cmd %node% ilink 3 2000\"\n" +
-		"label[] = \"Macro\"\ncmd[] = \"rpt fun %node% *81\"\n"
-	if err := os.WriteFile(filepath.Join(e.favDr, "favorites.ini"), []byte(sample), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if c := e.do("op", "GET", "/api/favorites/import/allscan", nil, &pre); c != 200 || !pre.Found || len(pre.Items) != 2 ||
-		pre.Items[0]["node"] != "2000" || pre.Items[0]["label"] != "Hub A 2000" || !strings.HasSuffix(pre.Path, "favorites.ini") {
-		t.Fatalf("preview: %d %+v", c, pre)
-	}
-	// existing favorite is skipped
-	e.do("op", "POST", "/api/favorites", map[string]string{"node": "2000", "label": "Mine"}, nil)
-	var res map[string]int
-	if c := e.do("op", "POST", "/api/favorites/import/allscan", nil, &res); c != 200 || res["imported"] != 1 || res["skipped"] != 1 {
-		t.Fatalf("import: %d %+v", c, res)
-	}
-	var list []api.FavoriteJSON
-	e.do("op", "GET", "/api/favorites", nil, &list)
-	if len(list) != 2 || list[0].Label != "Mine" || list[1].Node != "1999" || list[1].Label != "Hub B 1999" {
-		t.Fatalf("%+v", list)
-	}
-	// importing again changes nothing
-	e.do("op", "POST", "/api/favorites/import/allscan", nil, &res)
-	if res["imported"] != 0 || res["skipped"] != 2 {
-		t.Fatalf("second import: %+v", res)
-	}
-}
-
 func TestLookup(t *testing.T) {
 	e := newEnv(t, opts{})
 	var in nodelist.Info
-	if c := e.do("viewer", "GET", "/api/lookup/50241", nil, &in); c != 200 || in.Callsign != "N0AAC" || in.Location != "Springfield, ST" {
+	if c := e.do("viewer", "GET", "/api/lookup/1998", nil, &in); c != 200 || in.Callsign != "N1CALL" || in.Location != "Springfield, ST" {
 		t.Fatal(c, in)
 	}
 	expectErr(t, e, "viewer", "GET", "/api/lookup/777", nil, 404, "not_found")
 	var res []nodelist.Info
-	if c := e.do("viewer", "GET", "/api/lookup?q=n0aa&limit=2", nil, &res); c != 200 || len(res) != 2 {
+	if c := e.do("viewer", "GET", "/api/lookup?q=n&limit=2", nil, &res); c != 200 || len(res) != 2 {
 		t.Fatal(c, res)
 	}
 	e.do("viewer", "GET", "/api/lookup?q=metropolis", nil, &res)
@@ -841,11 +916,11 @@ func TestSystem(t *testing.T) {
 	if c := e.do("viewer", "GET", "/api/system", nil, &sys); c != 200 {
 		t.Fatal(c)
 	}
-	if !sys.Asterisk.Connected || sys.Asterisk.Version != "22.10.1+asl3-3.10.8-1.deb12" || sys.Asterisk.Uptime == nil || *sys.Asterisk.Uptime != 120660 || sys.Version != "test" {
+	if !sys.Node.Running || sys.Node.Uptime == nil || sys.Node.Error != nil || sys.Version != "test" {
 		t.Fatalf("%+v", sys)
 	}
 	_, raw, _ := e.raw("GET", "/api/system", nil, e.ck["viewer"], nil)
-	for _, k := range []string{`"hostname"`, `"cpuTemp"`, `"load"`, `"memTotal"`, `"memAvailable"`, `"uptime"`, `"asterisk"`, `"version"`, `"connected"`, `"error"`} {
+	for _, k := range []string{`"hostname"`, `"cpuTemp"`, `"load"`, `"memTotal"`, `"memAvailable"`, `"uptime"`, `"node"`, `"version"`, `"running"`, `"error"`} {
 		if !bytes.Contains(raw, []byte(k)) {
 			t.Errorf("missing %s in %s", k, raw)
 		}
@@ -1040,7 +1115,7 @@ func TestInstanceHeaderMatchesHello(t *testing.T) {
 	}
 }
 
-func TestSSEHelloNodesAndKeying(t *testing.T) {
+func TestSSEHelloNodeAndCalls(t *testing.T) {
 	e := newEnv(t, opts{})
 	s := e.stream("admin")
 	if ct := s.resp.Header.Get("Content-Type"); ct != "text/event-stream" {
@@ -1051,56 +1126,40 @@ func TestSSEHelloNodesAndKeying(t *testing.T) {
 		t.Fatalf("first event %q", ev.name)
 	}
 	var hello struct {
-		Instance string       `json:"instance"`
-		User     api.UserJSON `json:"user"`
-		Version  string       `json:"version"`
+		Instance    string       `json:"instance"`
+		User        api.UserJSON `json:"user"`
+		Version     string       `json:"version"`
+		SetupNeeded *bool        `json:"setupNeeded"`
 	}
-	if err := json.Unmarshal([]byte(ev.data), &hello); err != nil || hello.User.Username != "admin" || hello.Version != "test" || hello.Instance == "" {
+	if err := json.Unmarshal([]byte(ev.data), &hello); err != nil || hello.User.Username != "admin" || hello.Version != "test" || hello.Instance == "" || hello.SetupNeeded == nil || *hello.SetupNeeded {
 		t.Fatalf("hello: %s %v", ev.data, err)
 	}
 	ev = s.first()
-	if ev.name != "nodes" {
+	if ev.name != "node" {
 		t.Fatalf("second event %q", ev.name)
 	}
-	var nodes []api.NodeStatusJSON
-	if err := json.Unmarshal([]byte(ev.data), &nodes); err != nil || len(nodes) != 1 || nodes[0].Node != localNode || nodes[0].RxKeyed {
-		t.Fatalf("nodes: %s %v", ev.data, err)
-	}
-	if nodes[0].Links[0].IP != "192.0.2.58" {
-		t.Fatal("admin stream should include IPs")
+	var n api.NodeJSON
+	if err := json.Unmarshal([]byte(ev.data), &n); err != nil || !n.Running || n.Callsign != "N0CALL" {
+		t.Fatalf("node: %s %v", ev.data, err)
 	}
 
-	// 1 s polling while a client is connected
-	deadline := time.Now().Add(2 * time.Second)
-	for e.mon.Interval() != e.srv.FastInterval && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if e.mon.Interval() != e.srv.FastInterval {
-		t.Fatalf("interval with client: %v", e.mon.Interval())
-	}
-
-	// a keying event produces a node event
-	e.fake.setRx(true)
-	e.fake.PushEvent("RPT_RXKEYED", "Node", localNode, "Channel", "SimpleUSB/"+localNode, "EventValue", "1")
-	ev = s.wait(func(ev sseEvent) bool {
-		if ev.name != "node" {
-			return false
-		}
-		var n api.NodeStatusJSON
-		return json.Unmarshal([]byte(ev.data), &n) == nil && n.RxKeyed
-	})
-	var n api.NodeStatusJSON
-	json.Unmarshal([]byte(ev.data), &n)
-	if n.Node != localNode {
-		t.Fatalf("%+v", n)
-	}
-	// and un-keying
-	e.fake.setRx(false)
-	e.fake.PushEvent("RPT_RXKEYED", "Node", localNode, "Channel", "SimpleUSB/"+localNode, "EventValue", "0")
+	// a select shows up as a node frame
+	e.do("op", "POST", "/api/select", map[string]string{"mode": "allstar", "target": "2000"}, nil)
 	s.wait(func(ev sseEvent) bool {
-		var n api.NodeStatusJSON
-		return ev.name == "node" && json.Unmarshal([]byte(ev.data), &n) == nil && !n.RxKeyed
+		var n api.NodeJSON
+		return ev.name == "node" && json.Unmarshal([]byte(ev.data), &n) == nil && n.Active == mode.AllStar
 	})
+	// a talker shows up in now calling
+	e.fake(mode.AllStar).Key("1999")
+	ev = s.wait(func(ev sseEvent) bool { return ev.name == "nowcalling" && strings.Contains(ev.data, `"current":{`) })
+	var nc struct {
+		Current struct{ Kind, Node, Call string }
+	}
+	if err := json.Unmarshal([]byte(ev.data), &nc); err != nil || nc.Current.Kind != mode.AllStar || nc.Current.Node != "1999" || nc.Current.Call != "N3CALL" {
+		t.Fatalf("nowcalling: %s %v", ev.data, err)
+	}
+	e.fake(mode.AllStar).Unkey()
+	s.wait(func(ev sseEvent) bool { return ev.name == "nowcalling" && strings.Contains(ev.data, `"current":null`) })
 
 	// pings (test interval 100 ms)
 	select {
@@ -1111,48 +1170,37 @@ func TestSSEHelloNodesAndKeying(t *testing.T) {
 	// system pushes (test interval 200 ms)
 	ev = s.wait(func(ev sseEvent) bool { return ev.name == "system" })
 	var sys system.System
-	if err := json.Unmarshal([]byte(ev.data), &sys); err != nil || !sys.Asterisk.Connected {
+	if err := json.Unmarshal([]byte(ev.data), &sys); err != nil || !sys.Node.Running {
 		t.Fatalf("system event: %s %v", ev.data, err)
 	}
-
-	// disconnect: slow polling again
 	s.cancel()
 	<-s.closed
-	deadline = time.Now().Add(3 * time.Second)
-	for e.mon.Interval() != e.srv.SlowInterval && time.Now().Before(deadline) {
+	deadline := time.Now().Add(3 * time.Second)
+	for e.srv.Clients() != 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if e.mon.Interval() != e.srv.SlowInterval || e.srv.Clients() != 0 {
-		t.Fatalf("interval after disconnect: %v clients=%d", e.mon.Interval(), e.srv.Clients())
+	if e.srv.Clients() != 0 {
+		t.Fatalf("clients after disconnect: %d", e.srv.Clients())
 	}
 }
 
-func TestSSEViewerNoIPsAndFavoritesEvent(t *testing.T) {
+func TestSSEFavoritesEvent(t *testing.T) {
 	e := newEnv(t, opts{})
 	v := e.stream("viewer")
 	if v.first().name != "hello" {
 		t.Fatal("hello")
 	}
-	ev := v.first()
-	if ev.name != "nodes" || strings.Contains(ev.data, "192.0.2.58") {
-		t.Fatalf("viewer nodes event leaks IP: %s", ev.data)
+	if ev := v.first(); ev.name != "node" {
+		t.Fatalf("second event %q", ev.name)
 	}
 	// favorites event reaches every client
-	e.do("op", "POST", "/api/favorites", map[string]string{"node": "2000", "label": "Via SSE"}, nil)
-	ev = v.wait(func(ev sseEvent) bool { return ev.name == "favorites" })
+	e.do("op", "POST", "/api/favorites", map[string]string{"mode": "bm", "target": "91", "label": "Via SSE"}, nil)
+	ev := v.wait(func(ev sseEvent) bool { return ev.name == "favorites" })
 	var favs []api.FavoriteJSON
-	if err := json.Unmarshal([]byte(ev.data), &favs); err != nil || len(favs) != 1 || favs[0].Label != "Via SSE" {
+	if err := json.Unmarshal([]byte(ev.data), &favs); err != nil || len(favs) != 1 || favs[0].Label != "Via SSE" || favs[0].Mode != mode.BM {
 		t.Fatalf("%s %v", ev.data, err)
 	}
-	// a node event for a viewer also has no IP: force one with a keying change
-	e.fake.setRx(true)
-	e.fake.PushEvent("RPT_RXKEYED", "Node", localNode, "Channel", "x", "EventValue", "1")
-	ev = v.wait(func(ev sseEvent) bool { return ev.name == "node" })
-	if strings.Contains(ev.data, "192.0.2.58") {
-		t.Fatalf("viewer node event leaks IP: %s", ev.data)
-	}
 }
-
 func TestSSERequiresSessionAndEndsOnLogout(t *testing.T) {
 	e := newEnv(t, opts{})
 	if c, _, _ := e.raw("GET", "/api/events", nil, "", nil); c != 401 {
@@ -1168,20 +1216,19 @@ func TestSSERequiresSessionAndEndsOnLogout(t *testing.T) {
 	}
 }
 
-func TestSSENodesAfterReconnect(t *testing.T) {
+func TestSSENodeRestart(t *testing.T) {
 	e := newEnv(t, opts{})
 	s := e.stream("admin")
 	s.first()
 	s.first()
-	e.fake.DropConnections()
-	// stale node event, then a full "nodes" once the client reconnected and recovered
+	e.stopNode()
 	s.wait(func(ev sseEvent) bool {
-		var n api.NodeStatusJSON
-		return ev.name == "node" && json.Unmarshal([]byte(ev.data), &n) == nil && n.Stale
+		var n api.NodeJSON
+		return ev.name == "node" && json.Unmarshal([]byte(ev.data), &n) == nil && !n.Running
 	})
-	ev := s.wait(func(ev sseEvent) bool { return ev.name == "nodes" })
-	var nodes []api.NodeStatusJSON
-	if err := json.Unmarshal([]byte(ev.data), &nodes); err != nil || len(nodes) != 1 || nodes[0].Stale {
-		t.Fatalf("%s %v", ev.data, err)
-	}
+	e.startNode(nil)
+	s.wait(func(ev sseEvent) bool {
+		var n api.NodeJSON
+		return ev.name == "node" && json.Unmarshal([]byte(ev.data), &n) == nil && n.Running
+	})
 }

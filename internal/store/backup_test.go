@@ -20,7 +20,7 @@ func TestSnapshotInspectMigrate(t *testing.T) {
 	if _, err := st.CreateUser("alice", "hash", RoleAdmin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddFavorite("1999", "Hub", ""); err != nil {
+	if _, err := st.AddFavorite("allstar", "1999", "Hub", ""); err != nil {
 		t.Fatal(err)
 	}
 	u, _ := st.UserByName("alice")
@@ -68,7 +68,7 @@ func TestMigrateFileDropsScheduleState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if _, err := st.AddSchedule(schedules.Schedule{Name: "net", Node: "2006", Target: "41234", Action: "connect", Mode: "transceive", Days: []int{3}, Start: "20:00", End: "20:30"}); err != nil {
+	if _, err := st.AddSchedule(schedules.Schedule{Name: "net", Mode: "allstar", Target: "2001", Action: "connect", Days: []int{3}, Start: "20:00", End: "20:30"}); err != nil {
 		t.Fatal(err)
 	}
 	for k, v := range map[string]string{schedules.KeyState: `[{"id":1}]`, schedules.KeyLastCancel: `{"ids":[1]}`, schedules.KeyResumeAt: "2026-11-18T00:00:00-05:00", schedules.KeyEnabled: "true", schedules.KeyPausedReason: "manual"} {

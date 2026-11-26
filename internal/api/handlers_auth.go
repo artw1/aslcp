@@ -18,8 +18,10 @@ func (s *Server) handleSetupGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// hotspot: this request came in over the setup hotspot (the web UI warns
-	// that a login typed there can be read by others in range).
-	writeJSON(w, 200, map[string]bool{"needed": need, "hotspot": viaHotspot(r)})
+	// that a login typed there can be read by others in range). station:
+	// the node runs but has no callsign yet, so the one-screen station setup
+	// follows the first login.
+	writeJSON(w, 200, map[string]bool{"needed": need, "hotspot": viaHotspot(r), "station": s.nw.json().SetupNeeded})
 }
 
 func (s *Server) rateLimited(w http.ResponseWriter, err error) bool {

@@ -6,14 +6,12 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/artw1/aslcp/internal/rpt"
 	"github.com/artw1/aslcp/internal/schedules"
 	"github.com/artw1/aslcp/internal/store"
 )
 
 // initSchedules wires the schedule engine to this server: its commands go
-// through the same helpers as the HTTP handlers (shared rpt.Client pacing),
-// its changes to the SSE hub.
+// to the node like the HTTP handlers' do, its changes to the SSE hub.
 func (s *Server) initSchedules() {
 	e := s.d.Schedules
 	if e == nil {
@@ -28,15 +26,16 @@ func (s *Server) initSchedules() {
 	}
 }
 
-// manualSchedules is called after a manual link command on node (never by
-// the scheduler's own commands): the engine applies the configured manual
-// action (pause, pause for today, or cancel the running windows on node).
-func (s *Server) manualSchedules(node, reason string) {
+// manualSchedules is called after a manual select, connect or disconnect
+// on mode (never by the scheduler's own commands): the engine applies the
+// configured manual action (pause, pause for today, or cancel the running
+// windows).
+func (s *Server) manualSchedules(mode, reason string) {
 	if s.d.Schedules == nil {
 		return
 	}
 	s.d.Logger.Printf("schedules manual action (%s): %s", s.d.Schedules.ManualActionMode(), reason)
-	s.d.Schedules.ManualAction(node, reason)
+	s.d.Schedules.ManualAction(mode, reason)
 }
 
 // schedConflict answers 409 when x overlaps an existing schedule (see
@@ -49,68 +48,49 @@ func (s *Server) schedConflict(w http.ResponseWriter, x schedules.Schedule) bool
 		return true
 	}
 	if clash := schedules.Conflicts(x, list); len(clash) > 0 {
-		writeErr(w, 409, "schedule_conflict", schedules.ConflictMessage(x.Node, clash))
+		writeErr(w, 409, "schedule_conflict", schedules.ConflictMessage(clash))
 		return true
 	}
 	return false
 }
 
-// schedLinker adapts the server to schedules.Linker.
+// schedLinker adapts the server to schedules.Linker: a connect selects the
+// mode with the target (the node has one radio, so it replaces whatever was
+// active), a disconnect drops the link when that mode is active.
 type schedLinker struct{ s *Server }
 
-func connectMode(mode string) rpt.ConnectMode {
-	switch mode {
-	case schedules.ModeMonitor:
-		return rpt.ConnMonitor
-	case schedules.ModeLocalMonitor:
-		return rpt.ConnLocalMonitor
+func (l schedLinker) Connect(ctx context.Context, m, target string) error {
+	if l.s.d.Node == nil {
+		return errNoNode
 	}
-	return rpt.ConnTransceive
+	t := l.s.resolveTarget(m, target)
+	_, err := l.s.d.Node.Select(ctx, m, &t)
+	l.s.nodeChanged()
+	return err
 }
 
-func (l schedLinker) Connect(ctx context.Context, node, target, mode string, permanent, exclusive bool) error {
-	return l.s.connectLink(ctx, dvScheduleUser, node, target, connectMode(mode), permanent, exclusive)
+func (l schedLinker) Disconnect(ctx context.Context, m, target string) error {
+	if l.s.d.Node == nil {
+		return errNoNode
+	}
+	st, running := l.s.nw.status()
+	if running && st.Active != m {
+		return nil // another mode is active: nothing of this mode to drop
+	}
+	if target != "" && running && !linkedTo(st, m, target) {
+		return nil
+	}
+	_, err := l.s.d.Node.Disconnect(ctx)
+	l.s.nodeChanged()
+	return err
 }
 
-func (l schedLinker) Disconnect(ctx context.Context, node, target string, permanent bool) error {
-	return l.s.disconnectLink(ctx, dvScheduleUser, node, target, permanent)
-}
-
-func (l schedLinker) LinkMode(node, target string) (string, bool, bool) {
-	m := l.s.monitor()
-	if m == nil || !l.s.isLocalNode(node) {
-		return "", false, false
+func (l schedLinker) Linked(m, target string) (bool, bool) {
+	st, running := l.s.nw.status()
+	if !running {
+		return false, false
 	}
-	st, ok := m.Status(node)
-	if !ok {
-		return "", false, false
-	}
-	for _, k := range st.Links {
-		if k.Node != target {
-			continue
-		}
-		switch k.Mode {
-		case rpt.ModeTransceive:
-			return schedules.ModeTransceive, true, true
-		case rpt.ModeMonitor:
-			return schedules.ModeMonitor, true, true
-		case rpt.ModeLocalMonitor:
-			return schedules.ModeLocalMonitor, true, true
-		}
-		return "connecting", true, true
-	}
-	return "", false, true
-}
-
-func (s *Server) isLocalNode(node string) bool {
-	if m := s.monitor(); m != nil {
-		for _, n := range m.Nodes() {
-			if n == node {
-				return true
-			}
-		}
-	}
-	return false
+	return linkedTo(st, m, target), true
 }
 
 // schedulesReady answers 503 when the feature is not wired.
@@ -131,18 +111,15 @@ func (s *Server) handleSchedList(w http.ResponseWriter, r *http.Request, _ store
 
 // schedInput is the body of POST and PUT /api/schedules.
 type schedInput struct {
-	Name      string `json:"name"`
-	Enabled   *bool  `json:"enabled"` // absent means true
-	Node      string `json:"node"`
-	Target    string `json:"target"`
-	Action    string `json:"action"`
-	Mode      string `json:"mode"`
-	Permanent bool   `json:"permanent"`
-	Exclusive bool   `json:"exclusive"`
-	Days      []int  `json:"days"`
-	Date      string `json:"date"`
-	Start     string `json:"start"`
-	End       string `json:"end"`
+	Name    string `json:"name"`
+	Enabled *bool  `json:"enabled"` // absent means true
+	Mode    string `json:"mode"`
+	Target  string `json:"target"`
+	Action  string `json:"action"`
+	Days    []int  `json:"days"`
+	Date    string `json:"date"`
+	Start   string `json:"start"`
+	End     string `json:"end"`
 }
 
 // parseSchedule validates a request body into a Schedule; it writes the 400
@@ -152,15 +129,14 @@ func (s *Server) parseSchedule(w http.ResponseWriter, r *http.Request) (schedule
 	if !decode(w, r, &in, false) {
 		return schedules.Schedule{}, false
 	}
-	x := schedules.Schedule{Name: in.Name, Enabled: in.Enabled == nil || *in.Enabled, Node: in.Node, Target: in.Target,
-		Action: in.Action, Mode: in.Mode, Permanent: in.Permanent, Exclusive: in.Exclusive,
-		Days: in.Days, Date: in.Date, Start: in.Start, End: in.End}
+	x := schedules.Schedule{Name: in.Name, Enabled: in.Enabled == nil || *in.Enabled, Mode: in.Mode, Target: in.Target,
+		Action: in.Action, Days: in.Days, Date: in.Date, Start: in.Start, End: in.End}
 	if err := x.Normalize(); err != nil {
 		writeErr(w, 400, "bad_request", strings.TrimPrefix(err.Error(), schedules.ErrInvalid.Error()+": "))
 		return x, false
 	}
-	if !s.isLocalNode(x.Node) {
-		writeErr(w, 400, "unknown_node", "no such local node")
+	if ms := s.nw.modeNames(); len(ms) > 0 && !contains(ms, x.Mode) {
+		writeErr(w, 400, "unknown_mode", "the node has no mode "+x.Mode)
 		return x, false
 	}
 	return x, true
@@ -184,7 +160,7 @@ func (s *Server) handleSchedCreate(w http.ResponseWriter, r *http.Request, u sto
 		s.internal(w, err)
 		return
 	}
-	s.d.Logger.Printf("schedule %d created (%s %s -> %s) by %s", got.ID, got.Action, got.Node, got.Target, u.Username)
+	s.d.Logger.Printf("schedule %d created (%s %s -> %s) by %s", got.ID, got.Action, got.Mode, got.Target, u.Username)
 	s.d.Schedules.Changed(got.ID)
 	writeJSON(w, 201, got)
 }

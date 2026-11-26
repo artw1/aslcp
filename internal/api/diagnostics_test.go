@@ -14,9 +14,9 @@ func TestAbout(t *testing.T) {
 	expectErr(t, e, "", "GET", "/api/about", nil, 401, "unauthorized")
 	for _, role := range []string{"admin", "op", "viewer"} {
 		var a struct {
-			Version  string `json:"version"`
-			Asterisk string `json:"asterisk"`
-			Platform struct {
+			Version     string `json:"version"`
+			NodeRunning bool   `json:"nodeRunning"`
+			Platform    struct {
 				OS       string `json:"os"`
 				Arch     string `json:"arch"`
 				Hardware string `json:"hardware"`
@@ -25,7 +25,7 @@ func TestAbout(t *testing.T) {
 		if c := e.do(role, "GET", "/api/about", nil, &a); c != 200 {
 			t.Fatalf("%s: %d", role, c)
 		}
-		if a.Version != "test" || a.Platform.OS == "" || a.Platform.Arch == "" || a.Platform.Hardware == "" {
+		if a.Version != "test" || !a.NodeRunning || a.Platform.OS == "" || a.Platform.Arch == "" || a.Platform.Hardware == "" {
 			t.Fatalf("%s: %+v", role, a)
 		}
 	}
@@ -33,15 +33,16 @@ func TestAbout(t *testing.T) {
 
 func TestDiagnostics(t *testing.T) {
 	ring := diag.NewRing(50)
-	var secret string
-	e := newEnv(t, opts{log: ring, cfg: func(s string) config.Config {
-		secret = s
+	// The node's passwords never reach the app; a secret the app knows
+	// (here registered by hand) is redacted.
+	secret := "test-app-secret"
+	e := newEnv(t, opts{log: ring, cfg: func() config.Config {
 		c := config.Defaults()
-		c.AMISecret = s
 		c.NodelistRefresh = time.Hour
 		return c
 	}})
-	ring.Write([]byte("2026/11/15 ami login with secret=" + secret + " from 203.0.113.50\nplain mention " + secret + " here, peer K1ZZZ mail x@y.org\n"))
+	e.srv.AddSecret(secret)
+	ring.Write([]byte("2026/11/15 login with secret=" + secret + " from 203.0.113.50\nplain mention " + secret + " here, peer K1ZZZ mail x@y.org\n"))
 	e.srv.AddSecret("late-resolved-secret")
 	ring.Write([]byte("oops late-resolved-secret\n"))
 
@@ -66,7 +67,7 @@ func TestDiagnostics(t *testing.T) {
 			t.Errorf("diagnostics contains %q", bad)
 		}
 	}
-	for _, good := range []string{"ASLCP:    test", "Node " + localNode, "N0AAD", "Connected: yes", "Entries: 4", "== Server log", "<redacted>", "<ipv4>", "[ami]"} {
+	for _, good := range []string{"ASLCP:    test", "N0CALL", "allstar", "Entries: 4", "== Server log", "<redacted>", "<ipv4>", "[node]"} {
 		if !strings.Contains(out, good) {
 			t.Errorf("diagnostics lacks %q\n%s", good, out)
 		}

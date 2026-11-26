@@ -2,149 +2,36 @@ package demo
 
 import (
 	"context"
-	"math/rand/v2"
+	"io"
+	"net/http"
 	"testing"
-	"time"
-
-	"github.com/artw1/aslcp/internal/ami"
-	"github.com/artw1/aslcp/internal/rpt"
 )
 
-func waitFor(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(8 * time.Second)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
+func TestNodeList(t *testing.T) {
+	seen := map[string]bool{}
+	for _, n := range NodeList() {
+		if n.Node < "1997" || n.Node > "2002" || len(n.Node) != 4 {
+			t.Errorf("node %q is not a placeholder", n.Node)
 		}
-		time.Sleep(20 * time.Millisecond)
+		if seen[n.Node] {
+			t.Errorf("node %q twice", n.Node)
+		}
+		seen[n.Node] = true
 	}
-	t.Fatalf("timed out waiting for %s", what)
+	if !seen[LocalNode] {
+		t.Fatalf("no local node %s", LocalNode)
+	}
 }
 
-func TestSimulatedNode(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	sim, err := Start(ctx)
+func TestRadioIDClient(t *testing.T) {
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://radioid.example.net/user.csv", nil)
+	resp, err := RadioIDClient().Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { cancel(); sim.Wait() }()
-	client := ami.NewClient(ami.Config{Addr: sim.Addr, Username: Username, Secret: Secret, Events: "call"})
-	defer client.Close()
-	wctx, wc := context.WithTimeout(ctx, 5*time.Second)
-	defer wc()
-	if err := client.WaitConnected(wctx); err != nil {
-		t.Fatal(err)
-	}
-	rc := rpt.New(client)
-	nodes, err := rc.LocalNodes(ctx)
-	if err != nil || len(nodes) != 2 || nodes[0] != "2006" || nodes[1] != "2007" {
-		t.Fatalf("%v %v", nodes, err)
-	}
-	if up, err := rc.Uptime(ctx); err != nil || up.System < time.Hour {
-		t.Fatal(up, err)
-	}
-
-	mon := rpt.NewMonitor(client, rpt.MonitorConfig{Nodes: nodes, Interval: 100 * time.Millisecond})
-	go mon.Run(ctx)
-	waitFor(t, "initial poll", func() bool {
-		s, _ := mon.Status("2006")
-		return !s.Stale && len(s.Links) == 1
-	})
-	s, _ := mon.Status("2006")
-	if s.Links[0].Node != "50241" || s.Links[0].Direction != rpt.DirOut || s.Links[0].Mode != rpt.ModeTransceive || len(s.Network) < 25 {
-		t.Fatalf("%+v", s)
-	}
-	if s2, _ := mon.Status("2007"); len(s2.Links) != 0 || s2.Stale {
-		t.Fatalf("2007: %+v", s2)
-	}
-
-	// links key on and off by themselves
-	waitFor(t, "a link to key", func() bool {
-		s, _ := mon.Status("2006")
-		return len(s.Links) > 0 && s.Links[0].Keyed && s.TxKeyed
-	})
-
-	// connect / disconnect
-	if err := rc.Connect(ctx, "2007", "2000", rpt.ConnTransceive, false); err != nil {
-		t.Fatal(err)
-	}
-	mon.Refresh("2007")
-	waitFor(t, "link to 2000", func() bool {
-		s, _ := mon.Status("2007")
-		return len(s.Links) == 1 && s.Links[0].Node == "2000"
-	})
-	waitFor(t, "link established with network", func() bool {
-		s, _ := mon.Status("2007")
-		return len(s.Links) == 1 && s.Links[0].State == rpt.StateEstablished && len(s.Network) == 6
-	})
-	if err := rc.Disconnect(ctx, "2007", "2000", false); err != nil {
-		t.Fatal(err)
-	}
-	mon.Refresh("2007")
-	waitFor(t, "link removed", func() bool {
-		s, _ := mon.Status("2007")
-		return len(s.Links) == 0 && len(s.Network) == 0
-	})
-	if err := rc.Connect(ctx, "9999", "2000", rpt.ConnTransceive, false); err == nil {
-		t.Fatal("unknown node accepted")
-	}
-	if err := rc.DisconnectAll(ctx, "2006"); err != nil {
-		t.Fatal(err)
-	}
-	mon.Refresh("2006")
-	waitFor(t, "disconnect-all", func() bool {
-		s, _ := mon.Status("2006")
-		return len(s.Links) == 0
-	})
-}
-
-func TestNodeList(t *testing.T) {
-	l := NodeList()
-	seen := map[string]bool{}
-	for _, n := range l {
-		if seen[n.Node] {
-			t.Fatalf("duplicate %s", n.Node)
-		}
-		seen[n.Node] = true
-		if n.Callsign == "" || n.Callsign[:2] != "N0" {
-			t.Fatalf("non-fake callsign %+v", n)
-		}
-	}
-	for _, n := range []string{"2006", "2007", "50241", "2000", "1999", "1021"} {
-		if !seen[n] {
-			t.Errorf("missing %s", n)
-		}
-	}
-}
-
-// Only one link may be keyed at a time across all local nodes.
-func TestOneKeyedLinkAtATime(t *testing.T) {
-	now := time.Now()
-	s := &Sim{nodes: map[string]*nodeState{}, sessions: map[*session]struct{}{}, rng: rand.New(rand.NewPCG(1, 2))}
-	for _, id := range LocalNodes {
-		s.nodes[id] = &nodeState{id: id, nextRx: now.Add(time.Hour)}
-	}
-	s.addLink("2006", "50241", 'T', true, "192.0.2.58", now.Add(-time.Minute))
-	s.addLink("2006", "2000", 'T', true, "192.0.2.59", now.Add(-time.Minute))
-	s.addLink("2007", "2001", 'T', true, "192.0.2.60", now.Add(-time.Minute))
-	keyedSeen := false
-	for i := 0; i < 2000; i++ {
-		s.step(now.Add(time.Duration(i) * 500 * time.Millisecond))
-		k := 0
-		for _, n := range s.nodes {
-			for _, l := range n.links {
-				if l.keyed {
-					k++
-				}
-			}
-		}
-		if k > 1 {
-			t.Fatalf("step %d: %d links keyed", i, k)
-		}
-		keyedSeen = keyedSeen || k == 1
-	}
-	if !keyedSeen {
-		t.Fatal("nothing ever keyed")
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || len(b) == 0 {
+		t.Fatalf("%d %q", resp.StatusCode, b)
 	}
 }

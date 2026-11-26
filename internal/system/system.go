@@ -1,5 +1,5 @@
-// Package system gathers host metrics and Asterisk status for the System
-// strip. Paths are injectable for tests.
+// Package system gathers host metrics and the node daemon's status for the
+// System strip. Paths are injectable for tests.
 package system
 
 import (
@@ -9,19 +9,26 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
-
-	"github.com/artw1/aslcp/internal/ami"
-	"github.com/artw1/aslcp/internal/rpt"
 )
 
-// Asterisk is the Asterisk part of System.
-type Asterisk struct {
-	Connected bool    `json:"connected"`
-	Version   string  `json:"version"`
-	Uptime    *int64  `json:"uptime"`
-	Error     *string `json:"error"`
+// Node is the node daemon (aslcp-node) part of System.
+type Node struct {
+	// Running: the control socket answered.
+	Running bool `json:"running"`
+	// Mode is the active mode ("" when idle).
+	Mode string `json:"mode"`
+	// Uptime is how long the daemon has run, in seconds (nil when not
+	// running).
+	Uptime *int64  `json:"uptime"`
+	Error  *string `json:"error"`
+}
+
+// NodeInfo is what the collector learns from the node: when it started and
+// its active mode.
+type NodeInfo struct {
+	Started time.Time
+	Mode    string
 }
 
 // System is the API object of GET /api/system.
@@ -32,14 +39,8 @@ type System struct {
 	MemTotal     uint64     `json:"memTotal"`
 	MemAvailable uint64     `json:"memAvailable"`
 	Uptime       int64      `json:"uptime"`
-	Asterisk     Asterisk   `json:"asterisk"`
+	Node         Node       `json:"node"`
 	Version      string     `json:"version"`
-}
-
-// AMI is what the collector needs from the AMI client.
-type AMI interface {
-	rpt.API
-	State() ami.State
 }
 
 // Collector reads system information.
@@ -50,16 +51,13 @@ type Collector struct {
 	MemP     string // default /proc/meminfo
 	UptimeP  string // default /proc/uptime
 	Hostname func() (string, error)
-	AMI      AMI // nil means "no Asterisk" (demo without AMI)
-
-	mu          sync.Mutex
-	verSince    time.Time
-	verCached   string
-	verAttempts time.Time
+	// Node asks the node daemon (nil: no node).
+	Node func(ctx context.Context) (NodeInfo, error)
+	Now  func() time.Time
 }
 
 // New returns a Collector with the real /proc and /sys paths.
-func New(version string, a AMI) *Collector {
+func New(version string, node func(ctx context.Context) (NodeInfo, error)) *Collector {
 	return &Collector{
 		Version:  version,
 		ThermalP: "/sys/class/thermal/thermal_zone0/temp",
@@ -67,7 +65,8 @@ func New(version string, a AMI) *Collector {
 		MemP:     "/proc/meminfo",
 		UptimeP:  "/proc/uptime",
 		Hostname: os.Hostname,
-		AMI:      a,
+		Node:     node,
+		Now:      time.Now,
 	}
 }
 
@@ -81,7 +80,7 @@ func (c *Collector) Collect(ctx context.Context) System {
 	s.Load, _ = ReadLoad(c.LoadP)
 	s.MemTotal, s.MemAvailable, _ = ReadMem(c.MemP)
 	s.Uptime, _ = ReadUptime(c.UptimeP)
-	s.Asterisk = c.asterisk(ctx)
+	s.Node = c.node(ctx)
 	return s
 }
 
@@ -172,76 +171,29 @@ func ReadUptime(path string) (int64, error) {
 	return int64(v), err
 }
 
-// ParseVersion extracts the version from "core show version" output:
-// "Asterisk 22.10.1+asl3-3.10.8-1.deb12 built by ...".
-func ParseVersion(lines []string) string {
-	for _, l := range lines {
-		f := strings.Fields(l)
-		if len(f) >= 2 && strings.EqualFold(f[0], "Asterisk") {
-			return f[1]
-		}
+func (c *Collector) node(ctx context.Context) Node {
+	if c.Node == nil {
+		e := "the node is not configured"
+		return Node{Error: &e}
 	}
-	return ""
-}
-
-func (c *Collector) asterisk(ctx context.Context) Asterisk {
-	if c.AMI == nil {
-		e := "AMI not configured"
-		return Asterisk{Error: &e}
-	}
-	st := c.AMI.State()
-	if !st.Connected {
-		a := Asterisk{}
-		msg := "AMI disconnected"
-		if st.Err != nil {
-			msg += ": " + st.Err.Error()
-		}
-		a.Error = &msg
-		return a
-	}
-	a := Asterisk{Connected: true}
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	if u, err := rpt.New(c.AMI).Uptime(cctx); err == nil {
-		v := int64(u.System / time.Second)
-		a.Uptime = &v
-	} else {
+	in, err := c.Node(cctx)
+	if err != nil {
 		e := err.Error()
-		a.Error = &e
+		return Node{Error: &e}
 	}
-	a.Version = c.version(cctx, st)
-	return a
-}
-
-// version caches `core show version` per AMI connection.
-func (c *Collector) version(ctx context.Context, st ami.State) string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.verSince.Equal(st.Since) && c.verCached != "" {
-		return c.verCached
+	n := Node{Running: true, Mode: in.Mode}
+	if !in.Started.IsZero() {
+		now := time.Now
+		if c.Now != nil {
+			now = c.Now
+		}
+		v := int64(now().Sub(in.Started) / time.Second)
+		if v < 0 {
+			v = 0
+		}
+		n.Uptime = &v
 	}
-	if c.verSince.Equal(st.Since) && time.Since(c.verAttempts) < time.Minute {
-		return c.verCached
-	}
-	c.verSince, c.verAttempts, c.verCached = st.Since, time.Now(), ""
-	lines, err := c.AMI.Command(ctx, "core show version")
-	if err == nil {
-		c.verCached = ParseVersion(lines)
-	}
-	return c.verCached
-}
-
-// AsteriskVersion returns the cached Asterisk version ("" when AMI is down
-// or the version is unknown).
-func (c *Collector) AsteriskVersion(ctx context.Context) string {
-	if c.AMI == nil {
-		return ""
-	}
-	st := c.AMI.State()
-	if !st.Connected {
-		return ""
-	}
-	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	return c.version(cctx, st)
+	return n
 }

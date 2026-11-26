@@ -7,29 +7,26 @@ import (
 )
 
 func TestNormalize(t *testing.T) {
-	good := Schedule{Node: "1997", Target: " 41234 ", Action: "connect", Days: []int{4, 2, 4}, Start: "19:00", End: "20:30", Name: "  Net "}
+	good := Schedule{Mode: "allstar", Target: " 41234 ", Action: "connect", Days: []int{4, 2, 4}, Start: "19:00", End: "20:30", Name: "  Net "}
 	if err := good.Normalize(); err != nil {
 		t.Fatal(err)
 	}
-	if good.Target != "41234" || good.Name != "Net" || good.Mode != ModeTransceive || len(good.Days) != 2 || good.Days[0] != 2 || good.Days[1] != 4 {
+	if good.Target != "41234" || good.Name != "Net" || good.Mode != "allstar" || len(good.Days) != 2 || good.Days[0] != 2 || good.Days[1] != 4 {
 		t.Fatalf("%+v", good)
 	}
-	once := Schedule{Node: "1997", Target: "41234", Action: "disconnect", Mode: "monitor", Exclusive: true, Date: "2026-12-01", Start: "07:00"}
+	once := Schedule{Mode: " AllStar ", Action: "disconnect", Date: "2026-12-01", Start: "07:00"}
 	if err := once.Normalize(); err != nil {
 		t.Fatal(err)
 	}
-	if once.Mode != "" || once.Exclusive || once.Days == nil || len(once.Days) != 0 {
+	if once.Mode != "allstar" || once.Days == nil || len(once.Days) != 0 {
 		t.Fatalf("%+v", once)
 	}
-	lm := Schedule{Node: "1997", Target: "41234", Action: "connect", Mode: "localmonitor", Exclusive: true, Days: []int{1}, Start: "07:00"}
-	if err := lm.Normalize(); err != nil || lm.Exclusive {
-		t.Fatalf("%+v %v", lm, err)
-	}
 	cases := map[string]func(s *Schedule){
-		"target must be":          func(s *Schedule) { s.Target = "N0AAA" },
-		"target must not":         func(s *Schedule) { s.Target = "1997" },
+		"needs a target":          func(s *Schedule) { s.Target = "" },
+		"target is longer":        func(s *Schedule) { s.Target = strings.Repeat("1", 65) },
+		"target has control":      func(s *Schedule) { s.Target = "1\n2" },
 		"action":                  func(s *Schedule) { s.Action = "toggle" },
-		"mode":                    func(s *Schedule) { s.Mode = "listen" },
+		"mode must":               func(s *Schedule) { s.Mode = "" },
 		"no end":                  func(s *Schedule) { s.Action, s.End = "disconnect", "10:00" },
 		"start must":              func(s *Schedule) { s.Start = "7:00" },
 		"start must be ":          func(s *Schedule) { s.Start = "24:00" },
@@ -44,7 +41,7 @@ func TestNormalize(t *testing.T) {
 		"date must be YYYY-MM-DD": func(s *Schedule) { s.Days, s.Date = nil, "12/01/2026" },
 	}
 	for want, mut := range cases {
-		s := Schedule{Node: "1997", Target: "41234", Action: "connect", Days: []int{2}, Start: "19:00", End: "20:30"}
+		s := Schedule{Mode: "allstar", Target: "41234", Action: "connect", Days: []int{2}, Start: "19:00", End: "20:30"}
 		mut(&s)
 		err := s.Normalize()
 		if err == nil || !errors.Is(err, ErrInvalid) {

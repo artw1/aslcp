@@ -1,7 +1,9 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -129,37 +131,72 @@ func TestSessions(t *testing.T) {
 
 func TestFavorites(t *testing.T) {
 	s := open(t)
-	a, _ := s.AddFavorite("1000", "A", "")
-	b, _ := s.AddFavorite("2000", "B", "Hubs")
-	c, _ := s.AddFavorite("3000", "C", "Hubs")
+	a, _ := s.AddFavorite("allstar", "1997", "A", "")
+	b, _ := s.AddFavorite("allstar", "1998", "B", "Hubs")
+	c, _ := s.AddFavorite("allstar", "1999", "C", "Hubs")
+	y, err := s.AddFavorite("ysf", "1997", "Room", "")
+	if err != nil || y.Position != 0 {
+		t.Fatalf("same target, other mode: %+v %v", y, err)
+	}
 	if a.Position != 0 || b.Position != 1 || c.Position != 2 {
 		t.Fatal(a, b, c)
 	}
-	l, _ := s.ListFavorites()
+	if _, err := s.AddFavorite("allstar", "1997", "again", ""); !errors.Is(err, ErrDuplicate) {
+		t.Fatalf("duplicate: %v", err)
+	}
+	l, _ := s.ListFavorites("allstar")
 	if len(l) != 3 || l[0].ID != a.ID || l[1].ID != b.ID {
 		t.Fatal(l)
 	}
-	if err := s.ReorderFavorites([]int64{c.ID, b.ID}); err != nil {
+	if all, _ := s.ListFavorites(""); len(all) != 4 {
+		t.Fatal(all)
+	}
+	if err := s.ReorderFavorites("allstar", []int64{c.ID, b.ID, a.ID}); err != nil {
 		t.Fatal(err)
 	}
-	l, _ = s.ListFavorites()
-	// group "" first (a), then Hubs: c, b
-	if l[0].ID != a.ID || l[1].ID != c.ID || l[2].ID != b.ID {
+	l, _ = s.ListFavorites("allstar")
+	if l[0].ID != c.ID || l[1].ID != b.ID || l[2].ID != a.ID {
 		t.Fatal(l)
+	}
+	bad := map[string][]int64{
+		"short":      {c.ID, b.ID},
+		"other mode": {c.ID, b.ID, y.ID},
+		"repeated":   {c.ID, c.ID, b.ID},
+		"unknown":    {c.ID, b.ID, 12345},
+	}
+	for name, ids := range bad {
+		if err := s.ReorderFavorites("allstar", ids); !errors.Is(err, ErrMismatch) {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 	lbl := "Renamed"
 	f, err := s.UpdateFavorite(a.ID, nil, &lbl, nil, nil)
-	if err != nil || f.Label != "Renamed" || f.Node != "1000" {
+	if err != nil || f.Label != "Renamed" || f.Target != "1997" || f.Mode != "allstar" {
 		t.Fatal(f, err)
 	}
-	if err := s.ReorderFavorites([]int64{12345}); !errors.Is(err, ErrNotFound) {
-		t.Fatal(err)
+	tgt := "1998"
+	if _, err := s.UpdateFavorite(a.ID, &tgt, nil, nil, nil); !errors.Is(err, ErrDuplicate) {
+		t.Fatalf("update to a saved target: %v", err)
+	}
+	if _, err := s.UpdateFavorite(999, nil, &lbl, nil, nil); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("update missing: %v", err)
 	}
 	if err := s.DeleteFavorite(a.ID); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.DeleteFavorite(a.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
+	}
 	if _, err := s.GetFavorite(a.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatal(err)
+	}
+	for i := 0; i < MaxFavoritesPerMode; i++ {
+		if _, err := s.AddFavorite("nxdn", strconv.Itoa(i+1), "x", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.AddFavorite("nxdn", "90000", "x", ""); !errors.Is(err, ErrLimit) {
+		t.Fatalf("limit: %v", err)
 	}
 }
 
@@ -172,47 +209,6 @@ func TestSettings(t *testing.T) {
 	s.SetSetting("k", "2")
 	if v, _ := s.GetSetting("k"); v != "2" {
 		t.Fatal(v)
-	}
-}
-
-func TestActivityListAndPrune(t *testing.T) {
-	s := open(t)
-	now := time.Now().UTC().Truncate(time.Second)
-	add := func(node, link string, ago time.Duration, d time.Duration) {
-		t.Helper()
-		if err := s.AddActivity(Activity{Node: node, Link: link, Start: now.Add(-ago), Duration: d, Kerchunk: d < 1500*time.Millisecond}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	add("1", "100", 8*24*time.Hour, 5*time.Second) // too old
-	add("1", "101", 3*time.Hour, 4*time.Second)
-	add("2", "local", 2*time.Hour, 1200*time.Millisecond)
-	add("1", "102", time.Hour, 9*time.Second)
-
-	got, err := s.ListActivity(nil, 10)
-	if err != nil || len(got) != 4 || got[0].Link != "102" || got[3].Link != "100" {
-		t.Fatalf("%+v %v", got, err)
-	}
-	if !got[1].Kerchunk || got[1].Duration != 1200*time.Millisecond || got[1].Link != "local" {
-		t.Fatalf("%+v", got[1])
-	}
-	if got, _ := s.ListActivity([]string{"2"}, 10); len(got) != 1 || got[0].Node != "2" {
-		t.Fatalf("%+v", got)
-	}
-	if got, _ := s.ListActivity(nil, 2); len(got) != 2 {
-		t.Fatalf("limit: %+v", got)
-	}
-
-	if n, err := s.PruneActivity(now.Add(-7*24*time.Hour), 0); err != nil || n != 1 {
-		t.Fatalf("age prune: %d %v", n, err)
-	}
-	// cap: keep the newest 2
-	if n, err := s.PruneActivity(now.Add(-7*24*time.Hour), 2); err != nil || n != 1 {
-		t.Fatalf("cap prune: %d %v", n, err)
-	}
-	got, _ = s.ListActivity(nil, 10)
-	if len(got) != 2 || got[0].Link != "102" || got[1].Link != "local" {
-		t.Fatalf("%+v", got)
 	}
 }
 
@@ -279,16 +275,16 @@ func TestSchedules(t *testing.T) {
 	if err != nil || len(l) != 0 {
 		t.Fatalf("empty list: %v %v", l, err)
 	}
-	a, err := s.AddSchedule(schedules.Schedule{Name: "Net", Enabled: true, Node: "1997", Target: "41234", Action: "connect",
-		Mode: "monitor", Permanent: true, Exclusive: true, Days: []int{2, 4}, Start: "19:00", End: "20:30"})
+	a, err := s.AddSchedule(schedules.Schedule{Name: "Net", Enabled: true, Mode: "allstar", Target: "1999", Action: "connect",
+		Days: []int{2, 4}, Start: "19:00", End: "20:30"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.ID == 0 || a.Name != "Net" || !a.Enabled || !a.Permanent || !a.Exclusive || a.Mode != "monitor" ||
+	if a.ID == 0 || a.Name != "Net" || !a.Enabled || a.Mode != "allstar" || a.Target != "1999" ||
 		len(a.Days) != 2 || a.Days[0] != 2 || a.Days[1] != 4 || a.Start != "19:00" || a.End != "20:30" || a.LastRun != nil {
 		t.Fatalf("added: %+v", a)
 	}
-	b, err := s.AddSchedule(schedules.Schedule{Node: "1997", Target: "50241", Action: "disconnect", Days: []int{}, Date: "2026-12-01", Start: "07:00"})
+	b, err := s.AddSchedule(schedules.Schedule{Mode: "ysf", Target: "", Action: "disconnect", Days: []int{}, Date: "2026-12-01", Start: "07:00"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +296,7 @@ func TestSchedules(t *testing.T) {
 	if err != nil || u.Name != "Net 2" || len(u.Days) != 1 || u.End != "" {
 		t.Fatalf("update: %+v %v", u, err)
 	}
-	if _, err := s.UpdateSchedule(schedules.Schedule{ID: 999, Node: "1", Target: "2", Action: "connect", Start: "00:00"}); !errors.Is(err, ErrNotFound) {
+	if _, err := s.UpdateSchedule(schedules.Schedule{ID: 999, Mode: "allstar", Target: "2", Action: "connect", Start: "00:00"}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("update missing: %v", err)
 	}
 	at := time.Unix(1_800_000_000, 0)
@@ -335,92 +331,125 @@ func TestSchedules(t *testing.T) {
 }
 
 func TestFavoritePins(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "a.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	a, _ := st.AddFavorite("1000", "A", "")
-	d, _ := st.AddDVFavorite("YSF", "12345", "Room")
-	if a.Pinned || d.Pinned {
-		t.Fatal("new favourites are not pinned")
+	st := open(t)
+	a, _ := st.AddFavorite("allstar", "1997", "A", "")
+	if a.Pinned {
+		t.Fatal("new favorites are not pinned")
 	}
 	yes := true
 	if f, err := st.UpdateFavorite(a.ID, nil, nil, nil, &yes); err != nil || !f.Pinned {
-		t.Fatalf("%+v %v", f, err)
-	}
-	if f, err := st.UpdateDVFavorite(d.ID, nil, nil, &yes); err != nil || !f.Pinned {
 		t.Fatalf("%+v %v", f, err)
 	}
 	lbl := "B"
 	if f, _ := st.UpdateFavorite(a.ID, nil, &lbl, nil, nil); !f.Pinned {
 		t.Fatal("an edit without pinned keeps the pin")
 	}
-	fl, _ := st.ListFavorites()
-	dl, _ := st.ListDVFavorites()
-	if !fl[0].Pinned || !dl[0].Pinned {
-		t.Fatalf("lists: %+v %+v", fl, dl)
+	if fl, _ := st.ListFavorites(""); !fl[0].Pinned {
+		t.Fatalf("list: %+v", fl)
 	}
 }
 
-func TestDVFavorites(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "a.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	a, err := st.AddDVFavorite("YSF", "12345", "Room A")
-	if err != nil || a.Sort != 0 {
-		t.Fatalf("add: %+v %v", a, err)
-	}
-	b, _ := st.AddDVFavorite("YSF", "54321", "Room B")
-	if b.Sort != 1 {
-		t.Fatalf("sort %d", b.Sort)
-	}
-	if _, err := st.AddDVFavorite("YSF", "12345", "again"); !errors.Is(err, ErrDuplicate) {
-		t.Fatalf("duplicate: %v", err)
-	}
-	if _, err := st.AddDVFavorite("P25", "12345", "same value other mode"); err != nil {
-		t.Fatal(err)
-	}
-	n := "Renamed"
-	s0 := 5
-	if f, err := st.UpdateDVFavorite(a.ID, &n, &s0, nil); err != nil || f.Name != n || f.Sort != 5 {
-		t.Fatalf("update: %+v %v", f, err)
-	}
-	l, _ := st.ListDVFavorites()
-	if len(l) != 3 || l[0].Mode != "P25" || l[1].ID != b.ID || l[2].ID != a.ID {
-		t.Fatalf("list order: %+v", l)
-	}
-	if err := st.DeleteDVFavorite(a.ID); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.DeleteDVFavorite(a.ID); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("delete twice: %v", err)
-	}
-	for i := 0; i < MaxDVFavoritesPerMode; i++ {
-		if _, err := st.AddDVFavorite("NXDN", strconv.Itoa(i+1), "x"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := st.AddDVFavorite("NXDN", "9000", "x"); !errors.Is(err, ErrLimit) {
-		t.Fatalf("limit: %v", err)
-	}
-}
-
-// A 1.x database holds the favourites table and the settings keys under the
-// previous stack's names; opening it moves them to the dv names.
-func TestMigrateOldDVNames(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "old.db")
+// openAt opens a new database at path migrated to version n only.
+func openAt(t *testing.T, path string, n int) *Store {
+	t.Helper()
 	s, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Turn the fresh database back into a 1.x one.
-	_, err = s.db.Exec(`ALTER TABLE dv_favorites DROP COLUMN pinned;
-		ALTER TABLE favorites DROP COLUMN pinned;
-		ALTER TABLE dv_favorites RENAME TO ` + legacy.OldFavoritesTable + `;
-		DELETE FROM schema_version WHERE version>5;
+	s.Close()
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(path + "-wal")
+	os.Remove(path + "-shm")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s = &Store{db: db}
+	if err := s.migrateTo(n); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// A 2.x database (schema 7) has AllStar favorites, digital modes favorites
+// and node-based schedules; opening it merges them into the per-mode
+// tables.
+func TestMigrateNative(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v7.db")
+	s := openAt(t, path, 7)
+	_, err := s.db.Exec(`INSERT INTO favorites(node,label,grp,position,pinned) VALUES
+			('1999','Hub','Hubs',0,1), ('3001997','Link','',1,0), ('2000','Two','',2,0);
+		INSERT INTO dv_favorites(mode,value,name,sort,created,pinned) VALUES
+			('BM','91','World',0,1,1), ('YSF','12345','Room',0,1,0), ('LOOP','1','Gone',0,1,0);
+		INSERT INTO schedules(name,enabled,node,target,action,mode,permanent,exclusive,days,date,start,end_time,created,updated) VALUES
+			('Net',1,'1998','2000','connect','transceive',1,1,'2,4','','19:00','20:00',1,1),
+			('EL',0,'1998','3001997','connect','monitor',0,0,'','2026-12-01','07:00','',1,1);
+		INSERT INTO activity(node,link,start,duration_ms) VALUES ('1998','2000',1,1000);`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	favs, err := s.ListFavorites("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type fav struct {
+		mode, target, label string
+		pinned              bool
+	}
+	want := []fav{
+		{"allstar", "1999", "Hub", true}, {"allstar", "2000", "Two", false},
+		{"bm", "91", "World", true}, {"echolink", "1997", "Link", false}, {"ysf", "12345", "Room", false},
+	}
+	if len(favs) != len(want) {
+		t.Fatalf("favorites %+v", favs)
+	}
+	for i, w := range want {
+		f := favs[i]
+		if (fav{f.Mode, f.Target, f.Label, f.Pinned}) != w {
+			t.Errorf("favorite %d: %+v, want %+v", i, f, w)
+		}
+	}
+	sch, err := s.ListSchedules()
+	if err != nil || len(sch) != 2 {
+		t.Fatalf("schedules %+v %v", sch, err)
+	}
+	for _, x := range sch {
+		switch x.Name {
+		case "Net":
+			if x.Mode != "allstar" || x.Target != "2000" || !x.Enabled || len(x.Days) != 2 || x.End != "20:00" {
+				t.Errorf("net: %+v", x)
+			}
+		case "EL":
+			if x.Mode != "echolink" || x.Target != "1997" || x.Date != "2026-12-01" {
+				t.Errorf("echolink: %+v", x)
+			}
+		default:
+			t.Errorf("unexpected %+v", x)
+		}
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name IN ('activity','dv_favorites')`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("old tables left: %d %v", n, err)
+	}
+	if _, err := s.AddFavorite("allstar", "1999", "x", ""); !errors.Is(err, ErrDuplicate) {
+		t.Errorf("the unique index is missing: %v", err)
+	}
+}
+
+// A 1.x database holds the digital modes favorites table and the settings
+// keys under the previous stack's names; opening it moves them.
+func TestMigrateOldDVNames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	s := openAt(t, path, 5)
+	_, err := s.db.Exec(`ALTER TABLE dv_favorites RENAME TO ` + legacy.OldFavoritesTable + `;
 		INSERT INTO settings(k,v) VALUES ('` + legacy.OldSettingsPrefix + `node','1999'), ('` + legacy.OldSettingsPrefix + `resume','{"a":1}'), ('dv.resume','new'), ('other','x');
 		INSERT INTO ` + legacy.OldFavoritesTable + `(mode,value,name,sort,created) VALUES ('YSF','00001','Test',0,1)`)
 	if err != nil {
@@ -445,25 +474,8 @@ func TestMigrateOldDVNames(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM settings WHERE k LIKE ?`, legacy.OldSettingsPrefix+"%").Scan(&n); err != nil || n != 0 {
 		t.Errorf("old keys left: %d %v", n, err)
 	}
-	favs, err := s.ListDVFavorites()
-	if err != nil || len(favs) != 1 || favs[0].Name != "Test" {
-		t.Errorf("favourites %+v %v", favs, err)
-	}
-}
-
-func TestDVFavoritesM17(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "a.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	// a favourite is a reflector and module; two modules are two favourites
-	for _, v := range []string{"M17-XXX C", "M17-XXX D"} {
-		if f, err := st.AddDVFavorite("M17", v, "Test"); err != nil || f.Mode != "M17" || f.Value != v {
-			t.Fatalf("%+v %v", f, err)
-		}
-	}
-	if _, err := st.AddDVFavorite("M17", "M17-XXX C", "again"); !errors.Is(err, ErrDuplicate) {
-		t.Fatalf("duplicate: %v", err)
+	favs, err := s.ListFavorites("ysf")
+	if err != nil || len(favs) != 1 || favs[0].Label != "Test" || favs[0].Target != "00001" {
+		t.Errorf("favorites %+v %v", favs, err)
 	}
 }

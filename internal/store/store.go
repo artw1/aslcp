@@ -53,16 +53,6 @@ type Session struct {
 	LastSeen  time.Time
 }
 
-// Favorite is a saved node.
-type Favorite struct {
-	ID       int64
-	Node     string
-	Label    string
-	Group    string
-	Position int
-	Pinned   bool
-}
-
 var migrations = []string{
 	`CREATE TABLE users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,7 +133,62 @@ var migrations = []string{
 	// 7: pinned favourites (shown on the overview), shared node-wide like the favourites.
 	`ALTER TABLE favorites ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE dv_favorites ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;`,
+	// 8: the native node (3.0). One favorites list per mode replaces the
+	// AllStar favorites and the digital modes favorites; schedules name a
+	// mode instead of a local node; the activity table of the AllStar
+	// monitor goes away.
+	migrationNative,
 }
+
+// migrationNative is migration 8. An AllStar favorite of a 7-digit number
+// starting with 3 is an EchoLink node reached through AllStar: it becomes
+// an EchoLink favorite of the number after the 3 (leading zeros dropped). Digital modes
+// favorites keep their mode in lower case (BM becomes bm); modes the node
+// does not have are dropped.
+const migrationNative = `CREATE TABLE favorites8 (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		mode TEXT NOT NULL,
+		target TEXT NOT NULL,
+		label TEXT NOT NULL DEFAULT '',
+		grp TEXT NOT NULL DEFAULT '',
+		position INTEGER NOT NULL DEFAULT 0,
+		pinned INTEGER NOT NULL DEFAULT 0,
+		UNIQUE(mode, target)
+	);
+	INSERT OR IGNORE INTO favorites8(mode,target,label,grp,position,pinned)
+		SELECT CASE WHEN length(node)=7 AND substr(node,1,1)='3' THEN 'echolink' ELSE 'allstar' END,
+			CASE WHEN length(node)=7 AND substr(node,1,1)='3' THEN CAST(CAST(substr(node,2) AS INTEGER) AS TEXT) ELSE node END,
+			label, grp, position, pinned FROM favorites ORDER BY position, id;
+	INSERT OR IGNORE INTO favorites8(mode,target,label,grp,position,pinned)
+		SELECT lower(mode), value, name, '', sort, pinned FROM dv_favorites
+		WHERE lower(mode) IN ('bm','tgif','dmr','ysf','p25','nxdn','m17') ORDER BY mode, sort, id;
+	DROP TABLE favorites;
+	DROP TABLE dv_favorites;
+	ALTER TABLE favorites8 RENAME TO favorites;
+	CREATE TABLE schedules8 (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL DEFAULT '',
+		enabled INTEGER NOT NULL DEFAULT 1,
+		mode TEXT NOT NULL,
+		target TEXT NOT NULL DEFAULT '',
+		action TEXT NOT NULL,
+		days TEXT NOT NULL DEFAULT '',
+		date TEXT NOT NULL DEFAULT '',
+		start TEXT NOT NULL,
+		end_time TEXT NOT NULL DEFAULT '',
+		last_run INTEGER NOT NULL DEFAULT 0,
+		last_result TEXT NOT NULL DEFAULT '',
+		created INTEGER NOT NULL,
+		updated INTEGER NOT NULL
+	);
+	INSERT INTO schedules8(id,name,enabled,mode,target,action,days,date,start,end_time,last_run,last_result,created,updated)
+		SELECT id, name, enabled,
+			CASE WHEN length(target)=7 AND substr(target,1,1)='3' THEN 'echolink' ELSE 'allstar' END,
+			CASE WHEN length(target)=7 AND substr(target,1,1)='3' THEN CAST(CAST(substr(target,2) AS INTEGER) AS TEXT) ELSE target END,
+			action, days, date, start, end_time, last_run, last_result, created, updated FROM schedules;
+	DROP TABLE schedules;
+	ALTER TABLE schedules8 RENAME TO schedules;
+	DROP TABLE activity;`
 
 // migrationOldKeys is migration 6: it moves the settings keys of a 1.x
 // database to the dv. prefix (an existing dv. key wins).
@@ -198,7 +243,11 @@ func (s *Store) Version() (int, error) {
 	return v, err
 }
 
-func (s *Store) migrate() error {
+func (s *Store) migrate() error { return s.migrateTo(len(migrations)) }
+
+// migrateTo runs the migrations up to version n (tests build old databases
+// with it).
+func (s *Store) migrateTo(n int) error {
 	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)`); err != nil {
 		return err
 	}
@@ -206,7 +255,7 @@ func (s *Store) migrate() error {
 	if err != nil {
 		return err
 	}
-	if cur >= 5 { // a 1.x database holds the DV favourites under the old name; migration 7 needs the new one
+	if cur >= 5 && cur < 8 { // a 1.x database holds the DV favourites under the old name; migrations 7 and 8 need the new one
 		if err := s.renameOldFavorites(); err != nil {
 			return err
 		}
@@ -214,7 +263,12 @@ func (s *Store) migrate() error {
 	if cur > len(migrations) {
 		return fmt.Errorf("store: database schema %d is newer than this build (%d)", cur, len(migrations))
 	}
-	for i := cur; i < len(migrations); i++ {
+	for i := cur; i < n; i++ {
+		if i == 7 { // migration 8 merges dv_favorites: it must have its current name
+			if err := s.renameOldFavorites(); err != nil {
+				return err
+			}
+		}
 		tx, err := s.db.Begin()
 		if err != nil {
 			return err
@@ -231,7 +285,7 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
-	return s.renameOldFavorites()
+	return nil
 }
 
 func ts(t time.Time) int64     { return t.Unix() }
@@ -409,134 +463,9 @@ func (s *Store) DeleteExpiredSessions(now time.Time) (int64, error) {
 	return res.RowsAffected()
 }
 
-// Favorites -------------------------------------------------------------
-
-// ListFavorites returns favorites ordered by group, position, id.
-func (s *Store) ListFavorites() ([]Favorite, error) {
-	rows, err := s.db.Query(`SELECT id,node,label,grp,position,pinned FROM favorites ORDER BY grp, position, id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []Favorite{}
-	for rows.Next() {
-		var f Favorite
-		if err := rows.Scan(&f.ID, &f.Node, &f.Label, &f.Group, &f.Position, &f.Pinned); err != nil {
-			return nil, err
-		}
-		out = append(out, f)
-	}
-	return out, rows.Err()
-}
-
-// GetFavorite returns one favorite.
-func (s *Store) GetFavorite(id int64) (Favorite, error) {
-	var f Favorite
-	err := s.db.QueryRow(`SELECT id,node,label,grp,position,pinned FROM favorites WHERE id=?`, id).
-		Scan(&f.ID, &f.Node, &f.Label, &f.Group, &f.Position, &f.Pinned)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Favorite{}, ErrNotFound
-	}
-	return f, err
-}
-
-// AddFavorite appends a favorite at the end.
-func (s *Store) AddFavorite(node, label, group string) (Favorite, error) {
-	res, err := s.db.Exec(`INSERT INTO favorites(node,label,grp,position)
-		VALUES (?,?,?,(SELECT COALESCE(MAX(position),-1)+1 FROM favorites))`, node, label, group)
-	if err != nil {
-		return Favorite{}, err
-	}
-	id, _ := res.LastInsertId()
-	return s.GetFavorite(id)
-}
-
-// UpdateFavorite changes the non-nil fields.
-func (s *Store) UpdateFavorite(id int64, node, label, group *string, pinned *bool) (Favorite, error) {
-	f, err := s.GetFavorite(id)
-	if err != nil {
-		return Favorite{}, err
-	}
-	if node != nil {
-		f.Node = *node
-	}
-	if label != nil {
-		f.Label = *label
-	}
-	if group != nil {
-		f.Group = *group
-	}
-	if pinned != nil {
-		f.Pinned = *pinned
-	}
-	_, err = s.db.Exec(`UPDATE favorites SET node=?, label=?, grp=?, pinned=? WHERE id=?`, f.Node, f.Label, f.Group, f.Pinned, id)
-	return f, err
-}
-
-// DeleteFavorite removes a favorite.
-func (s *Store) DeleteFavorite(id int64) error {
-	res, err := s.db.Exec(`DELETE FROM favorites WHERE id=?`, id)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-// ReorderFavorites sets positions from the id order. Ids not listed keep
-// their relative order after the listed ones. Unknown ids yield ErrNotFound.
-func (s *Store) ReorderFavorites(ids []int64) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	seen := map[int64]bool{}
-	pos := 0
-	for _, id := range ids {
-		if seen[id] {
-			continue
-		}
-		seen[id] = true
-		res, err := tx.Exec(`UPDATE favorites SET position=? WHERE id=?`, pos, id)
-		if err != nil {
-			return err
-		}
-		if n, _ := res.RowsAffected(); n == 0 {
-			return ErrNotFound
-		}
-		pos++
-	}
-	rows, err := tx.Query(`SELECT id FROM favorites ORDER BY position, id`)
-	if err != nil {
-		return err
-	}
-	var rest []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return err
-		}
-		if !seen[id] {
-			rest = append(rest, id)
-		}
-	}
-	rows.Close()
-	for _, id := range rest {
-		if _, err := tx.Exec(`UPDATE favorites SET position=? WHERE id=?`, pos, id); err != nil {
-			return err
-		}
-		pos++
-	}
-	return tx.Commit()
-}
-
 // Schedules -------------------------------------------------------------
 
-const scheduleCols = `id,name,enabled,node,target,action,mode,permanent,exclusive,days,date,start,end_time,last_run,last_result`
+const scheduleCols = `id,name,enabled,mode,target,action,days,date,start,end_time,last_run,last_result`
 
 func daysString(d []int) string {
 	parts := make([]string, len(d))
@@ -560,15 +489,15 @@ type rowScanner interface{ Scan(dest ...any) error }
 
 func scanSchedule(r rowScanner) (schedules.Schedule, error) {
 	var x schedules.Schedule
-	var en, perm, excl int
+	var en int
 	var days string
 	var last int64
-	err := r.Scan(&x.ID, &x.Name, &en, &x.Node, &x.Target, &x.Action, &x.Mode, &perm, &excl,
+	err := r.Scan(&x.ID, &x.Name, &en, &x.Mode, &x.Target, &x.Action,
 		&days, &x.Date, &x.Start, &x.End, &last, &x.LastResult)
 	if err != nil {
 		return x, err
 	}
-	x.Enabled, x.Permanent, x.Exclusive = en != 0, perm != 0, excl != 0
+	x.Enabled = en != 0
 	x.Days = parseDays(days)
 	if last > 0 {
 		t := fromTS(last)
@@ -614,9 +543,9 @@ func (s *Store) GetSchedule(id int64) (schedules.Schedule, error) {
 // AddSchedule inserts a schedule (ID, LastRun and LastResult are ignored).
 func (s *Store) AddSchedule(x schedules.Schedule) (schedules.Schedule, error) {
 	now := ts(time.Now())
-	res, err := s.db.Exec(`INSERT INTO schedules(name,enabled,node,target,action,mode,permanent,exclusive,days,date,start,end_time,created,updated)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, x.Name, b2i(x.Enabled), x.Node, x.Target, x.Action, x.Mode,
-		b2i(x.Permanent), b2i(x.Exclusive), daysString(x.Days), x.Date, x.Start, x.End, now, now)
+	res, err := s.db.Exec(`INSERT INTO schedules(name,enabled,mode,target,action,days,date,start,end_time,created,updated)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`, x.Name, b2i(x.Enabled), x.Mode, x.Target, x.Action,
+		daysString(x.Days), x.Date, x.Start, x.End, now, now)
 	if err != nil {
 		return schedules.Schedule{}, err
 	}
@@ -626,9 +555,9 @@ func (s *Store) AddSchedule(x schedules.Schedule) (schedules.Schedule, error) {
 
 // UpdateSchedule replaces the editable fields of schedule x.ID.
 func (s *Store) UpdateSchedule(x schedules.Schedule) (schedules.Schedule, error) {
-	res, err := s.db.Exec(`UPDATE schedules SET name=?,enabled=?,node=?,target=?,action=?,mode=?,permanent=?,exclusive=?,
-		days=?,date=?,start=?,end_time=?,updated=? WHERE id=?`, x.Name, b2i(x.Enabled), x.Node, x.Target, x.Action, x.Mode,
-		b2i(x.Permanent), b2i(x.Exclusive), daysString(x.Days), x.Date, x.Start, x.End, ts(time.Now()), x.ID)
+	res, err := s.db.Exec(`UPDATE schedules SET name=?,enabled=?,mode=?,target=?,action=?,
+		days=?,date=?,start=?,end_time=?,updated=? WHERE id=?`, x.Name, b2i(x.Enabled), x.Mode, x.Target, x.Action,
+		daysString(x.Days), x.Date, x.Start, x.End, ts(time.Now()), x.ID)
 	if err != nil {
 		return schedules.Schedule{}, err
 	}
@@ -684,91 +613,6 @@ func (s *Store) GetSetting(k string) (string, error) {
 func (s *Store) SetSetting(k, v string) error {
 	_, err := s.db.Exec(`INSERT INTO settings(k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, k, v)
 	return err
-}
-
-// Activity --------------------------------------------------------------
-
-// Activity is one recorded transmission: a keyup of a link (Link is the link's
-// node number) or of the local receiver (Link is "local") on local node Node.
-type Activity struct {
-	ID       int64
-	Node     string
-	Link     string
-	Start    time.Time
-	Duration time.Duration
-	Kerchunk bool
-}
-
-// AddActivity records a transmission.
-func (s *Store) AddActivity(a Activity) error {
-	k := 0
-	if a.Kerchunk {
-		k = 1
-	}
-	_, err := s.db.Exec(`INSERT INTO activity(node,link,start,duration_ms,kerchunk) VALUES (?,?,?,?,?)`,
-		a.Node, a.Link, ts(a.Start), a.Duration.Milliseconds(), k)
-	return err
-}
-
-// ListActivity returns the newest transmissions of the given local nodes
-// (all nodes when none are given), newest first. limit is capped at 500.
-func (s *Store) ListActivity(nodes []string, limit int) ([]Activity, error) {
-	if limit <= 0 || limit > 500 {
-		limit = 500
-	}
-	q := `SELECT id,node,link,start,duration_ms,kerchunk FROM activity`
-	var args []any
-	if len(nodes) > 0 {
-		q += ` WHERE node IN (?` + strings.Repeat(",?", len(nodes)-1) + `)`
-		for _, n := range nodes {
-			args = append(args, n)
-		}
-	}
-	q += ` ORDER BY start DESC, id DESC LIMIT ?`
-	args = append(args, limit)
-	rows, err := s.db.Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []Activity{}
-	for rows.Next() {
-		var a Activity
-		var start, ms, k int64
-		if err := rows.Scan(&a.ID, &a.Node, &a.Link, &start, &ms, &k); err != nil {
-			return nil, err
-		}
-		a.Start, a.Duration, a.Kerchunk = fromTS(start), time.Duration(ms)*time.Millisecond, k != 0
-		out = append(out, a)
-	}
-	return out, rows.Err()
-}
-
-// PruneActivity deletes rows that started before cutoff and then keeps only
-// the newest maxRows rows (maxRows <= 0: no cap). It returns the number of
-// rows deleted.
-func (s *Store) PruneActivity(cutoff time.Time, maxRows int) (int64, error) {
-	res, err := s.db.Exec(`DELETE FROM activity WHERE start < ?`, ts(cutoff))
-	if err != nil {
-		return 0, err
-	}
-	n, _ := res.RowsAffected()
-	if maxRows > 0 {
-		res, err = s.db.Exec(`DELETE FROM activity WHERE id NOT IN (SELECT id FROM activity ORDER BY start DESC, id DESC LIMIT ?)`, maxRows)
-		if err != nil {
-			return n, err
-		}
-		m, _ := res.RowsAffected()
-		n += m
-	}
-	return n, nil
-}
-
-// CountActivity returns the number of recorded transmissions.
-func (s *Store) CountActivity() (int, error) {
-	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM activity`).Scan(&n)
-	return n, err
 }
 
 // Audit is one audit-log entry. Detail is a short JSON document; callers

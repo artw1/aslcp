@@ -111,35 +111,36 @@ type fakeLinker struct {
 
 func newFakeLinker() *fakeLinker { return &fakeLinker{links: map[string]string{}} }
 
-func (l *fakeLinker) Connect(_ context.Context, node, target, mode string, perm, excl bool) error {
+func (l *fakeLinker) Connect(_ context.Context, m, target string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.calls = append(l.calls, fmt.Sprintf("connect %s>%s %s perm=%v excl=%v", node, target, mode, perm, excl))
+	l.calls = append(l.calls, fmt.Sprintf("connect %s>%s", m, target))
 	if l.err != nil {
 		return l.err
 	}
-	l.links[node+">"+target] = mode
+	l.links[m+">"+target] = "linked"
 	return nil
 }
-func (l *fakeLinker) Disconnect(_ context.Context, node, target string, perm bool) error {
+func (l *fakeLinker) Disconnect(_ context.Context, m, target string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.calls = append(l.calls, fmt.Sprintf("disconnect %s>%s perm=%v", node, target, perm))
+	l.calls = append(l.calls, fmt.Sprintf("disconnect %s>%s", m, target))
 	if l.err != nil {
 		return l.err
 	}
-	delete(l.links, node+">"+target)
+	delete(l.links, m+">"+target)
 	return nil
 }
-func (l *fakeLinker) LinkMode(node, target string) (string, bool, bool) {
+func (l *fakeLinker) Linked(m, target string) (bool, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.unknown {
-		return "", false, false
+		return false, false
 	}
-	m, ok := l.links[node+">"+target]
-	return m, ok, true
+	_, ok := l.links[m+">"+target]
+	return ok, true
 }
+
 func (l *fakeLinker) take() []string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -201,7 +202,7 @@ func (h *harness) clock(now time.Time) {
 }
 
 func win(id int64, days []int, start, end string) Schedule {
-	return Schedule{ID: id, Enabled: true, Node: "1997", Target: "41234", Action: ActionConnect, Mode: ModeTransceive,
+	return Schedule{ID: id, Enabled: true, Mode: "allstar", Target: "41234", Action: ActionConnect,
 		Days: days, Start: start, End: end}
 }
 
@@ -214,10 +215,9 @@ func same(t *testing.T, got []string, want ...string) {
 
 func TestWindowConnectAndDisconnect(t *testing.T) {
 	s := win(1, []int{2}, "19:00", "20:30")
-	s.Permanent, s.Exclusive = true, true
 	h := newHarness(t, tue(18, 59, 50), s)
 	same(t, h.at(tue(18, 59, 55)))
-	same(t, h.at(tue(19, 0, 5)), "connect 1997>41234 transceive perm=true excl=true")
+	same(t, h.at(tue(19, 0, 5)), "connect allstar>41234")
 	if r := h.st.get(1).LastResult; r != "ok" {
 		t.Fatalf("result %q", r)
 	}
@@ -229,37 +229,29 @@ func TestWindowConnectAndDisconnect(t *testing.T) {
 		t.Fatalf("active: %+v", snap.Active)
 	}
 	same(t, h.at(tue(19, 30, 0)))
-	same(t, h.at(tue(20, 30, 5)), "disconnect 1997>41234 perm=true")
+	same(t, h.at(tue(20, 30, 5)), "disconnect allstar>41234")
 	if len(h.e.Snapshot().Active) != 0 {
 		t.Fatal("still active")
 	}
 	same(t, h.at(tue(20, 31, 0)))
 	// next week again
-	same(t, h.at(tm(2026, 11, 24, 19, 0, 1)), "connect 1997>41234 transceive perm=true excl=true")
+	same(t, h.at(tm(2026, 11, 24, 19, 0, 1)), "connect allstar>41234")
 }
 
 func TestSkipWhenAlreadyLinkedStillDisconnects(t *testing.T) {
 	h := newHarness(t, tue(18, 59, 50), win(1, []int{2}, "19:00", "20:00"))
-	h.lk.links["1997>41234"] = ModeTransceive
+	h.lk.links["allstar>41234"] = "linked"
 	same(t, h.at(tue(19, 0, 5)))
 	if r := h.st.get(1).LastResult; r != "skipped: already connected" {
 		t.Fatalf("result %q", r)
 	}
-	same(t, h.at(tue(20, 0, 5)), "disconnect 1997>41234 perm=false")
-	// in another mode the connect still goes out (mode change)
-	h2 := newHarness(t, tue(18, 59, 50), win(1, []int{2}, "19:00", "20:00"))
-	h2.lk.links["1997>41234"] = ModeMonitor
-	same(t, h2.at(tue(19, 0, 5)), "connect 1997>41234 transceive perm=false excl=false")
-	// a link that is still connecting counts as linked
-	h3 := newHarness(t, tue(18, 59, 50), win(1, []int{2}, "19:00", "20:00"))
-	h3.lk.links["1997>41234"] = "connecting"
-	same(t, h3.at(tue(19, 0, 5)))
+	same(t, h.at(tue(20, 0, 5)), "disconnect allstar>41234")
 }
 
 func TestWindowEndDisconnectsWhenLinkAbsent(t *testing.T) {
 	h := newHarness(t, tue(18, 59, 50), win(1, []int{2}, "19:00", "20:00"))
-	same(t, h.at(tue(19, 0, 5)), "connect 1997>41234 transceive perm=false excl=false")
-	delete(h.lk.links, "1997>41234") // dropped by itself
+	same(t, h.at(tue(19, 0, 5)), "connect allstar>41234")
+	delete(h.lk.links, "allstar>41234") // dropped by itself
 	same(t, h.at(tue(20, 0, 5)))
 	if r := h.st.get(1).LastResult; r != "skipped: not connected" {
 		t.Fatalf("result %q", r)
@@ -267,10 +259,10 @@ func TestWindowEndDisconnectsWhenLinkAbsent(t *testing.T) {
 }
 
 func TestDisconnectSchedule(t *testing.T) {
-	d := Schedule{ID: 2, Enabled: true, Node: "1997", Target: "41234", Action: ActionDisconnect, Permanent: true, Days: []int{2}, Start: "07:00"}
+	d := Schedule{ID: 2, Enabled: true, Mode: "allstar", Target: "41234", Action: ActionDisconnect, Days: []int{2}, Start: "07:00"}
 	h := newHarness(t, tue(6, 59, 50), d)
-	h.lk.links["1997>41234"] = ModeTransceive
-	same(t, h.at(tue(7, 0, 5)), "disconnect 1997>41234 perm=true")
+	h.lk.links["allstar>41234"] = "linked"
+	same(t, h.at(tue(7, 0, 5)), "disconnect allstar>41234")
 	if r := h.st.get(2).LastResult; r != "ok" {
 		t.Fatal(r)
 	}
@@ -285,7 +277,7 @@ func TestDisconnectSchedule(t *testing.T) {
 func TestConnectWithoutEnd(t *testing.T) {
 	c := win(3, []int{2}, "19:00", "")
 	h := newHarness(t, tue(18, 59, 50), c)
-	same(t, h.at(tue(19, 0, 5)), "connect 1997>41234 transceive perm=false excl=false")
+	same(t, h.at(tue(19, 0, 5)), "connect allstar>41234")
 	same(t, h.at(tue(19, 1, 5)))
 	same(t, h.at(tue(23, 0, 5)))
 }
@@ -299,20 +291,20 @@ func TestSingleEventsNotReplayedAtStart(t *testing.T) {
 func TestRetryEveryMinuteForWindow(t *testing.T) {
 	h := newHarness(t, tue(18, 59, 50), win(1, []int{2}, "19:00", "19:05"))
 	h.lk.setErr(errors.New("AMI down"))
-	same(t, h.at(tue(19, 0, 5)), "connect 1997>41234 transceive perm=false excl=false")
+	same(t, h.at(tue(19, 0, 5)), "connect allstar>41234")
 	if r := h.st.get(1).LastResult; r != "error: AMI down" {
 		t.Fatalf("result %q", r)
 	}
 	same(t, h.at(tue(19, 0, 35))) // not due yet
-	same(t, h.at(tue(19, 1, 6)), "connect 1997>41234 transceive perm=false excl=false")
-	same(t, h.at(tue(19, 2, 7)), "connect 1997>41234 transceive perm=false excl=false")
+	same(t, h.at(tue(19, 1, 6)), "connect allstar>41234")
+	same(t, h.at(tue(19, 2, 7)), "connect allstar>41234")
 	h.lk.setErr(nil)
-	same(t, h.at(tue(19, 3, 8)), "connect 1997>41234 transceive perm=false excl=false")
+	same(t, h.at(tue(19, 3, 8)), "connect allstar>41234")
 	if r := h.st.get(1).LastResult; r != "ok" {
 		t.Fatalf("result %q", r)
 	}
 	same(t, h.at(tue(19, 4, 9)))
-	same(t, h.at(tue(19, 5, 5)), "disconnect 1997>41234 perm=false")
+	same(t, h.at(tue(19, 5, 5)), "disconnect allstar>41234")
 }
 
 func TestWindowRetriesStopAtEnd(t *testing.T) {
@@ -342,7 +334,7 @@ func TestSingleRetryForTenMinutes(t *testing.T) {
 	same(t, h.at(tue(19, 20, 0)))
 }
 
-func TestUnknownNodeIsError(t *testing.T) {
+func TestNodeUnreachableIsError(t *testing.T) {
 	h := newHarness(t, tue(18, 59, 50), win(1, []int{2}, "19:00", ""))
 	h.lk.unknown = true
 	same(t, h.at(tue(19, 0, 5)))
@@ -350,13 +342,13 @@ func TestUnknownNodeIsError(t *testing.T) {
 		t.Fatalf("result %q", r)
 	}
 	h.lk.unknown = false
-	same(t, h.at(tue(19, 1, 6)), "connect 1997>41234 transceive perm=false excl=false")
+	same(t, h.at(tue(19, 1, 6)), "connect allstar>41234")
 }
 
 func TestCatchUpOnStart(t *testing.T) {
 	h := newHarness(t, tue(19, 30, 0), win(1, []int{2}, "19:00", "20:00"))
-	same(t, h.at(tue(19, 30, 1)), "connect 1997>41234 transceive perm=false excl=false")
-	same(t, h.at(tue(20, 0, 5)), "disconnect 1997>41234 perm=false")
+	same(t, h.at(tue(19, 30, 1)), "connect allstar>41234")
+	same(t, h.at(tue(20, 0, 5)), "disconnect allstar>41234")
 	// a window that already ended is not connected
 	h = newHarness(t, tue(20, 30, 0), win(1, []int{2}, "19:00", "20:00"))
 	same(t, h.at(tue(20, 30, 1)))
@@ -364,9 +356,9 @@ func TestCatchUpOnStart(t *testing.T) {
 
 func TestCatchUpOnStartSkippedWhenLinked(t *testing.T) {
 	h := newHarness(t, tue(19, 30, 0), win(1, []int{2}, "19:00", "20:00"))
-	h.lk.links["1997>41234"] = ModeTransceive
+	h.lk.links["allstar>41234"] = "linked"
 	same(t, h.at(tue(19, 30, 1)))
-	same(t, h.at(tue(20, 0, 5)), "disconnect 1997>41234 perm=false")
+	same(t, h.at(tue(20, 0, 5)), "disconnect allstar>41234")
 }
 
 func TestCatchUpOnReEnable(t *testing.T) {
@@ -376,8 +368,8 @@ func TestCatchUpOnReEnable(t *testing.T) {
 	same(t, h.at(tue(19, 10, 5)))
 	h.clock(tue(19, 20, 0))
 	h.e.SetEnabled(true)
-	same(t, h.at(tue(19, 20, 1)), "connect 1997>41234 transceive perm=false excl=false")
-	same(t, h.at(tue(20, 0, 5)), "disconnect 1997>41234 perm=false")
+	same(t, h.at(tue(19, 20, 1)), "connect allstar>41234")
+	same(t, h.at(tue(20, 0, 5)), "disconnect allstar>41234")
 }
 
 func TestSingleNotReplayedOnReEnable(t *testing.T) {
@@ -391,7 +383,7 @@ func TestSingleNotReplayedOnReEnable(t *testing.T) {
 
 func TestPauseCancelsAndIsNotCaughtUp(t *testing.T) {
 	h := newHarness(t, tue(18, 59, 50), win(1, []int{2}, "19:00", "20:00"))
-	same(t, h.at(tue(19, 0, 5)), "connect 1997>41234 transceive perm=false excl=false")
+	same(t, h.at(tue(19, 0, 5)), "connect allstar>41234")
 	h.clock(tue(19, 10, 0))
 	h.e.Pause("manual connect 41234 on 1997 by op")
 	snap := h.e.Snapshot()
@@ -414,8 +406,8 @@ func TestPauseCancelsAndIsNotCaughtUp(t *testing.T) {
 	same(t, h.at(tue(20, 0, 5))) // cancelled: no closing disconnect
 	same(t, h.at(tue(21, 0, 5)))
 	// the next occurrence runs normally
-	delete(h.lk.links, "1997>41234")
-	same(t, h.at(tm(2026, 11, 24, 19, 0, 5)), "connect 1997>41234 transceive perm=false excl=false")
+	delete(h.lk.links, "allstar>41234")
+	same(t, h.at(tm(2026, 11, 24, 19, 0, 5)), "connect allstar>41234")
 }
 
 func TestPauseCancelsUnhandledRunningWindow(t *testing.T) {
@@ -440,21 +432,21 @@ func TestPauseKeepsFirstReasonAndWindowsStartedLaterRun(t *testing.T) {
 	// not running at pause time: not cancelled, caught up after re-enable
 	h.clock(tue(19, 30, 0))
 	h.e.SetEnabled(true)
-	same(t, h.at(tue(19, 30, 5)), "connect 1997>41234 transceive perm=false excl=false")
+	same(t, h.at(tue(19, 30, 5)), "connect allstar>41234")
 }
 
 func TestStatePersistsAcrossRestartMissedEnd(t *testing.T) {
 	h := newHarness(t, tue(18, 59, 50), win(1, []int{2}, "19:00", "20:00"))
-	same(t, h.at(tue(19, 0, 5)), "connect 1997>41234 transceive perm=false excl=false")
+	same(t, h.at(tue(19, 0, 5)), "connect allstar>41234")
 	// the panel restarts at 21:00 with the same store
 	h.clock(tue(21, 0, 0))
 	h.e = h.engine()
-	same(t, h.at(tue(21, 0, 1)), "disconnect 1997>41234 perm=false")
+	same(t, h.at(tue(21, 0, 1)), "disconnect allstar>41234")
 	same(t, h.at(tue(21, 1, 1)))
 	// once more with the link already gone: no command
 	h2 := newHarness(t, tue(18, 59, 50), win(1, []int{2}, "19:00", "20:00"))
 	h2.at(tue(19, 0, 5))
-	delete(h2.lk.links, "1997>41234")
+	delete(h2.lk.links, "allstar>41234")
 	h2.clock(tue(21, 0, 0))
 	h2.e = h2.engine()
 	same(t, h2.at(tue(21, 0, 1)))
@@ -466,7 +458,7 @@ func TestRestartMidWindowDoesNotReconnect(t *testing.T) {
 	h.clock(tue(19, 30, 0))
 	h.e = h.engine()
 	same(t, h.at(tue(19, 30, 1))) // handled: nothing to do
-	same(t, h.at(tue(20, 0, 5)), "disconnect 1997>41234 perm=false")
+	same(t, h.at(tue(20, 0, 5)), "disconnect allstar>41234")
 }
 
 func TestRestartKeepsPause(t *testing.T) {
@@ -484,7 +476,7 @@ func TestOneOffDisablesAfterSingle(t *testing.T) {
 	c := win(3, nil, "19:00", "")
 	c.Date = "2026-11-17"
 	h := newHarness(t, tue(18, 59, 50), c)
-	same(t, h.at(tue(19, 0, 5)), "connect 1997>41234 transceive perm=false excl=false")
+	same(t, h.at(tue(19, 0, 5)), "connect allstar>41234")
 	if h.st.get(3).Enabled {
 		t.Fatal("one-off still enabled")
 	}
@@ -511,7 +503,7 @@ func TestOneOffWindowDisablesAfterEnd(t *testing.T) {
 	if !h.st.get(3).Enabled {
 		t.Fatal("disabled mid-window")
 	}
-	same(t, h.at(tue(20, 0, 5)), "disconnect 1997>41234 perm=false")
+	same(t, h.at(tue(20, 0, 5)), "disconnect allstar>41234")
 	if h.st.get(3).Enabled {
 		t.Fatal("still enabled after the end")
 	}
@@ -548,19 +540,19 @@ func TestEventOrderInSameMinute(t *testing.T) {
 	a.Target = "40001"
 	b := win(2, []int{2}, "20:00", "21:00")
 	b.Target = "40002"
-	c := Schedule{ID: 3, Enabled: true, Node: "1997", Target: "40003", Action: ActionDisconnect, Days: []int{2}, Start: "20:00"}
+	c := Schedule{ID: 3, Enabled: true, Mode: "allstar", Target: "40003", Action: ActionDisconnect, Days: []int{2}, Start: "20:00"}
 	d := win(4, []int{2}, "20:00", "")
 	d.Target = "40004"
 	h := newHarness(t, tue(18, 59, 50), a, b, c, d)
-	h.lk.links["1997>40003"] = ModeTransceive
+	h.lk.links["allstar>40003"] = "linked"
 	h.at(tue(19, 0, 5))
 	h.lk.take()
 	got := h.at(tue(20, 0, 5))
 	same(t, got,
-		"disconnect 1997>40001 perm=false",                    // window end first
-		"disconnect 1997>40003 perm=false",                    // then disconnect schedules
-		"connect 1997>40002 transceive perm=false excl=false", // then connects by id
-		"connect 1997>40004 transceive perm=false excl=false")
+		"disconnect allstar>40001", // window end first
+		"disconnect allstar>40003", // then disconnect schedules
+		"connect allstar>40002",    // then connects by id
+		"connect allstar>40004")
 }
 
 func TestChangedForgetsOccurrenceAndCatchesUp(t *testing.T) {
@@ -573,7 +565,7 @@ func TestChangedForgetsOccurrenceAndCatchesUp(t *testing.T) {
 	if r := h.st.get(1).LastResult; r != "skipped: already connected" {
 		t.Fatalf("result %q", r)
 	}
-	same(t, h.at(tue(20, 0, 5)), "disconnect 1997>41234 perm=false")
+	same(t, h.at(tue(20, 0, 5)), "disconnect allstar>41234")
 }
 
 func TestChangedOnDisabledScheduleForgetsOccurrence(t *testing.T) {
@@ -599,15 +591,15 @@ func TestDisabledAndDeletedSchedulesDoNothing(t *testing.T) {
 
 func TestMidnightCrossingWindowRuns(t *testing.T) {
 	h := newHarness(t, tm(2026, 11, 20, 22, 59, 50), win(1, []int{5}, "23:00", "01:00")) // Friday
-	same(t, h.at(tm(2026, 11, 20, 23, 0, 5)), "connect 1997>41234 transceive perm=false excl=false")
+	same(t, h.at(tm(2026, 11, 20, 23, 0, 5)), "connect allstar>41234")
 	same(t, h.at(tm(2026, 11, 21, 0, 30, 0)))
-	same(t, h.at(tm(2026, 11, 21, 1, 0, 5)), "disconnect 1997>41234 perm=false")
+	same(t, h.at(tm(2026, 11, 21, 1, 0, 5)), "disconnect allstar>41234")
 }
 
 func TestMidnightWindowCatchUpAfterMidnight(t *testing.T) {
 	// started at 00:30 Saturday: Friday's window is running
 	h := newHarness(t, tm(2026, 11, 21, 0, 30, 0), win(1, []int{5}, "23:00", "01:00"))
-	same(t, h.at(tm(2026, 11, 21, 0, 30, 1)), "connect 1997>41234 transceive perm=false excl=false")
+	same(t, h.at(tm(2026, 11, 21, 0, 30, 1)), "connect allstar>41234")
 }
 
 func TestHandlerCommandsDoNotRunWhilePaused(t *testing.T) {
@@ -639,7 +631,7 @@ func TestSnapshot(t *testing.T) {
 	a := win(1, []int{2}, "19:00", "20:30")
 	a.Name = "Tuesday net"
 	b := win(2, []int{3}, "07:00", "")
-	b.Node = "1996"
+	b.Mode = "aaa"
 	h := newHarness(t, tue(18, 42, 0), a, b)
 	snap := h.e.Snapshot()
 	if !snap.Enabled || snap.Timezone != "America/New_York" || snap.Now.Format(time.RFC3339) != "2026-11-17T18:42:00-05:00" {

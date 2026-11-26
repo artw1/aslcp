@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/artw1/aslcp/internal/ami"
 )
 
 func put(t *testing.T, dir, name, body string) string {
@@ -20,28 +18,6 @@ func put(t *testing.T, dir, name, body string) string {
 	return p
 }
 
-type fakeAMI struct {
-	st    ami.State
-	lines map[string][]string
-	calls map[string]int
-}
-
-func (f *fakeAMI) State() ami.State { return f.st }
-func (f *fakeAMI) Command(_ context.Context, c string) ([]string, error) {
-	if f.calls == nil {
-		f.calls = map[string]int{}
-	}
-	f.calls[c]++
-	l, ok := f.lines[c]
-	if !ok {
-		return nil, errors.New("nope")
-	}
-	return l, nil
-}
-func (f *fakeAMI) Action(context.Context, string, ...ami.Header) (*ami.Message, error) {
-	return nil, errors.New("unused")
-}
-
 func TestHostMetrics(t *testing.T) {
 	d := t.TempDir()
 	c := New("1.2.3", nil)
@@ -49,14 +25,14 @@ func TestHostMetrics(t *testing.T) {
 	c.LoadP = put(t, d, "load", "0.12 0.10 0.05 1/200 1234\n")
 	c.MemP = put(t, d, "mem", "MemTotal:        1000 kB\nMemFree:  10 kB\nMemAvailable:    500 kB\n")
 	c.UptimeP = put(t, d, "up", "120660.55 4000.1\n")
-	c.Hostname = func() (string, error) { return "node1999", nil }
+	c.Hostname = func() (string, error) { return "node", nil }
 	s := c.Collect(context.Background())
 	if s.CPUTemp == nil || *s.CPUTemp != 48.2 || s.Load != [3]float64{0.12, 0.10, 0.05} ||
-		s.MemTotal != 1000*1024 || s.MemAvailable != 500*1024 || s.Uptime != 120660 || s.Hostname != "node1999" || s.Version != "1.2.3" {
+		s.MemTotal != 1000*1024 || s.MemAvailable != 500*1024 || s.Uptime != 120660 || s.Hostname != "node" || s.Version != "1.2.3" {
 		t.Fatalf("%+v", s)
 	}
-	if s.Asterisk.Connected || s.Asterisk.Error == nil {
-		t.Fatalf("%+v", s.Asterisk)
+	if s.Node.Running || s.Node.Error == nil {
+		t.Fatalf("%+v", s.Node)
 	}
 }
 
@@ -79,28 +55,28 @@ func TestMissingFiles(t *testing.T) {
 	}
 }
 
-func TestAsterisk(t *testing.T) {
-	f := &fakeAMI{
-		st: ami.State{Connected: true, Since: time.Now()},
-		lines: map[string][]string{
-			"core show uptime seconds": {"System uptime: 120660", "Last reload: 120660"},
-			"core show version":        {"Asterisk 22.10.1+asl3-3.10.8-1.deb12 built by builder @ x on a aarch64 running Linux on 2026-10-11 15:31:58 UTC"},
-		},
+func TestNode(t *testing.T) {
+	t0 := time.Unix(1_800_000_000, 0)
+	cases := []struct {
+		name string
+		info NodeInfo
+		err  error
+		want func(n Node) bool
+	}{
+		{"running", NodeInfo{Started: t0.Add(-90 * time.Second), Mode: "ysf"}, nil, func(n Node) bool {
+			return n.Running && n.Mode == "ysf" && n.Uptime != nil && *n.Uptime == 90 && n.Error == nil
+		}},
+		{"idle", NodeInfo{Started: t0}, nil, func(n Node) bool { return n.Running && n.Mode == "" && *n.Uptime == 0 }},
+		{"down", NodeInfo{}, errors.New("the node is not running"), func(n Node) bool {
+			return !n.Running && n.Uptime == nil && n.Error != nil && *n.Error == "the node is not running"
+		}},
 	}
-	c := New("v", f)
-	c.ThermalP, c.LoadP, c.MemP, c.UptimeP = "/x", "/x", "/x", "/x"
-	for i := 0; i < 3; i++ {
-		a := c.Collect(context.Background()).Asterisk
-		if !a.Connected || a.Version != "22.10.1+asl3-3.10.8-1.deb12" || a.Uptime == nil || *a.Uptime != 120660 || a.Error != nil {
-			t.Fatalf("%+v", a)
+	for _, c := range cases {
+		cl := New("v", func(context.Context) (NodeInfo, error) { return c.info, c.err })
+		cl.Now = func() time.Time { return t0 }
+		cl.ThermalP, cl.LoadP, cl.MemP, cl.UptimeP = "/x", "/x", "/x", "/x"
+		if n := cl.Collect(context.Background()).Node; !c.want(n) {
+			t.Errorf("%s: %+v", c.name, n)
 		}
-	}
-	if f.calls["core show version"] != 1 {
-		t.Fatalf("version not cached: %v", f.calls)
-	}
-	f.st = ami.State{Err: errors.New("connection refused"), Since: time.Now()}
-	a := c.Collect(context.Background()).Asterisk
-	if a.Connected || a.Error == nil || *a.Error != "AMI disconnected: connection refused" {
-		t.Fatalf("%+v", a)
 	}
 }

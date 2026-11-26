@@ -112,20 +112,20 @@ func TestRing(t *testing.T) {
 
 func TestReportRender(t *testing.T) {
 	r := Report{
-		Version: "0.1.1", Asterisk: "22.1.0",
-		Nodes:   []LocalNode{{Node: "1999", Callsign: "W1ABC", NumLinks: 1, Links: []Link{{Node: "2000", Mode: "T", State: "ESTABLISHED"}}}},
-		AMIAddr: "127.0.0.1:5038", AMIError: "dial 203.0.113.9:5038: refused for user admin secret=topsecret",
-		Config:  []string{"[ami]", RedactConfigLine("secret = topsecret"), "host = 192.168.1.5"},
-		Log:     []string{"2026/11/15 12:00:00 link to K1ZZZ at 198.51.100.7 from W1ABC mail a@b.org", "login hunter2xyz bad"},
+		Version: "0.1.1",
+		Node: NodeState{Socket: "/run/aslcp-node/control.sock", Running: true, Callsign: "N0CALL", Active: "allstar", State: "connected", Target: "2000",
+			ModeErr: "dial 203.0.113.9:4569: refused secret=topsecret", Modes: []string{"allstar", "bm"}},
+		Config:  []string{"[node]", RedactConfigLine("secret = topsecret"), "host = 192.0.2.5"},
+		Log:     []string{"2026/11/15 12:00:00 link to N1CALL at 198.51.100.7 from N0CALL mail a@example.net", "login hunter2xyz bad"},
 		Secrets: []string{"hunter2xyz"},
 	}
 	out := r.Render()
-	for _, bad := range []string{"topsecret", "203.0.113.9", "192.168.1.5", "198.51.100.7", "K1ZZZ", "a@b.org", "hunter2xyz"} {
+	for _, bad := range []string{"topsecret", "203.0.113.9", "192.0.2.5", "198.51.100.7", "N1CALL", "a@example.net", "hunter2xyz"} {
 		if strings.Contains(out, bad) {
 			t.Errorf("report contains %q:\n%s", bad, out)
 		}
 	}
-	for _, good := range []string{"1999", "W1ABC", "127.0.0.1:5038", "Node 1999", "mode=T", "link 2000"} {
+	for _, good := range []string{"N0CALL", "control.sock", "Active mode: allstar", "target=2000", "allstar bm"} {
 		if !strings.Contains(out, good) {
 			t.Errorf("report lacks %q", good)
 		}

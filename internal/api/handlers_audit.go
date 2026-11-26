@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -75,4 +76,20 @@ func (s *Server) handleAuditList(w http.ResponseWriter, r *http.Request, _ store
 		out = append(out, AuditEntry{ID: a.ID, Time: a.Time.UTC().Format(time.RFC3339), User: a.Username, Action: a.Action, Detail: a.Detail})
 	}
 	writeJSON(w, 200, map[string]any{"entries": out, "next": next})
+}
+
+// audit records an action; detail must never contain secret values or file
+// contents. Failures are logged only.
+func (s *Server) audit(u store.User, action string, detail map[string]any) {
+	if s.d.Store == nil {
+		return
+	}
+	d := ""
+	if detail != nil {
+		b, _ := json.Marshal(detail)
+		d = string(b)
+	}
+	if err := s.d.Store.AddAudit(store.Audit{Username: u.Username, Action: action, Detail: d}); err != nil {
+		s.d.Logger.Printf("audit: %v", err)
+	}
 }

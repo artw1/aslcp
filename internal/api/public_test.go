@@ -10,8 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/artw1/aslcp/internal/native/mode"
+	"github.com/artw1/aslcp/internal/nowcalling"
 	"github.com/artw1/aslcp/internal/public"
-	"github.com/artw1/aslcp/internal/store"
 )
 
 var ipLike = regexp.MustCompile(`\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}`)
@@ -100,7 +101,7 @@ func TestPublicDisabledByDefault(t *testing.T) {
 		t.Fatalf("events while disabled: %d", code)
 	}
 	enablePublic(t, e, nil)
-	if code := e.do("", "GET", "/api/public/info", nil, &info); code != 200 || !info.Enabled || !strings.Contains(info.Title, "AllStarLink") {
+	if code := e.do("", "GET", "/api/public/info", nil, &info); code != 200 || !info.Enabled || !strings.Contains(info.Title, "node status") {
 		t.Fatalf("%d %+v", code, info)
 	}
 	if code := e.do("", "GET", "/api/public/status", nil, nil); code != 200 {
@@ -123,9 +124,9 @@ func TestPublicDisabledByDefault(t *testing.T) {
 func TestPublicDoesNotOpenOtherAPIRoutes(t *testing.T) {
 	e := newEnv(t, opts{})
 	enablePublic(t, e, nil)
-	for _, p := range []string{"/api/nodes", "/api/favorites", "/api/settings", "/api/system", "/api/public", "/api/activity",
+	for _, p := range []string{"/api/node", "/api/modes", "/api/heard", "/api/favorites", "/api/settings", "/api/system", "/api/public",
 		"/api/events", "/api/users", "/api/about", "/api/lookup/2000", "/api/lookup?q=a", "/api/nodelist", "/api/updates",
-		"/api/diagnostics", "/api/nodes/1999/stats", "/api/session", "/api/favorites/stats"} {
+		"/api/diagnostics", "/api/session", "/api/favorites/stats", "/api/nowcalling"} {
 		if code := e.do("", "GET", p, nil, nil); code != 401 {
 			t.Errorf("anonymous GET %s: %d, want 401", p, code)
 		}
@@ -146,16 +147,14 @@ func TestPublicDoesNotOpenOtherAPIRoutes(t *testing.T) {
 
 func TestPublicDataHasNoIPsOrSystemInfo(t *testing.T) {
 	e := newEnv(t, opts{})
-	enablePublic(t, e, nil)
-	// sanity: the admin view of the same node does contain the link IP
-	if _, b, _ := e.raw("GET", "/api/nodes", nil, e.ck["admin"], nil); !ipLike.Match(b) {
-		t.Fatalf("test premise: admin JSON should contain an IP: %s", b)
-	}
+	enablePublic(t, e, map[string]any{"showHeard": true})
+	// a reflector with an address: the public page never shows it
+	e.do("op", "POST", "/api/select", map[string]any{"mode": "ysf", "target": "1999", "host": "192.0.2.58", "port": 42000}, nil)
 	_, body, hdr := e.raw("GET", "/api/public/status", nil, "", nil)
-	if ipLike.Match(body) || strings.Contains(strings.ToLower(string(body)), `"ip"`) {
-		t.Fatalf("IP in public status: %s", body)
+	if ipLike.Match(body) || strings.Contains(strings.ToLower(string(body)), `"ip"`) || strings.Contains(string(body), "42000") {
+		t.Fatalf("address in public status: %s", body)
 	}
-	for _, k := range []string{"hostname", "version", "load", "cpuTemp", "asterisk", "flags", "secret", "favorites"} {
+	for _, k := range []string{"hostname", "version", "load", "cpuTemp", "secret", "favorites", "password", "dmr_id"} {
 		if strings.Contains(string(body), k) {
 			t.Errorf("public status mentions %q: %s", k, body)
 		}
@@ -167,15 +166,11 @@ func TestPublicDataHasNoIPsOrSystemInfo(t *testing.T) {
 		t.Errorf("cookie set: %q", c)
 	}
 	var snap public.Snapshot
-	if err := json.Unmarshal(body, &snap); err != nil || len(snap.Nodes) != 1 || snap.Nodes[0].Node != localNode {
+	if err := json.Unmarshal(body, &snap); err != nil {
 		t.Fatalf("%v %s", err, body)
 	}
-	n := snap.Nodes[0]
-	if n.Info == nil || n.Info.Callsign != "N0AAD" || len(n.Links) != 1 || n.Links[0].Node != "50241" || n.Links[0].Info == nil || n.Links[0].Info.Callsign != "N0AAC" {
-		t.Fatalf("%+v", n)
-	}
-	if !strings.Contains(snap.Title, "N0AAD AllStarLink node "+localNode) {
-		t.Fatalf("title %q", snap.Title)
+	if snap.Station.Callsign != "N0CALL" || snap.Title != "N0CALL node status" {
+		t.Fatalf("%+v", snap)
 	}
 
 	// SSE: snapshot and changes carry no IPs either
@@ -187,41 +182,90 @@ func TestPublicDataHasNoIPsOrSystemInfo(t *testing.T) {
 	if ev.name != "snapshot" || ipLike.MatchString(ev.data) {
 		t.Fatalf("%s %s", ev.name, ev.data)
 	}
-	e.fake.setRx(true)
-	ev = s.wait(func(ev sseEvent) bool { return ev.name == "node" && strings.Contains(ev.data, `"rxKeyed":true`) })
-	if ipLike.MatchString(ev.data) || strings.Contains(ev.data, `"network"`) {
-		t.Fatalf("node event: %s", ev.data)
+	e.fake(mode.YSF).Key("N1CALL")
+	ev = s.wait(func(ev sseEvent) bool { return ev.name == "snapshot" && strings.Contains(ev.data, `"N1CALL"`) })
+	if ipLike.MatchString(ev.data) {
+		t.Fatalf("snapshot: %s", ev.data)
 	}
 	if got := s.resp.Header.Get("Content-Type"); got != "text/event-stream" {
 		t.Fatal(got)
 	}
 }
 
+func TestPublicStationAndCalls(t *testing.T) {
+	e := newEnv(t, opts{})
+	enablePublic(t, e, map[string]any{"showHeard": true})
+	e.do("op", "POST", "/api/select", map[string]string{"mode": "allstar", "target": "2000"}, nil)
+	f := e.fake(mode.AllStar)
+	f.Key("N1CALL")
+	time.Sleep(nowcalling.MinDuration + 100*time.Millisecond) // shorter is a glitch
+	var snap public.Snapshot
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if e.do("", "GET", "/api/public/status", nil, &snap); snap.Calling != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if snap.Station.Mode != mode.AllStar || snap.Station.Target != "2000" || snap.Station.State != "connected" {
+		t.Fatalf("station: %+v", snap.Station)
+	}
+	if snap.Calling == nil || snap.Calling.Callsign != "N1CALL" || snap.Calling.Mode != mode.AllStar {
+		t.Fatalf("calling: %+v", snap.Calling)
+	}
+	f.Unkey()
+	for time.Now().Before(deadline) {
+		if e.do("", "GET", "/api/public/status", nil, &snap); snap.Calling == nil && len(snap.Heard) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(snap.Heard) != 1 || snap.Heard[0].Callsign != "N1CALL" {
+		t.Fatalf("heard: %+v", snap.Heard)
+	}
+	// the node going away shows as offline
+	e.stopNode()
+	for time.Now().Before(deadline) {
+		if e.do("", "GET", "/api/public/status", nil, &snap); snap.Station.State == "offline" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if snap.Station.State != "offline" {
+		t.Fatalf("down: %+v", snap.Station)
+	}
+}
+
 func TestPublicCallsignHidingAndTitle(t *testing.T) {
 	e := newEnv(t, opts{})
-	enablePublic(t, e, map[string]any{"showCallsigns": false, "title": "Club <b>node</b>"})
+	enablePublic(t, e, map[string]any{"showCallsigns": false, "showHeard": true, "title": "Club <b>node</b>"})
+	e.do("op", "POST", "/api/select", map[string]string{"mode": "allstar", "target": "2000"}, nil)
+	f := e.fake(mode.AllStar)
+	f.Key("N1CALL")
+	time.Sleep(nowcalling.MinDuration + 100*time.Millisecond)
+	f.Unkey()
 	var snap public.Snapshot
-	e.do("", "GET", "/api/public/status", nil, &snap)
-	if snap.Callsigns || snap.Title != "Club <b>node</b>" {
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if e.do("", "GET", "/api/public/status", nil, &snap); len(snap.Heard) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if snap.Callsigns || snap.Title != "Club bnode/b" {
 		t.Fatalf("%+v", snap)
 	}
-	n := snap.Nodes[0]
-	if n.Links[0].Info != nil || n.Links[0].Kind == "" || n.Links[0].Node != "50241" {
-		t.Fatalf("link info must be hidden: %+v", n.Links[0])
-	}
-	for _, nn := range n.Network {
-		if nn.Callsign != "" {
-			t.Fatalf("network callsign shown: %+v", nn)
-		}
+	if len(snap.Heard) != 1 || snap.Heard[0].Callsign != "" || snap.Heard[0].Mode != mode.AllStar {
+		t.Fatalf("heard: %+v", snap.Heard)
 	}
 	_, raw, _ := e.raw("GET", "/api/public/status", nil, "", nil)
-	if strings.Contains(string(raw), "N0AAC") || strings.Contains(string(raw), "Metro Hub") {
-		t.Fatalf("link identity leaked: %s", raw)
+	if strings.Contains(string(raw), "N1CALL") {
+		t.Fatalf("callsign leaked: %s", raw)
 	}
-	// network and activity can be switched off
-	e.do("admin", "PUT", "/api/public", map[string]any{"showNetwork": false, "showActivity": false}, nil)
+	// the heard list can be switched off
+	e.do("admin", "PUT", "/api/public", map[string]any{"showHeard": false}, nil)
 	_, raw, _ = e.raw("GET", "/api/public/status", nil, "", nil)
-	if strings.Contains(string(raw), `"network"`) || strings.Contains(string(raw), `"activity"`) {
+	if strings.Contains(string(raw), `"heard":[`) {
 		t.Fatalf("%s", raw)
 	}
 }
@@ -230,16 +274,14 @@ func TestPublicSettingsValidation(t *testing.T) {
 	e := newEnv(t, opts{})
 	expectErr(t, e, "admin", "PUT", "/api/public", map[string]any{"title": strings.Repeat("x", 81)}, 400, "bad_request")
 	expectErr(t, e, "admin", "PUT", "/api/public", map[string]any{"title": "a\x00b"}, 400, "bad_request")
-	expectErr(t, e, "admin", "PUT", "/api/public", map[string]any{"nodes": []string{"abc"}}, 400, "bad_request")
-	expectErr(t, e, "admin", "PUT", "/api/public", map[string]any{"nodes": []string{"4242"}}, 400, "bad_request")
 	var out struct {
-		Nodes      []string
-		LocalNodes []struct{ Node string }
+		TrustProxy   bool
+		DefaultTitle string
 	}
-	if code := e.do("admin", "PUT", "/api/public", map[string]any{"nodes": []string{localNode}, "trustProxy": true}, &out); code != 200 {
+	if code := e.do("admin", "PUT", "/api/public", map[string]any{"trustProxy": true}, &out); code != 200 {
 		t.Fatal(code)
 	}
-	if len(out.Nodes) != 0 || len(out.LocalNodes) != 1 { // selecting every local node means "all"
+	if !out.TrustProxy || out.DefaultTitle != "N0CALL node status" {
 		t.Fatalf("%+v", out)
 	}
 	// persisted in the settings table
@@ -306,31 +348,9 @@ func TestPublicRateLimit(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 	// the admin API is not subject to it
-	if code := e.do("admin", "GET", "/api/nodes", nil, nil); code != 200 {
+	if code := e.do("admin", "GET", "/api/node", nil, nil); code != 200 {
 		t.Fatal(code)
 	}
-}
-
-func TestPublicFastPollingWhileWatched(t *testing.T) {
-	e := newEnv(t, opts{})
-	enablePublic(t, e, nil)
-	e.srv.Public().SetRateLimit(1000, 1000)
-	waitInterval := func(want time.Duration) {
-		t.Helper()
-		deadline := time.Now().Add(3 * time.Second)
-		for e.mon.Interval() != want && time.Now().Before(deadline) {
-			time.Sleep(10 * time.Millisecond)
-		}
-		if e.mon.Interval() != want {
-			t.Fatalf("interval %v, want %v", e.mon.Interval(), want)
-		}
-	}
-	waitInterval(e.srv.SlowInterval)
-	s, _ := openPublic(t, e, nil)
-	s.first()
-	waitInterval(e.srv.FastInterval)
-	s.cancel()
-	waitInterval(e.srv.SlowInterval)
 }
 
 func TestEmbedFramingHeaders(t *testing.T) {
@@ -369,77 +389,4 @@ func TestEmbedFramingHeaders(t *testing.T) {
 	if csp, _ := fa("/embed"); !has(csp, "'none'") {
 		t.Fatalf("embed after switching it off: %q", csp)
 	}
-}
-
-func TestActivityAPI(t *testing.T) {
-	e := newEnv(t, opts{})
-	now := time.Now()
-	for _, a := range []struct {
-		link string
-		ago  time.Duration
-		d    time.Duration
-	}{{"50241", time.Hour, 5 * time.Second}, {"local", time.Minute, 1200 * time.Millisecond}} {
-		if err := e.st.AddActivity(storeActivity(localNode, a.link, now.Add(-a.ago), a.d)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	var got []struct {
-		Node, Link, Start string
-		Info              *struct{ Callsign string }
-		Duration          float64
-		Kerchunk          bool
-	}
-	if code := e.do("viewer", "GET", "/api/activity?node="+localNode+"&limit=5", nil, &got); code != 200 || len(got) != 2 {
-		t.Fatalf("%d %+v", code, got)
-	}
-	if got[0].Link != "local" || !got[0].Kerchunk || got[0].Duration != 1.2 || got[1].Info == nil || got[1].Info.Callsign != "N0AAC" {
-		t.Fatalf("%+v", got)
-	}
-	expectErr(t, e, "", "GET", "/api/activity", nil, 401, "unauthorized")
-	expectErr(t, e, "admin", "GET", "/api/activity?limit=0", nil, 400, "bad_request")
-	expectErr(t, e, "admin", "GET", "/api/activity?node=x", nil, 400, "bad_request")
-
-	// the public page shows it, with callsigns only when allowed
-	enablePublic(t, e, nil)
-	var snap public.Snapshot
-	e.do("", "GET", "/api/public/status", nil, &snap)
-	if len(snap.Activity) != 2 || snap.Activity[1].Callsign != "N0AAC" || snap.Activity[0].Duration != 1 {
-		t.Fatalf("%+v", snap.Activity)
-	}
-	e.do("admin", "PUT", "/api/public", map[string]any{"showCallsigns": false}, nil)
-	var hidden public.Snapshot
-	e.do("", "GET", "/api/public/status", nil, &hidden)
-	if len(hidden.Activity) != 2 || hidden.Activity[1].Callsign != "" {
-		t.Fatalf("%+v", hidden.Activity)
-	}
-}
-
-func storeActivity(node, link string, start time.Time, d time.Duration) store.Activity {
-	return store.Activity{Node: node, Link: link, Start: start, Duration: d, Kerchunk: d < 1500*time.Millisecond}
-}
-
-func TestPublicDVSettingDefaultOffAndPersists(t *testing.T) {
-	e := newEnv(t, opts{})
-	var cur struct {
-		ShowDV bool `json:"showDV"`
-	}
-	if code := e.do("admin", "GET", "/api/public", nil, &cur); code != 200 || cur.ShowDV {
-		t.Fatalf("default: %d %+v", code, cur)
-	}
-	enablePublic(t, e, nil)
-	_, raw, _ := e.raw("GET", "/api/public/status", nil, "", nil)
-	if strings.Contains(string(raw), `"dv"`) || !strings.Contains(string(raw), `"showDV":false`) {
-		t.Fatalf("DV data with the setting off: %s", raw)
-	}
-	if code := e.do("admin", "PUT", "/api/public", map[string]any{"showDV": true}, &cur); code != 200 || !cur.ShowDV {
-		t.Fatalf("%d %+v", code, cur)
-	}
-	if v, err := e.st.GetSetting("public.dv"); err != nil || v != "true" {
-		t.Fatalf("%q %v", v, err)
-	}
-	_, raw, _ = e.raw("GET", "/api/public/status", nil, "", nil)
-	if !strings.Contains(string(raw), `"dv":{"now":null,"heard":[]}`) {
-		t.Fatalf("%s", raw)
-	}
-	expectErr(t, e, "viewer", "PUT", "/api/public", map[string]any{"showDV": false}, 403, "forbidden")
 }
