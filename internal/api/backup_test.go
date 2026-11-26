@@ -9,7 +9,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -30,15 +29,7 @@ type bkEnv struct {
 
 func demoSvc(t *testing.T, version string, demo bool) (*helper.Ops, func(st *store.Store) *backupsvc.Service, string) {
 	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not installed")
-	}
-	files := map[string]string{
-		"rpt.conf":        "[1999]\nrxchannel = SimpleUSB/usb\n",
-		"iax.conf":        "[general]\nbindport = 4569\n",
-		"extensions.conf": "[radio]\nexten => _X.,1,Rpt(${EXTEN})\n",
-	}
-	ops, err := helper.NewDemoOps(t.TempDir(), files)
+	ops, err := helper.NewDemoOps(t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +106,7 @@ func code(m map[string]any) string { s, _ := m["code"].(string); return s }
 
 func (e *bkEnv) backupBytes(role string) []byte {
 	e.t.Helper()
-	st, b, h := e.create(role, map[string]bool{"history": true, "allmon3": true, "sounds": true, "dv": true})
+	st, b, h := e.create(role, map[string]bool{"secrets": true})
 	if st != 200 {
 		e.t.Fatalf("create: %d %s", st, b)
 	}
@@ -150,13 +141,11 @@ func TestBackupAuthMatrix(t *testing.T) {
 	expectErr(t, e.env, "admin", "GET", "/api/restore/result", nil, 404, "not_found")
 	// info
 	var info struct {
-		Parts []struct {
-			ID      string
-			Present bool
-		}
-		SA818 bool
+		Node    bool `json:"node"`
+		Secrets bool `json:"secrets"`
+		SA818   bool `json:"sa818"`
 	}
-	if e.do("admin", "GET", "/api/backup/info", nil, &info) != 200 || len(info.Parts) != 4 || !info.SA818 {
+	if e.do("admin", "GET", "/api/backup/info", nil, &info) != 200 || !info.Node || !info.Secrets || !info.SA818 {
 		t.Fatalf("info %+v", info)
 	}
 	// unavailable service
@@ -194,29 +183,31 @@ func TestBackupRoundTripDemo(t *testing.T) {
 	}
 	id, _ := out["id"].(string)
 	prev := out["preview"].(map[string]any)
-	for _, k := range []string{"warnings", "files", "users", "missingPackages", "checklist"} {
+	for _, k := range []string{"warnings", "users", "checklist", "modes", "missingSecrets"} {
 		if _, ok := prev[k].([]any); !ok {
 			t.Errorf("%s must be an array, got %v", k, prev[k])
 		}
 	}
-	if prev["radio"] == nil || prev["radio"].(map[string]any)["tone"] != "CTCSS 0023 / 0023" {
+	if prev["radio"] == nil || prev["radio"].(map[string]any)["bandwidth"] != "narrow" || prev["radio"].(map[string]any)["rxMHz"] != 146.52 {
 		t.Errorf("radio: %v", prev["radio"])
 	}
 	if len(prev["users"].([]any)) != 3 {
 		t.Errorf("users: %v", prev["users"])
 	}
 	parts := prev["parts"].(map[string]any)
-	if parts["sa818"] != true || parts["sounds"] != true || parts["allmon3"] != true || parts["dv"] != true {
+	if parts["sa818"] != true || parts["node"] != true || parts["secrets"] != true || parts["conf"] != false {
 		t.Errorf("parts: %v", parts)
 	}
-	if b := prev["backup"].(map[string]any); b["hostname"] != "node-a" || b["aslcpVersion"] != "1.0.0" {
+	if b := prev["backup"].(map[string]any); b["hostname"] != "node-a" || b["aslcpVersion"] != "1.0.0" || b["callsign"] != "N0CALL" {
 		t.Errorf("backup: %v", b)
 	}
 
-	// the preview of a current backup has no "settings not restored" warning
-
+	if m := prev["modes"].([]any); len(m) != 1 || m[0] != "allstar" {
+		t.Errorf("modes: %v", m)
+	}
+	// a backup with passwords has no password warnings
 	for _, w := range prev["warnings"].([]any) {
-		if code(w.(map[string]any)) == "dv_settings_not_restored" {
+		if c := code(w.(map[string]any)); c == "no_secrets" || c == "missing_secrets" {
 			t.Errorf("unexpected warning %v", w)
 		}
 	}
@@ -237,7 +228,7 @@ func TestBackupRoundTripDemo(t *testing.T) {
 			OK   bool
 		}
 	}
-	if e.do("admin", "POST", "/api/restore/"+id+"/apply", map[string]any{"deleteMissing": []string{}}, &res) != 200 || !res.OK || res.Restarting || len(res.Steps) == 0 {
+	if e.do("admin", "POST", "/api/restore/"+id+"/apply", map[string]any{}, &res) != 200 || !res.OK || res.Restarting || len(res.Steps) == 0 {
 		t.Fatalf("apply: %+v", res)
 	}
 	// last result: readable without a login while fresh
@@ -272,7 +263,7 @@ func TestBackupRoundTripDemo(t *testing.T) {
 func TestRestoreResultThirtyMinuteRule(t *testing.T) {
 	e := newBk(t, opts{}, "1.0.0", true)
 	old := map[string]any{"at": time.Now().Add(-31 * time.Minute).UTC(), "backupCreated": time.Now().UTC(), "steps": []any{},
-		"health": map[string]any{"ok": true, "pending": false, "checks": []any{}}, "checklist": []any{}, "nodes": []string{}}
+		"health": map[string]any{"ok": true, "pending": false, "checks": []any{}}, "checklist": []any{}}
 	write := func(at time.Time) {
 		old["at"] = at.UTC()
 		b, _ := json.Marshal(old)
@@ -358,23 +349,22 @@ func TestRestoreTooLargeAndTooNew(t *testing.T) {
 	}
 }
 
-// verRunner makes this node look like a different ASL3 release on another
-// architecture.
-type verRunner struct{ next helper.Runner }
+// archRunner makes this node look like another architecture.
+type archRunner struct{ next helper.Runner }
 
-func (v *verRunner) Run(ctx context.Context, argv ...string) (string, int, error) {
+func (v *archRunner) Run(ctx context.Context, argv ...string) (string, int, error) {
 	out, c, err := v.next.Run(ctx, argv...)
 	if len(argv) > 0 && argv[0] == "dpkg" {
 		return "arm64\n", c, err
 	}
-	return strings.ReplaceAll(out, "3.5.0", "3.6.1"), c, err
+	return out, c, err
 }
 
 func TestRestoreVersionWarnings(t *testing.T) {
 	src := newBk(t, opts{}, "1.0.0", true)
 	arc := src.backupBytes("admin")
 	e := newBk(t, opts{}, "1.0.0", true)
-	e.ops.Run = &verRunner{next: e.ops.Run}
+	e.ops.Run = &archRunner{next: e.ops.Run}
 	st, out := e.upload("admin", map[string]string{"password": "password-admin"}, arc)
 	if st != 200 {
 		t.Fatalf("upload: %d %v", st, out)
@@ -383,7 +373,7 @@ func TestRestoreVersionWarnings(t *testing.T) {
 	for _, w := range out["preview"].(map[string]any)["warnings"].([]any) {
 		have[w.(map[string]any)["code"].(string)] = true
 	}
-	if !have["asl3_version"] || !have["arch"] {
+	if !have["arch"] {
 		t.Errorf("warnings: %v preview %v", have, out["preview"].(map[string]any)["backup"])
 	}
 }

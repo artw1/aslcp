@@ -15,10 +15,10 @@ import (
 // still one small JSON object (at most 4 KiB, like the plain operations).
 //
 //   - backup-create answers with one JSON line, the BackupHeader, followed by
-//     a plain tar stream with the system part of the backup (entries named
-//     as in the header, content verified against the header's sha256) and
-//     EOF. A failure before the header is an {"error": ...} line; a failure
-//     later cuts the stream short, which the tar reader reports.
+//     a plain tar stream with the node part of the backup (entries named as
+//     in the header, content verified against the header's sha256) and EOF.
+//     A failure before the header is an {"error": ...} line; a failure later
+//     cuts the stream short, which the tar reader reports.
 //   - backup-restore is followed by the gzip-compressed archive (the file the
 //     user downloaded) on the same connection; the client half-closes its
 //     side after the last byte. The answer is one JSON RestoreResult.
@@ -28,44 +28,33 @@ const (
 	OpBackupRestore = "backup-restore"
 )
 
-// BackupRequest is the argument of backup-create: the optional parts.
+// BackupRequest is the argument of backup-create.
 type BackupRequest struct {
-	History bool `json:"history"`
-	Allmon3 bool `json:"allmon3"`
-	Sounds  bool `json:"sounds"`
-	// DV includes the old stack ini files and dvsm.macro, secrets
-	// included (docs/BACKUP.md).
-	DV bool `json:"dv"`
+	// Secrets keeps the network passwords in the node config. Without it
+	// every secret mode setting is left out of the backup.
+	Secrets bool `json:"secrets"`
 }
 
-// BackupPartInfo describes one optional part on this node.
-type BackupPartInfo struct {
-	ID      string `json:"id"` // history | allmon3 | sounds | dv
-	Present bool   `json:"present"`
-	Size    int64  `json:"size"`
-}
-
-// BackupInfo is the result of backup-info.
+// BackupInfo is the result of backup-info: what this node has to back up.
 type BackupInfo struct {
-	Parts []BackupPartInfo `json:"parts"`
-	SA818 bool             `json:"sa818"`
+	// Node: the node config exists; Secrets: it holds passwords.
+	Node    bool `json:"node"`
+	Secrets bool `json:"secrets"`
+	// SA818: the radio module's saved channel exists.
+	SA818 bool `json:"sa818"`
 }
 
 // BackupHeader is the first line of a backup-create stream.
 type BackupHeader struct {
-	Arch            string                `json:"arch"`
-	ASL3Version     string                `json:"asl3Version"`
-	AsteriskVersion string                `json:"asteriskVersion"`
-	OSID            string                `json:"osId,omitempty"`
-	OSCodename      string                `json:"osCodename,omitempty"`
-	OSName          string                `json:"osName,omitempty"`
-	Channel         string                `json:"channel"`
-	Nodes           []string              `json:"nodes"`
-	Packages        []backup.Package      `json:"packages"`
-	Parts           backup.Parts          `json:"parts"`
-	MissingStock    []backup.MissingStock `json:"missingStock"`
-	Skipped         []string              `json:"skipped"`
-	Entries         []backup.Entry        `json:"entries"`
+	Arch       string         `json:"arch"`
+	OSID       string         `json:"osId,omitempty"`
+	OSCodename string         `json:"osCodename,omitempty"`
+	OSName     string         `json:"osName,omitempty"`
+	Channel    string         `json:"channel"`
+	Callsign   string         `json:"callsign,omitempty"`
+	Parts      backup.Parts   `json:"parts"`
+	Skipped    []string       `json:"skipped"`
+	Entries    []backup.Entry `json:"entries"`
 }
 
 // RestoreRequest is the argument of backup-restore.
@@ -73,26 +62,6 @@ type RestoreRequest struct {
 	// DryRun validates the archive and returns the plan without changing
 	// anything.
 	DryRun bool `json:"dryRun"`
-	// DeleteMissing lists stock files (relative to /etc/asterisk) the user
-	// ticked "also delete here" for. Each must be an offered deletion.
-	DeleteMissing []string `json:"deleteMissing"`
-}
-
-// Restore plan actions.
-const (
-	ActRestore        = "restore"
-	ActRestoreDist    = "restore_dist"
-	ActKeepStock      = "keep_stock"
-	ActKeepNew        = "keep_new"
-	ActDeleteOptional = "delete_optional"
-	ActSkip           = "skip"
-)
-
-// RestoreFile is one /etc/asterisk file of the plan.
-type RestoreFile struct {
-	Path   string `json:"path"`
-	Action string `json:"action"`
-	Note   string `json:"note,omitempty"`
 }
 
 // RestoreStep is one step of an apply.
@@ -104,26 +73,22 @@ type RestoreStep struct {
 
 // RestoreResult is the result of backup-restore.
 type RestoreResult struct {
-	DryRun bool   `json:"dryRun"`
-	OK     bool   `json:"ok"`
-	Error  string `json:"error,omitempty"`
-	// Files is the plan for /etc/asterisk (also filled after an apply).
-	Files []RestoreFile `json:"files"`
-	Steps []RestoreStep `json:"steps"`
-	// The state of this node, for the version warnings and the list of
-	// missing packages.
-	ASL3Version      string           `json:"asl3Version"`
-	AsteriskVersion  string           `json:"asteriskVersion"`
-	Arch             string           `json:"arch"`
-	OSID             string           `json:"osId,omitempty"`
-	OSCodename       string           `json:"osCodename,omitempty"`
-	OSName           string           `json:"osName,omitempty"`
-	Packages         []backup.Package `json:"packages"`
-	SA818Port        string           `json:"sa818Port"`
-	SA818PortPresent bool             `json:"sa818PortPresent"`
-	// DVLegacySettings is set when the backup carries the ini files of the
-	// previous digital voice stack (made by 1.x): they are not restored.
-	DVLegacySettings bool `json:"dvLegacySettings,omitempty"`
+	DryRun bool          `json:"dryRun"`
+	OK     bool          `json:"ok"`
+	Error  string        `json:"error,omitempty"`
+	Steps  []RestoreStep `json:"steps"`
+	// The state of this node, for the warnings.
+	Arch       string `json:"arch"`
+	OSID       string `json:"osId,omitempty"`
+	OSCodename string `json:"osCodename,omitempty"`
+	OSName     string `json:"osName,omitempty"`
+	// Callsign is this node's current station callsign.
+	Callsign string `json:"callsign,omitempty"`
+	// Modes are the modes the restored config sets up; MissingSecrets the
+	// ones left out because the backup has no passwords for them and this
+	// node has none either (they need setting up again).
+	Modes          []string `json:"modes"`
+	MissingSecrets []string `json:"missingSecrets"`
 }
 
 // isStreamOp reports whether op carries a byte stream.

@@ -100,22 +100,13 @@ func jobStateFrom(show map[string]string, log, unit string) string {
 		case strings.Contains(l, "Failed with result"), strings.Contains(l, "Failed to start"):
 			return JobFailed
 		case strings.Contains(l, "Deactivated successfully"), strings.Contains(l, "Succeeded."):
-			// "0 upgraded," is also apt's summary of a purge or a fresh
-			// install: noop only means something for the upgrade units.
-			if !dvJobUnit(unit) && IsNoop(clean) {
+			if IsNoop(clean) {
 				return JobNoop
 			}
 			return JobSucceeded
 		}
 	}
 	return JobIdle
-}
-
-// dvJobUnit reports whether unit is the digital modes enable unit, whose apt
-// output ("0 upgraded, 0 newly installed") must never read as "nothing to
-// upgrade".
-func dvJobUnit(unit string) bool {
-	return unit == dvEnableUnit
 }
 
 // LastLines returns at most n trailing lines of s.

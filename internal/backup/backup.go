@@ -1,12 +1,13 @@
 // Package backup defines the backup archive format of docs/BACKUP.md
-// (format 1) and the code that reads and validates it. Both the server and
+// (format 2) and the code that reads and validates it. Both the server and
 // the root helper use this package: the helper never trusts the server's
 // check and validates the archive again with Read.
 //
 // An archive is a gzip-compressed tar whose first entry is manifest.json.
-// Every other entry must be listed in the manifest, with the same type, size
-// and (for files) sha256. Owner, group and mode come from the manifest; the
-// tar headers are ignored apart from name, type, size and link target.
+// Every other entry is one of a few fixed files (the panel's database and
+// config, the node's config and SA818 state), listed in the manifest with
+// its size and sha256. Owner, group and mode come from the manifest; the tar
+// headers are ignored apart from name, type and size.
 package backup
 
 import (
@@ -27,226 +28,81 @@ import (
 	"unicode/utf8"
 
 	"github.com/artw1/aslcp/internal/debver"
-	"github.com/artw1/aslcp/internal/legacy"
 )
 
 // Format limits.
 const (
-	FormatVersion = 1
+	// FormatVersion 2 is the native node's archive (3.x). Format 1 was the
+	// Asterisk node's (2.x); it cannot be restored.
+	FormatVersion = 2
 	ManifestName  = "manifest.json"
 
 	// MaxUpload is the size limit of an uploaded or created archive.
 	MaxUpload = 256 << 20
 	// MaxExpanded bounds the total size of all files after decompression.
-	MaxExpanded = 4 << 30
+	MaxExpanded = 1 << 30
 	// MaxEntries bounds the number of manifest entries.
-	MaxEntries = 300000
+	MaxEntries = 16
 
-	maxManifest = 32 << 20
-	maxPathLen  = 1024
+	maxManifest = 1 << 20
+	maxPathLen  = 256
 )
 
-// Entry types.
+// TypeFile is the one entry type (kept in the manifest for clarity).
+const TypeFile = "file"
+
+// Archive locations of the parts.
 const (
-	TypeFile    = "file"
-	TypeDir     = "dir"
-	TypeSymlink = "symlink"
+	PathAslcpDB    = "aslcp/aslcp.db"
+	PathAslcpConf  = "aslcp/aslcp.conf"
+	PathNodeConfig = "node/node.json"
+	PathSA818      = "node/sa818.json"
 )
 
-// Classification of a file of /etc/asterisk.
-const (
-	ClassStock   = "stock"   // a conffile that still matches what its package shipped
-	ClassChanged = "changed" // a conffile that was edited
-	ClassLocal   = "local"   // not a conffile of any package
-)
+// Paths lists every valid archive path.
+var Paths = []string{PathAslcpDB, PathAslcpConf, PathNodeConfig, PathSA818}
 
-// Archive locations of the single-file parts and the roots of the tree parts.
-const (
-	PathAsteriskEtc = "asterisk/etc"
-	PathAstDB       = "asterisk/astdb.sqlite3"
-	PathAslcpDB     = "aslcp/aslcp.db"
-	PathAslcpConf   = "aslcp/aslcp.conf"
-	PathSA818       = "sa818/sa818.conf"
-	PathHistory     = "history"
-	PathAllmon3     = "allmon3"
-	PathSoundsVar   = "sounds/var-lib"
-	PathSoundsUsr   = "sounds/usr-share"
-)
-
-// PathDVOpt is the archive prefix of the digital modes part: the file
-// /opt/<rel> of the previous stack is stored as dv/opt/<rel>.
-const PathDVOpt = "dv/opt"
-
-// DVFiles lists the files below /opt that archives made by 1.x carry for the
-// digital modes part: the ini files and the macro file of the previous stack.
-// New archives do not contain them and restore ignores them; they stay in the
-// layout so that a 1.x archive still validates. Each is a single-file entry of
-// the layout, so no other path below dv/ is valid.
-var DVFiles = []string{
-	"Analog_Bridge/Analog_Bridge.ini",
-	"Analog_Bridge/dvsm.macro",
-	"MMDVM_Bridge/MMDVM_Bridge.ini",
-	legacy.IniMainRel,
-	"YSFGateway/YSFGateway.ini",
-	"P25Gateway/P25Gateway.ini",
-	"NXDNGateway/NXDNGateway.ini",
-}
-
-// DVPath returns the archive path of a digital modes part file.
-func DVPath(rel string) string { return PathDVOpt + "/" + rel }
-
-// PathDVPrivate is the archive path of the record of the private bridge
-// node (privatenode.json of the helper's state directory, not a file of
-// /opt). It is the part's one file outside dv/opt, optional (older backups
-// lack it), and on restore it is kept only when the restored rpt.conf has
-// the node's stanza.
-const PathDVPrivate = "dv/state/privatenode.json"
-
-// PathDVNetworks is the archive path of the DMR network settings
-// (networks.json of the helper's state directory): each DMR network mode's
-// settings, password included, and enabled state, and the BM stay setting.
-// Optional (older backups lack it).
-const PathDVNetworks = "dv/state/networks.json"
-
-// Backups made by 1.x store the same part under the previous stack's part id.
-// They stay restorable: the old paths are valid in the layout and the finders
-// below try the new path first, then the old one.
-var (
-	legacyPathDVOpt      = legacy.OldBackupPart + "/opt"
-	legacyPathDVPrivate  = legacy.OldBackupPart + "/state/privatenode.json"
-	legacyPathDVNetworks = legacy.OldBackupPart + "/state/networks.json"
-)
-
-// FindDV returns the entry of the part file rel (relative to /opt), under the
-// current or the 1.x archive path, or nil.
-func (m *Manifest) FindDV(rel string) *Entry {
-	if e := m.Find(DVPath(rel)); e != nil {
-		return e
-	}
-	return m.Find(legacyPathDVOpt + "/" + rel)
-}
-
-// FindDVPrivate returns the bridge node record entry, or nil.
-func (m *Manifest) FindDVPrivate() *Entry { return m.findEither(PathDVPrivate, legacyPathDVPrivate) }
-
-// FindDVNetworks returns the DMR network settings entry, or nil.
-func (m *Manifest) FindDVNetworks() *Entry {
-	return m.findEither(PathDVNetworks, legacyPathDVNetworks)
-}
-
-func (m *Manifest) findEither(a, b string) *Entry {
-	if e := m.Find(a); e != nil {
-		return e
-	}
-	return m.Find(b)
-}
-
-var treeRoots = []string{PathAsteriskEtc, PathHistory, PathAllmon3, PathSoundsVar, PathSoundsUsr}
-var singleFiles = func() []string {
-	f := []string{PathAstDB, PathAslcpDB, PathAslcpConf, PathSA818, PathDVPrivate, PathDVNetworks, legacyPathDVPrivate, legacyPathDVNetworks}
-	for _, r := range DVFiles {
-		f = append(f, DVPath(r), legacyPathDVOpt+"/"+r)
-	}
-	return f
-}()
-
-// Entry is one file, directory or symlink of the archive.
+// Entry is one file of the archive.
 type Entry struct {
 	Path   string `json:"path"`
 	Type   string `json:"type"`
-	Size   int64  `json:"size,omitempty"`
-	SHA256 string `json:"sha256,omitempty"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256"`
 	Owner  string `json:"owner"`
 	Group  string `json:"group"`
-	Mode   string `json:"mode"` // octal permission bits, e.g. "0640"
-	Target string `json:"target,omitempty"`
-	// Class, Package, PackageVersion and StockMD5 describe files of
-	// asterisk/etc: the stock/changed/local classification, the owning
-	// package and its version, and the md5 dpkg recorded for the shipped
-	// version.
-	Class          string `json:"class,omitempty"`
-	Package        string `json:"package,omitempty"`
-	PackageVersion string `json:"packageVersion,omitempty"`
-	StockMD5       string `json:"stockMd5,omitempty"`
+	Mode   string `json:"mode"`
 }
 
-// Package is an installed package.
-type Package struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-}
-
-// MissingStock is a conffile of an installed package that was deleted on
-// the backed-up node (Path relative to /etc/asterisk).
-type MissingStock struct {
-	Path    string `json:"path"`
-	Package string `json:"package"`
-	Version string `json:"version"`
-}
-
-// Parts says which optional parts are in the archive.
+// Parts says what the archive holds besides the panel's database.
 type Parts struct {
-	History bool `json:"history"`
-	Allmon3 bool `json:"allmon3"`
-	SA818   bool `json:"sa818"`
-	AstDB   bool `json:"astdb"`
-	// DV is true when the archive holds files under dv/ (the old ini files
-	// of dv/opt, and the bridge node record). Archives of 1.x carry the flag
-	// and the files under the previous part id; UnmarshalJSON maps it.
-	// Added after format 1 shipped: older archives lack it (false) and stay
-	// valid; the format number did not change.
-	DV bool `json:"dv,omitempty"`
-	// Sounds lists the archived custom sound directories ("var-lib",
-	// "usr-share"); one only when both are the same directory.
-	Sounds []string `json:"sounds"`
-}
-
-// UnmarshalJSON reads the part flags, accepting the 1.x key of the digital
-// modes flag.
-func (p *Parts) UnmarshalJSON(b []byte) error {
-	type plain Parts
-	var v plain
-	if err := json.Unmarshal(b, &v); err != nil {
-		return err
-	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(b, &raw); err != nil {
-		return err
-	}
-	if o, ok := raw[legacy.OldBackupPart]; ok {
-		var old bool
-		if err := json.Unmarshal(o, &old); err != nil {
-			return err
-		}
-		v.DV = v.DV || old
-	}
-	*p = Parts(v)
-	return nil
+	// Node: the node config (node.json); SA818: the radio's channel.
+	Node  bool `json:"node"`
+	SA818 bool `json:"sa818"`
+	// Secrets: the node config keeps its network passwords. Without it
+	// every password is blank, and a restore keeps the passwords already
+	// saved on the node.
+	Secrets bool `json:"secrets"`
 }
 
 // Manifest is manifest.json.
 type Manifest struct {
-	Format          int       `json:"format"`
-	Created         time.Time `json:"created"`
-	CreatedBy       string    `json:"createdBy"`
-	ASLCPVersion    string    `json:"aslcpVersion"`
-	ASL3Version     string    `json:"asl3Version"`
-	AsteriskVersion string    `json:"asteriskVersion"`
-	Hostname        string    `json:"hostname"`
-	Timezone        string    `json:"timezone"`
-	Arch            string    `json:"arch"`
+	Format       int       `json:"format"`
+	Created      time.Time `json:"created"`
+	CreatedBy    string    `json:"createdBy"`
+	ASLCPVersion string    `json:"aslcpVersion"`
+	Hostname     string    `json:"hostname"`
+	Timezone     string    `json:"timezone"`
+	Arch         string    `json:"arch"`
 	// The Debian release of the backed-up node (os-release ID,
-	// VERSION_CODENAME and PRETTY_NAME). Optional: older backups lack them.
-	OSID              string         `json:"osId,omitempty"`
-	OSVersionCodename string         `json:"osCodename,omitempty"`
-	OSPrettyName      string         `json:"osName,omitempty"`
-	Nodes             []string       `json:"nodes"`
-	Channel           string         `json:"channel"`
-	Packages          []Package      `json:"packages"`
-	Parts             Parts          `json:"parts"`
-	MissingStock      []MissingStock `json:"missingStock"`
-	Skipped           []string       `json:"skipped,omitempty"`
-	Files             []Entry        `json:"files"`
+	// VERSION_CODENAME and PRETTY_NAME).
+	OSID              string   `json:"osId,omitempty"`
+	OSVersionCodename string   `json:"osCodename,omitempty"`
+	OSPrettyName      string   `json:"osName,omitempty"`
+	Callsign          string   `json:"callsign,omitempty"`
+	Channel           string   `json:"channel"`
+	Parts             Parts    `json:"parts"`
+	Skipped           []string `json:"skipped,omitempty"`
+	Files             []Entry  `json:"files"`
 }
 
 // Error is a problem with the archive; its message is safe to show.
@@ -264,20 +120,17 @@ func (e *NewerFormatError) Error() string {
 	return fmt.Sprintf("the backup uses format %d, which this version of ASLCP does not know; update ASLCP first", e.Version)
 }
 
+// ErrAsteriskBackup is the error for a format 1 archive.
+var ErrAsteriskBackup = &Error{Msg: "this backup was made by ASLCP 2.x for an Asterisk node; ASLCP 3 runs its own node and cannot restore it (set the node up again, it takes one screen)"}
+
 var (
-	reName    = regexp.MustCompile(`^[a-z_][a-z0-9_.-]{0,31}\$?$`)
-	reMode    = regexp.MustCompile(`^0[0-7]{3}$`)
-	reSHA     = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	reNode    = regexp.MustCompile(`^[0-9]{1,10}$`)
-	rePkgName = regexp.MustCompile(`^[a-z0-9][a-z0-9+.-]{0,99}$`)
-	reMD5     = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	reName = regexp.MustCompile(`^[a-z_][a-z0-9_.-]{0,31}\$?$`)
+	reMode = regexp.MustCompile(`^0[0-7]{3}$`)
+	reSHA  = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
 // ValidName reports whether s is a plausible user or group name.
 func ValidName(s string) bool { return reName.MatchString(s) }
-
-// ValidPackageName reports whether s is a Debian package name.
-func ValidPackageName(s string) bool { return rePkgName.MatchString(s) }
 
 // ParseMode parses an octal permission string ("0640").
 func ParseMode(s string) (uint32, error) {
@@ -291,91 +144,22 @@ func ParseMode(s string) (uint32, error) {
 // FormatMode formats permission bits as "0640".
 func FormatMode(m uint32) string { return fmt.Sprintf("%04o", m&0o777) }
 
-// ValidPath checks an archive path: relative, clean, no "..", no control
-// characters or backslashes.
+// ValidPath reports whether p is one of the archive's paths.
 func ValidPath(p string) error {
-	if p == "" || len(p) > maxPathLen {
-		return bad("invalid path length")
-	}
-	if !utf8.ValidString(p) {
-		return bad("path is not valid UTF-8")
-	}
-	if p[0] == '/' {
-		return bad("absolute path %q", p)
-	}
-	for _, r := range p {
-		if !unicode.IsPrint(r) || r == '\\' {
-			return bad("path %q contains an invalid character", p)
+	for _, v := range Paths {
+		if p == v {
+			return nil
 		}
 	}
-	for _, c := range strings.Split(p, "/") {
-		if c == "" || c == "." || c == ".." {
-			return bad("path %q is not clean", p)
-		}
-	}
-	return nil
-}
-
-// RootOf returns the part root a path belongs to (a tree root, or the path
-// itself for a single-file part). ok is false for paths outside the layout.
-func RootOf(p string) (root string, ok bool) {
-	for _, r := range treeRoots {
-		if p == r || strings.HasPrefix(p, r+"/") {
-			return r, true
-		}
-	}
-	for _, f := range singleFiles {
-		if p == f {
-			return f, true
-		}
-	}
-	return "", false
-}
-
-// IsTreeRoot reports whether p is exactly the root of a tree part.
-func IsTreeRoot(p string) bool {
-	for _, r := range treeRoots {
-		if p == r {
-			return true
-		}
-	}
-	return false
-}
-
-func validTarget(path, root, target string) error {
-	if target == "" || len(target) > maxPathLen || !utf8.ValidString(target) || strings.ContainsAny(target, "\\\x00") {
-		return bad("invalid symlink target for %q", path)
-	}
-	if target[0] == '/' {
-		return bad("symlink %q points to an absolute path", path)
-	}
-	parts := strings.Split(target, "/")
-	i := 0
-	for i < len(parts) && parts[i] == ".." {
-		i++
-	}
-	for _, c := range parts[i:] {
-		if c == "" || c == "." || c == ".." {
-			return bad("symlink %q has an unsupported target", path)
-		}
-	}
-	depth := strings.Count(path, "/") - strings.Count(root, "/") - 1 // directories between the root and the link
-	if root == path {
-		return bad("symlink %q cannot be a part root", path)
-	}
-	if i > depth {
-		return bad("symlink %q points outside the backup tree", path)
-	}
-	return nil
+	return bad("path %q is not part of the backup layout", p)
 }
 
 func validEntry(e *Entry) error {
 	if err := ValidPath(e.Path); err != nil {
 		return err
 	}
-	root, ok := RootOf(e.Path)
-	if !ok {
-		return bad("path %q is not part of the backup layout", e.Path)
+	if e.Type != TypeFile {
+		return bad("entry %q must be a regular file", e.Path)
 	}
 	if !reName.MatchString(e.Owner) || !reName.MatchString(e.Group) {
 		return bad("invalid owner or group for %q", e.Path)
@@ -383,119 +167,71 @@ func validEntry(e *Entry) error {
 	if _, err := ParseMode(e.Mode); err != nil {
 		return bad("invalid mode for %q", e.Path)
 	}
-	single := root == e.Path && !IsTreeRoot(e.Path)
-	switch e.Type {
-	case TypeFile:
-		if e.Size < 0 || e.Size > MaxExpanded || !reSHA.MatchString(e.SHA256) || e.Target != "" {
-			return bad("invalid file entry %q", e.Path)
-		}
-	case TypeDir:
-		if single || e.Size != 0 || e.SHA256 != "" || e.Target != "" {
-			return bad("invalid directory entry %q", e.Path)
-		}
-	case TypeSymlink:
-		if single || e.Size != 0 || e.SHA256 != "" {
-			return bad("invalid symlink entry %q", e.Path)
-		}
-		if err := validTarget(e.Path, root, e.Target); err != nil {
-			return err
-		}
-	default:
-		return bad("entry %q has unsupported type %q (devices and special files are not allowed)", e.Path, e.Type)
-	}
-	if single && e.Type != TypeFile {
-		return bad("%q must be a regular file", e.Path)
-	}
-	switch e.Class {
-	case "", ClassStock, ClassChanged, ClassLocal:
-	default:
-		return bad("invalid classification for %q", e.Path)
-	}
-	if e.StockMD5 != "" && !reMD5.MatchString(e.StockMD5) {
-		return bad("invalid checksum for %q", e.Path)
-	}
-	if e.Package != "" && !rePkgName.MatchString(e.Package) || len(e.PackageVersion) > 100 {
-		return bad("invalid package for %q", e.Path)
+	if e.Size < 0 || e.Size > MaxExpanded || !reSHA.MatchString(e.SHA256) {
+		return bad("invalid file entry %q", e.Path)
 	}
 	return nil
 }
 
-// Validate checks the manifest (format, every path, type, size, owner and
-// mode, symlinks, duplicates, totals). It does not look at archive content.
+func textOK(s string) bool {
+	if len(s) > 256 || !utf8.ValidString(s) {
+		return false
+	}
+	for _, r := range s {
+		if !unicode.IsPrint(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// Validate checks the manifest (format, every path, size, owner and mode,
+// duplicates, totals). It does not look at archive content.
 func (m *Manifest) Validate() error {
 	if m.Format > FormatVersion {
 		return &NewerFormatError{Version: m.Format}
 	}
+	if m.Format == 1 {
+		return ErrAsteriskBackup
+	}
 	if m.Format != FormatVersion {
 		return bad("unsupported backup format %d", m.Format)
 	}
-	if len(m.Files) > MaxEntries {
+	if len(m.Files) > MaxEntries || len(m.Skipped) > 32 {
 		return bad("too many entries")
 	}
-	for _, s := range []string{m.Hostname, m.Timezone, m.Arch, m.ASL3Version, m.AsteriskVersion, m.ASLCPVersion, m.CreatedBy, m.OSID, m.OSVersionCodename, m.OSPrettyName} {
-		if len(s) > 256 || !utf8.ValidString(s) {
+	for _, s := range append([]string{m.Hostname, m.Timezone, m.Arch, m.ASLCPVersion, m.CreatedBy, m.OSID,
+		m.OSVersionCodename, m.OSPrettyName, m.Callsign}, m.Skipped...) {
+		if !textOK(s) {
 			return bad("invalid text field in the manifest")
 		}
 	}
 	if m.Channel != "" && m.Channel != "stable" && m.Channel != "beta" {
 		return bad("invalid update channel %q", m.Channel)
 	}
-	for _, n := range m.Nodes {
-		if !reNode.MatchString(n) {
-			return bad("invalid node number")
-		}
-	}
-	if len(m.Packages) > 5000 || len(m.MissingStock) > 5000 {
-		return bad("too many packages")
-	}
-	for _, p := range m.Packages {
-		if !rePkgName.MatchString(p.Name) || len(p.Version) > 100 {
-			return bad("invalid package entry")
-		}
-	}
-	for _, s := range m.MissingStock {
-		if ValidPath(s.Path) != nil {
-			return bad("invalid missing-stock entry")
-		}
-	}
-	for _, s := range m.Parts.Sounds {
-		if s != "var-lib" && s != "usr-share" {
-			return bad("invalid sounds part")
-		}
-	}
-	seen := make(map[string]*Entry, len(m.Files))
+	seen := map[string]bool{}
 	var total int64
 	for i := range m.Files {
 		e := &m.Files[i]
 		if err := validEntry(e); err != nil {
 			return err
 		}
-		if seen[e.Path] != nil {
+		if seen[e.Path] {
 			return bad("duplicate entry %q", e.Path)
 		}
-		seen[e.Path] = e
+		seen[e.Path] = true
 		total += e.Size
 		if total > MaxExpanded {
-			return bad("the backup is larger than %d GiB when unpacked", MaxExpanded>>30)
+			return bad("the backup is larger than %d MiB when unpacked", MaxExpanded>>20)
 		}
 	}
-	for _, e := range seen {
-		// No entry may live below a symlink.
-		for p := parent(e.Path); p != ""; p = parent(p) {
-			if a := seen[p]; a != nil && a.Type != TypeDir {
-				return bad("entry %q is below %q, which is not a directory", e.Path, p)
-			}
-		}
+	if !seen[PathAslcpDB] {
+		return bad("the backup has no ASLCP database")
+	}
+	if m.Parts.Node != seen[PathNodeConfig] || m.Parts.SA818 != seen[PathSA818] {
+		return bad("the manifest's parts do not match its files")
 	}
 	return nil
-}
-
-func parent(p string) string {
-	i := strings.LastIndexByte(p, '/')
-	if i < 0 {
-		return ""
-	}
-	return p[:i]
 }
 
 // Total returns the sum of all file sizes.
@@ -547,16 +283,15 @@ func (c *countReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// Handler receives each entry of an archive. body is non-nil for regular
-// files and yields exactly e.Size bytes; the content is verified against the
-// manifest after the handler returns (an error from Read means the archive is
-// bad even if the handler already used the bytes, so handlers must write to
-// scratch space only).
+// Handler receives each file of an archive. body yields exactly e.Size
+// bytes; the content is verified against the manifest after the handler
+// returns (an error from Read means the archive is bad even if the handler
+// already used the bytes, so handlers must write to scratch space only).
 type Handler func(e Entry, body io.Reader) error
 
 // Read validates a gzip-compressed archive completely and calls handle (may
-// be nil) for every entry. The manifest must be the first entry; every other
-// entry must be in the manifest with matching type, size and sha256; every
+// be nil) for every file. The manifest must be the first entry; every other
+// entry must be in the manifest with matching size and sha256; every
 // manifest entry must be present; nothing may expand beyond the manifest's
 // total (decompression limit).
 func Read(r io.Reader, handle Handler) (*Manifest, error) {
@@ -583,14 +318,19 @@ func Read(r io.Reader, handle Handler) (*Manifest, error) {
 	if err != nil {
 		return nil, wrapTar(err, "manifest.json is damaged")
 	}
-	var m Manifest
-	if err := json.Unmarshal(raw, &m); err != nil {
-		var fm struct {
-			Format int `json:"format"`
-		}
-		if json.Unmarshal(raw, &fm) == nil && fm.Format > FormatVersion {
+	var fm struct {
+		Format int `json:"format"`
+	}
+	if json.Unmarshal(raw, &fm) == nil {
+		if fm.Format > FormatVersion {
 			return nil, &NewerFormatError{Version: fm.Format}
 		}
+		if fm.Format == 1 {
+			return nil, ErrAsteriskBackup
+		}
+	}
+	var m Manifest
+	if err := json.Unmarshal(raw, &m); err != nil {
 		return nil, bad("manifest.json is not valid")
 	}
 	if err := m.Validate(); err != nil {
@@ -612,60 +352,35 @@ func Read(r io.Reader, handle Handler) (*Manifest, error) {
 		if err != nil {
 			return nil, wrapTar(err, "the archive is damaged or truncated")
 		}
-		name := strings.TrimSuffix(hdr.Name, "/")
-		e := byPath[name]
+		e := byPath[hdr.Name]
 		if e == nil {
 			return nil, bad("the archive contains %q, which is not in the manifest", hdr.Name)
 		}
-		if seen[name] {
-			return nil, bad("duplicate archive entry %q", name)
+		if seen[hdr.Name] {
+			return nil, bad("duplicate archive entry %q", hdr.Name)
 		}
-		seen[name] = true
-		switch hdr.Typeflag {
-		case tar.TypeReg, tar.TypeRegA:
-			if e.Type != TypeFile || hdr.Size != e.Size {
-				return nil, bad("entry %q does not match the manifest", name)
-			}
-			h := sha256.New()
-			er := &errReader{r: io.LimitReader(tr, e.Size)}
-			body := io.TeeReader(er, h)
-			if handle != nil {
-				if err := handle(*e, body); err != nil {
-					if er.err != nil && er.err != io.EOF {
-						// The handler failed because the archive itself
-						// could not be read (truncated or corrupt gzip).
-						return nil, wrapTar(er.err, "the archive is damaged or truncated")
-					}
-					return nil, err
+		seen[hdr.Name] = true
+		if (hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA) || hdr.Size != e.Size {
+			return nil, bad("entry %q does not match the manifest", hdr.Name)
+		}
+		h := sha256.New()
+		er := &errReader{r: io.LimitReader(tr, e.Size)}
+		body := io.TeeReader(er, h)
+		if handle != nil {
+			if err := handle(*e, body); err != nil {
+				if er.err != nil && er.err != io.EOF {
+					// The handler failed because the archive itself could
+					// not be read (truncated or corrupt gzip).
+					return nil, wrapTar(er.err, "the archive is damaged or truncated")
 				}
+				return nil, err
 			}
-			if _, err := io.Copy(io.Discard, body); err != nil {
-				return nil, wrapTar(err, "the archive is damaged or truncated")
-			}
-			// (the tar reader returns ErrUnexpectedEOF on a short entry)
-			if hex.EncodeToString(h.Sum(nil)) != e.SHA256 {
-				return nil, bad("checksum mismatch for %q", name)
-			}
-		case tar.TypeDir:
-			if e.Type != TypeDir {
-				return nil, bad("entry %q does not match the manifest", name)
-			}
-			if handle != nil {
-				if err := handle(*e, nil); err != nil {
-					return nil, err
-				}
-			}
-		case tar.TypeSymlink:
-			if e.Type != TypeSymlink || hdr.Linkname != e.Target {
-				return nil, bad("entry %q does not match the manifest", name)
-			}
-			if handle != nil {
-				if err := handle(*e, nil); err != nil {
-					return nil, err
-				}
-			}
-		default:
-			return nil, bad("entry %q is a device, pipe, hard link or other special file", name)
+		}
+		if _, err := io.Copy(io.Discard, body); err != nil {
+			return nil, wrapTar(err, "the archive is damaged or truncated")
+		}
+		if hex.EncodeToString(h.Sum(nil)) != e.SHA256 {
+			return nil, bad("checksum mismatch for %q", hdr.Name)
 		}
 	}
 	for i := range m.Files {
@@ -714,7 +429,7 @@ type Writer struct {
 }
 
 // NewWriter starts an archive on w and writes the manifest (which must be
-// valid and complete, entries in the order they will be written).
+// valid and complete).
 func NewWriter(w io.Writer, m *Manifest) (*Writer, error) {
 	m.Sort()
 	if err := m.Validate(); err != nil {
@@ -736,8 +451,8 @@ func NewWriter(w io.Writer, m *Manifest) (*Writer, error) {
 	return bw, nil
 }
 
-// Add writes the entry named path from the manifest; body is required for
-// files and is checked against the manifest's size and sha256.
+// Add writes the file named path from the manifest; body is checked against
+// the manifest's size and sha256.
 func (w *Writer) Add(path string, body io.Reader) error {
 	e := w.m.Find(path)
 	if e == nil {
@@ -747,7 +462,20 @@ func (w *Writer) Add(path string, body io.Reader) error {
 		return fmt.Errorf("backup: %q written twice", path)
 	}
 	w.seen[path] = true
-	return WriteTarEntry(w.tw, *e, body, w.mod)
+	mode, _ := ParseMode(e.Mode)
+	h := &tar.Header{Name: e.Path, Mode: int64(mode), ModTime: w.mod, Typeflag: tar.TypeReg, Size: e.Size}
+	if err := w.tw.WriteHeader(h); err != nil {
+		return err
+	}
+	sum := sha256.New()
+	n, err := io.Copy(io.MultiWriter(w.tw, sum), io.LimitReader(body, e.Size+1))
+	if err != nil {
+		return err
+	}
+	if n != e.Size || hex.EncodeToString(sum.Sum(nil)) != e.SHA256 {
+		return fmt.Errorf("backup: %q changed while it was being read", e.Path)
+	}
+	return nil
 }
 
 // Close checks that every manifest entry was written and finishes the
@@ -764,42 +492,10 @@ func (w *Writer) Close() error {
 	return w.gz.Close()
 }
 
-// WriteTarEntry writes one entry (header, and for files the content, which
-// is verified against e.Size and e.SHA256).
-func WriteTarEntry(tw *tar.Writer, e Entry, body io.Reader, mod time.Time) error {
-	mode, _ := ParseMode(e.Mode)
-	h := &tar.Header{Name: e.Path, Mode: int64(mode), ModTime: mod}
-	switch e.Type {
-	case TypeDir:
-		h.Typeflag, h.Name = tar.TypeDir, e.Path+"/"
-		return tw.WriteHeader(h)
-	case TypeSymlink:
-		h.Typeflag, h.Linkname = tar.TypeSymlink, e.Target
-		return tw.WriteHeader(h)
-	}
-	h.Typeflag, h.Size = tar.TypeReg, e.Size
-	if err := tw.WriteHeader(h); err != nil {
-		return err
-	}
-	sum := sha256.New()
-	n, err := io.Copy(io.MultiWriter(tw, sum), io.LimitReader(body, e.Size+1))
-	if err != nil {
-		return err
-	}
-	if n != e.Size || hex.EncodeToString(sum.Sum(nil)) != e.SHA256 {
-		return fmt.Errorf("backup: %q changed while it was being read", e.Path)
-	}
-	return nil
-}
-
-// CheckSymlink reports whether a symlink at archive path p may point to
-// target (relative, inside the same part, no "." or inner ".." components).
-func CheckSymlink(p, target string) error {
-	root, ok := RootOf(p)
-	if !ok {
-		return bad("path %q is not part of the backup layout", p)
-	}
-	return validTarget(p, root, target)
+// Sum returns the size and sha256 of data, for a manifest entry.
+func Sum(data []byte) (int64, string) {
+	h := sha256.Sum256(data)
+	return int64(len(data)), hex.EncodeToString(h[:])
 }
 
 // VersionNewer reports whether version a is strictly newer than b by the
@@ -809,4 +505,19 @@ func VersionNewer(a, b string) bool {
 		return false
 	}
 	return debver.Compare(a, b) > 0
+}
+
+// TrimText shortens s for a manifest text field.
+func TrimText(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if !unicode.IsPrint(r) {
+			return -1
+		}
+		return r
+	}, s)
+	for len(s) > 256 {
+		_, n := utf8.DecodeLastRuneInString(s)
+		s = s[:len(s)-n]
+	}
+	return s
 }

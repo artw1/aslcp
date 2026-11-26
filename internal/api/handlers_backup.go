@@ -94,7 +94,7 @@ func (s *Server) handleBackupCreate(w http.ResponseWriter, r *http.Request, u st
 		return
 	}
 	defer c.Close()
-	s.audit(u, "backup.create", map[string]any{"history": in.History, "allmon3": in.Allmon3, "sounds": in.Sounds, "dv": in.DV, "size": c.Size})
+	s.audit(u, "backup.create", map[string]any{"secrets": in.Secrets, "size": c.Size})
 	h := w.Header()
 	h.Set("Content-Type", "application/gzip")
 	h.Set("Content-Disposition", `attachment; filename="`+c.Name+`"`)
@@ -279,8 +279,7 @@ func (s *Server) handleRestoreApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		DeleteMissing []string `json:"deleteMissing"`
-		Code          string   `json:"code"`
+		Code string `json:"code"`
 	}
 	if !decode(w, r, &in, true) {
 		return
@@ -289,7 +288,7 @@ func (s *Server) handleRestoreApply(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	res, err := s.d.Backup.Apply(r.Context(), r.PathValue("id"), in.DeleteMissing, u.Username)
+	res, err := s.d.Backup.Apply(r.Context(), r.PathValue("id"), u.Username)
 	if err != nil {
 		s.backupErr(w, err)
 		return

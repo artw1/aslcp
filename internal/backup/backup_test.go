@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/artw1/aslcp/internal/legacy"
 	"io"
 	"math/rand"
 	"strings"
@@ -16,23 +15,32 @@ import (
 	"time"
 )
 
+const dbBody = "SQLITE example"
+
 func sum(s string) string {
 	h := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(h[:])
 }
 
 func fileEntry(path, content string) Entry {
-	return Entry{Path: path, Type: TypeFile, Size: int64(len(content)), SHA256: sum(content), Owner: "root", Group: "root", Mode: "0644"}
+	return Entry{Path: path, Type: TypeFile, Size: int64(len(content)), SHA256: sum(content), Owner: "root", Group: "root", Mode: "0640"}
 }
 
-func dirEntry(path string) Entry {
-	return Entry{Path: path, Type: TypeDir, Owner: "root", Group: "root", Mode: "0755"}
-}
-
+// baseManifest is a valid manifest holding the database and files; the
+// parts follow the files.
 func baseManifest(files ...Entry) *Manifest {
-	return &Manifest{Format: 1, Created: time.Date(2026, 1, 2, 3, 4, 0, 0, time.UTC), CreatedBy: "admin",
-		ASLCPVersion: "2.0.0", Hostname: "node", Timezone: "UTC", Arch: "arm64", Nodes: []string{"1999"},
-		Packages: []Package{}, MissingStock: []MissingStock{}, Parts: Parts{Sounds: []string{}}, Files: files}
+	m := &Manifest{Format: FormatVersion, Created: time.Date(2026, 1, 2, 3, 4, 0, 0, time.UTC), CreatedBy: "admin",
+		ASLCPVersion: "3.0.0", Hostname: "node", Timezone: "UTC", Arch: "arm64", Callsign: "N0CALL",
+		Files: append([]Entry{fileEntry(PathAslcpDB, dbBody)}, files...)}
+	for _, e := range files {
+		switch e.Path {
+		case PathNodeConfig:
+			m.Parts.Node = true
+		case PathSA818:
+			m.Parts.SA818 = true
+		}
+	}
+	return m
 }
 
 type rawEnt struct {
@@ -87,19 +95,17 @@ func reg(path, content string) rawEnt {
 }
 
 func TestWriterReaderRoundTrip(t *testing.T) {
-	m := baseManifest(dirEntry("asterisk/etc"), fileEntry("asterisk/etc/rpt.conf", "hello\n"),
-		Entry{Path: "asterisk/etc/link", Type: TypeSymlink, Target: "rpt.conf", Owner: "root", Group: "root", Mode: "0777"})
+	bodies := map[string]string{PathAslcpDB: dbBody, PathNodeConfig: "{\"version\":1}\n", PathSA818: "{\"version\":1}\n", PathAslcpConf: "[server]\n"}
+	m := baseManifest(fileEntry(PathNodeConfig, bodies[PathNodeConfig]), fileEntry(PathSA818, bodies[PathSA818]),
+		fileEntry(PathAslcpConf, bodies[PathAslcpConf]))
+	m.Parts.Secrets = true
 	var buf bytes.Buffer
 	w, err := NewWriter(&buf, m)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range m.Files {
-		var body io.Reader
-		if e.Type == TypeFile {
-			body = strings.NewReader("hello\n")
-		}
-		if err := w.Add(e.Path, body); err != nil {
+		if err := w.Add(e.Path, strings.NewReader(bodies[e.Path])); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -108,56 +114,107 @@ func TestWriterReaderRoundTrip(t *testing.T) {
 	}
 	got := map[string]string{}
 	m2, err := Read(&buf, func(e Entry, body io.Reader) error {
-		if body != nil {
-			b, _ := io.ReadAll(body)
-			got[e.Path] = string(b)
-		}
+		b, _ := io.ReadAll(body)
+		got[e.Path] = string(b)
 		return nil
 	})
-	if err != nil || m2.Hostname != "node" || got["asterisk/etc/rpt.conf"] != "hello\n" || len(m2.Files) != 3 {
-		t.Fatalf("%+v %v %v", m2, got, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m2.Callsign != "N0CALL" || !m2.Parts.Node || !m2.Parts.SA818 || !m2.Parts.Secrets || len(m2.Files) != 4 {
+		t.Errorf("%+v", m2)
+	}
+	for p, b := range bodies {
+		if got[p] != b {
+			t.Errorf("%s: %q", p, got[p])
+		}
+	}
+}
+
+func TestWriterRefuses(t *testing.T) {
+	m := baseManifest(fileEntry(PathNodeConfig, "{}"))
+	var buf bytes.Buffer
+	w, err := NewWriter(&buf, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Add(PathSA818, strings.NewReader("x")); err == nil {
+		t.Error("entry not in the manifest written")
+	}
+	if err := w.Add(PathNodeConfig, strings.NewReader("{changed}")); err == nil {
+		t.Error("changed body accepted")
+	}
+	if err := w.Close(); err == nil {
+		t.Error("closed with a missing entry")
+	}
+}
+
+func TestManifestValidate(t *testing.T) {
+	node := fileEntry(PathNodeConfig, "{}")
+	for _, tc := range []struct {
+		name string
+		edit func(m *Manifest)
+		ok   bool
+	}{
+		{"valid", func(m *Manifest) {}, true},
+		{"no database", func(m *Manifest) { m.Files = m.Files[1:] }, false},
+		{"parts say no node", func(m *Manifest) { m.Parts.Node = false }, false},
+		{"parts say sa818", func(m *Manifest) { m.Parts.SA818 = true }, false},
+		{"unknown path", func(m *Manifest) { m.Files = append(m.Files, fileEntry("asterisk/etc/rpt.conf", "x")) }, false},
+		{"not a file", func(m *Manifest) { m.Files[1].Type = "dir" }, false},
+		{"duplicate", func(m *Manifest) { m.Files = append(m.Files, node) }, false},
+		{"bad owner", func(m *Manifest) { m.Files[1].Owner = "ro ot;" }, false},
+		{"bad mode", func(m *Manifest) { m.Files[1].Mode = "rwx" }, false},
+		{"bad sha", func(m *Manifest) { m.Files[1].SHA256 = "abc" }, false},
+		{"bad channel", func(m *Manifest) { m.Channel = "nightly" }, false},
+		{"beta channel", func(m *Manifest) { m.Channel = "beta" }, true},
+		{"control character", func(m *Manifest) { m.Callsign = "N0CALL\n" }, false},
+		{"format 0", func(m *Manifest) { m.Format = 0 }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := baseManifest(node)
+			tc.edit(m)
+			if err := m.Validate(); (err == nil) != tc.ok {
+				t.Errorf("got %v, want ok=%v", err, tc.ok)
+			}
+		})
 	}
 }
 
 func TestReadRejects(t *testing.T) {
-	good := fileEntry("asterisk/etc/a.conf", "x")
-	etc := dirEntry("asterisk/etc")
-	longName := "asterisk/etc/" + strings.Repeat("a", 2000)
+	db := reg(PathAslcpDB, dbBody)
+	good := fileEntry(PathNodeConfig, "x")
 	cases := []struct {
 		name string
 		arc  []byte
 	}{
-		{"traversal", rawArchive(t, baseManifest(etc, fileEntry("asterisk/etc/../../evil", "x")), reg("asterisk/etc/../../evil", "x"))},
-		{"absolute", rawArchive(t, baseManifest(fileEntry("/etc/passwd", "x")), reg("/etc/passwd", "x"))},
-		{"outside layout", rawArchive(t, baseManifest(fileEntry("usr/bin/evil", "x")), reg("usr/bin/evil", "x"))},
-		{"dotdot component", rawArchive(t, baseManifest(etc, fileEntry("asterisk/etc/a/../b", "x")), reg("asterisk/etc/a/../b", "x"))},
-		{"backslash", rawArchive(t, baseManifest(etc, fileEntry(`asterisk/etc/a\b`, "x")), reg(`asterisk/etc/a\b`, "x"))},
-		{"long name", rawArchive(t, baseManifest(etc, fileEntry(longName, "x")), reg(longName, "x"))},
-		{"symlink escape", rawArchive(t,
-			baseManifest(etc, Entry{Path: "asterisk/etc/l", Type: TypeSymlink, Target: "../../../etc/passwd", Owner: "root", Group: "root", Mode: "0777"}),
-			rawEnt{hdr: tar.Header{Name: "asterisk/etc/l", Typeflag: tar.TypeSymlink, Linkname: "../../../etc/passwd"}})},
-		{"symlink absolute", rawArchive(t,
-			baseManifest(etc, Entry{Path: "asterisk/etc/l", Type: TypeSymlink, Target: "/etc/passwd", Owner: "root", Group: "root", Mode: "0777"}),
-			rawEnt{hdr: tar.Header{Name: "asterisk/etc/l", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd"}})},
-		{"through symlink", rawArchive(t,
-			baseManifest(etc, Entry{Path: "asterisk/etc/d", Type: TypeSymlink, Target: ".", Owner: "root", Group: "root", Mode: "0777"}, fileEntry("asterisk/etc/d/x", "x")),
-			rawEnt{hdr: tar.Header{Name: "asterisk/etc/d", Typeflag: tar.TypeSymlink, Linkname: "."}}, reg("asterisk/etc/d/x", "x"))},
-		{"device", rawArchive(t, baseManifest(etc, good),
-			rawEnt{hdr: tar.Header{Name: "asterisk/etc/a.conf", Typeflag: tar.TypeChar, Devmajor: 1, Devminor: 3}})},
-		{"fifo", rawArchive(t, baseManifest(etc, good), rawEnt{hdr: tar.Header{Name: "asterisk/etc/a.conf", Typeflag: tar.TypeFifo}})},
-		{"hardlink", rawArchive(t, baseManifest(etc, good), rawEnt{hdr: tar.Header{Name: "asterisk/etc/a.conf", Typeflag: tar.TypeLink, Linkname: "/etc/shadow"}})},
-		{"sha mismatch", rawArchive(t, baseManifest(etc, good), reg("asterisk/etc/a.conf", "y"))},
-		{"size larger than manifest", rawArchive(t, baseManifest(etc, good), reg("asterisk/etc/a.conf", strings.Repeat("x", 100)))},
-		{"not in manifest", rawArchive(t, baseManifest(etc, good), reg("asterisk/etc/a.conf", "x"), reg("asterisk/etc/extra", "x"))},
-		{"missing entry", rawArchive(t, baseManifest(etc, good))},
-		{"duplicate path", rawArchive(t, baseManifest(etc, good, good), reg("asterisk/etc/a.conf", "x"))},
-		{"bad owner name", rawArchive(t, baseManifest(etc, Entry{Path: "asterisk/etc/a.conf", Type: TypeFile, Size: 1, SHA256: sum("x"), Owner: "ro ot;", Group: "root", Mode: "0644"}), reg("asterisk/etc/a.conf", "x"))},
-		{"setuid mode", rawArchive(t, baseManifest(etc, Entry{Path: "asterisk/etc/a.conf", Type: TypeFile, Size: 1, SHA256: sum("x"), Owner: "root", Group: "root", Mode: "4755"}), reg("asterisk/etc/a.conf", "x"))},
+		{"unknown path", rawArchive(t, baseManifest(fileEntry("usr/bin/evil", "x")), db, reg("usr/bin/evil", "x"))},
+		{"traversal", rawArchive(t, baseManifest(), db, reg("node/../../evil", "x"))},
+		{"absolute", rawArchive(t, baseManifest(fileEntry("/etc/passwd", "x")), db, reg("/etc/passwd", "x"))},
+		{"symlink", rawArchive(t, baseManifest(good), db, rawEnt{hdr: tar.Header{Name: PathNodeConfig, Typeflag: tar.TypeSymlink, Linkname: "/etc/shadow"}})},
+		{"device", rawArchive(t, baseManifest(good), db, rawEnt{hdr: tar.Header{Name: PathNodeConfig, Typeflag: tar.TypeChar}})},
+		{"hardlink", rawArchive(t, baseManifest(good), db, rawEnt{hdr: tar.Header{Name: PathNodeConfig, Typeflag: tar.TypeLink, Linkname: "/etc/shadow"}})},
+		{"sha mismatch", rawArchive(t, baseManifest(good), db, reg(PathNodeConfig, "y"))},
+		{"size larger than manifest", rawArchive(t, baseManifest(good), db, reg(PathNodeConfig, strings.Repeat("x", 100)))},
+		{"not in manifest", rawArchive(t, baseManifest(good), db, reg(PathNodeConfig, "x"), reg(PathSA818, "x"))},
+		{"missing entry", rawArchive(t, baseManifest(good), db)},
+		{"duplicate entry", rawArchive(t, baseManifest(good), db, reg(PathNodeConfig, "x"), reg(PathNodeConfig, "x"))},
+		{"setuid mode", rawArchive(t, baseManifest(Entry{Path: PathNodeConfig, Type: TypeFile, Size: 1, SHA256: sum("x"), Owner: "root", Group: "root", Mode: "4755"}), db, reg(PathNodeConfig, "x"))},
+		{"manifest not json", func() []byte {
+			var buf bytes.Buffer
+			gz := gzip.NewWriter(&buf)
+			tw := tar.NewWriter(gz)
+			_ = tw.WriteHeader(&tar.Header{Name: ManifestName, Typeflag: tar.TypeReg, Size: 3})
+			_, _ = tw.Write([]byte("{x}"))
+			_ = tw.Close()
+			_ = gz.Close()
+			return buf.Bytes()
+		}()},
 		{"no manifest first", func() []byte {
 			var buf bytes.Buffer
 			gz := gzip.NewWriter(&buf)
 			tw := tar.NewWriter(gz)
-			_ = tw.WriteHeader(&tar.Header{Name: "asterisk/etc/a.conf", Typeflag: tar.TypeReg, Size: 1})
+			_ = tw.WriteHeader(&tar.Header{Name: PathNodeConfig, Typeflag: tar.TypeReg, Size: 1})
 			_, _ = tw.Write([]byte("x"))
 			_ = tw.Close()
 			_ = gz.Close()
@@ -167,22 +224,49 @@ func TestReadRejects(t *testing.T) {
 		{"empty", nil},
 	}
 	for _, c := range cases {
-		_, err := Read(bytes.NewReader(c.arc), nil)
-		if err == nil {
-			t.Errorf("%s: accepted", c.name)
-			continue
+		t.Run(c.name, func(t *testing.T) {
+			_, err := Read(bytes.NewReader(c.arc), nil)
+			if err == nil {
+				t.Fatal("accepted")
+			}
+			var be *Error
+			if !errors.As(err, &be) {
+				t.Errorf("error %v is not a user-facing backup error", err)
+			}
+		})
+	}
+}
+
+func TestReadFormats(t *testing.T) {
+	for _, tc := range []struct {
+		format int
+		check  func(error) bool
+	}{
+		{1, func(err error) bool { return errors.Is(err, ErrAsteriskBackup) }},
+		{3, func(err error) bool { var nf *NewerFormatError; return errors.As(err, &nf) && nf.Version == 3 }},
+		{FormatVersion, func(err error) bool { return err == nil }},
+	} {
+		m := baseManifest()
+		m.Format = tc.format
+		// A format 1 manifest has fields this version does not know.
+		raw := map[string]any{}
+		b, _ := json.Marshal(m)
+		_ = json.Unmarshal(b, &raw)
+		if tc.format == 1 {
+			raw["asl3Version"] = "3.0"
+			raw["files"] = []any{map[string]any{"path": "asterisk/etc", "type": "dir"}}
 		}
-		var be *Error
-		var nf *NewerFormatError
-		if !errors.As(err, &be) && !errors.As(err, &nf) {
-			t.Errorf("%s: error %v is not a user-facing backup error", c.name, err)
+		_, err := Read(bytes.NewReader(rawArchive(t, raw, reg(PathAslcpDB, dbBody))), nil)
+		if !tc.check(err) {
+			t.Errorf("format %d: %v", tc.format, err)
 		}
 	}
 }
 
 func TestReadTruncated(t *testing.T) {
-	m := baseManifest(dirEntry("asterisk/etc"), fileEntry("asterisk/etc/a.conf", strings.Repeat("abcdefgh", 4000)))
-	arc := rawArchive(t, m, reg("asterisk/etc/a.conf", strings.Repeat("abcdefgh", 4000)))
+	body := strings.Repeat("abcdefgh", 4000)
+	m := baseManifest(fileEntry(PathNodeConfig, body))
+	arc := rawArchive(t, m, reg(PathAslcpDB, dbBody), reg(PathNodeConfig, body))
 	for _, n := range []int{len(arc) - 1, len(arc) / 2, 30} {
 		if _, err := Read(bytes.NewReader(arc[:n]), nil); err == nil {
 			t.Errorf("truncated at %d accepted", n)
@@ -190,41 +274,24 @@ func TestReadTruncated(t *testing.T) {
 	}
 }
 
-func TestReadNewerFormat(t *testing.T) {
-	m := baseManifest()
-	m.Format = 2
-	_, err := Read(bytes.NewReader(rawArchive(t, m)), nil)
-	var nf *NewerFormatError
-	if !errors.As(err, &nf) || nf.Version != 2 {
-		t.Fatalf("%v", err)
-	}
-}
-
 func TestReadDecompressionBomb(t *testing.T) {
 	// The manifest promises 1 byte but the entry carries far more; the
 	// reader must stop at the declared size, not expand it.
-	m := baseManifest(dirEntry("asterisk/etc"), fileEntry("asterisk/etc/a.conf", "x"))
+	m := baseManifest(fileEntry(PathNodeConfig, "x"))
 	big := strings.Repeat("\x00", 8<<20)
-	arc := rawArchive(t, m, rawEnt{hdr: tar.Header{Name: "asterisk/etc/a.conf", Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(big))}, body: big})
+	arc := rawArchive(t, m, reg(PathAslcpDB, dbBody), rawEnt{hdr: tar.Header{Name: PathNodeConfig, Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(big))}, body: big})
 	if _, err := Read(bytes.NewReader(arc), nil); err == nil {
 		t.Fatal("accepted")
 	}
 }
 
-func TestCheckSymlinkAndPaths(t *testing.T) {
-	ok := [][2]string{{"asterisk/etc/a/l", "../b"}, {"asterisk/etc/l", "x.conf"}}
-	for _, c := range ok {
-		if err := CheckSymlink(c[0], c[1]); err != nil {
-			t.Errorf("%v: %v", c, err)
+func TestValidPath(t *testing.T) {
+	for _, p := range Paths {
+		if err := ValidPath(p); err != nil {
+			t.Errorf("%s: %v", p, err)
 		}
 	}
-	bad := [][2]string{{"asterisk/etc/l", "../x"}, {"asterisk/etc/l", "/x"}, {"asterisk/etc/l", "a/../b"}, {"asterisk/etc/l", ""}, {"nowhere/l", "x"}, {"asterisk/etc/a/b/l", "../../../x"}}
-	for _, c := range bad {
-		if err := CheckSymlink(c[0], c[1]); err == nil {
-			t.Errorf("%v accepted", c)
-		}
-	}
-	for _, p := range []string{"", "/a", "a/", "a//b", "a/./b", "a/../b", "a\x00b", "asterisk/etc/‮x"} {
+	for _, p := range []string{"", "/a", "node/", "node//node.json", "node/./node.json", "node/../node.json", "a\x00b", "asterisk/etc/rpt.conf"} {
 		if ValidPath(p) == nil {
 			t.Errorf("path %q accepted", p)
 		}
@@ -248,12 +315,9 @@ func TestReadTruncatedWithHandlerIsBadBackup(t *testing.T) {
 	rb := make([]byte, 100000)
 	rand.New(rand.NewSource(1)).Read(rb) // incompressible, so cutting the gzip lands inside the file
 	body := string(rb)
-	m := baseManifest(dirEntry("asterisk/etc"), fileEntry("asterisk/etc/a.conf", body))
-	arc := rawArchive(t, m, reg("asterisk/etc/a.conf", body))
+	m := baseManifest(fileEntry(PathNodeConfig, body))
+	arc := rawArchive(t, m, reg(PathAslcpDB, dbBody), reg(PathNodeConfig, body))
 	h := func(e Entry, r io.Reader) error {
-		if r == nil {
-			return nil
-		}
 		_, err := io.Copy(io.Discard, r)
 		return err
 	}
@@ -261,66 +325,5 @@ func TestReadTruncatedWithHandlerIsBadBackup(t *testing.T) {
 	var be *Error
 	if !errors.As(err, &be) {
 		t.Fatalf("want *Error, got %T %v", err, err)
-	}
-}
-
-func TestDVPartLayout(t *testing.T) {
-	ini := "dv/opt/MMDVM_Bridge/MMDVM_Bridge.ini"
-	m := baseManifest(fileEntry(ini, "[General]\n"))
-	m.Parts.DV = true
-	arc := rawArchive(t, m, reg(ini, "[General]\n"))
-	m2, err := Read(bytes.NewReader(arc), nil)
-	if err != nil || !m2.Parts.DV {
-		t.Fatalf("%+v %v", m2, err)
-	}
-	// only the fixed files are valid: anything else below dv/ is refused
-	for _, p := range []string{"dv/opt/MMDVM_Bridge/evil.sh", "dv/opt/../x", "dv/etc/passwd", "dv/opt", "dv/opt/Analog_Bridge/Analog_Bridge"} {
-		bm := baseManifest(fileEntry(p, "x"))
-		if err := bm.Validate(); err == nil {
-			t.Errorf("%s accepted", p)
-		}
-	}
-	// a directory or symlink in place of a file is refused
-	if err := baseManifest(dirEntry(ini)).Validate(); err == nil {
-		t.Error("directory accepted for a single file")
-	}
-	// the flag is optional: a manifest of an older backup (no dv key)
-	// is still valid format 1
-	var old Manifest
-	raw := `{"format":1,"created":"2026-01-02T03:04:00Z","createdBy":"a","aslcpVersion":"1","asl3Version":"","asteriskVersion":"","hostname":"n","timezone":"UTC","arch":"arm64","nodes":[],"channel":"stable","packages":[],"parts":{"history":false,"allmon3":false,"sa818":false,"astdb":false,"sounds":[]},"missingStock":[],"files":[]}`
-	if err := json.Unmarshal([]byte(raw), &old); err != nil || old.Validate() != nil || old.Parts.DV {
-		t.Fatalf("%v %v", err, old.Validate())
-	}
-}
-
-// A 1.x backup carries the part flag and the archive paths under the previous
-// part id (internal/legacy); it still reads, validates and is found by the
-// FindDV* helpers.
-func TestDVPartLegacyIDStillRestores(t *testing.T) {
-	ini := legacy.OldBackupPart + "/opt/MMDVM_Bridge/MMDVM_Bridge.ini"
-	priv := legacy.OldBackupPart + "/state/privatenode.json"
-	nets := legacy.OldBackupPart + "/state/networks.json"
-	m := baseManifest(fileEntry(ini, "[General]\n"), fileEntry(priv, "{}"), fileEntry(nets, "{}"))
-	arc := rawArchive(t, m, reg(ini, "[General]\n"), reg(priv, "{}"), reg(nets, "{}"))
-	m2, err := Read(bytes.NewReader(arc), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if m2.FindDV("MMDVM_Bridge/MMDVM_Bridge.ini") == nil || m2.FindDVPrivate() == nil || m2.FindDVNetworks() == nil {
-		t.Error("old paths not found")
-	}
-	if m2.FindDV("Analog_Bridge/Analog_Bridge.ini") != nil {
-		t.Error("absent file found")
-	}
-	// the manifest flag under the old key sets DV
-	var old Manifest
-	raw := `{"format":1,"created":"2026-01-02T03:04:00Z","createdBy":"a","aslcpVersion":"1","asl3Version":"","asteriskVersion":"","hostname":"n","timezone":"UTC","arch":"arm64","nodes":[],"channel":"stable","packages":[],"parts":{"history":false,"allmon3":false,"sa818":false,"astdb":false,"` + legacy.OldBackupPart + `":true,"sounds":[]},"missingStock":[],"files":[]}`
-	if err := json.Unmarshal([]byte(raw), &old); err != nil || !old.Parts.DV {
-		t.Fatalf("old flag: %v %+v", err, old.Parts)
-	}
-	// new paths win when both exist
-	both := baseManifest(fileEntry("dv/state/networks.json", "{}"), fileEntry(nets, "{}"))
-	if e := both.FindDVNetworks(); e == nil || e.Path != "dv/state/networks.json" {
-		t.Errorf("%+v", e)
 	}
 }

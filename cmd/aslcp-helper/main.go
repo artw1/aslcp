@@ -31,11 +31,6 @@ func (u *uidList) Set(s string) error {
 }
 
 func main() {
-	// The digital modes enable unit calls back into this binary for its plan,
-	// config and check steps (internal/helper/dv.go).
-	if len(os.Args) == 3 && os.Args[1] == "dv-step" {
-		os.Exit(runStep(os.Args[2]))
-	}
 	// The OS upgrade unit asks whether a failed apt-get update may be ignored.
 	if len(os.Args) == 4 && os.Args[1] == "dv-step" && os.Args[2] == helper.StepAptUpdateCheck {
 		if err := helper.NewOps().AptUpdateCheck(os.Args[3], os.Stdout); err != nil {
@@ -96,38 +91,11 @@ func main() {
 	defer stop()
 	go func() { <-ctx.Done(); ln.Close() }()
 
-	// One-time move of the state directories of a 1.x install.
-	if moved, err := helper.NewOps().MigrateDVState(); err != nil {
-		logger.Printf("state directory migration: %v", err)
-	} else {
-		for _, m := range moved {
-			logger.Printf("moved %s", m)
-		}
-	}
 	srv := helper.NewServer(logger, allow...)
 	logger.Printf("%s serving on %s", version, ln.Addr())
 	if err := srv.Serve(ctx, ln); err != nil {
 		logger.Fatal(err)
 	}
-}
-
-// runStep runs one fixed step of the digital modes enable unit, as root, and exits with
-// status 1 when it refuses.
-func runStep(phase string) int {
-	if os.Geteuid() != 0 {
-		fmt.Fprintln(os.Stderr, "dv-step must run as root")
-		return 1
-	}
-	o := helper.NewOps()
-	if _, err := o.MigrateDVState(); err != nil {
-		fmt.Fprintln(os.Stdout, "error:", err)
-		return 1
-	}
-	if err := o.RunDVStep(context.Background(), phase, os.Stdout); err != nil {
-		fmt.Fprintln(os.Stdout, "error:", err)
-		return 1
-	}
-	return 0
 }
 
 // runGuard is the step of the transient revert timer started by the move to

@@ -16,20 +16,20 @@ func (d *DemoSystem) DiagBundle(_ context.Context, req DiagRequest) (io.ReadClos
 	if err := req.validate(); err != nil {
 		return nil, err
 	}
-	conf := "[general]\nsecret=example-pass\n[1999]\ncallsign=N0CALL\nregister => 1999:example-pass@register.example.net\n"
+	conf := "{\n  \"version\": 1,\n  \"station\": {\"callsign\": \"N0CALL\"},\n  \"modes\": {\"allstar\": {\"values\": {\"node\": \"2001\"}}}\n}\n"
 	id := diag.ExtractIdentity(conf)
-	id.Callsigns = append(id.Callsigns, req.Callsigns...)
+	id.Callsigns = append(append(id.Callsigns, "N0CALL"), req.Callsigns...)
 	id.IPs = append(id.IPs, "192.0.2.10")
-	opts := diag.BundleOptions{MaskIdentity: req.MaskIdentity, Secrets: diag.ExtractSecrets(conf), Identity: id}
+	opts := diag.BundleOptions{MaskIdentity: req.MaskIdentity, Secrets: []string{"example-pass"}, Identity: id}
 	b, err := newDiagBuilder([]string{os.TempDir()}, opts, time.Now(), req.Version)
 	if err != nil {
 		return nil, err
 	}
 	b.add("report.txt", "ASLCP status report (demo)", orDefault(req.Report, "ASLCP demo report\nnode 2001 N0CALL at 192.0.2.10\n"), diag.KindText, DiagMaxReport)
-	b.add("versions.txt", "Versions (demo)", "ASLCP: "+orDefault(req.Version, "demo")+"\nAsterisk: Asterisk 22.0.0 (demo)\n", diag.KindText, diagMaxFile)
+	b.add("versions.txt", "Versions (demo)", "ASLCP: "+orDefault(req.Version, "demo")+"\naslcp-node (demo)\n", diag.KindText, diagMaxFile)
 	b.add("network.txt", "Network status (demo)", "eth0: UP\n    inet 192.0.2.10/24 scope global\n", diag.KindText, diagMaxFile)
-	b.add("journal/asterisk.txt", "Journal of asterisk (demo)", "2026-11-20T12:00:00+0000 node2001 asterisk[412]: N0CALL logged in from 192.0.2.10 with example-pass\n", diag.KindText, diagMaxFile)
-	b.add("config/asterisk/iax.conf", "Asterisk config file (demo)", conf, diag.KindConf, diagMaxConf)
+	b.add("journal/aslcp-node.txt", "Journal of aslcp-node (demo)", "2026-11-20T12:00:00+0000 node2001 aslcp-node[412]: allstar: N0CALL registered from 192.0.2.10 with example-pass\n", diag.KindText, diagMaxFile)
+	b.add("config/node.json", "Node configuration (demo, mode passwords removed)", conf, diag.KindConf, diagMaxConf)
 	b.add("audit.txt", "Recent audit log entries (demo)", orDefault(req.Audit, "(demo)\n"), diag.KindText, DiagMaxAudit)
 	bundle, err := b.pack()
 	if err != nil {

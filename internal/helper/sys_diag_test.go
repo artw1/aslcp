@@ -12,27 +12,29 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/artw1/aslcp/internal/legacy"
 )
 
 // Planted values (placeholders). None may appear in any file of a bundle.
 var diagPlanted = []string{
-	"example-pass-iax", "example-pass-ami", "example-pass-reg", "example-pass-echo",
-	"example-pass-aslcp", "example-pass-wifi", "example-pass-allmon", "example-pass-old", "example-pass-req",
+	"example-pass-iax", "example-pass-echo", "example-pass-bm",
+	"example-pass-aslcp", "example-pass-wifi", "example-pass-req",
 	"example-pass-journal", "example-pass-url", "example-pass-bearer",
 }
 
 const (
-	diagIAX = "[general]\nbindport=4569\n[radio]\ntype=user\nsecret=example-pass-iax\n" +
-		"register => 1999:example-pass-reg@register.example.net\n;secret=example-pass-old\n"
-	diagManager = "[general]\nenabled=yes\n[admin]\nsecret = example-pass-ami\nread=all\n"
-	diagRpt     = "[1999]\ncallsign=N0CALL\nidrecording=|iN0CALL\nlink=1998\n"
-	diagSIP     = "[general]\nexternip=198.51.100.7\nexternhost=node.example.net\n"
-	diagEcho    = "[el0]\ncall=N0CALL-L\npwd=example-pass-echo\nemail=someone@example.net\nqth=Example Town\n"
-	diagAslcp   = "[server]\nlisten=:8080\n[ami]\nsecret=example-pass-aslcp\n"
-	diagAllmon  = "[1999]\nip=127.0.0.1\npass=example-pass-allmon\n"
-	diagWifi    = "[wifi-security]\npsk=example-pass-wifi\n"
+	diagNode = `{
+  "version": 1,
+  "station": {"callsign": "N0CALL", "radio": {"frequencyMHz": 446.1}},
+  "modes": {
+    "allstar": {"values": {"node": "1999", "password": "example-pass-iax"}},
+    "echolink": {"values": {"callsign": "N0CALL-L", "password": "example-pass-echo", "location": "Example Town"}},
+    "bm": {"values": {"dmr_id": "1234567", "password": "example-pass-bm", "address": "master.example.net"}}
+  }
+}
+`
+	diagSA818 = `{"version":1,"settings":{"bandwidth":0,"rx_mhz":446.1,"tx_mhz":446.1}}` + "\n"
+	diagAslcp = "[server]\nlisten=:8080\npublic_url=https://node.example.net/\n[smtp]\npassword=example-pass-aslcp\n"
+	diagWifi  = "[wifi-security]\npsk=example-pass-wifi\n"
 )
 
 type diagFixture struct {
@@ -54,47 +56,33 @@ func newDiagFixture(t *testing.T) *diagFixture {
 		}
 		return p
 	}
-	w("asterisk/iax.conf", diagIAX)
-	w("asterisk/manager.conf", diagManager)
-	w("asterisk/rpt.conf", diagRpt)
-	w("asterisk/sip.conf", diagSIP)
-	w("asterisk/echolink.conf", diagEcho)
-	// Things that must never be collected:
-	w("asterisk/keys/node.key", "-----BEGIN RSA PRIVATE KEY-----\nMIIexample\n-----END RSA PRIVATE KEY-----\n")
-	w("asterisk/server.pem", "-----BEGIN PRIVATE KEY-----\nMIIexample\n-----END PRIVATE KEY-----\n")
-	w("asterisk/aslcp.db", "SQLITE example-pass-aslcp")
-	w("asterisk/shadow", "root:example-pass-shadow:1:::::\n")
-	w("asterisk/iax.conf.bak", diagIAX)
-	w("asterisk/binary.dat", "a\x00b")
-	if err := os.Symlink("/etc/shadow", filepath.Join(root, "asterisk", "link.conf")); err != nil {
-		t.Fatal(err)
-	}
+	nodeConf := w("etc-aslcp/node.json", diagNode)
+	sa := w("etc-aslcp/sa818.json", diagSA818)
 	aslcp := w("etc-aslcp/aslcp.conf", diagAslcp)
-	w("etc-allmon3/allmon3.ini", diagAllmon)
-	w("etc-allmon3/users", "admin:$argon2id$example-hash\n")
+	// Things that must never be collected:
+	w("etc-aslcp/aslcp.db", "SQLITE example-pass-aslcp")
 	w("etc-nm/ExampleNet.nmconnection", diagWifi)
 	w("os-release", "PRETTY_NAME=\"Debian GNU/Linux 12 (bookworm)\"\n")
 
 	rules := map[string]resp{
-		"asterisk -V": {out: "Asterisk 22.0.0\n"},
 		"uname -srm":  {out: "Linux 6.1.0 aarch64\n"},
-		"dpkg-query":  {out: "ii  asl3 3.5.0\nii  asterisk 22.0.0\nrc  asl3-old 1.0\nii  aslcp 1.3.4\nii  " + legacy.PackagePrefix + "-server 1.0\n"},
+		"dpkg-query":  {out: "ii  md380-emu 1.0\nrc  aslcp-old 1.0\nii  aslcp 1.3.4\n"},
 		"uptime":      {out: " 12:00:00 up 1 day, load average: 0.01, 0.02, 0.03\n"},
 		"free -m":     {out: "              total used\nMem: 1000 100\n"},
 		"df -hP":      {out: "Filesystem Size Used\n/dev/root 30G 5G\n"},
-		"ss -tulnH":   {out: "tcp LISTEN 0 4096 192.0.2.10:5038 0.0.0.0:*\n"},
+		"ss -tulnH":   {out: "tcp LISTEN 0 4096 192.0.2.10:8080 0.0.0.0:*\n"},
 		"systemctl":   {out: fixture(t, "systemctl_show_units.txt")},
 		"ip -j addr":  {out: fixture(t, "ip_addr.json")},
 		"ip -j route": {out: fixture(t, "ip_route.json")},
 		"ip -j -6":    {out: "[]"},
 		"nmcli":       {out: "wlan0:wifi:connected\n"},
-		"journalctl -u asterisk": {out: "2026-11-20T12:00:00+0000 node2001 asterisk[1]: N0CALL from 198.51.100.7 rejected password=example-pass-journal\n" +
-			"login failed secret=example-pass-ami\nfetch https://user:example-pass-url@host.example.net/x\nAuthorization: Bearer example-pass-bearer\n"},
+		"journalctl -u aslcp-node": {out: "2026-11-20T12:00:00+0000 node2001 aslcp-node[1]: N0CALL from 198.51.100.7 rejected password=example-pass-journal\n" +
+			"allstar: registration failed with example-pass-iax\nfetch https://user:example-pass-url@host.example.net/x\nAuthorization: Bearer example-pass-bearer\n"},
 		"journalctl": {out: "2026-11-20T12:00:00+0000 node2001 x[1]: ok\n"},
 	}
 	f := &fakeRunner{rules: rules}
 	o := &Ops{Run: f, Now: func() time.Time { return time.Date(2026, 11, 20, 15, 15, 2, 0, time.UTC) },
-		ConfigRoot: filepath.Join(root, "asterisk"), AslcpConf: aslcp, AllmonDir: filepath.Join(root, "etc-allmon3"),
+		NodeConfig: nodeConf, SA818State: sa, AslcpConf: aslcp,
 		OSRelease:  filepath.Join(root, "os-release"),
 		ResolvConf: filepath.Join("testdata", "resolv.conf")}
 	old := diagTempBases
@@ -158,15 +146,14 @@ func TestDiagBundleContentAndSecrets(t *testing.T) {
 			t.Errorf("mask=%v: README is not first: %v", mask, names)
 		}
 		for _, want := range []string{"report.txt", "versions.txt", "system.txt", "services.txt", "network.txt", "audit.txt",
-			"journal/asterisk.txt", "journal/aslcp.txt", "config/asterisk/iax.conf", "config/asterisk/manager.conf", "config/asterisk/rpt.conf",
-			"config/aslcp.conf", "config/allmon3/allmon3.ini"} {
+			"journal/aslcp-node.txt", "journal/aslcp.txt", "config/node.json", "config/aslcp.conf", "config/sa818.json"} {
 			if _, ok := files[want]; !ok {
 				t.Errorf("mask=%v: missing %s (have %v)", mask, want, names)
 			}
 		}
 		// Never collected.
 		for name := range files {
-			for _, bad := range []string{"keys", "server.pem", "aslcp.db", "shadow", ".bak", "binary", "asterisk/link.conf", "users", "nmconnection"} {
+			for _, bad := range []string{"aslcp.db", "nmconnection"} {
 				if strings.Contains(name, bad) {
 					t.Errorf("mask=%v: %s collected", mask, name)
 				}
@@ -180,31 +167,19 @@ func TestDiagBundleContentAndSecrets(t *testing.T) {
 					t.Errorf("mask=%v: %s contains planted secret %s", mask, name, p)
 				}
 			}
-			for _, bad := range []string{"MIIexample", "PRIVATE KEY", "example-pass-shadow", "example-hash"} {
-				if strings.Contains(text, bad) {
-					t.Errorf("mask=%v: %s contains %s", mask, name, bad)
-				}
-			}
 		}
 		for _, p := range diagPlanted {
 			if strings.Contains(all, p) {
 				t.Errorf("mask=%v: planted secret %s in the tarball", mask, p)
 			}
 		}
-		if !strings.Contains(files["config/asterisk/iax.conf"], "secret=<redacted>") ||
-			!strings.Contains(files["config/asterisk/iax.conf"], "register => 1999:<redacted>@register.example.net") ||
-			!strings.Contains(files["config/asterisk/iax.conf"], ";secret=<redacted>") {
-			t.Errorf("iax.conf: %q", files["config/asterisk/iax.conf"])
-		}
-		if !strings.Contains(files["config/asterisk/manager.conf"], "secret = <redacted>") {
-			t.Errorf("manager.conf: %q", files["config/asterisk/manager.conf"])
-		}
 		// Configuration that is not secret stays readable.
-		if !strings.Contains(files["config/asterisk/iax.conf"], "bindport=4569") || !strings.Contains(files["journal/asterisk.txt"], "login failed") {
-			t.Errorf("over-redacted: %q", files["journal/asterisk.txt"])
+		if !strings.Contains(files["config/node.json"], "master.example.net") || !strings.Contains(files["config/sa818.json"], "446.1") ||
+			!strings.Contains(files["journal/aslcp-node.txt"], "registration failed") || !strings.Contains(files["config/aslcp.conf"], "listen=:8080") {
+			t.Errorf("over-redacted: %q %q", files["config/node.json"], files["journal/aslcp-node.txt"])
 		}
-		if !strings.Contains(files["versions.txt"], "asl3 3.5.0") || strings.Contains(files["versions.txt"], "asl3-old") ||
-			!strings.Contains(files["versions.txt"], "Asterisk 22.0.0") || !strings.Contains(files["versions.txt"], "ASLCP: 1.3.4") {
+		if !strings.Contains(files["versions.txt"], "md380-emu 1.0") || strings.Contains(files["versions.txt"], "aslcp-old") ||
+			!strings.Contains(files["versions.txt"], "ASLCP: 1.3.4") {
 			t.Errorf("versions: %q", files["versions.txt"])
 		}
 		if !strings.Contains(files["system.txt"], "/dev/root") || !strings.Contains(files["system.txt"], "Mem:") {
@@ -214,7 +189,7 @@ func TestDiagBundleContentAndSecrets(t *testing.T) {
 			t.Errorf("network: %q", files["network.txt"])
 		}
 		readme := files["README.txt"]
-		for _, want := range []string{"journal/asterisk.txt", "config/asterisk/iax.conf", "Never collected", "Redacted in every file", "Read every file"} {
+		for _, want := range []string{"journal/aslcp-node.txt", "config/node.json", "Never collected", "Redacted in every file", "Read every file"} {
 			if !strings.Contains(readme, want) {
 				t.Errorf("README lacks %q:\n%s", want, readme)
 			}
@@ -223,7 +198,7 @@ func TestDiagBundleContentAndSecrets(t *testing.T) {
 			t.Errorf("README leaks a secret:\n%s", readme)
 		}
 
-		own := []string{"N0CALL", "198.51.100.7", "node.example.net", "someone@example.net", "Example Town"}
+		own := []string{"N0CALL"}
 		for _, v := range own {
 			for name, text := range files {
 				if mask && strings.Contains(text, v) {
@@ -231,16 +206,8 @@ func TestDiagBundleContentAndSecrets(t *testing.T) {
 				}
 			}
 		}
-		if mask {
-			if !strings.Contains(readme, "Identity: MASKED") || !strings.Contains(files["config/asterisk/rpt.conf"], "<callsign>") ||
-				!strings.Contains(files["config/asterisk/rpt.conf"], "callsign=<masked>") {
-				t.Errorf("mask on: README/rpt.conf\n%s\n%s", readme, files["config/asterisk/rpt.conf"])
-			}
-		} else {
-			if !strings.Contains(readme, "NOT masked") || !strings.Contains(files["config/asterisk/rpt.conf"], "callsign=N0CALL") ||
-				!strings.Contains(files["config/asterisk/sip.conf"], "externip=198.51.100.7") {
-				t.Errorf("mask off: identity was changed\n%s", files["config/asterisk/rpt.conf"])
-			}
+		if !mask && !strings.Contains(files["config/node.json"], "N0CALL") {
+			t.Errorf("mask off: identity was changed\n%s", files["config/node.json"])
 		}
 	}
 }
@@ -249,14 +216,14 @@ func TestDiagBundleOwnInterfaceAddressMasked(t *testing.T) {
 	// ip_addr.json has eth0 192.0.2.10 (a public-range stand-in).
 	fx := newDiagFixture(t)
 	_, files := collect(t, fx, DiagRequest{MaskIdentity: true})
-	if strings.Contains(files["services.txt"], "192.0.2.10") || !strings.Contains(files["services.txt"], "<own-ip>:5038") {
+	if strings.Contains(files["services.txt"], "192.0.2.10") || !strings.Contains(files["services.txt"], "<own-ip>:8080") {
 		t.Errorf("services: %q", files["services.txt"])
 	}
 	if strings.Contains(files["network.txt"], "192.0.2.10") {
 		t.Errorf("network: %q", files["network.txt"])
 	}
 	_, files = collect(t, fx, DiagRequest{})
-	if !strings.Contains(files["services.txt"], "192.0.2.10:5038") {
+	if !strings.Contains(files["services.txt"], "192.0.2.10:8080") {
 		t.Errorf("unmasked services: %q", files["services.txt"])
 	}
 }
@@ -266,25 +233,25 @@ func TestDiagBundleToolsMissing(t *testing.T) {
 	fx.f.rules = map[string]resp{} // every command "not found"
 	names, files := collect(t, fx, DiagRequest{})
 	if !strings.Contains(files["versions.txt"], "not available") || !strings.Contains(files["network.txt"], "not available") ||
-		!strings.Contains(files["journal/asterisk.txt"], "not available") {
+		!strings.Contains(files["journal/aslcp-node.txt"], "not available") {
 		t.Errorf("tools missing not reported: %v", files["versions.txt"])
 	}
 	if len(names) < 8 {
 		t.Errorf("%v", names)
 	}
 	// Config files are still collected without any tool.
-	if _, ok := files["config/asterisk/iax.conf"]; !ok {
+	if _, ok := files["config/node.json"]; !ok {
 		t.Error("configs missing")
 	}
 }
 
 func TestDiagBundleSizeCapAndTruncation(t *testing.T) {
 	fx := newDiagFixture(t)
-	big := strings.Repeat("2026-11-20T12:00:00+0000 node2001 asterisk[1]: a long log line to fill the cap\n", 10000) // ~720 KiB
+	big := strings.Repeat("2026-11-20T12:00:00+0000 node2001 aslcp-node[1]: a long log line to fill the cap\n", 10000) // ~720 KiB
 	fx.f.rules["journalctl"] = resp{out: big}
-	delete(fx.f.rules, "journalctl -u asterisk")
+	delete(fx.f.rules, "journalctl -u aslcp-node")
 	names, files := collect(t, fx, DiagRequest{})
-	j := files["journal/asterisk.txt"]
+	j := files["journal/aslcp-node.txt"]
 	if len(j) > diagMaxFile || !strings.HasSuffix(j, "fill the cap\n") || !strings.HasPrefix(j, "2026-") {
 		t.Errorf("journal not capped at a line boundary: %d bytes", len(j))
 	}
@@ -321,7 +288,7 @@ func TestDiagBundleTimeLimit(t *testing.T) {
 	fx := newDiagFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	fx.f.hook = func(cmd string) {
-		if strings.HasPrefix(cmd, "journalctl -u asterisk") {
+		if strings.HasPrefix(cmd, "journalctl -u aslcp-node") {
 			cancel() // the budget runs out during the first journal
 		}
 	}
@@ -337,7 +304,7 @@ func TestDiagBundleTimeLimit(t *testing.T) {
 	if _, ok := files["journal/NetworkManager.txt"]; ok {
 		t.Error("journals after the time limit were collected")
 	}
-	if _, ok := files["config/asterisk/iax.conf"]; !ok {
+	if _, ok := files["config/node.json"]; !ok {
 		t.Error("configs should still be there (no command needed)")
 	}
 }
@@ -420,7 +387,7 @@ func TestDiagBundleOverSocket(t *testing.T) {
 	}
 	names, files := readBundle(t, rc)
 	rc.Close()
-	if names[0] != "README.txt" || strings.Contains(files["config/asterisk/iax.conf"], "example-pass") {
+	if names[0] != "README.txt" || strings.Contains(files["config/node.json"], "example-pass") {
 		t.Errorf("%v", names)
 	}
 	// An error comes back as an error, not as a broken archive.

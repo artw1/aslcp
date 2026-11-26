@@ -1,28 +1,16 @@
 // Package helper implements the wire protocol, the server logic and the
 // client of aslcp-helper, the small root-owned process that performs the only
-// privileged operations ASLCP needs (package updates, firewalld).
+// privileged operations ASLCP needs (package and OS updates, firewalld,
+// services, backup and restore, the System tab).
 //
 // Protocol: one JSON request per connection, one JSON response. Operations
-// are a fixed set; requests carry no arguments (except the strictly typed config field of the config-* ops), so nothing a client sends can
-// reach a shell or alter a command line.
+// are a fixed set; requests carry no free-form arguments (only the strictly typed fields
+// of a few ops), so nothing a client sends can reach a shell or alter a
+// command line.
 package helper
-
-import "strings"
 
 // Operation names.
 const (
-	OpConfigList    = "config-list"
-	OpConfigRead    = "config-read"
-	OpConfigApply   = "config-apply"
-	OpConfigLog     = "config-log"
-	OpConfigShow    = "config-show"
-	OpConfigRestore = "config-restore"
-	// OpConfigRecord commits the current on-disk content of simpleusb.conf
-	// or usbradio.conf to the history as an external change (the file was
-	// rewritten by Asterisk itself, for example by "susb tune save").
-	OpConfigRecord    = "config-record"
-	OpAsteriskRestart = "asterisk-restart"
-
 	OpUpdateStatus   = "update-status"
 	OpUpdateCheck    = "update-check"
 	OpUpdateApply    = "update-apply"
@@ -41,18 +29,6 @@ const (
 	OpReboot   = "reboot"    // systemctl reboot
 	// OpAslcpRestart restarts the aslcp service (systemctl --no-block).
 	OpAslcpRestart = "aslcp-restart"
-
-	// Digital modes (docs/DV.md). dv-private takes the dv field; the others
-	// take no argument: the package list, the paths and the units are
-	// constants of the helper.
-	OpDVStatus  = "dv-status"  // read-only: supported, units, job, restore pending
-	OpDVEnable  = "dv-enable"  // key + source, then the aslcp-dv-enable unit
-	OpDVDisable = "dv-disable" // systemctl disable --now aslcp-dv
-	OpDVJob     = "dv-job"     // state and log of the enable unit
-	OpDVConfig  = "dv-config"  // render the engine's config.json
-	OpDVPrivate = "dv-private" // get, set or clear the private node record
-	OpDVNetwork = "dv-network" // read or change the network settings and identity, render the engine config
-	OpDVRestart = "dv-restart" // restart aslcp-dv (when its control socket is unreachable)
 )
 
 // Update channels (the suite of the aslcp apt source).
@@ -75,15 +51,10 @@ const (
 // Request is the single request object.
 type Request struct {
 	Op string `json:"op"`
-	// Config is accepted by the config-* operations only; every other
-	// operation rejects a request that carries it.
-	Config *ConfigRequest `json:"config,omitempty"`
 	// Backup is accepted by backup-create only, Restore by backup-restore
 	// only (see backup_proto.go).
 	Backup  *BackupRequest  `json:"backup,omitempty"`
 	Restore *RestoreRequest `json:"restore,omitempty"`
-	// DV is accepted by dv-private and dv-network only (dv.go).
-	DV *DVRequest `json:"dv,omitempty"`
 	// Sys is accepted by the System tab ops only (sys.go).
 	Sys *SysRequest `json:"sys,omitempty"`
 	// Terminal is accepted by the terminal.* ops only (terminal.go).
@@ -153,85 +124,7 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-// ConfigRequest is the argument of the config-* operations.
-type ConfigRequest struct {
-	Path    string       `json:"path,omitempty"`    // config-read
-	Files   []ConfigFile `json:"files,omitempty"`   // config-apply
-	Message string       `json:"message,omitempty"` // commit message (<= 200 chars, one line)
-	Author  string       `json:"author,omitempty"`  // ASLCP username (<= 64, [A-Za-z0-9._-])
-	Commit  string       `json:"commit,omitempty"`  // config-show / config-restore: 7-40 hex
-	Limit   int          `json:"limit,omitempty"`   // config-log (1-200)
-	Offset  int          `json:"offset,omitempty"`
-}
-
-// ConfigFile is one file of a config-apply.
-type ConfigFile struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
-	Base    string `json:"base"` // sha256 hex of the version edited; "" = new file
-}
-
-// ConfigInfo is one entry of config-list.
-type ConfigInfo struct {
-	Path   string `json:"path"`
-	Size   int64  `json:"size"`
-	MTime  int64  `json:"mtime"` // unix seconds
-	SHA256 string `json:"sha256"`
-	Mode   string `json:"mode"` // octal, e.g. "0644"
-	Owner  string `json:"owner"`
-	Group  string `json:"group"`
-}
-
-// ConfigContent is the result of config-read.
-type ConfigContent struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
-	SHA256  string `json:"sha256"`
-}
-
-// ConfigApplyResult is the result of config-apply and config-restore.
-type ConfigApplyResult struct {
-	Commit string `json:"commit"`
-	Before string `json:"before"`
-	// Files are the paths actually written (additive, used for the reload plan).
-	Files []string `json:"files"`
-	// Skipped (restore only): files left alone.
-	Skipped []string `json:"skipped,omitempty"`
-}
-
-// ConfigCommit is one entry of config-log.
-type ConfigCommit struct {
-	Commit  string   `json:"commit"`
-	Date    string   `json:"date"`
-	Author  string   `json:"author"`
-	Message string   `json:"message"`
-	Files   []string `json:"files"`
-}
-
-// ConfigFileDiff is one file of config-show.
-type ConfigFileDiff struct {
-	Path   string `json:"path"`
-	Status string `json:"status"` // added | modified | deleted
-	Diff   string `json:"diff"`
-}
-
-// ConfigShowResult is the result of config-show.
-type ConfigShowResult struct {
-	Commit  string           `json:"commit"`
-	Date    string           `json:"date"`
-	Author  string           `json:"author"`
-	Message string           `json:"message"`
-	Files   []ConfigFileDiff `json:"files"`
-}
-
-// OKResult is the result of asterisk-restart.
+// OKResult is the result of reboot and aslcp-restart.
 type OKResult struct {
 	OK bool `json:"ok"`
 }
-
-// ConflictError is returned by config-apply when files changed on disk.
-type ConflictError struct{ Files []string }
-
-func (e *ConflictError) Error() string { return conflictPrefix + strings.Join(e.Files, ", ") }
-
-const conflictPrefix = "conflict: "

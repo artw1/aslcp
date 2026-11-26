@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -32,28 +31,14 @@ type Ops struct {
 	// channel (default DefaultSourceList).
 	SourceList string
 
-	// ConfigRoot is the directory the config-* ops edit (default
-	// /etc/asterisk) and HistoryDir the git history repository (default
-	// DefaultHistoryDir); both are injectable for tests.
-	ConfigRoot string
-	HistoryDir string
-	// StrictHistoryParents makes the history directory refuse a parent chain
-	// that is not root-owned and closed to group/others (set by NewOps).
-	StrictHistoryParents bool
-	// ConfigWrite replaces the atomic file writer (tests inject failures).
-	ConfigWrite ConfigWriter
-	// NewFileOwner overrides the owner/mode of new files (default
-	// asterisk:asterisk 0640 if that user and group exist, else root 0644).
-	NewFileOwner func() (uid, gid int, mode fs.FileMode)
-
-	// Backup and restore locations (defaults below); injectable for tests.
-	AstDBPath  string    // default DefaultAstDB
-	SoundsDirs [2]string // custom sounds: var-lib, usr-share (defaults below)
-	SA818Conf  string    // default DefaultSA818Conf
-	AllmonDir  string    // default DefaultAllmonDir
-	AslcpConf  string    // default DefaultAslcpConf (restored; read for the web port)
-	ResolvConf string    // default DefaultResolvConf (net-status)
-	OSRelease  string    // default DefaultOSRelease
+	// Backup and restore locations (defaults in backup.go); injectable for
+	// tests.
+	NodeConfig string // default node.DefaultConfigPath
+	SA818State string // default sa818.DefaultStatePath
+	NodeUser   string // owner of the restored node files (default DefaultNodeUser)
+	AslcpConf  string // default DefaultAslcpConf (restored; read for the web port)
+	ResolvConf string // default DefaultResolvConf (net-status)
+	OSRelease  string // default DefaultOSRelease
 	// Svc holds the paths and timing of the services switch and the port 80
 	// move (sys_svc.go, sys_webport.go); the zero value means the defaults.
 	Svc SvcPaths
@@ -65,6 +50,8 @@ type Ops struct {
 	// TempDir is where an uploaded archive is staged during a restore
 	// (default /var/tmp).
 	TempDir string
+	// SelfPath is the helper binary (default: os.Executable).
+	SelfPath string
 
 	// applyMu serialises apply requests so that two concurrent requests
 	// cannot both observe "not running".
@@ -85,33 +72,6 @@ type Ops struct {
 	OSCheckTimeout time.Duration
 	osCheckMu      sync.Mutex
 
-	// Digital modes (dv.go): defaults are the DefaultDV* constants.
-	DVKeyring    string
-	DVSourceList string
-	DVStateDir   string
-	// DVHostListsDir is the panel's host list directory (TGIF's master comes
-	// from its DMR list); default DefaultDVHostListsDir.
-	DVHostListsDir string
-	// DVHistoryDir and DVOldHistoryDir are the ini history directories of the
-	// previous stack that PurgeLegacy deletes (default DefaultDVHistoryDir and
-	// legacy.OldHistoryDir); DVOldStateDir is the 1.x name of the state
-	// directory that MigrateDVState moves (default legacy.OldStateDir);
-	DVHistoryDir string
-	// PurgeLegacy: wait for dpkg and its sleep (tests).
-	DVPurgeWait     time.Duration
-	DVPurgeSleep    func(time.Duration)
-	DVOldStateDir   string
-	DVOldHistoryDir string
-	// DVEngineDir holds the engine's config.json (default /var/lib/aslcp-dv)
-	// and DVEngineUser owns it (default aslcp-dv). DVSocket is the engine's
-	// control socket (default ctl.SocketPath); DVCheckWait bounds dv-step check.
-	DVEngineDir  string
-	DVEngineUser string
-	DVSocket     string
-	DVCheckWait  time.Duration
-	// SelfPath is the helper binary the install and uninstall units call for
-	// their steps (default: this executable).
-	SelfPath string
 	// HTTPGet fetches the keyring (tests inject; default: fixed-URL client,
 	// redirects refused, 1 MiB cap). Now is the clock check's time source.
 	HTTPGet func(ctx context.Context, url string) ([]byte, error)
@@ -124,16 +84,23 @@ type jobCache struct {
 	key, state, log string
 }
 
+func (o *Ops) now() time.Time {
+	if o.Now != nil {
+		return o.Now()
+	}
+	return time.Now()
+}
+
 // NewOps returns Ops using the real command runner.
-func NewOps() *Ops { return &Ops{Run: ExecRunner{}, StrictHistoryParents: true} }
+func NewOps() *Ops { return &Ops{Run: ExecRunner{}} }
 
 // Handle dispatches one request and returns the response value.
 func (o *Ops) Handle(ctx context.Context, op string) (any, error) {
 	return o.HandleRequest(ctx, Request{Op: op})
 }
 
-// HandleRequest dispatches a full request. Only the config-* operations
-// accept the config field.
+// HandleRequest dispatches a full request. Each typed field is accepted by
+// its own operations only.
 func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 	op := req.Op
 	if req.Terminal != nil {
@@ -141,7 +108,7 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return nil, errors.New("invalid request: unexpected terminal field")
 	}
 	if isSysOp(op) {
-		if req.Config != nil || req.DV != nil || req.Backup != nil || req.Restore != nil || req.Diag != nil {
+		if req.Backup != nil || req.Restore != nil || req.Diag != nil {
 			return nil, errors.New("invalid request: unexpected field")
 		}
 		return o.handleSys(ctx, req)
@@ -152,31 +119,12 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 	if req.Diag != nil {
 		return nil, errors.New("invalid request: unexpected diag field")
 	}
-	if isConfigOp(op) {
-		return o.handleConfig(ctx, req)
-	}
-	if req.Config != nil {
-		return nil, errors.New("invalid request: unexpected config field")
-	}
-	if req.DV != nil && !isDVOp(op) {
-		return nil, errors.New("invalid request: unexpected dv field")
-	}
 	if req.Backup != nil && op != OpBackupCreate || req.Restore != nil && op != OpBackupRestore {
 		return nil, errors.New("invalid request: unexpected field")
 	}
 	switch op {
-	case OpDVPrivate:
-		return o.DVPrivate(ctx, req.DV)
-	case OpDVConfig:
-		return o.DVConfig(ctx)
-	case OpDVNetwork:
-		return o.DVNetwork(ctx, req.DV)
-	case OpDVRestart:
-		return o.DVRestart(ctx)
 	case OpBackupInfo:
 		return o.BackupInfo(ctx)
-	case OpAsteriskRestart:
-		return o.AsteriskRestart(ctx)
 	case OpUpdateStatus:
 		return o.UpdateStatus(ctx)
 	case OpUpdateCheck:
@@ -197,14 +145,6 @@ func (o *Ops) HandleRequest(ctx context.Context, req Request) (any, error) {
 		return o.Reboot(ctx)
 	case OpAslcpRestart:
 		return o.AslcpRestart(ctx)
-	case OpDVStatus:
-		return o.DVStatus(ctx)
-	case OpDVJob:
-		return o.DVJob(ctx)
-	case OpDVEnable:
-		return o.DVEnable(ctx)
-	case OpDVDisable:
-		return o.DVDisable(ctx)
 	case OpFirewallStatus:
 		return o.FirewallStatus(ctx)
 	case OpFirewallOpen:

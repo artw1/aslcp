@@ -105,13 +105,11 @@ func (d *DemoSystem) Services(context.Context) (ServicesResult, error) {
 		return ServiceState{Unit: u, Desc: desc, Active: "active", Sub: "running", Enabled: en, Since: since}
 	}
 	return ServicesResult{Available: true, Services: []ServiceState{
-		mk("asterisk.service", "Asterisk PBX and telephony daemon", "enabled"),
+		mk("aslcp-node.service", "ASLCP native node (one radio, one network mode)", "enabled"),
 		mk("aslcp.service", "ASLCP web control panel for AllStarLink", "enabled"),
 		{Unit: "aslcp-helper.service", Desc: "ASLCP privileged helper", Active: "inactive", Sub: "dead", Enabled: "static"},
 		mk("NetworkManager.service", "Network Manager", "enabled"),
 		mk("cockpit.socket", "Cockpit Web Service Socket", "enabled"),
-		mk("apache2.service", "The Apache HTTP Server", "enabled"),
-		mk("allmon3.service", "Allmon3 daemon", "enabled"),
 		mk("chrony.service", "chrony, an NTP client/server", "enabled"),
 	}}, nil
 }

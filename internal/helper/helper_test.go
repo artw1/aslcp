@@ -770,16 +770,3 @@ func TestChannelOpsOverSocket(t *testing.T) {
 		t.Fatal("unknown channel op must fail")
 	}
 }
-
-// The digital modes enable job prints apt's "0 upgraded, ..." summary; that
-// must read as succeeded, not as the upgrade units' "noop".
-func TestJobStateFromDVNotNoop(t *testing.T) {
-	inactive := map[string]string{"ActiveState": "inactive", "Result": "success"}
-	log := "0 upgraded, 2 newly installed, 0 to remove and 0 not upgraded.\naslcp-dv-enable.service: Deactivated successfully.\n"
-	if got := jobStateFrom(inactive, log, dvEnableUnit); got != JobSucceeded {
-		t.Errorf("%s: got %s", dvEnableUnit, got)
-	}
-	if got := jobStateFrom(inactive, log, upgradeUnit); got != JobNoop {
-		t.Errorf("upgrade unit: got %s", got)
-	}
-}

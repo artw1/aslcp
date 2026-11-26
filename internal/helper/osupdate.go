@@ -78,10 +78,9 @@ func (o *Ops) osUpgradeArgv() []string {
 		"/bin/sh", "-c", o.osUpgradeScript()}
 }
 
-// aptJobRunning reports whether an upgrade, OS upgrade or digital modes enable
-// unit is running.
+// aptJobRunning reports whether an upgrade or OS upgrade unit is running.
 func (o *Ops) aptJobRunning(ctx context.Context) bool {
-	for _, u := range []string{upgradeUnit, osUpgradeUnit, dvEnableUnit} {
+	for _, u := range []string{upgradeUnit, osUpgradeUnit} {
 		if state, _ := o.jobUnit(ctx, u); state == JobRunning {
 			return true
 		}
@@ -304,8 +303,8 @@ func ParseUpgradeSim(out string) (pkgs []OSPackage, keptBack []string) {
 }
 
 // OSApply starts the OS upgrade in a transient systemd unit, detached from
-// the helper and the server so it survives their restart (the aslcp or
-// asterisk package may be among the upgraded ones).
+// the helper and the server so it survives their restart (the aslcp
+// package may be among the upgraded ones).
 func (o *Ops) OSApply(ctx context.Context) (OSStatus, error) {
 	o.applyMu.Lock()
 	defer o.applyMu.Unlock()
@@ -358,4 +357,18 @@ func (o *Ops) AslcpRestart(ctx context.Context) (OKResult, error) {
 		return OKResult{}, fmt.Errorf("systemctl restart failed: %s", LastLines(out, 3))
 	}
 	return OKResult{OK: true}, nil
+}
+
+// shQuote quotes s for /bin/sh.
+func shQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// selfPath is the helper binary the OS upgrade script calls back.
+func (o *Ops) selfPath() string {
+	if o.SelfPath != "" {
+		return o.SelfPath
+	}
+	if p, err := os.Executable(); err == nil {
+		return p
+	}
+	return "/usr/libexec/aslcp/aslcp-helper"
 }

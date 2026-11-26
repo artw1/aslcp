@@ -2,34 +2,8 @@ package backup
 
 import "testing"
 
-func TestCodenameFromVersion(t *testing.T) {
-	for in, want := range map[string]string{
-		"22.10.1+asl3-3.10.8-1.deb12": "bookworm",
-		"22.10.1+asl3-3.10.8-1.deb13": "trixie",
-		"3.11.0-1.deb14":              "forky",
-		"3.10.8-1.deb12u1":            "bookworm",
-		"3.10.8-1.deb99":              "",
-		"3.10.8-1.deb123":             "",
-		"3.10.8-1":                    "",
-		"":                            "",
-	} {
-		if got := CodenameFromVersion(in); got != want {
-			t.Errorf("CodenameFromVersion(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-func TestReleaseOf(t *testing.T) {
-	if got := ReleaseOf("trixie", "1.deb12", ""); got != "trixie" {
-		t.Errorf("explicit codename must win, got %q", got)
-	}
-	if got := ReleaseOf("", "", "22.1-1.deb13"); got != "trixie" {
-		t.Errorf("asterisk fallback, got %q", got)
-	}
-	if got := ReleaseOf("", "1.deb12", "22.1-1.deb13"); got != "bookworm" {
-		t.Errorf("asl3 before asterisk, got %q", got)
-	}
-	if ReleaseLabel("trixie") != "Debian 13 (trixie)" || ReleaseLabel("sid") != "sid" {
+func TestReleaseLabel(t *testing.T) {
+	if ReleaseLabel("trixie") != "Debian 13 (trixie)" || ReleaseLabel("sid") != "sid" || DebianNumber("bookworm") != "12" {
 		t.Error("ReleaseLabel")
 	}
 }

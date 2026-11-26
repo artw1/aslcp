@@ -9,12 +9,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/artw1/aslcp/internal/backup"
 	"github.com/artw1/aslcp/internal/helper"
+	"github.com/artw1/aslcp/internal/native/radio/sa818"
 	"github.com/artw1/aslcp/internal/store"
 )
 
@@ -24,13 +24,6 @@ import (
 type Warning struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
-}
-
-// File is one /etc/asterisk file of the plan.
-type File struct {
-	Path   string `json:"path"`
-	Action string `json:"action"`
-	Note   string `json:"note,omitempty"`
 }
 
 // User is an account the restored database holds.
@@ -45,70 +38,70 @@ type ChecklistItem struct {
 	Value string `json:"value"`
 }
 
-// Radio is the SA818 configuration of the backup.
+// Radio is the SA818 channel of the backup.
 type Radio struct {
-	Band        string `json:"band"`
-	FreqRx      string `json:"freqRx"`
-	FreqTx      string `json:"freqTx"`
-	Tone        string `json:"tone"`
-	CtcssRx     string `json:"ctcssRx"`
-	CtcssTx     string `json:"ctcssTx"`
-	DcsRx       string `json:"dcsRx"`
-	DcsTx       string `json:"dcsTx"`
-	Port        string `json:"port"`
-	PortPresent bool   `json:"portPresent"`
+	// Bandwidth is "narrow" (12.5 kHz) or "wide" (25 kHz).
+	Bandwidth string  `json:"bandwidth"`
+	RxMHz     float64 `json:"rxMHz"`
+	TxMHz     float64 `json:"txMHz"`
+	// RxTone and TxTone are "none", "CTCSS 100.0" or "DCS 023N".
+	RxTone  string `json:"rxTone"`
+	TxTone  string `json:"txTone"`
+	Squelch int    `json:"squelch"`
 }
 
 // BackupInfo describes the backup itself.
 type BackupInfo struct {
-	Hostname        string   `json:"hostname"`
-	Created         string   `json:"created"`
-	CreatedBy       string   `json:"createdBy"`
-	ASLCPVersion    string   `json:"aslcpVersion"`
-	ASL3Version     string   `json:"asl3Version"`
-	AsteriskVersion string   `json:"asteriskVersion"`
-	Arch            string   `json:"arch"`
-	OSID            string   `json:"osId,omitempty"`
-	OSCodename      string   `json:"osCodename,omitempty"`
-	OSName          string   `json:"osName,omitempty"`
-	Nodes           []string `json:"nodes"`
-	Channel         string   `json:"channel"`
+	Hostname     string `json:"hostname"`
+	Created      string `json:"created"`
+	CreatedBy    string `json:"createdBy"`
+	ASLCPVersion string `json:"aslcpVersion"`
+	Arch         string `json:"arch"`
+	OSID         string `json:"osId,omitempty"`
+	OSCodename   string `json:"osCodename,omitempty"`
+	OSName       string `json:"osName,omitempty"`
+	Callsign     string `json:"callsign"`
+	Channel      string `json:"channel"`
 }
 
 // NodeInfo describes this node, for comparison with the backup.
 type NodeInfo struct {
-	ASL3Version     string `json:"asl3Version"`
-	AsteriskVersion string `json:"asteriskVersion"`
-	Arch            string `json:"arch"`
-	OSID            string `json:"osId,omitempty"`
-	OSCodename      string `json:"osCodename,omitempty"`
-	OSName          string `json:"osName,omitempty"`
+	Arch       string `json:"arch"`
+	OSID       string `json:"osId,omitempty"`
+	OSCodename string `json:"osCodename,omitempty"`
+	OSName     string `json:"osName,omitempty"`
+	Callsign   string `json:"callsign"`
 }
 
-// PartsPresent says which optional parts the backup holds.
+// PartsPresent says which parts the backup holds besides the database.
 type PartsPresent struct {
-	History bool `json:"history"`
-	Allmon3 bool `json:"allmon3"`
-	Sounds  bool `json:"sounds"`
-	SA818   bool `json:"sa818"`
-	// DV: the ini files and dvsm.macro of /opt (with secrets).
-	DV bool `json:"dv"`
+	// Node: the node settings (station and every mode).
+	Node bool `json:"node"`
+	// SA818: the radio module's channel.
+	SA818 bool `json:"sa818"`
+	// Secrets: the node settings keep their network passwords.
+	Secrets bool `json:"secrets"`
+	// Conf: aslcp.conf.
+	Conf bool `json:"conf"`
 }
 
 // Preview is what the restore page shows before anything changes.
 type Preview struct {
-	Backup          BackupInfo      `json:"backup"`
-	Node            NodeInfo        `json:"node"`
-	Warnings        []Warning       `json:"warnings"`
-	Files           []File          `json:"files"`
-	Users           []User          `json:"users"`
-	Favorites       int             `json:"favorites"`
-	Schedules       int             `json:"schedules"`
-	MissingPackages []string        `json:"missingPackages"`
-	InstallCommand  string          `json:"installCommand"`
-	Checklist       []ChecklistItem `json:"checklist"`
-	Radio           *Radio          `json:"radio"`
-	Parts           PartsPresent    `json:"parts"`
+	Backup    BackupInfo      `json:"backup"`
+	Node      NodeInfo        `json:"node"`
+	Warnings  []Warning       `json:"warnings"`
+	Users     []User          `json:"users"`
+	Favorites int             `json:"favorites"`
+	Schedules int             `json:"schedules"`
+	Checklist []ChecklistItem `json:"checklist"`
+	Radio     *Radio          `json:"radio"`
+	Parts     PartsPresent    `json:"parts"`
+	// Modes are the modes the restored node will have set up.
+	Modes []string `json:"modes"`
+	// MissingSecrets are the modes left out: the backup has no password
+	// for them and this node has none either. Set them up again after the
+	// restore.
+	MissingSecrets []string `json:"missingSecrets"`
 }
 
 // Upload is the answer to a validated upload.
@@ -160,7 +153,6 @@ type Result struct {
 
 type stored struct {
 	Result
-	Nodes []string `json:"nodes"`
 }
 
 const resultFile = "restore-result.json"
@@ -294,7 +286,7 @@ func (s *Service) Upload(ctx context.Context, r io.Reader) (Upload, error) {
 		// a bad backup.
 		return Upload{}, &backup.Error{Msg: err.Error()}
 	}
-	prev, offered := s.preview(m, plan, insp, sa818)
+	prev := s.preview(m, plan, insp, sa818)
 	id := newID()
 	final := filepath.Join(s.tmpDir(), "restore-"+id)
 	if err := os.Rename(dir, final); err != nil {
@@ -302,164 +294,120 @@ func (s *Service) Upload(ctx context.Context, r io.Reader) (Upload, error) {
 	}
 	ok = true
 	s.mu.Lock()
-	s.pending[id] = &pending{id: id, dir: final, created: s.o.Now(), m: m, prev: prev, offered: offered}
+	s.pending[id] = &pending{id: id, dir: final, created: s.o.Now(), m: m, prev: prev}
 	s.mu.Unlock()
 	return Upload{ID: id, Preview: prev}, nil
 }
 
-func (s *Service) preview(m *backup.Manifest, plan helper.RestoreResult, insp store.Inspection, sa818 []byte) (Preview, map[string]bool) {
+func (s *Service) preview(m *backup.Manifest, plan helper.RestoreResult, insp store.Inspection, sa818 []byte) Preview {
 	p := Preview{
 		Backup: BackupInfo{Hostname: m.Hostname, Created: m.Created.UTC().Format(time.RFC3339), CreatedBy: m.CreatedBy,
-			ASLCPVersion: m.ASLCPVersion, ASL3Version: m.ASL3Version, AsteriskVersion: m.AsteriskVersion, Arch: m.Arch,
-			OSID: m.OSID, OSCodename: backup.ReleaseOf(m.OSVersionCodename, m.ASL3Version, m.AsteriskVersion), OSName: m.OSPrettyName,
-			Nodes: nonNil(m.Nodes), Channel: m.Channel},
-		Node: NodeInfo{ASL3Version: plan.ASL3Version, AsteriskVersion: plan.AsteriskVersion, Arch: plan.Arch,
-			OSID: plan.OSID, OSCodename: backup.ReleaseOf(plan.OSCodename, plan.ASL3Version, plan.AsteriskVersion), OSName: plan.OSName},
-		Warnings: []Warning{}, Files: []File{}, Users: []User{}, MissingPackages: []string{}, Checklist: []ChecklistItem{},
+			ASLCPVersion: m.ASLCPVersion, Arch: m.Arch, OSID: m.OSID, OSCodename: m.OSVersionCodename, OSName: m.OSPrettyName,
+			Callsign: m.Callsign, Channel: m.Channel},
+		Node:     NodeInfo{Arch: plan.Arch, OSID: plan.OSID, OSCodename: plan.OSCodename, OSName: plan.OSName, Callsign: plan.Callsign},
+		Warnings: []Warning{}, Users: []User{}, Checklist: []ChecklistItem{},
 		Favorites: insp.Favorites,
 		Schedules: insp.Schedules,
-		Parts:     PartsPresent{History: m.Parts.History, Allmon3: m.Parts.Allmon3, Sounds: len(m.Parts.Sounds) > 0, SA818: m.Parts.SA818, DV: m.Parts.DV},
-	}
-	offered := map[string]bool{}
-	dist := 0
-	for _, f := range plan.Files {
-		p.Files = append(p.Files, File{Path: f.Path, Action: f.Action, Note: f.Note})
-		switch f.Action {
-		case helper.ActDeleteOptional:
-			offered[f.Path] = true
-		case helper.ActRestoreDist:
-			dist++
-		}
+		Parts: PartsPresent{Node: m.Parts.Node, SA818: m.Parts.SA818, Secrets: m.Parts.Secrets,
+			Conf: m.Find(backup.PathAslcpConf) != nil},
+		Modes:          nonNil(plan.Modes),
+		MissingSecrets: nonNil(plan.MissingSecrets),
 	}
 	for _, u := range insp.Users {
 		p.Users = append(p.Users, User{Username: u.Username, Role: u.Role})
 	}
 
 	// warnings
-	if bc, nc := p.Backup.OSCodename, p.Node.OSCodename; bc != "" && nc != "" && bc != nc {
+	if bc, nc := m.OSVersionCodename, plan.OSCodename; bc != "" && nc != "" && bc != nc {
 		p.Warnings = append(p.Warnings, Warning{"os_release", crossReleaseMessage(bc, nc)})
-	}
-	if m.ASL3Version != "" && plan.ASL3Version != "" && m.ASL3Version != plan.ASL3Version {
-		msg := fmt.Sprintf("The backup was made on ASL3 %s; this node runs %s. Stock files keep this node's version.", m.ASL3Version, plan.ASL3Version)
-		if backup.VersionNewer(m.ASL3Version, plan.ASL3Version) {
-			msg = fmt.Sprintf("The backup was made on ASL3 %s, newer than the %s on this node. Update ASL3 first if the configuration uses newer features.", m.ASL3Version, plan.ASL3Version)
-		}
-		p.Warnings = append(p.Warnings, Warning{"asl3_version", msg})
-	}
-	if m.AsteriskVersion != "" && plan.AsteriskVersion != "" && m.AsteriskVersion != plan.AsteriskVersion {
-		p.Warnings = append(p.Warnings, Warning{"asterisk_version",
-			fmt.Sprintf("The backup was made on Asterisk %s; this node runs %s.", m.AsteriskVersion, plan.AsteriskVersion)})
 	}
 	if m.Arch != "" && plan.Arch != "" && m.Arch != plan.Arch {
 		p.Warnings = append(p.Warnings, Warning{"arch",
-			fmt.Sprintf("The backup was made on a %s system; this node is %s. Configuration files are portable, but check audio device settings.", m.Arch, plan.Arch)})
-	}
-	if dist > 0 {
-		p.Warnings = append(p.Warnings, Warning{"dist_files",
-			fmt.Sprintf("%d file(s) were changed by you and ASL3 changed the default since: your version is restored and the new default is kept beside it as .dpkg-dist. Review them.", dist)})
-	}
-	if plan.DVLegacySettings {
-		p.Warnings = append(p.Warnings, Warning{"dv_settings_not_restored", "The backup holds the settings of the previous digital voice stack. ASLCP 2.0 does not restore them: set up digital modes again in Settings, Digital Modes, after the restore."})
+			fmt.Sprintf("The backup was made on a %s system; this node is %s. The settings are portable, but check the radio's audio and PTT settings.", m.Arch, plan.Arch)})
 	}
 	if len(m.Skipped) > 0 {
 		p.Warnings = append(p.Warnings, Warning{"skipped_files",
-			fmt.Sprintf("%d item(s) could not be included when the backup was made (for example unreadable files or symbolic links leaving the tree).", len(m.Skipped))})
+			fmt.Sprintf("%d item(s) could not be included when the backup was made (for example unreadable files).", len(m.Skipped))})
+	}
+	if m.Parts.Node && !m.Parts.Secrets {
+		p.Warnings = append(p.Warnings, Warning{"no_secrets",
+			"The backup was made without the network passwords. The passwords already saved on this node are kept."})
+	}
+	if len(p.MissingSecrets) > 0 {
+		p.Warnings = append(p.Warnings, Warning{"missing_secrets",
+			"No password for " + strings.Join(p.MissingSecrets, ", ") + " in the backup or on this node: set these modes up again after the restore."})
+	}
+	if !m.Parts.Node {
+		p.Warnings = append(p.Warnings, Warning{"no_node",
+			"The backup holds no node settings; this node's station and modes stay as they are."})
 	}
 
-	// packages
-	have := map[string]bool{}
-	for _, pk := range plan.Packages {
-		have[pk.Name] = true
-	}
-	for _, pk := range m.Packages {
-		// Digital modes packages are installed by the enable job, never by a
-		// plain apt command.
-		if !have[pk.Name] && backup.ValidPackageName(pk.Name) && !helper.IsDVPackage(pk.Name) {
-			p.MissingPackages = append(p.MissingPackages, pk.Name)
-		}
-	}
-	sort.Strings(p.MissingPackages)
-	if len(p.MissingPackages) > 0 {
-		p.InstallCommand = "sudo apt install " + strings.Join(p.MissingPackages, " ")
-	}
-
-	// radio
 	if len(sa818) > 0 {
 		p.Radio = parseRadio(sa818)
-		p.Radio.PortPresent = plan.SA818PortPresent
-		if p.Radio.Port != "" && !p.Radio.PortPresent {
-			p.Warnings = append(p.Warnings, Warning{"sa818_port",
-				fmt.Sprintf("The SA818 settings use the serial port %s, which does not exist on this node. Check the module is plugged in before running sa818-menu --apply.", p.Radio.Port)})
-		}
 	}
-
-	p.Checklist = checklist(m, p.Radio != nil)
-	return p, offered
+	p.Checklist = checklist(m)
+	return p
 }
 
 // crossReleaseMessage is the warning for a backup made on another Debian
 // release than the one this node runs.
 func crossReleaseMessage(backupRel, nodeRel string) string {
-	return fmt.Sprintf("This backup was made on %s; this node runs %s. Files you edited will replace the new release's defaults; the new defaults are kept next to them as .dpkg-dist. ASL3 changes some configs between releases (for example DAHDI timing is no longer needed), so if Asterisk or app_rpt does not start, compare your files against the .dpkg-dist copies.",
+	return fmt.Sprintf("This backup was made on %s; this node runs %s. ASLCP's settings carry over between releases.",
 		backup.ReleaseLabel(backupRel), backup.ReleaseLabel(nodeRel))
 }
 
-func checklist(m *backup.Manifest, radio bool) []ChecklistItem {
-	other := "Anything installed outside the ASL3 packages (for example an M17 bridge and its service)"
-	var names []string
-	for _, pk := range m.Packages {
-		if strings.Contains(pk.Name, "m17") || strings.HasPrefix(pk.Name, "supermon") {
-			names = append(names, pk.Name)
-		}
-	}
-	if len(names) > 0 {
-		other = strings.Join(names, ", ") + " (install and configure them again)"
-	}
+func checklist(m *backup.Manifest) []ChecklistItem {
 	c := []ChecklistItem{
 		{"Hostname", m.Hostname}, {"Timezone", m.Timezone},
 		{"Network and Wi-Fi", "Not included in the backup"},
 		{"SSH keys and OS users", "Not included in the backup"},
-		{"Other software", other},
 		{"Firewall rules", "Only ASLCP's own rule is set up by the package"},
 		{"Cron jobs", "Not included in the backup"},
 	}
-	if radio {
-		c = append(c, ChecklistItem{"SA818 radio module", "To program it from the restored file run: sudo sa818-menu --apply"})
+	if !m.Parts.Secrets && m.Parts.Node {
+		c = append(c, ChecklistItem{"Network passwords", "Not included in this backup; the ones saved on this node are kept"})
+	}
+	if m.Parts.SA818 {
+		c = append(c, ChecklistItem{"SA818 radio module", "The node programs the restored channel when it starts"})
 	}
 	return c
 }
 
+// parseRadio summarizes a saved SA818 channel (sa818.json); nil when it
+// cannot be read.
 func parseRadio(data []byte) *Radio {
-	kv := map[string]string{}
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || line[0] == '#' {
-			continue
-		}
-		k, v, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		k = strings.TrimSpace(k)
-		v = strings.Trim(strings.TrimSpace(v), `"'`)
-		if len(v) > 200 {
-			continue
-		}
-		kv[k] = v
+	var st sa818.State
+	if json.Unmarshal(data, &st) != nil || st.Version != 1 {
+		return nil
 	}
-	r := &Radio{Band: kv["CURRENT_BAND"], FreqRx: kv["CURRENT_FREQ_RX"], FreqTx: kv["CURRENT_FREQ_TX"],
-		CtcssRx: kv["CURRENT_CTCSS_RX"], CtcssTx: kv["CURRENT_CTCSS_TX"], DcsRx: kv["CURRENT_DCS_RX"], DcsTx: kv["CURRENT_DCS_TX"],
-		Port: kv["CURRENT_PORT"]}
-	none := func(v string) bool { return v == "" || strings.Trim(v, "0.") == "" || strings.EqualFold(v, "none") }
-	switch {
-	case !none(r.CtcssRx) || !none(r.CtcssTx):
-		r.Tone = "CTCSS " + r.CtcssRx + " / " + r.CtcssTx
-	case !none(r.DcsRx) || !none(r.DcsTx):
-		r.Tone = "DCS " + r.DcsRx + " / " + r.DcsTx
-	default:
-		r.Tone = "none"
+	set := st.Settings
+	r := &Radio{Bandwidth: "narrow", RxMHz: set.RxMHz, TxMHz: set.TxMHz, Squelch: set.Squelch,
+		RxTone: toneLabel(set.RxTone), TxTone: toneLabel(set.TxTone)}
+	if set.Bandwidth == sa818.Wide {
+		r.Bandwidth = "wide"
 	}
 	return r
+}
+
+func toneLabel(t sa818.Tone) string {
+	switch t.Kind {
+	case sa818.ToneCTCSS:
+		return fmt.Sprintf("CTCSS %.1f", t.CTCSSHz)
+	case sa818.ToneDCS:
+		pol := "N"
+		if t.DCSInverted {
+			pol = "I"
+		}
+		return fmt.Sprintf("DCS %03d%s", t.DCSCode, pol)
+	}
+	return "none"
+}
+
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 // Cancel discards an upload.
@@ -510,7 +458,7 @@ func StagedPath(dataDir string) string { return filepath.Join(dataDir, "aslcp.db
 // Apply runs the restore of upload id for who: the helper applies the system
 // part, then ASLCP's database is staged for the swap at the next start. On
 // success the caller must restart the server (Restarting is true).
-func (s *Service) Apply(ctx context.Context, id string, deleteMissing []string, who string) (ApplyResult, error) {
+func (s *Service) Apply(ctx context.Context, id string, who string) (ApplyResult, error) {
 	if !s.apply.TryLock() {
 		return ApplyResult{}, ErrBusy
 	}
@@ -520,14 +468,6 @@ func (s *Service) Apply(ctx context.Context, id string, deleteMissing []string, 
 	s.mu.Unlock()
 	if p == nil {
 		return ApplyResult{}, ErrNotFound
-	}
-	if deleteMissing == nil {
-		deleteMissing = []string{}
-	}
-	for _, d := range deleteMissing {
-		if !p.offered[d] {
-			return ApplyResult{}, &backup.Error{Msg: d + " is not a file this restore offers to delete"}
-		}
 	}
 	staged := StagedPath(s.o.DataDir)
 	part := staged + ".part"
@@ -549,7 +489,7 @@ func (s *Service) Apply(ctx context.Context, id string, deleteMissing []string, 
 		os.Remove(part)
 		return ApplyResult{}, err
 	}
-	res, err := s.o.Helper.BackupRestore(ctx, helper.RestoreRequest{DeleteMissing: deleteMissing}, arc)
+	res, err := s.o.Helper.BackupRestore(ctx, helper.RestoreRequest{}, arc)
 	arc.Close()
 	if err != nil {
 		os.Remove(part)
@@ -582,7 +522,7 @@ func (s *Service) Apply(ctx context.Context, id string, deleteMissing []string, 
 		out.OK, out.Restarting = true, true
 	}
 	r := stored{Result: Result{At: s.o.Now().UTC(), BackupCreated: p.m.Created.UTC(), Steps: out.Steps,
-		Health: health, Checklist: p.prev.Checklist}, Nodes: nonNil(p.m.Nodes)}
+		Health: health, Checklist: p.prev.Checklist}}
 	if err := s.saveResult(r); err != nil {
 		s.o.Logger.Printf("restore: saving the result: %v", err)
 	}
@@ -636,14 +576,14 @@ func (s *Service) LastResult() (Result, bool) {
 // RunHealth completes the health check of a restore that is waiting for it
 // (after the restart): run is retried until every check passes or the time
 // is up, and each state is saved.
-func (s *Service) RunHealth(ctx context.Context, run func(ctx context.Context, nodes []string) []Check) {
+func (s *Service) RunHealth(ctx context.Context, run func(ctx context.Context) []Check) {
 	r, ok := s.loadResult()
 	if !ok || !r.Health.Pending {
 		return
 	}
 	deadline := s.o.Now().Add(3 * time.Minute)
 	for {
-		checks := run(ctx, r.Nodes)
+		checks := run(ctx)
 		all := true
 		for _, c := range checks {
 			all = all && c.OK
@@ -662,36 +602,6 @@ func (s *Service) RunHealth(ctx context.Context, run func(ctx context.Context, n
 		case <-time.After(3 * time.Second):
 		}
 	}
-}
-
-// AppRptCheck turns the output of "module show like app_rpt" into a health
-// check: Asterisk can be up and answering AMI while app_rpt failed to load
-// (for example after config files from another release were restored).
-func AppRptCheck(lines []string, err error) Check {
-	c := Check{Name: "app_rpt module"}
-	if err != nil {
-		c.Detail = err.Error()
-		return c
-	}
-	for _, l := range lines {
-		if strings.HasPrefix(strings.TrimSpace(l), "app_rpt.so") {
-			c.OK, c.Detail = true, "loaded"
-			return c
-		}
-	}
-	c.Detail = "not loaded; see the Asterisk log, and compare restored files with their .dpkg-dist copies"
-	return c
-}
-
-// NodeAnswers reports whether the output of "rpt show variables N" is a real
-// answer (an unloaded app_rpt makes Asterisk answer "No such command").
-func NodeAnswers(lines []string) bool {
-	for _, l := range lines {
-		if strings.Contains(l, "No such command") {
-			return false
-		}
-	}
-	return true
 }
 
 func nonNilChecks(c []Check) []Check {

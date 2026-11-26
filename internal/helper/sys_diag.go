@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/artw1/aslcp/internal/diag"
+	"github.com/artw1/aslcp/internal/native/mode"
 )
 
 // Diagnostics bundle (docs/PLAN-1.3.0.md section 12): a .tar.gz of versions,
@@ -132,13 +133,13 @@ func DiagPlanInfo() DiagPlan {
 	return DiagPlan{
 		Items: []DiagItem{
 			{"README.txt", "What was collected, what was redacted, and what could not be collected"},
-			{"report.txt", "ASLCP status report: versions, nodes and links, AMI state, updates, recent ASLCP log"},
-			{"versions.txt", "ASLCP, Asterisk, operating system, kernel, and the asl3, asterisk, allmon3, md380-emu and aslcp package versions"},
+			{"report.txt", "ASLCP status report: versions, the node's modes and links, updates, recent ASLCP log"},
+			{"versions.txt", "ASLCP, operating system, kernel, and the md380-emu and aslcp package versions"},
 			{"system.txt", "Uptime and load, memory, disk use"},
-			{"services.txt", "State of the Asterisk, ASLCP, network, digital modes and ASL3 web services, and listening ports"},
+			{"services.txt", "State of the node, ASLCP, network and time services, and listening ports"},
 			{"network.txt", "Interfaces, addresses, default gateway, DNS servers (no WiFi passwords or saved networks)"},
 			{"journal/<unit>.txt", fmt.Sprintf("Last %d journal lines of %s", diagJournalLines, strings.Join(logUnits(), ", "))},
-			{"config/", "Asterisk config files, aslcp.conf, Allmon3 and digital modes engine config files, with secret values replaced by <redacted>"},
+			{"config/", "aslcp.conf, the node config without its mode passwords, and the SA818 settings, with secret values replaced by <redacted>"},
 			{"audit.txt", "The last 200 audit log entries"},
 		},
 		Excluded: []string{
@@ -146,14 +147,12 @@ func DiagPlanInfo() DiagPlan {
 			"private keys and certificates",
 			"the ASLCP database, session tokens and the setup code",
 			"WiFi passwords and NetworkManager connection files",
-			"the Allmon3 user list",
 			"terminal data",
 		},
 		Redacted: []string{
-			"passwords and secrets in Asterisk configs (secret, password, md5secret, manager.conf secrets, echolink pwd)",
-			"registration strings (register => user:password@host)",
+			"the node's mode passwords (AllStar, EchoLink, DMR and the others), wherever they show up",
 			"ASLCP's own secrets and session data",
-			"WiFi pre-shared keys and digital modes passwords",
+			"WiFi pre-shared keys",
 			"tokens, cookies, bearer headers and passwords in URLs",
 			"every password found in a config file, wherever else it shows up (for example in a log line)",
 		},
@@ -368,7 +367,11 @@ func (b *diagBuilder) pack() (*DiagBundle, error) {
 // ---- collection
 
 // diagConf is one config file read for the bundle.
-type diagConf struct{ name, desc, text string }
+type diagConf struct {
+	name, desc, text string
+	secrets          []string
+	callsigns        []string
+}
 
 var errDiagExcluded = errors.New("excluded")
 
@@ -440,23 +443,61 @@ func (o *Ops) diagConfigs(b *diagBuilder) []diagConf {
 				return
 			}
 			budget -= len(text)
-			out = append(out, diagConf{name, desc, text})
+			out = append(out, diagConf{name: name, desc: desc, text: text})
 		case errors.Is(err, os.ErrNotExist):
 		case errors.Is(err, errDiagExcluded):
 		default:
 			b.skip(name, err.Error())
 		}
 	}
-	always := func(string) bool { return true }
-	for _, p := range listDiagDir(o.configRoot(), always) {
-		read(p, "config/asterisk/"+filepath.Base(p), "Asterisk config file")
+	read(o.aslcpConf(), "config/aslcp.conf", "ASLCP configuration")
+	read(o.sa818State(), "config/sa818.json", "SA818 radio module settings")
+	if c, err := o.diagNodeConfig(); err == nil {
+		out = append(out, c)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		b.skip("config/node.json", err.Error())
 	}
-	read(orDefault(o.AslcpConf, DefaultAslcpConf), "config/aslcp.conf", "ASLCP configuration")
-	for _, p := range listDiagDir(orDefault(o.AllmonDir, DefaultAllmonDir), func(n string) bool { return strings.HasSuffix(n, ".ini") }) {
-		read(p, "config/allmon3/"+filepath.Base(p), "Allmon3 configuration")
-	}
-	read(o.dvConfigPath(), "config/dv/config.json", "Digital modes engine configuration")
 	return out
+}
+
+// diagNodeConfig returns the node config with every mode secret removed.
+// It carries the secrets themselves (they are redacted wherever else they
+// show up, for example in a log line) and the callsigns (masked on request).
+func (o *Ops) diagNodeConfig() (diagConf, error) {
+	b, _, err := readRegular(o.nodeConfig(), maxNodeFile)
+	if err != nil {
+		return diagConf{}, err
+	}
+	c, err := parseNodeConfig(b)
+	if err != nil {
+		return diagConf{}, err
+	}
+	calls := []string{}
+	if c.Station.Callsign != "" {
+		calls = append(calls, c.Station.Callsign)
+	}
+	var secrets []string
+	for name, s := range c.Modes {
+		if sp, ok := mode.Lookup(name); ok {
+			secrets = append(secrets, sp.Secrets(s)...)
+		} else {
+			for _, v := range s.Values {
+				secrets = append(secrets, v)
+			}
+		}
+	}
+	for _, s := range c.Modes {
+		if v := s.Values["callsign"]; v != "" {
+			calls = append(calls, v)
+		}
+	}
+	stripSecrets(c)
+	out, err := encodeNodeConfig(c)
+	if err != nil {
+		return diagConf{}, err
+	}
+	return diagConf{name: "config/node.json", desc: "Node configuration (mode passwords removed)", text: string(out),
+		secrets: secrets, callsigns: calls}, nil
 }
 
 // ownPublicIPs lists the public addresses of this node's interfaces.
@@ -496,16 +537,19 @@ func (o *Ops) DiagCollect(ctx context.Context, req *DiagRequest) (*DiagBundle, e
 	confs := o.diagConfigs(b0)
 	ns := o.NetStatus(ctx)
 	var allConf strings.Builder
+	var confSecrets, confCalls []string
 	for _, c := range confs {
+		confSecrets = append(confSecrets, c.secrets...)
+		confCalls = append(confCalls, c.callsigns...)
 		allConf.WriteString(c.text)
 		allConf.WriteByte('\n')
 	}
 	id := diag.ExtractIdentity(allConf.String())
-	id.Callsigns = append(id.Callsigns, req.Callsigns...)
+	id.Callsigns = append(append(id.Callsigns, confCalls...), req.Callsigns...)
 	id.IPs = append(id.IPs, ownPublicIPs(ns)...)
 	opts := diag.BundleOptions{
 		MaskIdentity: req.MaskIdentity,
-		Secrets:      append(diag.ExtractSecrets(allConf.String()), req.Secrets...),
+		Secrets:      append(append(diag.ExtractSecrets(allConf.String()), confSecrets...), req.Secrets...),
 		Identity:     id,
 	}
 	b, err := newDiagBuilder(diagTempBases, opts, o.now(), req.Version)
@@ -573,11 +617,6 @@ func (o *Ops) diagVersions(ctx context.Context, aslcp string) string {
 	if aslcp != "" {
 		fmt.Fprintf(&w, "ASLCP: %s\n", aslcp)
 	}
-	if out, code, err := o.Run.Run(ctx, "asterisk", "-V"); err == nil && code == 0 {
-		fmt.Fprintf(&w, "Asterisk: %s\n", strings.TrimSpace(out))
-	} else {
-		w.WriteString("Asterisk: (not available)\n")
-	}
 	if b, err := os.ReadFile(o.osRelease()); err == nil {
 		fmt.Fprintf(&w, "OS: %s\n", orDefault(diag.ParseOSRelease(string(b)), "(unknown)"))
 	}
@@ -586,7 +625,7 @@ func (o *Ops) diagVersions(ctx context.Context, aslcp string) string {
 	}
 	w.WriteString("\nInstalled packages\n")
 	out, _, err := o.Run.Run(ctx, "dpkg-query", "-W", "-f=${db:Status-Abbrev} ${Package} ${Version}\\n",
-		"asl3*", "asterisk*", "allmon3", "md380*", "aslcp*")
+		"md380*", "aslcp*")
 	if err != nil {
 		w.WriteString("(not available: dpkg-query could not be run)\n")
 		return w.String()

@@ -80,9 +80,12 @@ func Authorized(uid uint32, allowed []uint32) bool {
 	return false
 }
 
-// maxRequest bounds requests of the plain operations; config operations may
-// carry files and are bounded by maxConfigRequest.
-const maxRequest = 4096
+// maxRequest bounds requests of the plain operations; diag-collect may send
+// more, up to maxReadRequest.
+const (
+	maxRequest     = 4096
+	maxReadRequest = 1 << 20
+)
 
 // Serve accepts connections on ln until ctx is done or the idle timeout
 // passes with no connection and no request in flight.
@@ -159,7 +162,7 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 	// no unread data pending (which would turn our reply into a reset).
 	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	var req Request
-	dec := json.NewDecoder(io.LimitReader(conn, maxConfigRequest))
+	dec := json.NewDecoder(io.LimitReader(conn, maxReadRequest))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
 		s.logf("bad request: %v", err)
@@ -173,7 +176,7 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 		// would turn the close after our reply into a connection reset.
 		drainUnread(conn, dec.Buffered())
 	}
-	if !isConfigOp(req.Op) && req.Op != OpDiagCollect && dec.InputOffset() > maxRequest {
+	if req.Op != OpDiagCollect && dec.InputOffset() > maxRequest {
 		s.logf("request too large for op %s", safeOp(req.Op))
 		fail("invalid request")
 		return
@@ -292,7 +295,7 @@ func knownOp(op string) bool {
 		return true
 	}
 	switch op {
-	case OpUpdateStatus, OpUpdateCheck, OpUpdateApply, OpOSCheck, OpOSStatus, OpOSApply, OpReboot, OpAslcpRestart, OpDVStatus, OpDVJob, OpDVEnable, OpDVDisable, OpDVPrivate, OpDVNetwork, OpDVConfig, OpDVRestart, OpFirewallStatus, OpFirewallOpen, OpChannelStable, OpChannelBeta, OpAsteriskRestart, OpConfigList, OpConfigRead, OpConfigApply, OpConfigLog, OpConfigShow, OpConfigRestore, OpConfigRecord, OpBackupInfo, OpBackupCreate, OpBackupRestore:
+	case OpUpdateStatus, OpUpdateCheck, OpUpdateApply, OpOSCheck, OpOSStatus, OpOSApply, OpReboot, OpAslcpRestart, OpFirewallStatus, OpFirewallOpen, OpChannelStable, OpChannelBeta, OpBackupInfo, OpBackupCreate, OpBackupRestore:
 		return true
 	}
 	return false

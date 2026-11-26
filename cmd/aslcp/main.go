@@ -201,7 +201,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 			return err
 		}
 		defer os.RemoveAll(demoDir)
-		ops, err := helper.NewDemoOps(demoDir, map[string]string{})
+		ops, err := helper.NewDemoOps(demoDir, "")
 		if err != nil {
 			return err
 		}
@@ -310,7 +310,7 @@ func run(cfgPath string, dev, demoMode bool) error {
 // backupMaintenance purges expired uploads and, after a restore, completes
 // the health check once the node has had time to come back.
 func backupMaintenance(ctx context.Context, bk *backupsvc.Service, n *node.Client) {
-	bk.RunHealth(ctx, func(ctx context.Context, _ []string) []backupsvc.Check {
+	bk.RunHealth(ctx, func(ctx context.Context) []backupsvc.Check {
 		checks := []backupsvc.Check{{Name: "ASLCP", OK: true, Detail: "restarted with the restored database"}}
 		sctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		st, err := n.Status(sctx)

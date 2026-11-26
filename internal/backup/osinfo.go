@@ -1,7 +1,6 @@
 package backup
 
 import (
-	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -13,21 +12,8 @@ type OSInfo struct {
 	Pretty   string // PRETTY_NAME
 }
 
-// debSuffix matches the ".debNN" release suffix of ASL3 and Asterisk
-// version strings (22.10.1+asl3-3.10.8-1.deb12).
-var debSuffix = regexp.MustCompile(`\.deb([0-9]{1,2})(?:$|[^0-9])`)
-
 // debCodenames maps the Debian major version to its codename.
 var debCodenames = map[string]string{"12": "bookworm", "13": "trixie", "14": "forky"}
-
-// CodenameFromVersion derives the Debian codename from a ".debNN" suffix of
-// a package version; "" when there is none or the release is unknown.
-func CodenameFromVersion(v string) string {
-	if m := debSuffix.FindStringSubmatch(v); m != nil {
-		return debCodenames[m[1]]
-	}
-	return ""
-}
 
 // ParseOSRelease reads the keys it needs from the content of an os-release
 // file (KEY=value or KEY="value" lines).
@@ -55,19 +41,6 @@ func ParseOSRelease(data []byte) OSInfo {
 		}
 	}
 	return o
-}
-
-// ReleaseOf returns the Debian codename of a backup or node: the explicit
-// codename if known, else derived from the ASL3 and then the Asterisk
-// version.
-func ReleaseOf(codename, asl3Version, asteriskVersion string) string {
-	if codename != "" {
-		return codename
-	}
-	if c := CodenameFromVersion(asl3Version); c != "" {
-		return c
-	}
-	return CodenameFromVersion(asteriskVersion)
 }
 
 // DebianNumber returns the Debian major version of a known codename

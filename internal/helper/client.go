@@ -8,7 +8,6 @@ import (
 	"io"
 	"io/fs"
 	"net"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -40,7 +39,7 @@ func (c *Client) Do(ctx context.Context, op string, out any) error {
 	return c.do(ctx, Request{Op: op}, out, 1<<20)
 }
 
-// maxConfigResponse bounds config-* responses (file lists, diffs).
+// maxResponse bounds the larger responses (restore results, logs).
 const maxConfigResponse = 16 << 20
 
 func (c *Client) do(ctx context.Context, req Request, out any, maxResp int64) error {
@@ -81,20 +80,6 @@ func (c *Client) do(ctx context.Context, req Request, out any, maxResp int64) er
 		}
 		if e.Error == ErrAptBusy.Error() {
 			return ErrAptBusy
-		}
-		for _, de := range dvErrors {
-			if strings.HasPrefix(e.Error, de.Error()) {
-				return fmt.Errorf("%w%s", de, strings.TrimPrefix(e.Error, de.Error()))
-			}
-		}
-		if strings.HasPrefix(e.Error, conflictPrefix) {
-			var files []string
-			for _, f := range strings.Split(strings.TrimPrefix(e.Error, conflictPrefix), ", ") {
-				if f != "" {
-					files = append(files, f)
-				}
-			}
-			return &ConflictError{Files: files}
 		}
 		return errors.New(e.Error)
 	}
@@ -156,60 +141,6 @@ func (c *Client) FirewallStatus(ctx context.Context) (Firewall, error) {
 func (c *Client) FirewallOpen(ctx context.Context) (Firewall, error) {
 	var f Firewall
 	return f, c.Do(ctx, OpFirewallOpen, &f)
-}
-
-func (c *Client) config(ctx context.Context, op string, cr *ConfigRequest, out any) error {
-	return c.do(ctx, Request{Op: op, Config: cr}, out, maxConfigResponse)
-}
-
-// ConfigList calls config-list.
-func (c *Client) ConfigList(ctx context.Context) ([]ConfigInfo, error) {
-	var v []ConfigInfo
-	return v, c.config(ctx, OpConfigList, nil, &v)
-}
-
-// ConfigRead calls config-read.
-func (c *Client) ConfigRead(ctx context.Context, path string) (ConfigContent, error) {
-	var v ConfigContent
-	return v, c.config(ctx, OpConfigRead, &ConfigRequest{Path: path}, &v)
-}
-
-// ConfigApply calls config-apply. A conflict is returned as *ConflictError.
-func (c *Client) ConfigApply(ctx context.Context, files []ConfigFile, message, author string) (ConfigApplyResult, error) {
-	var v ConfigApplyResult
-	return v, c.config(ctx, OpConfigApply, &ConfigRequest{Files: files, Message: message, Author: author}, &v)
-}
-
-// ConfigLog calls config-log.
-func (c *Client) ConfigLog(ctx context.Context, limit, offset int) ([]ConfigCommit, error) {
-	var v []ConfigCommit
-	return v, c.config(ctx, OpConfigLog, &ConfigRequest{Limit: limit, Offset: offset}, &v)
-}
-
-// ConfigShow calls config-show.
-func (c *Client) ConfigShow(ctx context.Context, commit string) (ConfigShowResult, error) {
-	var v ConfigShowResult
-	return v, c.config(ctx, OpConfigShow, &ConfigRequest{Commit: commit}, &v)
-}
-
-// ConfigRestore calls config-restore.
-func (c *Client) ConfigRestore(ctx context.Context, commit, author string) (ConfigApplyResult, error) {
-	var v ConfigApplyResult
-	return v, c.config(ctx, OpConfigRestore, &ConfigRequest{Commit: commit, Author: author}, &v)
-}
-
-// ConfigRecord calls config-record: the helper commits the current content of
-// a radio interface configuration (simpleusb.conf, usbradio.conf) to the
-// history.
-func (c *Client) ConfigRecord(ctx context.Context, path, message, author string) (ConfigApplyResult, error) {
-	var v ConfigApplyResult
-	return v, c.config(ctx, OpConfigRecord, &ConfigRequest{Path: path, Message: message, Author: author}, &v)
-}
-
-// AsteriskRestart calls asterisk-restart.
-func (c *Client) AsteriskRestart(ctx context.Context) error {
-	var v OKResult
-	return c.config(ctx, OpAsteriskRestart, nil, &v)
 }
 
 // BackupInfo calls backup-info.
@@ -342,70 +273,4 @@ func (c *Client) Reboot(ctx context.Context) error {
 func (c *Client) RestartASLCP(ctx context.Context) error {
 	var v OKResult
 	return c.Do(ctx, OpAslcpRestart, &v)
-}
-
-// DVStatus calls dv-status.
-func (c *Client) DVStatus(ctx context.Context) (DVStatus, error) {
-	var s DVStatus
-	return s, c.Do(ctx, OpDVStatus, &s)
-}
-
-// DVEnable calls dv-enable: the install job starts and the status comes back.
-func (c *Client) DVEnable(ctx context.Context) (DVStatus, error) {
-	var s DVStatus
-	return s, c.Do(ctx, OpDVEnable, &s)
-}
-
-// DVDisable calls dv-disable.
-func (c *Client) DVDisable(ctx context.Context) (DVStatus, error) {
-	var s DVStatus
-	return s, c.Do(ctx, OpDVDisable, &s)
-}
-
-// DVJob calls dv-job.
-func (c *Client) DVJob(ctx context.Context) (DVJob, error) {
-	var s DVJob
-	return s, c.Do(ctx, OpDVJob, &s)
-}
-
-// DVConfig calls dv-config: the engine's config.json is rendered.
-func (c *Client) DVConfig(ctx context.Context) (DVConfigResult, error) {
-	var r DVConfigResult
-	return r, c.Do(ctx, OpDVConfig, &r)
-}
-
-// DVNetworkGet calls dv-network without an argument: it reads.
-func (c *Client) DVNetworkGet(ctx context.Context) (DVNetworkReply, error) {
-	var r DVNetworkReply
-	return r, c.Do(ctx, OpDVNetwork, &r)
-}
-
-// DVNetworkSet calls dv-network with an update of one network or the identity.
-func (c *Client) DVNetworkSet(ctx context.Context, req DVNetworkRequest) (DVNetworkReply, error) {
-	var r DVNetworkReply
-	return r, c.do(ctx, Request{Op: OpDVNetwork, DV: &DVRequest{Network: &req}}, &r, 1<<20)
-}
-
-// DVRestart calls dv-restart.
-func (c *Client) DVRestart(ctx context.Context) (DVStatus, error) {
-	var s DVStatus
-	return s, c.Do(ctx, OpDVRestart, &s)
-}
-
-// DVPrivateGet calls dv-private without a record: it reads.
-func (c *Client) DVPrivateGet(ctx context.Context) (DVPrivateReply, error) {
-	var r DVPrivateReply
-	return r, c.Do(ctx, OpDVPrivate, &r)
-}
-
-// DVPrivateSet calls dv-private with a record.
-func (c *Client) DVPrivateSet(ctx context.Context, rec DVPrivateRecord) (DVPrivateReply, error) {
-	var r DVPrivateReply
-	return r, c.do(ctx, Request{Op: OpDVPrivate, DV: &DVRequest{Private: &rec}}, &r, 1<<20)
-}
-
-// DVPrivateClear calls dv-private with clear.
-func (c *Client) DVPrivateClear(ctx context.Context) (DVPrivateReply, error) {
-	var r DVPrivateReply
-	return r, c.do(ctx, Request{Op: OpDVPrivate, DV: &DVRequest{Clear: true}}, &r, 1<<20)
 }

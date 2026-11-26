@@ -111,7 +111,7 @@ func (d *DemoHelper) SetChannel(_ context.Context, channel string) (helper.Statu
 // demoOSPackages are the simulated upgradable packages.
 func demoOSPackages() []helper.OSPackage {
 	return []helper.OSPackage{
-		{Name: "asterisk", From: "1:20.5.0-1", To: "1:20.9.0-1", Origin: "AllStarLink:bookworm"},
+		{Name: "curl", From: "7.88.1-10+deb12u7", To: "7.88.1-10+deb12u8", Origin: "Debian:12.8/stable"},
 		{Name: "libssl3", From: "3.0.11-1~deb12u1", To: "3.0.13-1~deb12u2", Origin: "Debian-Security:12/stable-security", Security: true},
 		{Name: "linux-image-rpi-v8", From: "6.1.63-1+rpt1", To: "6.1.69-1+rpt1", Origin: "Raspberry Pi Foundation:bookworm"},
 		{Name: "tzdata", From: "2024a-0+deb12u1", To: "2024b-0+deb12u1", Origin: "Debian:12.8/stable"},
@@ -129,7 +129,7 @@ func (d *DemoHelper) osStatus() helper.OSStatus {
 				d.osFinished, d.osApplied, d.osReboot = true, true, true
 			}
 			st.Job = helper.JobSucceeded
-			st.JobLog = "Setting up libssl3 (3.0.13-1~deb12u2) ...\nSetting up asterisk (1:20.9.0-1) ...\n(demo: nothing was installed)"
+			st.JobLog = "Setting up libssl3 (3.0.13-1~deb12u2) ...\nSetting up curl (7.88.1-10+deb12u8) ...\n(demo: nothing was installed)"
 		}
 	}
 	if d.osReboot {

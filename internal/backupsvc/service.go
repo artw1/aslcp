@@ -17,7 +17,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -79,7 +78,6 @@ type pending struct {
 	created time.Time
 	m       *backup.Manifest
 	prev    Preview
-	offered map[string]bool
 }
 
 const (
@@ -132,14 +130,7 @@ func systemTimezone() string {
 
 // Info reports which optional parts exist on this node.
 func (s *Service) Info(ctx context.Context) (helper.BackupInfo, error) {
-	info, err := s.o.Helper.BackupInfo(ctx)
-	if err != nil {
-		return info, err
-	}
-	if info.Parts == nil {
-		info.Parts = []helper.BackupPartInfo{}
-	}
-	return info, nil
+	return s.o.Helper.BackupInfo(ctx)
 }
 
 // ---------------------------------------------------------------- create
@@ -234,18 +225,8 @@ func (s *Service) Create(ctx context.Context, req helper.BackupRequest, who stri
 	now := s.o.Now()
 	m := &backup.Manifest{
 		Format: backup.FormatVersion, Created: now.UTC().Truncate(time.Second), CreatedBy: who, ASLCPVersion: s.o.Version,
-		ASL3Version: h.ASL3Version, AsteriskVersion: h.AsteriskVersion, Hostname: s.o.Hostname(), Timezone: s.o.Timezone(),
-		Arch: h.Arch, OSID: h.OSID, OSVersionCodename: h.OSCodename, OSPrettyName: h.OSName, Nodes: nonNil(h.Nodes), Channel: h.Channel, Packages: h.Packages, Parts: h.Parts,
-		MissingStock: h.MissingStock, Skipped: skipped,
-	}
-	if m.Packages == nil {
-		m.Packages = []backup.Package{}
-	}
-	if m.MissingStock == nil {
-		m.MissingStock = []backup.MissingStock{}
-	}
-	if m.Parts.Sounds == nil {
-		m.Parts.Sounds = []string{}
+		Hostname: s.o.Hostname(), Timezone: s.o.Timezone(), Arch: h.Arch, OSID: h.OSID, OSVersionCodename: h.OSCodename,
+		OSPrettyName: h.OSName, Callsign: h.Callsign, Channel: h.Channel, Parts: h.Parts, Skipped: skipped,
 	}
 	order := append([]backup.Entry(nil), h.Entries...) // NewWriter sorts m.Files in place
 	m.Files = append(append([]backup.Entry(nil), h.Entries...), func() []backup.Entry {
@@ -277,14 +258,10 @@ func (s *Service) Create(ctx context.Context, req helper.BackupRequest, who stri
 		if err != nil {
 			return nil, fmt.Errorf("the helper's backup stream ended early: %w", err)
 		}
-		if hd.Name != e.Path && hd.Name != e.Path+"/" {
+		if hd.Name != e.Path {
 			return nil, fmt.Errorf("the helper's backup stream is out of order at %q", e.Path)
 		}
-		var body io.Reader
-		if e.Type == backup.TypeFile {
-			body = tr
-		}
-		if err := w.Add(e.Path, body); err != nil {
+		if err := w.Add(e.Path, tr); err != nil {
 			return nil, err
 		}
 	}
@@ -316,24 +293,8 @@ func (s *Service) Create(ctx context.Context, req helper.BackupRequest, who stri
 	return &Created{Name: fileName(m.Hostname, now), Size: fi.Size(), File: out, dir: dir}, nil
 }
 
-func nonNil(s []string) []string {
-	if s == nil {
-		return []string{}
-	}
-	return s
-}
-
 func newID() string {
 	var b [16]byte
 	_, _ = rand.Read(b[:])
 	return hex.EncodeToString(b[:])
-}
-
-func sortedKeys(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }

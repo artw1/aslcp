@@ -13,10 +13,10 @@ import (
 	"time"
 )
 
-// ASL services switch of the System tab (plan 6): turn Cockpit, Apache and
-// Allmon3 off or on again. Only "systemctl disable --now" and "enable --now"
-// (plus "stop" for a static unit): nothing is ever uninstalled, because the
-// asl3-pi-appliance meta-package depends on these packages.
+// Services switch of the System tab (plan 6): turn Cockpit, Apache and
+// Allmon3 off or on again on a node that still has them from an earlier
+// install. Only "systemctl disable --now" and "enable --now" (plus "stop"
+// for a static unit): nothing is ever uninstalled.
 const (
 	OpSvcStatus = "svc-status" // read only
 	OpSvcSet    = "svc-set"    // SysRequest.SvcScope, SvcAction, SvcFirewall

@@ -5,7 +5,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -16,10 +15,7 @@ import (
 
 func newSvc(t *testing.T) (*Service, *store.Store, string) {
 	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not installed")
-	}
-	ops, err := helper.NewDemoOps(t.TempDir(), map[string]string{"rpt.conf": "[1999]\nrxchannel = SimpleUSB/usb\n"})
+	ops, err := helper.NewDemoOps(t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +35,7 @@ func newSvc(t *testing.T) (*Service, *store.Store, string) {
 
 func TestStagedRestoreAndSwap(t *testing.T) {
 	s, st, data := newSvc(t)
-	c, err := s.Create(context.Background(), helper.BackupRequest{History: true}, "alice")
+	c, err := s.Create(context.Background(), helper.BackupRequest{Secrets: true}, "alice")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,16 +44,15 @@ func TestStagedRestoreAndSwap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if up.Preview.Backup.Hostname != "node-a" || len(up.Preview.Users) != 1 {
-		t.Fatalf("preview %+v", up.Preview)
+	pv := up.Preview
+	if pv.Backup.Hostname != "node-a" || len(pv.Users) != 1 || !pv.Parts.Node || !pv.Parts.Secrets || !pv.Parts.SA818 ||
+		pv.Radio == nil || len(pv.Modes) == 0 || len(pv.MissingSecrets) != 0 {
+		t.Fatalf("preview %+v", pv)
 	}
-	if _, err := s.Apply(context.Background(), "nope", nil, "alice"); err != ErrNotFound {
+	if _, err := s.Apply(context.Background(), "nope", "alice"); err != ErrNotFound {
 		t.Fatalf("unknown id: %v", err)
 	}
-	if _, err := s.Apply(context.Background(), up.ID, []string{"rpt.conf"}, "alice"); err == nil {
-		t.Fatal("deleting a file that is not offered must fail")
-	}
-	res, err := s.Apply(context.Background(), up.ID, nil, "alice")
+	res, err := s.Apply(context.Background(), up.ID, "alice")
 	if err != nil || !res.OK || !res.Restarting {
 		t.Fatalf("apply: %+v %v", res, err)
 	}
@@ -99,7 +94,7 @@ func TestStagedRestoreAndSwap(t *testing.T) {
 
 	// health check completes the pending result
 	s2 := New(s.o)
-	s2.RunHealth(context.Background(), func(context.Context, []string) []Check {
+	s2.RunHealth(context.Background(), func(context.Context) []Check {
 		return []Check{{Name: "x", OK: true, Detail: "fine"}}
 	})
 	r, _ = s2.LastResult()

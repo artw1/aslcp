@@ -31,18 +31,18 @@ const (
 )
 
 // logUnits is the allowlist of the journal viewer: no unit name comes from a
-// client except to select one of these. The digital modes units are
-// the engine, the vocoder and the enable job.
+// client except to select one of these. md380-emu is the AMBE vocoder the
+// DMR, YSF, P25 and NXDN modes use.
 func logUnits() []string {
-	units := []string{"asterisk", "aslcp", "aslcp-helper", "NetworkManager", "systemd-networkd", "aslcp-wifi-watchdog"}
-	return append(units, dvEngineUnit, dvMD380Unit, dvEnableUnit)
+	return []string{nodeService, "aslcp", "aslcp-helper", "md380-emu", "NetworkManager", "systemd-networkd", "aslcp-wifi-watchdog"}
 }
 
 // LogUnits returns the units the journal viewer accepts.
 func LogUnits() []string { return logUnits() }
 
 // serviceUnits are the units of the service list: the journal allowlist plus
-// the ASL3 web services and the time and firewall services.
+// the web services an older install may still run (see the services
+// switch) and the time and firewall services.
 func serviceUnits() []string {
 	return append(logUnits(), "cockpit.socket", "apache2", "allmon3", "firewalld", "chrony", "systemd-timesyncd")
 }

@@ -193,8 +193,8 @@ func TestPoweroff(t *testing.T) {
 
 func TestLogsRead(t *testing.T) {
 	ctx := context.Background()
-	o, f := sysOpsWith(map[string]resp{"journalctl": {out: "2026-11-20T09:00:00-0600 node2001 asterisk[1]: hello\n"}})
-	for _, tc := range []struct{ unit, since string }{{"sshd", ""}, {"asterisk;ls", ""}, {"-n", ""}, {"", ""}, {"asterisk.service", ""}, {"asterisk", "forever"}, {"asterisk", "--since=x"}} {
+	o, f := sysOpsWith(map[string]resp{"journalctl": {out: "2026-11-20T09:00:00-0600 node2001 aslcp-node[1]: hello\n"}})
+	for _, tc := range []struct{ unit, since string }{{"sshd", ""}, {"aslcp-node;ls", ""}, {"-n", ""}, {"", ""}, {"aslcp-node.service", ""}, {"aslcp-node", "forever"}, {"aslcp-node", "--since=x"}} {
 		if _, err := o.LogsRead(ctx, tc.unit, 100, tc.since); err == nil {
 			t.Errorf("%+v accepted", tc)
 		}
@@ -208,10 +208,10 @@ func TestLogsRead(t *testing.T) {
 		since string
 		want  string
 	}{
-		{"asterisk", 0, "", "journalctl -u asterisk -n 200 --no-pager -o short-iso"},
+		{"aslcp-node", 0, "", "journalctl -u aslcp-node -n 200 --no-pager -o short-iso"},
 		{"aslcp", 5, "", "journalctl -u aslcp -n 50 --no-pager -o short-iso"},
 		{"NetworkManager", 99999, "1h", "journalctl -u NetworkManager -n 1000 --no-pager -o short-iso --since 1 hour ago"},
-		{"aslcp-dv", 300, "24h", "journalctl -u aslcp-dv -n 300 --no-pager -o short-iso --since 24 hours ago"},
+		{"md380-emu", 300, "24h", "journalctl -u md380-emu -n 300 --no-pager -o short-iso --since 24 hours ago"},
 		{"aslcp-helper", 100, "boot", "journalctl -u aslcp-helper -n 100 --no-pager -o short-iso -b"},
 	}
 	for _, c := range cases {
@@ -226,7 +226,7 @@ func TestLogsRead(t *testing.T) {
 	}
 	// no journalctl: unavailable, not an error
 	o2, _ := sysOpsWith(map[string]resp{})
-	if res, err := o2.LogsRead(ctx, "asterisk", 100, ""); err != nil || res.Available {
+	if res, err := o2.LogsRead(ctx, "aslcp-node", 100, ""); err != nil || res.Available {
 		t.Fatalf("%+v %v", res, err)
 	}
 }
@@ -242,7 +242,7 @@ func TestCapTail(t *testing.T) {
 }
 
 func TestLogUnitsContainRequired(t *testing.T) {
-	for _, u := range []string{"asterisk", "aslcp", "aslcp-helper", "NetworkManager", "systemd-networkd", "aslcp-dv", "md380-emu", "aslcp-dv-enable"} {
+	for _, u := range []string{"aslcp-node", "aslcp", "aslcp-helper", "NetworkManager", "systemd-networkd", "md380-emu", "aslcp-wifi-watchdog"} {
 		if !ValidLogUnit(u) {
 			t.Errorf("%s missing", u)
 		}
@@ -267,7 +267,7 @@ func TestServicesStatusArgv(t *testing.T) {
 		t.Fatalf("%+v", res)
 	}
 	c := f.calls[0]
-	for _, w := range []string{"asterisk.service", "cockpit.socket", "apache2.service", "allmon3.service", "aslcp-dv.service", "md380-emu.service", " -- "} {
+	for _, w := range []string{"aslcp-node.service", "cockpit.socket", "md380-emu.service", " -- "} {
 		if !strings.Contains(c, w) {
 			t.Errorf("%s missing from %s", w, c)
 		}
@@ -346,8 +346,8 @@ func TestSysOpsDispatch(t *testing.T) {
 	if _, err := o.HandleRequest(ctx, Request{Op: OpReboot, Sys: &SysRequest{}}); err == nil {
 		t.Fatal("sys field accepted by reboot")
 	}
-	if _, err := o.HandleRequest(ctx, Request{Op: OpHostStatus, Config: &ConfigRequest{}}); err == nil {
-		t.Fatal("config field accepted by host-status")
+	if _, err := o.HandleRequest(ctx, Request{Op: OpHostStatus, Backup: &BackupRequest{}}); err == nil {
+		t.Fatal("backup field accepted by host-status")
 	}
 	if _, err := o.HandleRequest(ctx, Request{Op: OpHostSetNTP}); err == nil {
 		t.Fatal("ntp without value accepted")
