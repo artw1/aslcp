@@ -13,6 +13,13 @@ Register on AllStarLink, get a node number, install ASLCP, enter a few numbers a
 | EchoLink callsign (with or without -L) and password | EchoLink account |
 | Radio frequency and CTCSS/DCS | Written to the SA818; skipped for a radioless node |
 
+**One screen, no wizards.** Those fields are the whole setup: fill them in, save, and the node registers and is on the air. Nothing else is asked.
+
+- **Detected, not asked:** the SHARI's CM108B sound chip and its PTT and COS pins, and the SA818's serial port. No sound card or "usbinvert" choice.
+- **Levels:** our AGC handles receive and network audio. At most a single TX deviation slider, set once.
+- **Gone:** rpt.conf, iax.conf, extensions.conf, simpleusb.conf and the wizards that write them, plus Asterisk restarts after a change. Settings apply live.
+- **Upgrades from ASL3:** a one-time import reads the existing config and fills in the same screen. New installs never see it.
+
 **Outbound only.** The node makes connections; it does not take them. AllStar out needs no port forwarding: our node starts the IAX2 call, the router keeps the reply path open, and the far node's IP check matches because registration and the call leave from the same public IP. EchoLink out works behind most home routers the same way. Incoming IAX2 calls are refused, so there is no public port to secure.
 
 **Later, only if problems show up:** UPnP or NAT-PMP port opening, EchoLink proxy or relay fallback for strict NAT, and hints for -L/-R callsigns.
