@@ -3,6 +3,8 @@ package node
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -44,12 +46,17 @@ func quietConfig() *Config {
 	}
 }
 
-func newRig(t *testing.T, cfg *Config) *rig {
+func newRig(t *testing.T, cfg *Config) *rig { return newRigAt(t, cfg, "") }
+
+// newRigAt is newRig with the remembered tunes kept in the file tunePath,
+// so a second rig on the same path is a restart.
+func newRigAt(t *testing.T, cfg *Config, tunePath string) *rig {
 	t.Helper()
 	g := &rig{t: t, r: radio.NewFake(), now: t0, fakes: map[string]*modetest.Fake{}}
 	e, err := New(cfg, Options{
-		Radio: g.r,
-		Now:   g.clock,
+		Radio:    g.r,
+		TunePath: tunePath,
+		Now:      g.clock,
 		Build: func(n string, _ mode.Env, _ mode.Settings) (mode.Mode, error) {
 			g.mu.Lock()
 			defer g.mu.Unlock()
@@ -195,13 +202,17 @@ func TestOneModeAtATime(t *testing.T) {
 }
 
 func TestSelectSavesAndRestores(t *testing.T) {
-	g := newRig(t, quietConfig())
+	tp := filepath.Join(t.TempDir(), "tune.json")
+	g := newRigAt(t, quietConfig(), tp)
 	g.sel(mode.BM, &mode.Target{ID: "91"})
 	cfg := g.e.Config()
-	if a := cfg.Station.Active; a == nil || a.Mode != mode.BM || a.Target == nil || a.Target.ID != "91" {
-		t.Fatalf("active = %+v", cfg.Station.Active)
+	if a := cfg.Station.Active; a == nil || a.Mode != mode.BM || a.Target != nil {
+		t.Fatalf("active = %+v (the target belongs to the tune, not the config)", cfg.Station.Active)
 	}
-	g2 := newRig(t, cfg)
+	if tn, ok := g.e.tuneOf(mode.BM); !ok || tn.Target == nil || tn.Target.ID != "91" || tn.Unlinked {
+		t.Fatalf("tune = %+v", tn)
+	}
+	g2 := newRigAt(t, cfg, tp)
 	bm := g2.fake(mode.BM)
 	if !bm.Running() || len(bm.Connects()) != 1 || bm.Connects()[0].ID != "91" {
 		t.Fatal("active mode and target not restored")
@@ -216,8 +227,130 @@ func TestSelectSavesAndRestores(t *testing.T) {
 	if err := g2.e.Disconnect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if a := g2.e.Config().Station.Active; a == nil || a.Mode != mode.BM || a.Target != nil {
-		t.Fatalf("after disconnect active = %+v", a)
+	if tn, ok := g2.e.tuneOf(mode.BM); !ok || tn.Target != nil || !tn.Unlinked {
+		t.Fatalf("after disconnect tune = %+v", tn)
+	}
+	// An explicit disconnect survives a restart: the mode comes back
+	// active but not linked.
+	g3 := newRigAt(t, g2.e.Config(), tp)
+	if bm3 := g3.fake(mode.BM); !bm3.Running() || len(bm3.Connects()) != 0 {
+		t.Fatalf("restart after an unlink: running=%v connects=%v", bm3.Running(), bm3.Connects())
+	}
+}
+
+// Every mode remembers its own last target and reconnects to it when it is
+// activated, unless the operator disconnected it.
+func TestReactivateReconnectsLastTarget(t *testing.T) {
+	g := newRig(t, quietConfig())
+	g.sel(mode.AllStar, &mode.Target{ID: "2000"})
+	g.sel(mode.BM, &mode.Target{ID: "91"})
+	g.sel(mode.AllStar, nil)
+	as := g.fake(mode.AllStar)
+	if c := as.Connects(); len(c) != 2 || c[1].ID != "2000" {
+		t.Fatalf("allstar connects %+v, want a second connect to 2000", c)
+	}
+	g.sel(mode.BM, nil)
+	if c := g.fake(mode.BM).Connects(); len(c) != 2 || c[1].ID != "91" {
+		t.Fatalf("bm connects %+v", c)
+	}
+	// Selecting the mode that is already active does not link again.
+	g.sel(mode.BM, nil)
+	if c := g.fake(mode.BM).Connects(); len(c) != 2 {
+		t.Fatalf("bm connects %+v after a repeated select", c)
+	}
+	// An explicit disconnect forgets the link; a later activation stays unlinked.
+	if err := g.e.Disconnect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	g.sel(mode.AllStar, nil)
+	g.sel(mode.BM, nil)
+	if c := g.fake(mode.BM).Connects(); len(c) != 2 {
+		t.Fatalf("bm reconnected after an explicit disconnect: %+v", c)
+	}
+	if st := g.e.Status(); st.Active != mode.BM || st.Mode == nil || st.Mode.Target != nil {
+		t.Fatalf("status %+v", st)
+	}
+	// A new explicit connect remembers again.
+	g.sel(mode.BM, &mode.Target{ID: "3100"})
+	g.sel(mode.AllStar, nil)
+	g.sel(mode.BM, nil)
+	if c := g.fake(mode.BM).Connects(); c[len(c)-1].ID != "3100" {
+		t.Fatalf("bm connects %+v", c)
+	}
+}
+
+// A link that drops, or a connect that fails, is not an unlink.
+func TestDropAndFailureKeepTheTune(t *testing.T) {
+	g := newRig(t, quietConfig())
+	g.sel(mode.AllStar, &mode.Target{ID: "2000"})
+	// The mode ends the link by itself, as AllStar does when the far
+	// node disconnects us.
+	_ = g.fake(mode.AllStar).Disconnect(context.Background())
+	time.Sleep(20 * time.Millisecond)
+	if tn, _ := g.e.tuneOf(mode.AllStar); tn.Target == nil || tn.Target.ID != "2000" || tn.Unlinked {
+		t.Fatalf("tune after a drop = %+v", tn)
+	}
+	// A connect the mode refuses is not remembered.
+	as := g.fake(mode.AllStar)
+	as.ConnectFn = func(mode.Target) error { return errors.New("no such node") }
+	if err := g.e.Connect(context.Background(), mode.Target{ID: "9999"}); err == nil {
+		t.Fatal("a refused connect should fail")
+	}
+	if tn, _ := g.e.tuneOf(mode.AllStar); tn.Target == nil || tn.Target.ID != "2000" {
+		t.Fatalf("tune after a refused connect = %+v", tn)
+	}
+	// A remembered target that no longer connects does not stop the mode
+	// from becoming active.
+	g.sel(mode.BM, nil)
+	if err := g.e.Select(context.Background(), mode.AllStar, nil); err != nil {
+		t.Fatalf("activating with a stale tune: %v", err)
+	}
+	if g.e.Status().Active != mode.AllStar {
+		t.Fatal("allstar not active")
+	}
+	if tn, _ := g.e.tuneOf(mode.AllStar); tn.Target == nil || tn.Target.ID != "2000" {
+		t.Fatalf("the stale tune was lost: %+v", tn)
+	}
+}
+
+// An old config's target in Station.Active seeds the mode's tune once.
+func TestMigrateActiveTarget(t *testing.T) {
+	tp := filepath.Join(t.TempDir(), "tune.json")
+	cfg := quietConfig()
+	cfg.Station.Active = &Selection{Mode: mode.BM, Target: &mode.Target{ID: "91"}}
+	g := newRigAt(t, cfg, tp)
+	if c := g.fake(mode.BM).Connects(); len(c) != 1 || c[0].ID != "91" {
+		t.Fatalf("connects %+v", c)
+	}
+	if a := g.e.Config().Station.Active; a == nil || a.Mode != mode.BM || a.Target != nil {
+		t.Fatalf("active = %+v", a)
+	}
+	// An existing tune wins over the old target.
+	if err := os.WriteFile(tp, []byte(`{"version":1,"modes":{"bm":{"unlinked":true}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg = quietConfig()
+	cfg.Station.Active = &Selection{Mode: mode.BM, Target: &mode.Target{ID: "91"}}
+	g = newRigAt(t, cfg, tp)
+	if c := g.fake(mode.BM).Connects(); len(c) != 0 {
+		t.Fatalf("the old target overrode the remembered unlink: %+v", c)
+	}
+}
+
+func TestTuneFileSurvivesBadContent(t *testing.T) {
+	tp := filepath.Join(t.TempDir(), "tune.json")
+	if err := os.WriteFile(tp, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	g := newRigAt(t, quietConfig(), tp)
+	g.sel(mode.BM, &mode.Target{ID: "91"})
+	m, err := loadTunes(tp)
+	if err != nil || m[mode.BM].Target == nil || m[mode.BM].Target.ID != "91" {
+		t.Fatalf("tunes %+v, %v", m, err)
+	}
+	fi, err := os.Stat(tp)
+	if err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("tune file %v %v", fi, err)
 	}
 }
 
@@ -648,25 +781,6 @@ func TestUnkeyRetriedAfterFailure(t *testing.T) {
 	}
 	if st := g.e.Status(); st.Radio.PTTStuck {
 		t.Fatal("still marked stuck")
-	}
-}
-
-func TestFarEndDropForgetsTarget(t *testing.T) {
-	g := newRig(t, quietConfig())
-	g.sel(mode.AllStar, &mode.Target{ID: "2000"})
-	// The mode ends the link by itself, as AllStar does when the far
-	// node disconnects us.
-	_ = g.fake(mode.AllStar).Disconnect(context.Background())
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		a := g.e.Config().Station.Active
-		if a != nil && a.Mode == mode.AllStar && a.Target == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("saved selection %+v", a)
-		}
-		time.Sleep(2 * time.Millisecond)
 	}
 }
 

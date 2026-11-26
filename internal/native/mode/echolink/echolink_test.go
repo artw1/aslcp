@@ -125,10 +125,11 @@ func newMode(t *testing.T, g *loginGate, vals map[string]string) *Mode {
 	for k, v := range vals {
 		s.Values[k] = v
 	}
-	if err := Spec().Check(s); err != nil {
+	env := mode.Env{Callsign: "n0call"}
+	if err := Spec().CheckEnv(env, s); err != nil {
 		t.Fatal(err)
 	}
-	m, err := New(mode.Env{Callsign: "n0call"}, s, Options{Login: g.login, Retry: 5 * time.Millisecond})
+	m, err := New(env, s, Options{Login: g.login, Retry: 5 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}

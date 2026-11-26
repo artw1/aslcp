@@ -65,11 +65,25 @@ func TestValidate(t *testing.T) {
 		{name: "nxdn id max", mod: func(c *Config) { c.Station.NXDNID = 65535 }},
 		{name: "nxdn id", mod: func(c *Config) { c.Station.NXDNID = 65536 }, want: "NXDN ID"},
 		{name: "mode without id", mod: func(c *Config) {
+			c.Station.Callsign = "N0CALL"
 			c.Modes[mode.NXDN] = mode.Settings{}
 		}, want: "NXDN ID is required"},
 		{name: "mode id from station", mod: func(c *Config) {
+			c.Station.Callsign = "N0CALL"
 			c.Station.NXDNID = 12345
 			c.Modes[mode.NXDN] = mode.Settings{}
+		}},
+		{name: "mode callsign from station", mod: func(c *Config) {
+			c.Station.Callsign = "N0CALL"
+			c.Modes[mode.YSF] = mode.Settings{}
+		}},
+		{name: "mode without callsign", mod: func(c *Config) {
+			c.Modes[mode.YSF] = mode.Settings{}
+		}, want: "Callsign is required"},
+		{name: "old default reflector", mod: func(c *Config) {
+			c.Station.Callsign = "N0CALL"
+			c.Station.DMRID = 1234567
+			c.Modes[mode.P25] = mode.Settings{Values: map[string]string{"address": "p25.example.net:41000"}}
 		}},
 		{name: "active", mod: func(c *Config) { c.Station.Active = &Selection{Mode: "fm"} }, want: "active mode"},
 		{name: "several", mod: func(c *Config) {
@@ -166,5 +180,23 @@ func TestDefaults(t *testing.T) {
 	}
 	if p.agc.TargetDb != DefaultAGCTargetDb || p.agc.MaxGainDb != DefaultAGCMaxDb {
 		t.Fatalf("AGC = %+v", p.agc)
+	}
+}
+
+// An old config with a default reflector and a target in the active
+// selection still loads.
+func TestLoadOldConfigKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "node.json")
+	old := `{"version":1,"station":{"callsign":"N0CALL","active":{"mode":"p25","target":{"id":"10100"}}},
+	 "modes":{"p25":{"values":{"address":"192.0.2.9:41000"}},"nxdn":{"values":{"nxdn_id":"12345","address":"192.0.2.10"}},"m17":{"values":{"address":"192.0.2.11:17000"}}}}`
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := c.Station.Active; a == nil || a.Target == nil || a.Target.ID != "10100" {
+		t.Fatalf("active %+v", a)
 	}
 }

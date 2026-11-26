@@ -69,8 +69,10 @@ export type FieldKind = 'text' | 'number' | 'password' | 'bool' | 'select';
 export interface ModeField {
   key: string; label: string; kind: FieldKind; required?: boolean; secret?: boolean;
   default?: string; options?: string[]; help?: string; advanced?: boolean;
-  /** The station ID this field falls back to when left empty: "dmrId" or "nxdnId". A required field with one is optional when the station has that ID. */
-  stationDefault?: 'dmrId' | 'nxdnId';
+  /** The station value this field falls back to when left empty: "callsign", "dmrId" or "nxdnId". A required field with one is optional when the station has that value. */
+  stationDefault?: 'callsign' | 'dmrId' | 'nxdnId';
+  /** Appended to the station value shown as the placeholder (EchoLink uses "-L" after the callsign). */
+  stationSuffix?: string;
 }
 export interface ModeSettings { values?: Record<string, string>; favorites?: Target[]; reflectors?: Target[] }
 /** One mode of GET /api/modes. Operators and viewers get no fields, settings or secretsSet. */
@@ -79,7 +81,15 @@ export interface ModeInfo {
   /** The mode's voice is AMBE: it needs the md380-emu vocoder (see Vocoder). */
   needsAmbe?: boolean;
   fields?: ModeField[]; settings?: ModeSettings; secretsSet?: Record<string, boolean>;
-  configured: boolean; active: boolean; status?: ModeStatus; error?: string;
+  /** Ready to use: every required value is set on the mode or comes from the station. The echo test is always ready. */
+  configured: boolean;
+  /** Keys of the required fields that have no value and no station fallback (admins). */
+  missing?: string[];
+  /** The mode has saved settings of its own. */
+  saved?: boolean;
+  /** The target the mode reconnects to when it becomes active (gone after an explicit disconnect). */
+  last?: Target;
+  active: boolean; status?: ModeStatus; error?: string;
 }
 
 /** GET /api/vocoder and POST /api/vocoder/install (admin). */

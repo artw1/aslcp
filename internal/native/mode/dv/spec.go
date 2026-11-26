@@ -26,10 +26,11 @@ import (
 // Setting keys with a meaning of their own. Every other field of a DV
 // mode is passed to the network as an option of the same name.
 const (
+	KeyCallsign = "callsign"
 	KeyDMRID    = "dmr_id"
 	KeyNXDNID   = "nxdn_id"
 	KeyPassword = "password"
-	KeyAddress  = "address" // host or host:port of the master or default reflector
+	KeyAddress  = "address" // host or host:port of the master
 	KeyOptions  = "options" // extra network options, "key=value, key=value"
 )
 
@@ -52,11 +53,19 @@ type def struct {
 	ambe        bool // the network carries AMBE voice, so the md380-emu vocoder is needed
 	label, help string
 	fields      []mode.Field
+	legacy      []string // setting keys of older configs, ignored (see mode.Spec.Legacy)
 	check       func(mode.Settings) error
 }
 
 var dmrIDField = mode.Field{Key: KeyDMRID, Label: "DMR ID", Kind: mode.FieldNumber, Required: true,
 	StationDefault: mode.StationDMRID, Help: "Your 7-digit DMR radio ID."}
+
+// callsignField is the callsign the network is told. Empty means the station
+// callsign. needed says the network cannot run without one.
+func callsignField(needed bool) mode.Field {
+	return mode.Field{Key: KeyCallsign, Label: "Callsign", Kind: mode.FieldText, Required: needed, Advanced: !needed,
+		StationDefault: mode.StationCallsign, Help: "Leave empty to use the station callsign."}
+}
 
 func advanced(key, label string, kind mode.FieldKind, def, help string) mode.Field {
 	return mode.Field{Key: key, Label: label, Kind: kind, Default: def, Help: help, Advanced: true}
@@ -74,6 +83,7 @@ var defs = []def{
 		label: "Talkgroup", help: "A BrandMeister talkgroup number. 9990 is the Parrot echo test.",
 		fields: []mode.Field{
 			dmrIDField,
+			callsignField(false),
 			{Key: KeyPassword, Label: "Hotspot password", Kind: mode.FieldPassword, Required: true, Secret: true,
 				Help: "The hotspot security password from your BrandMeister self-care page."},
 			{Key: KeyAddress, Label: "Master server", Kind: mode.FieldText, Required: true,
@@ -90,6 +100,7 @@ var defs = []def{
 		label: "Talkgroup", help: "A TGIF talkgroup number.",
 		fields: []mode.Field{
 			dmrIDField,
+			callsignField(false),
 			{Key: KeyPassword, Label: "Hotspot password", Kind: mode.FieldPassword, Secret: true,
 				Help: "The hotspot security password from your TGIF profile."},
 			advanced(KeyAddress, "Master server", mode.FieldText, "", "Default: the TGIF master."),
@@ -103,6 +114,7 @@ var defs = []def{
 		label: "Talkgroup", help: "A talkgroup number on the master.",
 		fields: []mode.Field{
 			dmrIDField,
+			callsignField(false),
 			{Key: KeyPassword, Label: "Master password", Kind: mode.FieldPassword, Secret: true},
 			{Key: KeyAddress, Label: "Master server", Kind: mode.FieldText, Required: true,
 				Help: "A Homebrew (MMDVM) master, host or host:port."},
@@ -116,6 +128,7 @@ var defs = []def{
 		ambe: true, name: mode.YSF, title: "System Fusion", ctlMode: ctl.ModeYSF, target: targetReflector,
 		label: "Reflector", help: "A reflector from your list, or host:port.",
 		fields: []mode.Field{
+			callsignField(true),
 			advanced("poll_ms", "Poll interval (ms)", mode.FieldNumber, "", ""),
 			advanced("timeout_ms", "Reflector timeout (ms)", mode.FieldNumber, "", ""),
 			optionsField,
@@ -125,35 +138,35 @@ var defs = []def{
 		name: mode.P25, title: "P25", ctlMode: ctl.ModeP25, target: targetTG, needsHost: true,
 		label: "Talkgroup", help: "A P25 talkgroup. The reflector list maps talkgroups to reflector addresses.",
 		fields: []mode.Field{
+			callsignField(true),
 			{Key: KeyDMRID, Label: "Radio ID", Kind: mode.FieldNumber, StationDefault: mode.StationDMRID,
 				Help: "Your DMR ID, used as the P25 source ID."},
-			{Key: KeyAddress, Label: "Default reflector", Kind: mode.FieldText,
-				Help: "host or host:port used for talkgroups not in the reflector list."},
 			optionsField,
 		},
+		legacy: []string{KeyAddress}, // the old default reflector
 	},
 	{
-		ambe: true, name: mode.NXDN, title: "NXDN", ctlMode: ctl.ModeNXDN, target: targetTG,
+		ambe: true, name: mode.NXDN, title: "NXDN", ctlMode: ctl.ModeNXDN, target: targetTG, needsHost: true,
 		label: "Talkgroup", help: "An NXDN talkgroup. The reflector list maps talkgroups to reflector addresses.",
 		fields: []mode.Field{
+			callsignField(true),
 			{Key: KeyNXDNID, Label: "NXDN ID", Kind: mode.FieldNumber, Required: true,
 				StationDefault: mode.StationNXDNID},
-			{Key: KeyAddress, Label: "Default reflector", Kind: mode.FieldText,
-				Help: "host or host:port used for talkgroups not in the reflector list."},
 			advanced("nxdn_ran", "RAN", mode.FieldNumber, "", ""),
 			optionsField,
 		},
+		legacy: []string{KeyAddress},
 	},
 	{
 		name: mode.M17, title: "M17", ctlMode: ctl.ModeM17, target: targetM17,
 		label: "Reflector", help: `A reflector and module, such as "M17-XXX B".`,
 		fields: []mode.Field{
-			{Key: KeyAddress, Label: "Default reflector address", Kind: mode.FieldText,
-				Help: "host or host:port used for reflectors not in the reflector list."},
-			advanced("suffix", "Callsign suffix", mode.FieldText, "", "Added to the station callsign, such as H."),
+			callsignField(true),
+			advanced("suffix", "Callsign suffix", mode.FieldText, "", "Added to the callsign, such as H."),
 			advanced("can", "Channel access number", mode.FieldNumber, "", ""),
 			optionsField,
 		},
+		legacy: []string{KeyAddress},
 	},
 }
 
@@ -166,7 +179,7 @@ func init() {
 func (d def) spec() mode.Spec {
 	return mode.Spec{
 		Name: d.name, Title: d.title, TargetLabel: d.label, TargetHelp: d.help,
-		Fields: d.fields, NeedsHost: d.needsHost || d.target == targetReflector, NeedsAMBE: d.ambe,
+		Fields: d.fields, Legacy: d.legacy, NeedsHost: d.needsHost || d.target == targetReflector, NeedsAMBE: d.ambe,
 		Validate: func(s mode.Settings) error { return d.validate(s) },
 		New: func(env mode.Env, s mode.Settings) (mode.Mode, error) {
 			return New(d.name, env, s, Options{})
@@ -183,6 +196,15 @@ func lookupDef(name string) (def, bool) {
 	return def{}, false
 }
 
+func (d def) field(key string) (mode.Field, bool) {
+	for _, f := range d.fields {
+		if f.Key == key {
+			return f, true
+		}
+	}
+	return mode.Field{}, false
+}
+
 func (d def) validate(s mode.Settings) error {
 	var errs []error
 	if v := s.Get(KeyDMRID, ""); v != "" {
@@ -190,7 +212,9 @@ func (d def) validate(s mode.Settings) error {
 			errs = append(errs, fmt.Errorf("DMR ID %q is not valid", v))
 		}
 	}
-	if v := s.Get(KeyAddress, ""); v != "" {
+	if _, ok := d.field(KeyAddress); !ok {
+		// no address setting: an old default reflector is ignored
+	} else if v := s.Get(KeyAddress, ""); v != "" {
 		if _, _, err := splitAddr(v); err != nil {
 			errs = append(errs, err)
 		}
@@ -246,7 +270,9 @@ func (d def) netConfig(env mode.Env, s mode.Settings) (ctl.NetConfig, ctl.Identi
 		return ctl.NetConfig{}, ctl.Identity{}, err
 	}
 	cfg := ctl.NetConfig{Mode: d.ctlMode, Enabled: true, Password: s.Get(KeyPassword, ""), Options: opts}
-	if a := s.Get(KeyAddress, ""); a != "" {
+	if _, ok := d.field(KeyAddress); !ok {
+		// an old default reflector is ignored
+	} else if a := s.Get(KeyAddress, ""); a != "" {
 		h, p, err := splitAddr(a)
 		if err != nil {
 			return ctl.NetConfig{}, ctl.Identity{}, err
@@ -255,7 +281,7 @@ func (d def) netConfig(env mode.Env, s mode.Settings) (ctl.NetConfig, ctl.Identi
 	}
 	for _, f := range d.fields {
 		switch f.Key {
-		case KeyDMRID, KeyPassword, KeyAddress, KeyOptions:
+		case KeyCallsign, KeyDMRID, KeyPassword, KeyAddress, KeyOptions:
 			continue
 		}
 		v := s.Get(f.Key, f.Default)
@@ -268,7 +294,7 @@ func (d def) netConfig(env mode.Env, s mode.Settings) (ctl.NetConfig, ctl.Identi
 			cfg.Options[f.Key] = v
 		}
 	}
-	id := ctl.Identity{Callsign: strings.ToUpper(env.Callsign)}
+	id := ctl.Identity{Callsign: strings.ToUpper(s.Get(KeyCallsign, env.Callsign))}
 	if v := s.Get(KeyDMRID, ""); v != "" {
 		n, err := strconv.ParseUint(v, 10, 32)
 		if err != nil {
@@ -280,7 +306,7 @@ func (d def) netConfig(env mode.Env, s mode.Settings) (ctl.NetConfig, ctl.Identi
 	}
 	if d.ctlMode == ctl.ModeYSF || d.ctlMode == ctl.ModeM17 || d.ctlMode == ctl.ModeNXDN || d.ctlMode == ctl.ModeP25 {
 		if id.Callsign == "" {
-			return ctl.NetConfig{}, ctl.Identity{}, errors.New("set the station callsign first")
+			return ctl.NetConfig{}, ctl.Identity{}, errors.New("set the station callsign or this mode's callsign")
 		}
 	}
 	return cfg, id, nil
@@ -309,9 +335,6 @@ func (d def) netTarget(s mode.Settings, cfg ctl.NetConfig, t mode.Target) (ctl.T
 			return ctl.Target{}, fmt.Errorf("%q is not a talkgroup number", t.ID)
 		}
 		nt.TG = uint32(n)
-		if nt.Host == "" && cfg.Address != "" && (d.ctlMode == ctl.ModeP25 || d.ctlMode == ctl.ModeNXDN) {
-			nt.Host, nt.Port = cfg.Address, cfg.Port
-		}
 		if d.needsHost && nt.Host == "" {
 			return ctl.Target{}, fmt.Errorf("talkgroup %d has no reflector address: add it to the reflector list", n)
 		}

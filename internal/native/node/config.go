@@ -42,7 +42,8 @@ type Station struct {
 	NXDNID uint32      `json:"nxdnId,omitempty"`
 	Radio  RadioConfig `json:"radio"`
 	ID     IDConfig    `json:"id"`
-	// Active is the mode and target restored at boot.
+	// Active is the mode restored at boot. Its target is read from older
+	// configs only (it seeds the mode's remembered tune); see Tune.
 	Active   *Selection `json:"active,omitempty"`
 	Advanced Advanced   `json:"advanced"`
 }
@@ -392,7 +393,7 @@ func (c *Config) Validate() error {
 			errs = append(errs, fmt.Errorf("mode %q is not a known mode", n))
 			continue
 		}
-		if err := sp.CheckEnv(mode.Env{DMRID: st.DMRID, NXDNID: st.NXDNID}, c.Modes[n]); err != nil {
+		if err := sp.CheckEnv(mode.Env{Callsign: st.Callsign, DMRID: st.DMRID, NXDNID: st.NXDNID}, c.Modes[n]); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -451,36 +452,5 @@ func SaveConfig(path string, c *Config) error {
 		return fmt.Errorf("encode config: %w", err)
 	}
 	b = append(b, '\n')
-	dir := filepath.Dir(path)
-	f, err := os.CreateTemp(dir, ".node-*.json")
-	if err != nil {
-		return fmt.Errorf("save config: %w", err)
-	}
-	tmp := f.Name()
-	ok := false
-	defer func() {
-		if !ok {
-			_ = os.Remove(tmp)
-		}
-	}()
-	if err := f.Chmod(0o600); err != nil {
-		f.Close()
-		return fmt.Errorf("save config: %w", err)
-	}
-	if _, err := f.Write(b); err != nil {
-		f.Close()
-		return fmt.Errorf("save config: %w", err)
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return fmt.Errorf("save config: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("save config: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("save config: %w", err)
-	}
-	ok = true
-	return nil
+	return writeFileAtomic(path, b)
 }

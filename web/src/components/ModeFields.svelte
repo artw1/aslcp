@@ -1,13 +1,17 @@
 <script lang="ts">
   // The settings form of one mode, drawn from the fields the server lists. A password field stays empty and shows "set"
   // when a value is saved; leave it empty to keep it.
+  import { api } from '../lib/api';
+  import { stationHint, stationValue, type StationValues } from '../lib/modes';
   import type { ModeInfo } from '../lib/types';
   let { mode, draft = $bindable(), idPrefix = 'mf' }: { mode: ModeInfo; draft: Record<string, string>; idPrefix?: string } = $props();
   const fields = $derived(mode.fields ?? []);
   const basic = $derived(fields.filter((f) => !f.advanced));
   const adv = $derived(fields.filter((f) => f.advanced));
   const id = (k: string) => `${idPrefix}-${mode.name}-${k}`;
-  const stationHint = (f: { stationDefault?: string }) => `Default: station ${f.stationDefault === 'nxdnId' ? 'NXDN' : 'DMR'} ID`;
+  // The station values the empty fields fall back to; shown as placeholders.
+  let st = $state<StationValues | undefined>(undefined);
+  $effect(() => { if (fields.some((f) => f.stationDefault)) api.station().then((s) => { st = { callsign: s.callsign, dmrId: s.dmrId, nxdnId: s.nxdnId }; }).catch(() => { /* the node checks */ }); });
   const chk = 'size-4 accent-[var(--accent)]';
 </script>
 
@@ -22,10 +26,10 @@
       {:else if (f.kind === 'password' || f.secret)}
         <input id={id(f.key)} class="input" type="password" autocomplete="new-password" bind:value={draft[f.key]} placeholder={mode.secretsSet?.[f.key] ? 'set' : ''} required={f.required && !mode.secretsSet?.[f.key]} />
       {:else}
-        <input id={id(f.key)} class="input {f.kind === 'number' ? 'tabular-nums' : ''}" type={f.kind === 'number' ? 'number' : 'text'} autocomplete="off" bind:value={draft[f.key]} placeholder={f.stationDefault ? stationHint(f) : f.default ?? ''} required={f.required && !f.stationDefault} />
+        <input id={id(f.key)} class="input {f.kind === 'number' ? 'tabular-nums' : ''}" type={f.kind === 'number' ? 'number' : 'text'} autocomplete="off" bind:value={draft[f.key]} placeholder={f.stationDefault ? stationValue(f, st) : f.default ?? ''} required={f.required && !f.stationDefault} />
       {/if}
       {#if f.help}<p class="mt-1 text-xs text-muted">{f.help}</p>{/if}
-      {#if f.stationDefault}<p class="mt-1 text-xs text-muted">Optional. {stationHint(f)}</p>{/if}
+      {#if f.stationDefault}<p class="mt-1 text-xs text-muted">Leave empty to use the station value ({stationHint(f, st)}).</p>{/if}
       {#if (f.kind === 'password' || f.secret) && mode.secretsSet?.[f.key]}<p class="mt-1 text-xs text-muted">Saved. Leave empty to keep it.</p>{/if}
     </div>
   {/if}

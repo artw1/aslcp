@@ -10,7 +10,7 @@ ASLCP 3 runs its own node (`aslcp-node`, see [NATIVE_NODE.md](NATIVE_NODE.md)), 
 |---|---|---|---|
 | ASLCP database | `/var/lib/aslcp/aslcp.db` | `aslcp/aslcp.db` | Always. Users (password hashes), roles, favorites per mode, schedules, settings, public page, audit log. Snapshot with `VACUUM INTO`. Sessions are not restored (everyone logs in again). |
 | ASLCP config file | `/etc/aslcp/aslcp.conf` | `aslcp/aslcp.conf` | Always. The web port (`listen` in `[server]`) is not restored: the node keeps its own. |
-| Node config | `/etc/aslcp/node.json` | `node/node.json` | When present. Station (callsign, radio, IDs, active mode and target) and the settings of every mode. Mode passwords are left out unless the person creating the backup asks for them (`parts.secrets`). |
+| Node config | `/etc/aslcp/node.json` | `node/node.json` | When present. Station (callsign, radio, IDs, active mode) and the settings of every mode. The remembered targets (`tune.json`) are not part of the backup. Mode passwords are left out unless the person creating the backup asks for them (`parts.secrets`). |
 | SA818 settings | `/etc/aslcp/sa818.json` | `node/sa818.json` | When present. The SA818 keeps its channel in its own memory, which cannot be read back; this file is the only copy. |
 | Update channel | suite in `/etc/apt/sources.list.d/aslcp.list` | manifest `channel` | Recorded and shown in the preview; not changed by a restore. |
 

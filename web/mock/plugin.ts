@@ -16,14 +16,15 @@ const byNode = new Map(NODES.map((n) => [n.node, n]));
 const allstarInfo = (n: string) => byNode.get(n) ?? null;
 
 // ---- Modes. Fields are what the settings forms draw; secrets are never returned, only whether they are set.
-type Field = { key: string; label: string; kind: 'text' | 'number' | 'password' | 'bool' | 'select'; required?: boolean; secret?: boolean; default?: string; options?: string[]; help?: string; advanced?: boolean; stationDefault?: 'dmrId' | 'nxdnId' };
+type Field = { key: string; label: string; kind: 'text' | 'number' | 'password' | 'bool' | 'select'; required?: boolean; secret?: boolean; default?: string; options?: string[]; help?: string; advanced?: boolean; stationDefault?: 'callsign' | 'dmrId' | 'nxdnId'; stationSuffix?: string };
 interface ModeDef { name: string; title: string; targetLabel: string; targetHelp: string; needsHost?: boolean; fields: Field[]; targets: string[] }
+const cs = (suffix?: string, required = true): Field => ({ key: 'callsign', label: suffix ? 'EchoLink callsign' : 'Callsign', kind: 'text', required, stationDefault: 'callsign', ...(suffix ? { stationSuffix: suffix } : {}), ...(required ? {} : { advanced: true }) });
 const pw = (key: string, label: string, required = true): Field => ({ key, label, kind: 'password', secret: true, required });
 const MODES: ModeDef[] = [
   { name: 'allstar', title: 'AllStar', targetLabel: 'Node number', targetHelp: 'An AllStar node number, for example 1000.', targets: ['1000', '1037', '1185'],
     fields: [{ key: 'node', label: 'Node number', kind: 'text', required: true, default: '1999' }, pw('password', 'Node password'), { key: 'server', label: 'Registration server', kind: 'text', advanced: true, default: 'register.example.net' }] },
   { name: 'echolink', title: 'EchoLink', targetLabel: 'Callsign or node', targetHelp: 'An EchoLink node number or callsign with -L or -R.', targets: ['N1CALL-L', '123456'],
-    fields: [{ key: 'callsign', label: 'EchoLink callsign', kind: 'text', required: true, default: 'N0CALL-L' }, pw('password', 'EchoLink password'), { key: 'location', label: 'Location text', kind: 'text', advanced: true }] },
+    fields: [cs('-L'), pw('password', 'EchoLink password'), { key: 'location', label: 'Location text', kind: 'text', advanced: true }] },
   { name: 'bm', title: 'BrandMeister', targetLabel: 'Talkgroup', targetHelp: 'A talkgroup number, for example 91.', targets: ['91', '3100', '9'],
     fields: [{ key: 'id', label: 'DMR ID', kind: 'number', required: true, stationDefault: 'dmrId' }, pw('password', 'Hotspot security password'), { key: 'master', label: 'Master', kind: 'text', default: 'master.example.net', advanced: true }] },
   { name: 'dmr', title: 'DMR (other master)', targetLabel: 'Talkgroup', targetHelp: 'A talkgroup on the master you set up.', targets: ['9', '1'],
@@ -31,25 +32,30 @@ const MODES: ModeDef[] = [
   { name: 'tgif', title: 'TGIF', targetLabel: 'Talkgroup', targetHelp: 'A TGIF talkgroup number.', targets: ['31665', '9'],
     fields: [{ key: 'id', label: 'DMR ID', kind: 'number', required: true, stationDefault: 'dmrId' }, pw('password', 'TGIF password')] },
   { name: 'ysf', title: 'YSF', targetLabel: 'Reflector', targetHelp: 'A YSF reflector.', needsHost: true, targets: ['YSF-TEST'],
-    fields: [{ key: 'callsign', label: 'Callsign', kind: 'text', required: true, default: 'N0CALL' }, { key: 'suffix', label: 'Suffix', kind: 'text', advanced: true }] },
+    fields: [cs(), { key: 'suffix', label: 'Suffix', kind: 'text', advanced: true }] },
   { name: 'p25', title: 'P25', targetLabel: 'Talkgroup', targetHelp: 'A P25 reflector talkgroup.', needsHost: true, targets: ['10100'],
-    fields: [{ key: 'id', label: 'DMR ID', kind: 'number', required: true, stationDefault: 'dmrId' }] },
+    fields: [cs(), { key: 'id', label: 'DMR ID', kind: 'number', required: true, stationDefault: 'dmrId' }] },
   { name: 'nxdn', title: 'NXDN', targetLabel: 'Talkgroup', targetHelp: 'An NXDN reflector talkgroup.', needsHost: true, targets: ['65000'],
-    fields: [{ key: 'id', label: 'NXDN ID', kind: 'number', required: true, stationDefault: 'nxdnId' }] },
+    fields: [cs(), { key: 'id', label: 'NXDN ID', kind: 'number', required: true, stationDefault: 'nxdnId' }] },
   { name: 'echotest', title: 'Echo test', targetLabel: 'Target', targetHelp: 'The echo test has no target.', targets: [],
     fields: [{ key: 'codec', label: 'Codec', kind: 'select', options: ['plain', 'ambe', 'imbe', 'codec2', 'gsm', 'ulaw'], default: 'plain', help: 'What the recording goes through before it is played back. Plain is the radio audio unchanged; ambe needs the vocoder.' },
       { key: 'playback_delay_ms', label: 'Playback delay (ms)', kind: 'number', advanced: true, default: '1000' }] },
   { name: 'm17', title: 'M17', targetLabel: 'Reflector and module', targetHelp: 'A reflector and module, for example M17-XXX C.', needsHost: true, targets: ['M17-XXX C'],
-    fields: [{ key: 'callsign', label: 'Callsign', kind: 'text', required: true, default: 'N0CALL' }, { key: 'module', label: 'Module', kind: 'select', options: ['A', 'B', 'C', 'D'], default: 'C' }] },
+    fields: [cs(), { key: 'module', label: 'Module', kind: 'select', options: ['A', 'B', 'C', 'D'], default: 'C' }] },
 ];
 const ambeNeeded = (d: ModeDef) => AMBE_MODES.includes(d.name) || (d.name === 'echotest' && (values.echotest?.codec ?? 'plain').toLowerCase() === 'ambe');
 const defOf = (n: string) => MODES.find((m) => m.name === n);
 const values: Record<string, Record<string, string>> = {
-  allstar: { node: '1999', server: 'register.example.net' }, echolink: { callsign: 'N0CALL-L' }, bm: { id: '1234567', master: 'master.example.net' }, ysf: { callsign: 'N0CALL' },
+  allstar: { node: '1999', server: 'register.example.net' }, bm: { id: '1234567', master: 'master.example.net' },
 };
 const secrets: Record<string, Record<string, boolean>> = { allstar: { password: true }, bm: { password: true } };
-const hasStationId = (f: Field) => !!f.stationDefault && !!station[f.stationDefault];
-const isConfigured = (m: ModeDef) => m.fields.filter((f) => f.required && !f.secret).every((f) => (values[m.name]?.[f.key] ?? '') !== '' || hasStationId(f)) && m.fields.filter((f) => f.required && f.secret).every((f) => secrets[m.name]?.[f.key]);
+// The station value a field falls back to ("" when the station has none).
+const stationVal = (f: Field) => (f.stationDefault && station[f.stationDefault] ? String(station[f.stationDefault]) : '');
+// The required fields with no value of their own, no default and no station fallback.
+const missingOf = (m: ModeDef) => m.fields.filter((f) => f.required && !(f.secret ? secrets[m.name]?.[f.key] : (values[m.name]?.[f.key] ?? f.default ?? '') !== '') && !stationVal(f));
+const isConfigured = (m: ModeDef) => missingOf(m).length === 0;
+// What each mode remembers: the last target, or an explicit unlink. It is reconnected when the mode becomes active.
+const tunes: Record<string, { target?: string; unlinked?: boolean }> = { bm: { target: '91' } };
 
 const HOSTS: Record<string, { value: string; name: string; detail?: string; address: string; port: number }[]> = {
   ysf: [{ value: 'YSF-TEST', name: 'Test reflector', detail: 'Placeholder', address: 'ysf1.example.net', port: 42000 }, { value: 'YSF-DEMO', name: 'Demo reflector', address: 'ysf2.example.net', port: 42000 }],
@@ -127,7 +133,8 @@ function modeStatus(name: string) {
 const modeList = (role: string) => MODES.map((d) => ({
   name: d.name, title: d.title, targetLabel: d.targetLabel, targetHelp: d.targetHelp, needsHost: d.needsHost, ...(ambeNeeded(d) ? { needsAmbe: true } : {}),
   ...(role === 'admin' ? { fields: d.fields, settings: { values: Object.fromEntries(Object.entries(values[d.name] ?? {})) }, secretsSet: secrets[d.name] ?? {} } : {}),
-  configured: isConfigured(d), active: d.name === active, status: modeStatus(d.name),
+  configured: isConfigured(d), ...(missingOf(d).length ? { missing: missingOf(d).map((f) => f.key) } : {}), saved: !!values[d.name] || !!secrets[d.name],
+  ...(tunes[d.name]?.target ? { last: { id: tunes[d.name].target } } : {}), active: d.name === active, status: modeStatus(d.name),
 }));
 
 // ---- Favorites.
@@ -226,6 +233,8 @@ export function mockApi(): Plugin {
   const selectMode = (mode: string, t?: string) => {
     active = mode; talker = null; cos = false;
     since = iso(now());
+    if (mode && t) tunes[mode] = { target: t };
+    else if (mode && !tunes[mode]?.unlinked && tunes[mode]?.target) t = tunes[mode].target;
     if (!mode) { target = ''; state = 'idle'; } else if (t) { target = t; state = 'connecting'; setTimeout(() => { if (active === mode && target === t) { state = 'connected'; pushNode(); event('state', { state: 'connected' }); } }, 1200); } else { target = ''; state = 'idle'; }
     pushNode();
   };
@@ -326,13 +335,13 @@ export function mockApi(): Plugin {
         if ((mm = /^\/modes\/([a-z0-9]+)$/.exec(p)) && (m === 'PUT' || m === 'DELETE')) {
           if (!isAdmin) return forbid();
           const d = defOf(mm[1]); if (!d) return err(res, 404, 'unknown mode', 'not_found');
-          if (m === 'DELETE') { delete values[d.name]; delete secrets[d.name]; return json(res, 204); }
+          if (m === 'DELETE') { delete values[d.name]; delete secrets[d.name]; delete tunes[d.name]; return json(res, 204); }
           const v: Record<string, string> = (body.values ?? {}) as Record<string, string>;
           for (const f of d.fields) {
             if (!(f.key in v)) continue;
             if (f.secret) { if (v[f.key] !== '') (secrets[d.name] ??= {})[f.key] = true; } else (values[d.name] ??= {})[f.key] = String(v[f.key]);
           }
-          const miss = d.fields.find((f) => f.required && !f.secret && (values[d.name]?.[f.key] ?? '') === '' && !f.default && !hasStationId(f));
+          const miss = d.fields.find((f) => f.required && !f.secret && (values[d.name]?.[f.key] ?? '') === '' && !f.default && !stationVal(f));
           if (miss) return err(res, 400, `${miss.label} is required`, 'bad_request');
           return json(res, 200, modeList(user.role));
         }
@@ -374,6 +383,7 @@ export function mockApi(): Plugin {
         if (p === '/disconnect' && m === 'POST') {
           if (!canOp) return forbid();
           sched.manual(`manual disconnect by ${user.username}`);
+          if (active) tunes[active] = { unlinked: true };
           target = ''; state = 'idle'; talker = null; pushNode(); return json(res, 200, nodeJSON());
         }
         if (p === '/heard' && m === 'GET') return json(res, 200, heardJSON().slice(0, +(url.searchParams.get('limit') ?? 50)));

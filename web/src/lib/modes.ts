@@ -70,17 +70,59 @@ export function savePayload(fields: ModeField[], draft: Record<string, string>):
   return v;
 }
 
+/** The station values the modes fall back to. */
+export type StationValues = Pick<Station, 'callsign' | 'dmrId' | 'nxdnId'>;
+
+/** The station value a field falls back to, as the form shows it ("" when the station has none). */
+export function stationValue(f: ModeField, st?: StationValues): string {
+  if (!f.stationDefault || !st) return '';
+  const v = f.stationDefault === 'callsign' ? (st.callsign ?? '').trim().toUpperCase() : st[f.stationDefault] ? String(st[f.stationDefault]) : '';
+  return v ? v + (f.stationSuffix ?? '') : '';
+}
+
+/** The hint under a field that falls back to the station: "from station: N0CALL", or what to set when the station has none. */
+export function stationHint(f: ModeField, st?: StationValues): string {
+  const v = stationValue(f, st);
+  if (v) return `from station: ${v}`;
+  const what = f.stationDefault === 'callsign' ? 'callsign' : f.stationDefault === 'nxdnId' ? 'NXDN ID' : 'DMR ID';
+  return st ? `the station has no ${what} yet` : 'empty uses the station value';
+}
+
 /** The first required field that is empty (and not a saved secret), or null. A field with a stationDefault may be empty
- * when the station has that ID; `ids` are the station's IDs, and leaving it out assumes the node will check. */
-export function missingField(m: ModeInfo, draft: Record<string, string>, ids?: Pick<Station, 'dmrId' | 'nxdnId'>): ModeField | null {
+ * when the station has that value; `st` is the station, and leaving it out assumes the node will check. */
+export function missingField(m: ModeInfo, draft: Record<string, string>, st?: StationValues): ModeField | null {
   for (const f of m.fields ?? []) {
     if (!f.required) continue;
-    if (f.stationDefault && (!ids || ids[f.stationDefault])) continue;
+    if (f.stationDefault && (!st || stationValue(f, st))) continue;
     if ((draft[f.key] ?? '').trim() !== '') continue;
     if (f.secret && m.secretsSet?.[f.key]) continue;
     return f;
   }
   return null;
+}
+
+/** Why a mode is not ready, in plain words, from the server's `missing` keys ("" when ready). The word "login" is only for a password. */
+export function notReadyText(m: ModeInfo): string {
+  if (m.configured) return '';
+  const title = m.title || modeTitle(m.name);
+  const out: string[] = [];
+  for (const key of m.missing ?? []) {
+    const f = m.fields?.find((x) => x.key === key);
+    if (f?.stationDefault) {
+      const what = f.stationDefault === 'callsign' ? 'callsign' : f.stationDefault === 'nxdnId' ? 'NXDN ID' : 'DMR ID';
+      out.push(`Set your ${what} in Settings → Station or on this mode's page.`);
+    } else if (f && (f.secret || f.kind === 'password')) out.push(`${title} needs its password.`);
+    else if (f) out.push(`${title} needs its ${f.label.toLowerCase()}.`);
+    else out.push(`${title} needs ${key}.`);
+  }
+  if (!out.length) return m.error ? `${title} cannot start: ${m.error}` : `${title} needs setting up.`;
+  return out.join(' ');
+}
+
+/** A short card line for a mode that is not ready. */
+export function notReadyShort(m: ModeInfo): string {
+  const n = m.missing?.length ?? 0;
+  return n ? `Needs ${m.missing!.map((k) => m.fields?.find((f) => f.key === k)?.label.toLowerCase() ?? k).join(', ')}` : 'Not set up';
 }
 
 /** True when the draft differs from the saved values (a typed secret counts). */

@@ -36,16 +36,22 @@ type Field struct {
 	Options  []string `json:"options,omitempty"` // FieldSelect choices
 	Help     string   `json:"help,omitempty"`
 	Advanced bool     `json:"advanced,omitempty"`
-	// StationDefault names the station ID this field falls back to when
-	// left empty: StationDMRID or StationNXDNID. A Required field with a
-	// StationDefault is required only when the station has no such ID.
+	// StationDefault names the station value this field falls back to when
+	// left empty: StationCallsign, StationDMRID or StationNXDNID. A Required
+	// field with a StationDefault is required only when the station has no
+	// such value.
 	StationDefault string `json:"stationDefault,omitempty"`
+	// StationSuffix is added to the station value when the mode uses it
+	// (EchoLink adds "-L" to the station callsign). The UI shows it in the
+	// "from station" hint.
+	StationSuffix string `json:"stationSuffix,omitempty"`
 }
 
-// Station IDs a Field can fall back to (Field.StationDefault).
+// Station values a Field can fall back to (Field.StationDefault).
 const (
-	StationDMRID  = "dmrId"
-	StationNXDNID = "nxdnId"
+	StationCallsign = "callsign"
+	StationDMRID    = "dmrId"
+	StationNXDNID   = "nxdnId"
 )
 
 // Settings is what the operator saved for one mode.
@@ -170,6 +176,9 @@ type Spec struct {
 	// echo test needs the vocoder only when its codec is AMBE). See
 	// Spec.AMBENeeded.
 	AMBEFor func(Settings) bool `json:"-"`
+	// Legacy lists setting keys that older configs may still hold. They are
+	// accepted and ignored, and dropped when the settings are next saved.
+	Legacy []string `json:"-"`
 	// Validate checks settings beyond Required fields (optional).
 	Validate func(Settings) error `json:"-"`
 	// New builds the mode from validated settings.
@@ -195,6 +204,20 @@ func (sp Spec) Field(key string) (Field, bool) {
 	return Field{}, false
 }
 
+// StationValue returns the station value named by a Field.StationDefault
+// as text ("" when the station has none).
+func (e Env) StationValue(name string) string {
+	switch name {
+	case StationCallsign:
+		return strings.ToUpper(strings.TrimSpace(e.Callsign))
+	case StationDMRID, StationNXDNID:
+		if n := e.StationID(name); n != 0 {
+			return strconv.FormatUint(uint64(n), 10)
+		}
+	}
+	return ""
+}
+
 // StationID returns the station ID named by a Field.StationDefault, or 0.
 func (e Env) StationID(name string) uint32 {
 	switch name {
@@ -206,7 +229,29 @@ func (e Env) StationID(name string) uint32 {
 	return 0
 }
 
-// Check validates s against the spec with no station IDs: a field with a
+// Missing returns the Required fields that have no value in s and no
+// station fallback in env. A mode with none missing is ready to use.
+func (sp Spec) Missing(env Env, s Settings) []Field {
+	var out []Field
+	for _, f := range sp.Fields {
+		if f.Required && s.Get(f.Key, f.Default) == "" && env.StationValue(f.StationDefault) == "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// IsLegacy reports whether key is a Legacy setting.
+func (sp Spec) IsLegacy(key string) bool {
+	for _, k := range sp.Legacy {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
+// Check validates s against the spec with no station values: a field with a
 // StationDefault must be set. See CheckEnv.
 func (sp Spec) Check(s Settings) error { return sp.CheckEnv(Env{}, s) }
 
@@ -219,7 +264,7 @@ func (sp Spec) CheckEnv(env Env, s Settings) error {
 	for _, f := range sp.Fields {
 		v := s.Get(f.Key, f.Default)
 		if v == "" {
-			if f.Required && env.StationID(f.StationDefault) == 0 {
+			if f.Required && env.StationValue(f.StationDefault) == "" {
 				errs = append(errs, fmt.Errorf("%s: %s is required", sp.Title, f.Label))
 			}
 			continue
@@ -246,7 +291,7 @@ func (sp Spec) CheckEnv(env Env, s Settings) error {
 		}
 	}
 	for k := range s.Values {
-		if _, ok := sp.Field(k); !ok {
+		if _, ok := sp.Field(k); !ok && !sp.IsLegacy(k) {
 			errs = append(errs, fmt.Errorf("%s: unknown setting %q", sp.Title, k))
 		}
 	}
@@ -289,7 +334,7 @@ func (sp Spec) Merge(old, upd Settings) Settings {
 		}
 	}
 	for k, v := range out.Values {
-		if strings.TrimSpace(v) == "" {
+		if strings.TrimSpace(v) == "" || sp.IsLegacy(k) {
 			delete(out.Values, k)
 		}
 	}

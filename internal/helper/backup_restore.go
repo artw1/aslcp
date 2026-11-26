@@ -91,7 +91,7 @@ func mergeSecrets(restored, current *node.Config) []string {
 			s.Values = nil
 		}
 		restored.Modes[name] = s
-		if blank && sp.Check(s) != nil {
+		if blank && sp.CheckEnv(mode.Env{Callsign: restored.Station.Callsign, DMRID: restored.Station.DMRID, NXDNID: restored.Station.NXDNID}, s) != nil {
 			delete(restored.Modes, name)
 			missing = append(missing, sp.Title)
 			if a := restored.Station.Active; a != nil && a.Mode == name {

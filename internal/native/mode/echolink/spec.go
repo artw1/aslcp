@@ -30,8 +30,9 @@ func Spec() mode.Spec {
 		TargetLabel: "Station",
 		TargetHelp:  "A callsign, conference (*NAME*) or EchoLink node number.",
 		Fields: []mode.Field{
-			{Key: KeyCallsign, Label: "EchoLink callsign", Kind: mode.FieldText,
-				Help: "Your validated EchoLink callsign, usually with -L for a simplex link. Default: the station callsign with -L."},
+			{Key: KeyCallsign, Label: "EchoLink callsign", Kind: mode.FieldText, Required: true,
+				StationDefault: mode.StationCallsign, StationSuffix: "-L",
+				Help: "Your validated EchoLink callsign, usually with -L for a simplex link. Leave empty to use the station callsign with -L."},
 			{Key: KeyPassword, Label: "EchoLink password", Kind: mode.FieldPassword, Required: true, Secret: true},
 			{Key: KeyName, Label: "Name", Kind: mode.FieldText, Help: "Shown to the stations you connect to."},
 			{Key: KeyLocation, Label: "Location", Kind: mode.FieldText, Help: "Shown in the EchoLink directory."},

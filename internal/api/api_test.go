@@ -704,8 +704,12 @@ func TestSelectConnectDisconnect(t *testing.T) {
 	// the node keeps the selection across restarts
 	e.do("op", "POST", "/api/select", map[string]string{"mode": "allstar", "target": "1998"}, nil)
 	cfg, _ := os.ReadFile(e.node.ConfigPath)
-	if !bytes.Contains(cfg, []byte(`"1998"`)) {
+	if !bytes.Contains(cfg, []byte(`"allstar"`)) {
 		t.Fatalf("selection not saved: %s", cfg)
+	}
+	tune, _ := os.ReadFile(filepath.Join(filepath.Dir(e.node.ConfigPath), "tune.json"))
+	if !bytes.Contains(tune, []byte(`"1998"`)) {
+		t.Fatalf("last target not remembered: %s", tune)
 	}
 }
 

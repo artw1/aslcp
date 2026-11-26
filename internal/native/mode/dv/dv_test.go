@@ -103,7 +103,7 @@ var base = map[string]map[string]string{
 	mode.TGIF: {KeyDMRID: "1234567", KeyPassword: "pw-secret"},
 	mode.DMR:  {KeyDMRID: "1234567", KeyAddress: "192.0.2.4", KeyOptions: "options=TS2=91"},
 	mode.YSF:  {},
-	mode.P25:  {KeyAddress: "p25.example.net:41000"},
+	mode.P25:  {},
 	mode.NXDN: {"nxdn_id": "12345"},
 	mode.M17:  {"suffix": "H"},
 }
@@ -125,6 +125,7 @@ var targets = map[string]struct {
 
 var reflectors = []mode.Target{
 	{ID: "alpha", Name: "Alpha room", Host: "192.0.2.7", Port: 42000},
+	{ID: "10200", Host: "p25.example.net", Port: 41000},
 	{ID: "65000", Host: "203.0.113.9", Port: 41400},
 	{ID: "M17-XXX", Host: "192.0.2.17", Port: 17000},
 }
@@ -134,7 +135,7 @@ func TestEveryModeWithFakeNetwork(t *testing.T) {
 		t.Run(d.name, func(t *testing.T) {
 			tc := targets[d.name]
 			s := mode.Settings{Values: base[d.name], Reflectors: reflectors}
-			if err := d.spec().Check(s); err != nil {
+			if err := d.spec().CheckEnv(mode.Env{Callsign: "n0call"}, s); err != nil {
 				t.Fatalf("Check: %v", err)
 			}
 			fn := &fakeNet{codec: tc.codec, login: d.login, ran: make(chan struct{})}
@@ -322,7 +323,7 @@ func TestValidate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		sp, _ := mode.Lookup(tt.mode)
-		err := sp.Check(mode.Settings{Values: tt.vals})
+		err := sp.CheckEnv(mode.Env{Callsign: "N0CALL"}, mode.Settings{Values: tt.vals})
 		if tt.want == "" && err != nil || tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)) {
 			t.Errorf("%s %v: %v, want %q", tt.mode, tt.vals, err, tt.want)
 		}
@@ -384,4 +385,66 @@ func TestLoginFailure(t *testing.T) {
 		t.Fatalf("error %q", e)
 	}
 	_ = m.Stop()
+}
+
+// TestStationCallsignFallback checks that the modes that need a callsign
+// take the station's when their own is empty, and that their own wins.
+func TestStationCallsignFallback(t *testing.T) {
+	for _, n := range []string{mode.YSF, mode.P25, mode.NXDN, mode.M17} {
+		sp, _ := mode.Lookup(n)
+		s := mode.Settings{Values: map[string]string{KeyNXDNID: "4321"}}
+		if n != mode.NXDN {
+			s = mode.Settings{}
+		}
+		if err := sp.CheckEnv(mode.Env{NXDNID: 4321}, s); err == nil || !strings.Contains(err.Error(), "Callsign is required") {
+			t.Errorf("%s with no callsign anywhere: %v", n, err)
+		}
+		if err := sp.CheckEnv(mode.Env{Callsign: "n0call"}, s); err != nil {
+			t.Errorf("%s with the station callsign: %v", n, err)
+		}
+		d, _ := lookupDef(n)
+		_, id, err := d.netConfig(mode.Env{Callsign: "n0call"}, s)
+		if err != nil || id.Callsign != "N0CALL" {
+			t.Errorf("%s identity %+v, %v", n, id, err)
+		}
+		s.Values = map[string]string{KeyCallsign: "n1call"}
+		cfg, id, err := d.netConfig(mode.Env{Callsign: "n0call"}, s)
+		if err != nil || id.Callsign != "N1CALL" {
+			t.Errorf("%s own callsign: %+v, %v", n, id, err)
+		}
+		if _, ok := cfg.Options[KeyCallsign]; ok {
+			t.Errorf("%s passed the callsign on as a network option", n)
+		}
+	}
+	// The DMR family never needs it from the mode.
+	sp, _ := mode.Lookup(mode.TGIF)
+	if err := sp.CheckEnv(mode.Env{}, mode.Settings{Values: map[string]string{KeyDMRID: "1234567"}}); err != nil {
+		t.Errorf("tgif: %v", err)
+	}
+}
+
+// TestLegacyDefaultReflector checks that the removed default reflector
+// setting is still accepted in old configs, ignored, and dropped on save.
+func TestLegacyDefaultReflector(t *testing.T) {
+	env := mode.Env{Callsign: "N0CALL", NXDNID: 4321}
+	for _, n := range []string{mode.P25, mode.NXDN, mode.M17} {
+		sp, _ := mode.Lookup(n)
+		if _, ok := sp.Field(KeyAddress); ok {
+			t.Errorf("%s still has an address field", n)
+		}
+		old := mode.Settings{Values: map[string]string{KeyAddress: "not a valid:address:x"}}
+		if err := sp.CheckEnv(env, old); err != nil {
+			t.Errorf("%s: old config rejected: %v", n, err)
+		}
+		if got := sp.Merge(old, old); got.Values[KeyAddress] != "" {
+			t.Errorf("%s: legacy key kept on save: %v", n, got.Values)
+		}
+	}
+	// BM's master address is not a default reflector.
+	if sp, _ := mode.Lookup(mode.BM); sp.IsLegacy(KeyAddress) {
+		t.Error("bm address is legacy")
+	}
+	if _, err := mode.Build(mode.P25, env, mode.Settings{Values: map[string]string{KeyAddress: "p25.example.net:41000"}}); err != nil {
+		t.Errorf("build with the old key: %v", err)
+	}
 }

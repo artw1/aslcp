@@ -4,7 +4,7 @@
   import { api } from '../lib/api';
   import { app, canOperate, isAdmin, refreshFavorites, refreshModes } from '../lib/store.svelte';
   import { toast, toastError } from '../lib/toast.svelte';
-  import { favoritesOf, modeTitle, needsVocoder, recentTargets, sortModes, stateText, linkStatsText, targetBody, targetLabel, targetText, vocoderBusy } from '../lib/modes';
+  import { favoritesOf, modeTitle, needsVocoder, recentTargets, sortModes, stateText, linkStatsText, targetBody, targetLabel, targetText, vocoderBusy, notReadyText, notReadyShort } from '../lib/modes';
   import type { Favorite, HostItem, HostList, Vocoder } from '../lib/types';
   import FavoriteDialog from './FavoriteDialog.svelte';
   import Confirm from './Confirm.svelte';
@@ -130,7 +130,7 @@
           <button type="button" class="rounded-md border px-3 py-2 text-left transition-colors hover:bg-surface-2 {m.name === sel ? 'border-accent bg-accent/10' : 'border-line bg-surface'} {m.configured ? '' : 'opacity-70'}"
             aria-pressed={m.name === sel} data-mode={m.name} onclick={() => (picked = m.name)}>
             <span class="flex items-center gap-1.5"><span class="font-semibold">{m.title || modeTitle(m.name)}</span>{#if m.name === active}<span class="badge border-accent text-accent">Active</span>{/if}</span>
-            <span class="mt-0.5 block truncate text-xs text-muted">{#if m.name === active}{stateText(app.node?.mode?.state, app.node?.mode?.detail)}{:else if m.configured}Ready to use{:else}Not set up{/if}</span>
+            <span class="mt-0.5 block truncate text-xs text-muted">{#if m.name === active}{stateText(app.node?.mode?.state, app.node?.mode?.detail)}{:else if m.configured}{#if m.last}Last: {targetText(m.last)}{:else}Ready to use{/if}{:else}{notReadyShort(m)}{/if}</span>
           </button>
         {/each}
       </div>
@@ -152,7 +152,7 @@
           </div>
         {/if}
         {#if !info.configured}
-          <p class="text-sm text-muted">{info.title} is not set up yet.{#if isAdmin()} Add its login in <a class="underline" href={'#/settings/modes/' + info.name}>Settings</a>.{:else} Ask an administrator to set it up.{/if}</p>
+          <p class="text-sm text-muted">{notReadyText(info)}{#if isAdmin()} <a class="underline" href={'#/settings/modes/' + info.name}>Open Settings</a>.{:else} Ask an administrator to set it up.{/if}</p>
         {:else}
           {#if connected}
             <p class="text-sm">Connected to <b class="font-mono">{targetText(st?.target)}</b>{#if st?.talker} · <span class="text-muted">{st.talker.callsign || 'someone'} is talking</span>{/if}</p>

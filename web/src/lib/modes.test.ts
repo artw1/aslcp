@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { draftOf, savePayload, missingField, dirty, targetText, targetBody, favoritesOf, recentTargets, stateText, linkStatsText, sortModes, modeTitle, needsVocoder, vocoderBusy } from './modes.ts';
+import { draftOf, savePayload, missingField, dirty, targetText, targetBody, favoritesOf, recentTargets, stateText, linkStatsText, sortModes, modeTitle, needsVocoder, vocoderBusy, stationValue, stationHint, notReadyText, notReadyShort } from './modes.ts';
 import type { ModeInfo, Favorite, Heard, NowCall } from './types';
 
 const bm: ModeInfo = {
@@ -41,6 +41,31 @@ test('a field with a station default is optional when the station has the ID', (
   assert.equal(missingField(m, d, {})?.key, 'dmrId');
   assert.equal(missingField(m, { ...d, dmrId: '7654321' }, {}), null);
   assert.equal(missingField(m, d, { nxdnId: 4321 })?.key, 'dmrId');
+});
+
+test('the callsign falls back to the station, with the EchoLink suffix', () => {
+  const el: ModeInfo = { name: 'echolink', title: 'EchoLink', configured: true, active: false, fields: [
+    { key: 'callsign', label: 'EchoLink callsign', kind: 'text', required: true, stationDefault: 'callsign', stationSuffix: '-L' },
+    { key: 'password', label: 'EchoLink password', kind: 'password', required: true, secret: true }], secretsSet: { password: true } };
+  const d = draftOf(el);
+  assert.equal(missingField(el, d, { callsign: 'n0call' }), null);
+  assert.equal(missingField(el, d, {})?.key, 'callsign');
+  assert.equal(stationValue(el.fields![0], { callsign: 'n0call' }), 'N0CALL-L');
+  assert.equal(stationHint(el.fields![0], { callsign: 'n0call' }), 'from station: N0CALL-L');
+  assert.equal(stationHint(el.fields![0], {}), 'the station has no callsign yet');
+  assert.equal(stationValue({ key: 'id', label: 'DMR ID', kind: 'number', stationDefault: 'dmrId' }, { dmrId: 1234567 }), '1234567');
+});
+
+test('the not-ready text names what is missing and says login only for passwords', () => {
+  const f = bm.fields!;
+  const base = { ...bm, configured: false };
+  assert.equal(notReadyText({ ...base, configured: true }), '');
+  assert.equal(notReadyText({ ...base, fields: [{ ...f[0], stationDefault: 'dmrId' }, f[1]], missing: ['dmrId'] }), "Set your DMR ID in Settings → Station or on this mode's page.");
+  assert.equal(notReadyText({ ...base, missing: ['password'] }), 'BrandMeister needs its password.');
+  assert.equal(notReadyText({ ...base, missing: ['host'] }), 'BrandMeister needs its host.');
+  assert.doesNotMatch(notReadyText({ ...base, missing: ['dmrId'] }), /login/);
+  assert.equal(notReadyShort({ ...base, missing: ['password'] }), 'Needs password');
+  assert.equal(notReadyShort({ ...base }), 'Not set up');
 });
 
 test('dirty compares with the saved values', () => {

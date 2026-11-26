@@ -142,10 +142,21 @@ type ModeInfo struct {
 	// says which secrets have a value.
 	Settings   mode.Settings   `json:"settings"`
 	SecretsSet map[string]bool `json:"secretsSet,omitempty"`
-	Configured bool            `json:"configured"`
-	Active     bool            `json:"active"`
-	Status     *mode.Status    `json:"status,omitempty"`
-	Error      string          `json:"error,omitempty"` // why it could not be built
+	// Configured says the mode is ready to use: every required value is
+	// set, by the mode or by the station (callsign, DMR ID, NXDN ID), and
+	// it builds. The echo test needs nothing, so it is always ready.
+	Configured bool `json:"configured"`
+	// Missing lists the keys of the required fields that have no value and
+	// no station fallback.
+	Missing []string `json:"missing,omitempty"`
+	// Saved says the mode has saved settings.
+	Saved  bool `json:"saved"`
+	Active bool `json:"active"`
+	// Last is the target the mode reconnects to when activated (nil after
+	// an explicit disconnect, or when it never connected).
+	Last   *mode.Target `json:"last,omitempty"`
+	Status *mode.Status `json:"status,omitempty"`
+	Error  string       `json:"error,omitempty"` // why it could not be built
 }
 
 // Modes lists every mode with its settings. Passwords are never returned.
@@ -157,10 +168,15 @@ func (e *Engine) Modes() []ModeInfo {
 		built[k] = v
 	}
 	active := e.active
+	tunes := make(map[string]Tune, len(e.tunes))
+	for k, v := range e.tunes {
+		tunes[k] = v
+	}
 	errs := make(map[string]string, len(e.buildErr))
 	for k, v := range e.buildErr {
 		errs[k] = v
 	}
+	env := e.env(cfg)
 	e.mu.Unlock()
 	var out []ModeInfo
 	for _, sp := range mode.Specs() {
@@ -169,8 +185,13 @@ func (e *Engine) Modes() []ModeInfo {
 		mi := ModeInfo{
 			Name: sp.Name, Title: sp.Title, TargetLabel: sp.TargetLabel,
 			TargetHelp: sp.TargetHelp, NeedsHost: sp.NeedsHost, NeedsAmbe: sp.AMBENeeded(s), Fields: sp.Fields,
-			Settings: red, SecretsSet: set, Configured: ok, Error: errs[sp.Name],
+			Settings: red, SecretsSet: set, Saved: ok, Error: errs[sp.Name],
+			Last: cloneTarget(tunes[sp.Name].Target),
 		}
+		for _, f := range sp.Missing(env, s) {
+			mi.Missing = append(mi.Missing, f.Key)
+		}
+		mi.Configured = len(mi.Missing) == 0 && mi.Error == ""
 		if in := built[sp.Name]; in != nil {
 			ms := in.m.Status()
 			mi.Active = in == active
@@ -277,7 +298,8 @@ func (e *Engine) DeleteMode(ctx context.Context, n string) error {
 	c := e.cfg.Clone()
 	e.mu.Unlock()
 	delete(c.Modes, n)
-	return e.commit(c, true)
+	err := e.forgetTune(n)
+	return errors.Join(err, e.commit(c, true))
 }
 
 // Reload reads the config file again and applies it. A bad file is

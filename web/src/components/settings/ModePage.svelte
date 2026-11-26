@@ -3,14 +3,14 @@
   import { api } from '../../lib/api';
   import { app, refreshModes } from '../../lib/store.svelte';
   import { toast, toastError } from '../../lib/toast.svelte';
-  import { draftOf, missingField, savePayload, dirty, modeTitle } from '../../lib/modes';
+  import { draftOf, missingField, savePayload, dirty, modeTitle, notReadyText, type StationValues } from '../../lib/modes';
   import ModeFields from '../ModeFields.svelte';
 
   let { mode }: { mode: string } = $props();
   const info = $derived(app.modes.find((m) => m.name === mode));
   let draft = $state<Record<string, string>>({});
-  let ids = $state<{ dmrId?: number; nxdnId?: number } | undefined>(undefined);
-  $effect(() => { api.station().then((s) => { ids = { dmrId: s.dmrId, nxdnId: s.nxdnId }; }).catch(() => { /* the node checks */ }); });
+  let ids = $state<StationValues | undefined>(undefined);
+  $effect(() => { api.station().then((s) => { ids = { callsign: s.callsign, dmrId: s.dmrId, nxdnId: s.nxdnId }; }).catch(() => { /* the node checks */ }); });
   let err = $state(''), busy = $state(false), seen = '';
   $effect(() => { if (info && seen !== mode) { seen = mode; draft = draftOf(info); err = ''; } });
   $effect(() => { if (!info) refreshModes().catch(toastError); });
@@ -40,12 +40,13 @@
   {:else if !(info.fields ?? []).length}
     <p class="text-sm text-muted">This mode has no settings.</p>
   {:else}
+    {#if !info.configured}<p class="text-sm text-muted">{notReadyText(info)}</p>{/if}
     <form class="space-y-3" onsubmit={save}>
       <ModeFields mode={info} bind:draft idPrefix="mp" />
       {#if err}<p class="text-sm text-danger" role="alert">{err}</p>{/if}
       <div class="flex flex-wrap gap-2">
         <button class="btn btn-primary" type="submit" disabled={busy || !dirty(info, draft)}>{busy ? 'Saving…' : 'Save'}</button>
-        {#if info.configured}<button class="btn btn-bad-outline" type="button" onclick={clear} disabled={busy || info.active}>Clear settings</button>{/if}
+        {#if info.saved ?? info.configured}<button class="btn btn-bad-outline" type="button" onclick={clear} disabled={busy || info.active}>Clear settings</button>{/if}
       </div>
     </form>
   {/if}

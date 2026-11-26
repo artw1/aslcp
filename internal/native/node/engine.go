@@ -41,6 +41,9 @@ type Options struct {
 	Program func(radio.Config, sa818.Settings) error
 	// ConfigPath is the config file; "" keeps changes in memory only.
 	ConfigPath string
+	// TunePath is the file of remembered tunes (default: tune.json next to
+	// ConfigPath; "" with no ConfigPath keeps them in memory only).
+	TunePath string
 	// Build builds a mode (default mode.Build).
 	Build func(name string, env mode.Env, s mode.Settings) (mode.Mode, error)
 	// Log is where the node logs (default: discard).
@@ -74,6 +77,7 @@ type Engine struct {
 	params   stepParams
 	modes    map[string]*instance
 	buildErr map[string]string
+	tunes    map[string]Tune // what each mode reconnects to (see Tune)
 	active   *instance
 	since    time.Time
 	info     radio.Info
@@ -120,7 +124,14 @@ func New(cfg *Config, o Options) (*Engine, error) {
 	}
 	e := &Engine{
 		info: info, o: o, log: o.Log, cfg: cfg, params: paramsFor(cfg),
-		modes: map[string]*instance{}, buildErr: map[string]string{},
+		modes: map[string]*instance{}, buildErr: map[string]string{}, tunes: map[string]Tune{},
+	}
+	if p := o.tunePath(); p != "" {
+		t, err := loadTunes(p)
+		if err != nil {
+			o.Log.Warn("remembered tunes ignored", "err", err)
+		}
+		e.tunes = t
 	}
 	e.sx.modeAGC, e.sx.radioAGC = audio.NewAGC(), audio.NewAGC()
 	e.ctx, e.stop = context.WithCancel(context.Background())
@@ -149,9 +160,13 @@ func (e *Engine) Start(ctx context.Context) error {
 	if err := e.applyVolumes(cfg.Station.Radio); err != nil {
 		e.logf(e.now(), "%v", err)
 	}
+	e.migrate()
+	e.mu.Lock()
+	cfg = e.cfg
+	e.mu.Unlock()
 	e.applyModes(cfg)
 	if a := cfg.Station.Active; a != nil {
-		if err := e.selectLocked(ctx, a.Mode, a.Target, false); err != nil {
+		if err := e.selectLocked(ctx, a.Mode, nil, false); err != nil {
 			e.logf(e.now(), "restoring %s: %v", a.Mode, err)
 			return err
 		}
@@ -347,15 +362,6 @@ func (e *Engine) pump(ctx context.Context, in *instance) {
 					}
 				case mode.EventTalkEnd:
 					e.heard.end(in.name, ev.At)
-				case mode.EventState:
-					if ev.Target == nil && ev.State == mode.StateReady {
-						// The mode dropped its target on its own (the far
-						// node ended the link): forget it so it does not
-						// come back at boot. Not in pump itself: the
-						// save takes opMu, which a mode switch holds
-						// while it waits for this pump.
-						go e.forgetTarget(in)
-					}
 				}
 			}
 			e.hub.publish(Event{Kind: EventMode, At: ev.At, Mode: &ev})
@@ -383,7 +389,10 @@ func (e *Engine) instanceFor(n string) (*instance, error) {
 
 // Select makes mode n the active mode, connected to t when t is not nil.
 // The old mode is dropped first: networks are never bridged. An empty n
-// makes the node idle. The choice is saved so it comes back at boot.
+// makes the node idle. The choice is saved so it comes back at boot. With
+// no t, a mode that becomes active reconnects to the target it remembers
+// (the last one connected), unless the operator disconnected it on
+// purpose; an explicit t is remembered once the mode accepts it.
 func (e *Engine) Select(ctx context.Context, n string, t *mode.Target) error {
 	e.opMu.Lock()
 	defer e.opMu.Unlock()
@@ -439,24 +448,31 @@ func (e *Engine) selectLocked(ctx context.Context, n string, t *mode.Target, per
 	if old != in {
 		e.hub.publish(Event{Kind: EventSelect, At: e.now(), Text: n})
 	}
+	explicit := t != nil
+	if !explicit && old != in {
+		t = e.lastTarget(n) // activated: pick up where it was
+	}
 	var connErr error
 	if t != nil {
 		connErr = in.m.Connect(ctx, *t)
 		if connErr != nil {
 			connErr = fmt.Errorf("connecting %s: %w", n, connErr)
+			if !explicit {
+				// The remembered target no longer works: the mode is
+				// active anyway, and the target stays remembered.
+				e.logf(e.now(), "%v", connErr)
+				connErr = nil
+			}
 		}
 	}
+	var saveErr error
 	if persist {
-		sel := &Selection{Mode: n}
-		if t != nil && connErr == nil {
-			c := *t
-			sel.Target = &c
+		if explicit && connErr == nil {
+			saveErr = e.setTune(n, Tune{Target: cloneTarget(t)})
 		}
-		if err := e.persistActive(sel); err != nil {
-			return errors.Join(connErr, err)
-		}
+		saveErr = errors.Join(saveErr, e.persistActive(&Selection{Mode: n}))
 	}
-	return connErr
+	return errors.Join(connErr, saveErr)
 }
 
 // resetRadioLocked forgets the link between the radio and the old mode.
@@ -482,7 +498,8 @@ func (e *Engine) Disconnect(ctx context.Context) error {
 	if err := in.m.Disconnect(ctx); err != nil {
 		return fmt.Errorf("disconnecting %s: %w", in.name, err)
 	}
-	return e.persistActive(&Selection{Mode: in.name})
+	// An explicit disconnect: do not come back to the target.
+	return errors.Join(e.setTune(in.name, Tune{Unlinked: true}), e.persistActive(&Selection{Mode: in.name}))
 }
 
 // Connect connects the active mode to t.
@@ -494,29 +511,6 @@ func (e *Engine) Connect(ctx context.Context, t mode.Target) error {
 		return errors.New("no mode is active: select one first")
 	}
 	return e.Select(ctx, in.name, &t)
-}
-
-// forgetTarget saves in as the active mode with no target, when it still
-// is active, has no target and the saved selection names one.
-func (e *Engine) forgetTarget(in *instance) {
-	e.opMu.Lock()
-	defer e.opMu.Unlock()
-	if e.ctx.Err() != nil {
-		return
-	}
-	e.mu.Lock()
-	sel := e.cfg.Station.Active
-	active := e.active == in
-	e.mu.Unlock()
-	if !active || sel == nil || sel.Mode != in.name || sel.Target == nil {
-		return
-	}
-	if in.m.Status().Target != nil {
-		return // a new connect raced us
-	}
-	if err := e.persistActive(&Selection{Mode: in.name}); err != nil {
-		e.logf(e.now(), "saving the disconnect: %v", err)
-	}
 }
 
 // persistActive saves the active selection. Called with opMu.
