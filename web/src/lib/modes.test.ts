@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { draftOf, savePayload, missingField, dirty, targetText, targetBody, favoritesOf, recentTargets, stateText, sortModes, modeTitle, needsVocoder, vocoderBusy } from './modes.ts';
+import { draftOf, savePayload, missingField, dirty, targetText, targetBody, favoritesOf, recentTargets, stateText, linkStatsText, sortModes, modeTitle, needsVocoder, vocoderBusy } from './modes.ts';
 import type { ModeInfo, Favorite, Heard, NowCall } from './types';
 
 const bm: ModeInfo = {
@@ -104,4 +104,11 @@ test('vocoderBusy: while the install job runs', () => {
   assert.equal(vocoderBusy({ ...v, job: 'failed' }), false);
   assert.equal(vocoderBusy(v), false);
   assert.equal(vocoderBusy(null), false);
+});
+
+test('linkStatsText is compact and hides zero extras', () => {
+  assert.equal(linkStatsText(undefined), '');
+  const base = { rxVoiceFull: 3, rxVoiceMini: 120, txVoice: 0, vnakSent: 0, vnakRecv: 0, retransmits: 0, parseErrors: 0, dropped: 0, gaps: 0 };
+  assert.equal(linkStatsText(base), 'rx 3+120 · tx 0 · VNAK 0/0 · retx 0');
+  assert.equal(linkStatsText({ ...base, gaps: 1, dropped: 30, parseErrors: 2 }), 'rx 3+120 · tx 0 · VNAK 0/0 · retx 0 · gaps 1 · dropped 30 · bad 2');
 });

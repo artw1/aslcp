@@ -2,6 +2,7 @@ package allstar
 
 import (
 	"context"
+	"fmt"
 	"net/netip"
 	"strings"
 	"sync"
@@ -64,13 +65,16 @@ type fakeReg struct {
 	ready   bool
 	changed chan struct{}
 	cfg     register.Config
+	since   time.Time
 }
 
 func (r *fakeReg) Start(context.Context) error { return nil }
 func (r *fakeReg) Stop()                       {}
 func (r *fakeReg) Ready() bool                 { r.mu.Lock(); defer r.mu.Unlock(); return r.ready }
 func (r *fakeReg) Status() register.Status {
-	return register.Status{Registered: r.Ready(), PublicIP: "203.0.113.5"}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return register.Status{Registered: r.ready, PublicIP: "203.0.113.5", Since: r.since}
 }
 func (r *fakeReg) Changed() <-chan struct{} { return r.changed }
 func (r *fakeReg) set(v bool) {
@@ -364,4 +368,43 @@ func TestNoPasswordNoRegistration(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("RunBackground did not return without a password")
 	}
+}
+
+func TestRegistrationHint(t *testing.T) {
+	h := newHarness(t, nil)
+	if got := h.m.registrationHint(); got != "" {
+		t.Fatalf("no registrar: %q", got)
+	}
+	h.m.reg = h.reg
+	if got := h.m.registrationHint(); got != "" {
+		t.Fatalf("never registered: %q", got)
+	}
+	h.reg.mu.Lock()
+	h.reg.since = time.Now().Add(-3*time.Minute - 5*time.Second)
+	h.reg.mu.Unlock()
+	if got := h.m.registrationHint(); !strings.Contains(got, "registered 3 min ago") || !strings.Contains(got, "~10 min") {
+		t.Fatalf("young registration: %q", got)
+	}
+	h.reg.mu.Lock()
+	h.reg.since = time.Now().Add(-11 * time.Minute)
+	h.reg.mu.Unlock()
+	if got := h.m.registrationHint(); got != "" {
+		t.Fatalf("old registration: %q", got)
+	}
+}
+
+func TestHungUpErrorCarriesHint(t *testing.T) {
+	h := newHarness(t, map[string]string{KeyReconnect: "false"})
+	h.reg.set(true)
+	h.reg.mu.Lock()
+	h.reg.since = time.Now().Add(-2 * time.Minute)
+	h.reg.mu.Unlock()
+	h.m.reg = h.reg
+	_ = h.m.Start(context.Background())
+	_ = h.m.Connect(context.Background(), mode.Target{ID: "2000"})
+	l := h.link(t, 1)
+	l.end(fmt.Errorf("%w: Not allowed (cause code 21)", iax2.ErrHungUp))
+	waitFor(t, "hint in status", func() bool {
+		return strings.Contains(h.m.Status().Detail+h.m.Status().Error, "registered 2 min ago")
+	})
 }

@@ -4,7 +4,7 @@
   import { api } from '../lib/api';
   import { app, canOperate, isAdmin, refreshFavorites, refreshModes } from '../lib/store.svelte';
   import { toast, toastError } from '../lib/toast.svelte';
-  import { favoritesOf, modeTitle, needsVocoder, recentTargets, sortModes, stateText, targetBody, targetLabel, targetText, vocoderBusy } from '../lib/modes';
+  import { favoritesOf, modeTitle, needsVocoder, recentTargets, sortModes, stateText, linkStatsText, targetBody, targetLabel, targetText, vocoderBusy } from '../lib/modes';
   import type { Favorite, HostItem, HostList, Vocoder } from '../lib/types';
   import FavoriteDialog from './FavoriteDialog.svelte';
   import Confirm from './Confirm.svelte';
@@ -117,6 +117,7 @@
       {/if}
     </div>
     {#if app.node?.mode?.error}<p class="mt-1 text-xs text-danger" role="alert">{app.node.mode.error}</p>{/if}
+    {#if app.node?.mode?.link}<p class="mt-1 font-mono text-xs text-muted" data-testid="link-stats" title="Link counters: voice full+mini frames received, voice frames sent, VNAKs sent/received, retransmits">{linkStatsText(app.node.mode.link)}</p>{/if}
   </section>
 
   {#if !app.node}

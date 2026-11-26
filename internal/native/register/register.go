@@ -54,12 +54,15 @@ type Status struct {
 	Registered  bool      // last attempt was accepted
 	LastAttempt time.Time // zero if none yet
 	LastSuccess time.Time // zero if never
-	LastError   string    // empty if the last attempt succeeded
-	HTTPStatus  int       // status of the last reply, 0 on transport error
-	PublicIP    string    // address the registrar saw
-	DNSChecked  bool      // a DNS lookup has been made for the current IP
-	DNSOK       bool      // DNS lists PublicIP
-	Failures    int       // consecutive failures
+	// Since is when the node was first accepted at its current address
+	// (it moves when the public IP changes); zero if never registered.
+	Since      time.Time
+	LastError  string // empty if the last attempt succeeded
+	HTTPStatus int    // status of the last reply, 0 on transport error
+	PublicIP   string // address the registrar saw
+	DNSChecked bool   // a DNS lookup has been made for the current IP
+	DNSOK      bool   // DNS lists PublicIP
+	Failures   int    // consecutive failures
 }
 
 // Registrar runs the registration loop.
@@ -218,6 +221,9 @@ func (r *Registrar) attempt(ctx context.Context) {
 	oldIP := r.st.PublicIP
 	r.st.Registered = true
 	r.st.LastSuccess = now
+	if r.st.Since.IsZero() || reply.IPAddr != oldIP {
+		r.st.Since = now
+	}
 	r.st.LastError = ""
 	r.st.Failures = 0
 	r.st.PublicIP = reply.IPAddr

@@ -104,8 +104,24 @@ type Registration struct {
 	DNSOK       bool      `json:"dnsOk"`
 	LastAttempt time.Time `json:"lastAttempt,omitempty"`
 	LastSuccess time.Time `json:"lastSuccess,omitempty"`
-	LastError   string    `json:"lastError,omitempty"`
-	HTTPStatus  int       `json:"httpStatus,omitempty"`
+	// Since is when the node was first accepted at its current address.
+	Since      time.Time `json:"since,omitempty"`
+	LastError  string    `json:"lastError,omitempty"`
+	HTTPStatus int       `json:"httpStatus,omitempty"`
+}
+
+// LinkStats are the counters of the current AllStar link, for diagnosing
+// audio problems.
+type LinkStats struct {
+	RxVoiceFull uint64 `json:"rxVoiceFull"` // voice full frames received
+	RxVoiceMini uint64 `json:"rxVoiceMini"` // voice mini frames received
+	TxVoice     uint64 `json:"txVoice"`
+	VNAKSent    uint64 `json:"vnakSent"`
+	VNAKRecv    uint64 `json:"vnakRecv"`
+	Retransmits uint64 `json:"retransmits"`
+	ParseErrors uint64 `json:"parseErrors"`
+	Dropped     uint64 `json:"dropped"`
+	Gaps        uint64 `json:"gaps"`
 }
 
 // Status is a snapshot of a mode for the UI. It never carries a password.
@@ -123,6 +139,8 @@ type Status struct {
 	Talker *Talker `json:"talker,omitempty"`
 	// Registration: AllStar only.
 	Registration *Registration `json:"registration,omitempty"`
+	// Link: counters of the current link (AllStar only, while linked).
+	Link *LinkStats `json:"link,omitempty"`
 	// Links: the far side's link list (AllStar) or conference members, when known.
 	Links []string `json:"links,omitempty"`
 	// Levels: the level report of the last recording (echo test only).

@@ -136,6 +136,13 @@ func (b *Base) SetRegistration(r *Registration) {
 	b.mu.Unlock()
 }
 
+// SetLinkStats records the counters of the current link (nil clears them).
+func (b *Base) SetLinkStats(l *LinkStats) {
+	b.mu.Lock()
+	b.st.Link = l
+	b.mu.Unlock()
+}
+
 // SetLevels records the level report of the last recording (nil clears it).
 func (b *Base) SetLevels(r *audio.Report) {
 	b.mu.Lock()
@@ -256,6 +263,10 @@ func (b *Base) Status() Status {
 	if st.Registration != nil {
 		r := *st.Registration
 		st.Registration = &r
+	}
+	if st.Link != nil {
+		l := *st.Link
+		st.Link = &l
 	}
 	st.Links = append([]string(nil), st.Links...)
 	if st.Levels != nil {

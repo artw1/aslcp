@@ -26,11 +26,16 @@ export interface Target { id: string; name?: string; host?: string; port?: numbe
 export interface Talker { callsign?: string; name?: string; place?: string; id?: number; target?: string; since: string }
 export interface Registration {
   registered: boolean; ready: boolean; publicIp?: string; dnsOk: boolean;
-  lastAttempt?: string; lastSuccess?: string; lastError?: string; httpStatus?: number;
+  lastAttempt?: string; lastSuccess?: string; since?: string; lastError?: string; httpStatus?: number;
+}
+/** Counters of the current AllStar link, for diagnosing audio problems. */
+export interface LinkStats {
+  rxVoiceFull: number; rxVoiceMini: number; txVoice: number; vnakSent: number; vnakRecv: number;
+  retransmits: number; parseErrors: number; dropped: number; gaps: number;
 }
 export interface ModeStatus {
   mode: string; title: string; active: boolean; state: ModeState; target?: Target; since?: string;
-  detail?: string; error?: string; talker?: Talker; registration?: Registration; links?: string[];
+  detail?: string; error?: string; talker?: Talker; registration?: Registration; link?: LinkStats; links?: string[];
   /** The echo test's last level report. */
   levels?: EchoReport;
 }

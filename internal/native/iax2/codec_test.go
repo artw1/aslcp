@@ -75,8 +75,20 @@ func TestDecodeErrors(t *testing.T) {
 			t.Errorf("%s: err %v, want %v", tc.name, err, tc.want)
 		}
 	}
-	if _, _, err := Decode([]byte{0x80, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0xff}); err == nil {
-		t.Error("subclass shift 127 accepted")
+	// Like Asterisk, every subclass byte decodes: a frame we cannot use is
+	// still counted in the sequence. 0xff is "-1"; shifts above 31 are
+	// formats too wide for uint32.
+	for _, tc := range []struct {
+		b    byte
+		want uint32
+	}{{0xff, SubclassNone}, {0x80 | 40, SubclassHigh}, {0x80 | 5, 32}, {7, 7}} {
+		f, _, err := Decode([]byte{0x80, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, tc.b})
+		if err != nil || f.Subclass != tc.want {
+			t.Errorf("subclass byte %#x: %v, %v", tc.b, f, err)
+		}
+	}
+	if b, err := (&FullFrame{Subclass: SubclassNone}).Append(nil); err != nil || b[11] != 0xff {
+		t.Errorf("encode -1: %v %v", b, err)
 	}
 	if _, err := (&FullFrame{Subclass: 0x81}).Append(nil); err == nil {
 		t.Error("non power of two subclass encoded")

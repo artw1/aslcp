@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"net"
 	"net/netip"
@@ -28,6 +29,7 @@ const (
 	minRTO           = 100 * time.Millisecond
 	maxRTO           = 4 * time.Second
 	maxRetries       = 5
+	vnakInterval     = 100 * time.Millisecond
 	hangupLinger     = 2 * time.Second
 	linkListShort    = 150 * time.Millisecond // app_rpt LINKLISTSHORTTIME
 	redundantTxTime  = 2 * time.Second        // app_rpt REDUNDANT_TX_TIME
@@ -72,6 +74,10 @@ type Config struct {
 	Jitter       JitterConfig
 
 	Clock Clock // default the real clock
+
+	// Logger receives debug-level frame logs (every full frame in and
+	// out, and every drop with its reason). Nil discards them.
+	Logger *slog.Logger
 }
 
 // EventKind classifies a call Event.
@@ -98,11 +104,18 @@ type Event struct {
 // Stats are call counters.
 type Stats struct {
 	TxVoice     uint64 // voice frames sent
-	RxVoice     uint64 // voice frames received
+	RxVoice     uint64 // voice frames received (20 ms each)
+	RxVoiceFull uint64 // voice full frames received
+	RxVoiceMini uint64 // voice mini frames received
 	TxDropped   uint64 // transmit queue overflow
 	RxDropped   uint64 // receive channel full
-	Retransmits uint64
-	Foreign     uint64 // datagrams from other sources, other calls or malformed
+	Retransmits uint64 // frames we retransmitted
+	VNAKSent    uint64 // VNAKs we sent
+	VNAKRecv    uint64 // VNAKs the peer sent
+	ParseErrors uint64 // datagrams that are not IAX2 frames
+	Dropped     uint64 // well-formed frames discarded (duplicates, gaps, wrong state)
+	Gaps        uint64 // sequence gaps seen (one per missing run)
+	Foreign     uint64 // datagrams from other sources or other calls
 	Rejected    uint64 // incoming NEW calls refused
 	RTT         time.Duration
 	Lag         time.Duration // last LAGRQ round trip
@@ -134,6 +147,9 @@ type Call struct {
 	rxKey  bool
 	stats  Stats
 	closed bool
+
+	log *slog.Logger
+	dbg bool // log is enabled at debug level
 
 	s session // owned by the loop goroutine
 }
@@ -182,7 +198,13 @@ func Dial(ctx context.Context, cfg Config) (*Call, error) {
 	if err != nil {
 		return nil, fmt.Errorf("iax2: bind: %w", err)
 	}
+	lg := cfg.Logger
+	if lg == nil {
+		lg = slog.New(slog.DiscardHandler)
+	}
 	c := &Call{
+		log:       lg.With("iax2", cfg.RemoteNode),
+		dbg:       lg.Enabled(context.Background(), slog.LevelDebug),
 		cfg:       cfg,
 		clock:     cfg.Clock,
 		conn:      conn,
@@ -363,7 +385,10 @@ func (c *Call) readLoop() {
 		from = netip.AddrPortFrom(from.Addr().Unmap(), from.Port())
 		full, mini, err := Decode(buf[:n])
 		if err != nil {
-			c.count(func(s *Stats) { s.Foreign++ })
+			c.count(func(s *Stats) { s.ParseErrors++ })
+			if c.dbg {
+				c.log.Debug("iax2 drop", "reason", "parse error: "+err.Error(), "from", from, "len", n)
+			}
 			continue
 		}
 		if full != nil && full.Type == TypeIAX && full.Subclass == CmdNew {

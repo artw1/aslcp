@@ -64,6 +64,13 @@ type session struct {
 	links        []LinkEntry
 	nextLinkList time.Time
 
+	// gap handling: at most one VNAK per gap, and no more than one per
+	// vnakInterval while the same gap stays open
+	vnakValid    bool
+	vnakIseq     uint8
+	lastVNAK     time.Time
+	lastVNAKRetx time.Time
+
 	// pendingErr is what the call ends with once our HANGUP is through.
 	pendingErr error
 }
@@ -165,7 +172,30 @@ func (s *session) sendFull(t FrameType, sc uint32, ts uint32, data []byte) {
 		rto := s.rto()
 		s.pend = append(s.pend, &pending{f: f, sentAt: now, nextAt: now.Add(rto), rto: rto})
 	}
+	s.logTx(&f, "")
 	s.write(b)
+}
+
+// logRx logs a received full frame at debug level.
+func (s *session) logRx(f *FullFrame) {
+	if s.c.dbg {
+		s.c.log.Debug("iax2 rx", "frame", f.String())
+	}
+}
+
+// logTx logs a sent full frame at debug level.
+func (s *session) logTx(f *FullFrame, note string) {
+	if s.c.dbg {
+		s.c.log.Debug("iax2 tx", "frame", f.String(), "note", note)
+	}
+}
+
+// drop counts a well-formed frame that is discarded, and logs why.
+func (s *session) drop(f *FullFrame, reason string) {
+	s.c.count(func(st *Stats) { st.Dropped++ })
+	if s.c.dbg {
+		s.c.log.Debug("iax2 drop", "reason", reason, "frame", f.String(), "iseq", s.iseq)
+	}
 }
 
 func (s *session) sendIAX(sc uint32, ies IEs) {
@@ -191,8 +221,26 @@ func (s *session) ack(f *FullFrame) {
 		OSeq: s.oseq, ISeq: s.iseq, Type: TypeIAX, Subclass: CmdAck,
 	}
 	if b, err := a.Append(nil); err == nil {
+		s.logTx(&a, "ack")
 		s.write(b)
 	}
+}
+
+// sendVNAK asks the peer to resend from our iseq. It sends one per gap
+// (iseq has not moved since the last one) and, while the same gap stays
+// open, at most one per vnakInterval, however many frames arrive behind it.
+func (s *session) sendVNAK(f *FullFrame, now time.Time) {
+	if s.vnakValid && s.vnakIseq == s.iseq && now.Sub(s.lastVNAK) < vnakInterval {
+		s.drop(f, "gap: VNAK already sent")
+		return
+	}
+	if !s.vnakValid || s.vnakIseq != s.iseq {
+		s.c.count(func(st *Stats) { st.Gaps++ })
+	}
+	s.vnakValid, s.vnakIseq, s.lastVNAK = true, s.iseq, now
+	s.c.count(func(st *Stats) { st.VNAKSent++ })
+	s.drop(f, "gap: sent VNAK")
+	s.sendFull(TypeIAX, CmdVNAK, s.callTS(now), nil)
 }
 
 func (s *session) rto() time.Duration {
@@ -259,11 +307,15 @@ func (s *session) sampleRTT(d time.Duration) {
 }
 
 func (s *session) handleFull(f *FullFrame, now time.Time) {
+	s.logRx(f)
 	if s.ended() {
 		return
 	}
+	// The R (retransmission) bit is split off by Decode, so DstCall is the
+	// plain 15-bit call number here.
 	if f.DstCall != s.c.localCall {
 		s.c.count(func(st *Stats) { st.Foreign++ })
+		s.drop(f, "foreign destination call")
 		return
 	}
 	// Apathetic replies come from a peer that holds no call state yet:
@@ -281,23 +333,28 @@ func (s *session) handleFull(f *FullFrame, now time.Time) {
 		s.peerCall = f.SrcCall
 	} else if f.SrcCall != s.peerCall {
 		s.c.count(func(st *Stats) { st.Foreign++ })
+		s.drop(f, "foreign source call")
 		return
 	}
 	s.lastRx = now
 	s.c.count(func(st *Stats) { st.LastRx = now })
 	s.ackUpTo(f.ISeq, now)
 
+	// Every well-formed full frame for this call is counted in the
+	// sequence, whatever its type, state or content.
 	if countsForSeq(f.Type, f.Subclass) {
 		switch d := f.OSeq - s.iseq; {
 		case d == 0:
 			s.iseq++
 		case d >= 128:
-			// Already seen: our ACK was lost. Ack again and drop it.
+			// Old or duplicate: our ACK was lost. Acknowledge it again
+			// (with its timestamp) and drop it. Never a VNAK.
+			s.drop(f, "duplicate")
 			s.ack(f)
 			return
 		default:
-			// A gap: ask for everything from iseq again.
-			s.sendFull(TypeIAX, CmdVNAK, s.callTS(now), nil)
+			// A gap: ask for everything from iseq again, once.
+			s.sendVNAK(f, now)
 			return
 		}
 	}
@@ -309,7 +366,9 @@ func (s *session) handleFull(f *FullFrame, now time.Time) {
 		s.handleControl(f, now)
 	case TypeVoice:
 		s.ack(f)
+		s.c.count(func(st *Stats) { st.RxVoiceFull++ })
 		if f.Subclass != FormatULaw {
+			s.drop(f, "voice format not ulaw")
 			return
 		}
 		s.lastRxTS = f.TS
@@ -350,8 +409,23 @@ func (s *session) handleCallToken(f *FullFrame) {
 func (s *session) reject(f *FullFrame) {
 	ies, _ := ParseIEs(f.Data)
 	s.ack(f)
-	cause := ies.String(IECause)
-	s.finish(fmt.Errorf("%w by node %s: %s", ErrRejected, s.c.cfg.RemoteNode, cause))
+	s.finish(fmt.Errorf("%w by node %s: %s", ErrRejected, s.c.cfg.RemoteNode, causeText(ies)))
+}
+
+// causeText describes the CAUSE and CAUSECODE IEs of a HANGUP or REJECT,
+// such as "Not allowed (cause code 21)".
+func causeText(ies IEs) string {
+	text := ies.String(IECause)
+	code, ok := ies.Get(IECauseCode)
+	switch {
+	case ok && len(code) > 0 && text != "":
+		return fmt.Sprintf("%s (cause code %d)", text, code[0])
+	case ok && len(code) > 0:
+		return fmt.Sprintf("cause code %d", code[0])
+	case text != "":
+		return text
+	}
+	return "no cause given"
 }
 
 func (s *session) handleIAX(f *FullFrame, now time.Time) {
@@ -369,7 +443,7 @@ func (s *session) handleIAX(f *FullFrame, now time.Time) {
 			s.finish(s.pendingErr)
 			return
 		}
-		s.finish(fmt.Errorf("%w: %s", ErrHungUp, ies.String(IECause)))
+		s.finish(fmt.Errorf("%w: %s", ErrHungUp, causeText(ies)))
 	case CmdAuthReq:
 		s.ack(f)
 		s.authenticate(f)
@@ -398,6 +472,14 @@ func (s *session) handleIAX(f *FullFrame, now time.Time) {
 	case CmdInval:
 		s.finish(fmt.Errorf("%w: peer invalidated the call", ErrHungUp))
 	case CmdVNAK:
+		s.c.count(func(st *Stats) { st.VNAKRecv++ })
+		// Resend what is outstanding, but not again within vnakInterval:
+		// a peer that VNAKs every frame must not make us answer each.
+		if !s.lastVNAKRetx.IsZero() && now.Sub(s.lastVNAKRetx) < vnakInterval {
+			s.drop(f, "VNAK: retransmitted just now")
+			break
+		}
+		s.lastVNAKRetx = now
 		for _, p := range s.pend {
 			s.retransmit(p, now)
 		}
@@ -533,11 +615,19 @@ func (s *session) setRxKey(on bool) {
 func (s *session) handleMini(m *MiniFrame, now time.Time) {
 	if s.ended() || s.peerCall == 0 || m.SrcCall != s.peerCall {
 		s.c.count(func(st *Stats) { st.Foreign++ })
+		if s.c.dbg {
+			s.c.log.Debug("iax2 drop", "reason", "mini frame from unknown call", "src", m.SrcCall)
+		}
 		return
 	}
 	if s.state != stateUp && s.state != stateAccepted {
+		s.c.count(func(st *Stats) { st.Dropped++ })
+		if s.c.dbg {
+			s.c.log.Debug("iax2 drop", "reason", "mini frame in wrong state", "state", s.state)
+		}
 		return
 	}
+	s.c.count(func(st *Stats) { st.RxVoiceMini++ })
 	s.lastRx = now
 	ts := s.lastRxTS&0xffff0000 | uint32(m.TS)
 	if ts < s.lastRxTS && s.lastRxTS-ts > 0x8000 {
@@ -682,6 +772,7 @@ func (s *session) retransmit(p *pending, now time.Time) {
 	p.f.Retrans = true
 	p.f.ISeq = s.iseq
 	if b, err := p.f.Append(nil); err == nil {
+		s.logTx(&p.f, "retransmit")
 		s.write(b)
 	}
 	p.retries++

@@ -120,6 +120,7 @@ function modeStatus(name: string) {
     mode: name, title: d.title, active: on, state: !on ? 'idle' : state === 'idle' ? 'ready' : state,
     ...(on && target ? { target: { id: target, ...(name === 'allstar' ? { name: allstarInfo(target)?.callsign } : {}) } } : {}), ...(on ? { since } : {}),
     ...(on && talker ? { talker: { callsign: talker.callsign, name: talker.name, place: talker.place, id: talker.id, since: talker.since } } : {}),
+    ...(on && name === 'allstar' && target ? { link: { rxVoiceFull: 4, rxVoiceMini: 1250, txVoice: 0, vnakSent: 0, vnakRecv: 0, retransmits: 0, parseErrors: 0, dropped: 0, gaps: 0 } } : {}),
     ...(name === 'allstar' || name === 'echolink' ? { registration: { registered: isConfigured(d), ready: isConfigured(d), dnsOk: true, publicIp: '203.0.113.7', lastSuccess: iso(now() - 600e3) } } : {}),
   };
 }

@@ -5,9 +5,12 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -358,9 +361,10 @@ func TestDialFailures(t *testing.T) {
 			reply: func(p *fakePeer, n *FullFrame) {
 				var ies IEs
 				ies.AddString(IECause, "Bad secret")
+				ies.AddU8(IECauseCode, 21)
 				p.sendIEs(CmdReject, ies)
 			},
-			want: ErrRejected, text: "Bad secret",
+			want: ErrRejected, text: "Bad secret (cause code 21)",
 		},
 		{
 			name: "auth without secret",
@@ -491,8 +495,10 @@ func TestPeerHangup(t *testing.T) {
 	c, p, _ := simpleCall(t, nil)
 	var ies IEs
 	ies.AddString(IECause, "Normal clearing")
+	ies.AddU8(IECauseCode, 16)
 	p.sendIEs(CmdHangup, ies)
-	if err := waitDone(t, c); !errors.Is(err, ErrHungUp) {
+	err := waitDone(t, c)
+	if !errors.Is(err, ErrHungUp) || !strings.Contains(err.Error(), "Normal clearing (cause code 16)") {
 		t.Fatalf("err %v", err)
 	}
 	if a := p.expect(TypeIAX, CmdAck); a.DstCall != p.call {
@@ -655,5 +661,225 @@ func TestIncomingNewRefused(t *testing.T) {
 	case <-c.Done():
 		t.Fatal("refusing a call ended ours")
 	default:
+	}
+}
+
+// peerBatch builds n text frames with consecutive sequence numbers
+// starting at the peer's next one and advances the peer past them, without
+// sending anything.
+func peerBatch(p *fakePeer, n int) []FullFrame {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var fs []FullFrame
+	for i := 0; i < n; i++ {
+		fs = append(fs, FullFrame{SrcCall: p.call, DstCall: p.remote, TS: uint32(9000 + 20*i),
+			OSeq: p.oseq, ISeq: p.iseq, Type: TypeText,
+			Data: []byte(fmt.Sprintf("M 2000 0 m%d\x00", i))})
+		p.oseq++
+	}
+	return fs
+}
+
+func waitStats(t *testing.T, c *Call, ok func(Stats) bool) Stats {
+	t.Helper()
+	deadline := time.Now().Add(waitLong)
+	for {
+		if st := c.Stats(); ok(st) {
+			return st
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("stats never matched: %+v", c.Stats())
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+// The field storm: a full frame the client cannot use (a subclass byte of
+// 0xff) used to be dropped before sequence counting, so iseq never passed
+// it, the peer retransmitted it and everything behind it forever, and the
+// client answered each copy with a VNAK. Now it is counted and ACKed, the
+// retransmitted copies (R bit set) are only ACKed, and voice flows.
+func TestStormUnusableFrameThenVoice(t *testing.T) {
+	c, p, clk := simpleCall(t, nil)
+	p.send(TypeControl, SubclassNone, nil) // header-only, unusable
+	p.send(TypeNull, 0, nil)
+	p.send(TypeCNG, 3, []byte{1})
+	p.send(TypeDTMFBeg, '5', nil)
+	p.send(TypeText, 0, []byte(TextNewKey1+"\x00"))
+	p.send(TypeText, 0, []byte("L T2001,R2002\x00"))
+	var vfs []FullFrame
+	p.mu.Lock()
+	vf := FullFrame{SrcCall: p.call, DstCall: p.remote, TS: 70000, OSeq: p.oseq, ISeq: p.iseq,
+		Type: TypeVoice, Subclass: FormatULaw, Data: ulawOf(1000, 160)}
+	p.oseq++
+	p.mu.Unlock()
+	vfs = append(vfs, vf)
+	p.raw(vf)
+	if ev := nextEvent(t, c, EventLinkList); len(ev.Links) != 2 {
+		t.Fatalf("links %v", ev.Links)
+	}
+	p.sync()
+
+	// The peer's retransmit queue is not drained yet in this storm: replay
+	// the voice frame with the R bit many times. Each is a duplicate.
+	vf.Retrans = true
+	for i := 0; i < 100; i++ {
+		p.raw(vf)
+	}
+	p.sync()
+	st := c.Stats()
+	if st.VNAKSent != 0 || st.ParseErrors != 0 {
+		t.Fatalf("VNAKs %d, parse errors %d", st.VNAKSent, st.ParseErrors)
+	}
+	if st.RxVoiceFull != 1 || st.RxVoice != 1 {
+		t.Fatalf("voice frames: %+v", st)
+	}
+	var got []int16
+	for i := 0; i < 200 && len(got) < 1; i++ {
+		clk.Advance(FrameDuration)
+		select {
+		case f := <-c.Recv():
+			got = append(got, f[0])
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	if len(got) != 1 || got[0] != ULawDecode(ULawEncode(1000)) {
+		t.Fatalf("played %v", got)
+	}
+}
+
+// A frame that reaches us only as a retransmission (R bit set, the
+// original was lost) still advances the sequence.
+func TestRetransmitBitFramesAreCounted(t *testing.T) {
+	c, p, _ := simpleCall(t, nil)
+	for i, f := range peerBatch(p, 3) {
+		f.Retrans = true
+		p.raw(f)
+		if ev := nextEvent(t, c, EventText); ev.Text.Body != fmt.Sprintf("m%d", i) {
+			t.Fatalf("event %+v", ev)
+		}
+	}
+	p.sync()
+	if st := c.Stats(); st.VNAKSent != 0 || st.Dropped != 0 {
+		t.Fatalf("stats %+v", st)
+	}
+}
+
+// Old frames are acknowledged with their timestamp and never VNAKed.
+func TestDuplicatesGetAckNotVNAK(t *testing.T) {
+	c, p, _ := simpleCall(t, nil)
+	fs := peerBatch(p, 1)
+	p.raw(fs[0])
+	nextEvent(t, c, EventText)
+	fs[0].Retrans = true
+	const n = 40
+	for i := 0; i < n; i++ {
+		p.raw(fs[0])
+	}
+	acks := 0
+	for acks < n+1 {
+		if a := p.expect(TypeIAX, CmdAck); a.TS == fs[0].TS {
+			acks++
+		}
+	}
+	p.sync()
+	if st := c.Stats(); st.VNAKSent != 0 || st.Dropped != n {
+		t.Fatalf("stats %+v", st)
+	}
+}
+
+// A gap earns one VNAK however many frames arrive behind it, a second one
+// only after the rate limit, and the stream recovers in order once the
+// missing frame arrives.
+func TestGapVNAKBoundedAndRecovers(t *testing.T) {
+	c, p, clk := simpleCall(t, nil)
+	fs := peerBatch(p, 31) // fs[0] is the one that goes missing
+	for _, f := range fs[1:] {
+		p.raw(f)
+	}
+	st := waitStats(t, c, func(s Stats) bool { return s.Dropped >= 30 })
+	if st.VNAKSent != 1 || st.Gaps != 1 {
+		t.Fatalf("one gap, one VNAK expected: %+v", st)
+	}
+	p.expect(TypeIAX, CmdVNAK)
+	// Past the rate limit the next frame of the same gap asks once more.
+	clk.Advance(200 * time.Millisecond)
+	p.raw(fs[1])
+	st = waitStats(t, c, func(s Stats) bool { return s.Dropped >= 31 })
+	if st.VNAKSent != 2 || st.Gaps != 1 {
+		t.Fatalf("second VNAK expected: %+v", st)
+	}
+	// The peer retransmits its queue in order.
+	for _, f := range fs {
+		f.Retrans = true
+		p.raw(f)
+	}
+	for i := range fs {
+		if ev := nextEvent(t, c, EventText); ev.Text.Body != fmt.Sprintf("m%d", i) {
+			t.Fatalf("event %d: %+v", i, ev)
+		}
+	}
+	if st := c.Stats(); st.VNAKSent != 2 {
+		t.Fatalf("stats %+v", st)
+	}
+}
+
+// A peer that VNAKs over and over gets one retransmission per interval.
+func TestPeerVNAKRetransmitRateLimited(t *testing.T) {
+	c, p, _ := simpleCall(t, nil)
+	p.setAuto(false)
+	if err := c.SendText("M 1999 0 hi"); err != nil {
+		t.Fatal(err)
+	}
+	p.expectText("M 1999 0 hi")
+	for i := 0; i < 20; i++ {
+		p.send(TypeIAX, CmdVNAK, nil)
+	}
+	st := waitStats(t, c, func(s Stats) bool { return s.VNAKRecv >= 20 })
+	if st.Retransmits != 1 {
+		t.Fatalf("retransmits %d", st.Retransmits)
+	}
+}
+
+type lockedBuf struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedBuf) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuf) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+func TestDebugLogsFramesAndDrops(t *testing.T) {
+	var buf lockedBuf
+	lg := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	c, p, _ := simpleCall(t, func(cfg *Config) { cfg.Logger = lg })
+	fs := peerBatch(p, 1)
+	p.raw(fs[0])
+	nextEvent(t, c, EventText)
+	p.raw(fs[0])
+	waitStats(t, c, func(s Stats) bool { return s.Dropped >= 1 })
+	out := buf.String()
+	for _, want := range []string{"iax2 rx", "iax2 tx", "iax2 drop", "reason=duplicate", "type=7"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestInfoLevelLogsNothing(t *testing.T) {
+	var buf lockedBuf
+	lg := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	simpleCall(t, func(cfg *Config) { cfg.Logger = lg })
+	if buf.String() != "" {
+		t.Fatalf("unexpected log: %s", buf.String())
 	}
 }

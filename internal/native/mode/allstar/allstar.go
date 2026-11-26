@@ -184,7 +184,7 @@ func (m *Mode) updateReg(r Registrar) {
 	prev := m.Status().Registration
 	m.SetRegistration(&mode.Registration{
 		Registered: st.Registered, Ready: r.Ready(), PublicIP: st.PublicIP, DNSOK: st.DNSOK,
-		LastAttempt: st.LastAttempt, LastSuccess: st.LastSuccess, LastError: st.LastError,
+		LastAttempt: st.LastAttempt, LastSuccess: st.LastSuccess, Since: st.Since, LastError: st.LastError,
 		HTTPStatus: st.HTTPStatus,
 	})
 	if prev == nil || prev.Registered != st.Registered || prev.LastError != st.LastError {
@@ -231,6 +231,7 @@ func (m *Mode) Connect(ctx context.Context, t mode.Target) error {
 		tt.Name = "Node " + t.ID
 	}
 	m.SetTarget(&tt)
+	m.SetLinkStats(nil)
 	m.SetState(mode.StateConnecting, "linking to "+t.ID, "")
 	m.wg.Add(1)
 	go m.run(lctx, tt)
@@ -385,6 +386,9 @@ func (m *Mode) run(ctx context.Context, t mode.Target) {
 		msg := "link to " + t.ID + " dropped"
 		if err != nil {
 			msg = fmt.Sprintf("link to %s: %v", t.ID, err)
+			if errors.Is(err, iax2.ErrHungUp) || errors.Is(err, iax2.ErrRejected) {
+				msg += m.registrationHint()
+			}
 		}
 		m.env.Logger().Warn("allstar: "+msg, "node", m.node)
 		if farEnded(err) {
@@ -412,6 +416,42 @@ func (m *Mode) run(ctx context.Context, t mode.Target) {
 	}
 }
 
+// newRegistration is how long after registering other nodes may still
+// refuse us: they only learn our address when their node lists update.
+const newRegistration = 10 * time.Minute
+
+// registrationHint explains a refused or dropped link when our registration
+// is recent, or returns "".
+func (m *Mode) registrationHint() string {
+	m.mu.Lock()
+	r := m.reg
+	m.mu.Unlock()
+	if r == nil {
+		return ""
+	}
+	since := r.Status().Since
+	if since.IsZero() {
+		return ""
+	}
+	age := m.env.Clock()().Sub(since)
+	if age < 0 || age >= newRegistration {
+		return ""
+	}
+	return fmt.Sprintf(" (registered %d min ago; other nodes may refuse calls for up to ~10 min until their node lists update)", int(age/time.Minute))
+}
+
+// linkStats converts call counters for the status.
+func linkStats(st iax2.Stats) *mode.LinkStats {
+	return &mode.LinkStats{
+		RxVoiceFull: st.RxVoiceFull, RxVoiceMini: st.RxVoiceMini, TxVoice: st.TxVoice,
+		VNAKSent: st.VNAKSent, VNAKRecv: st.VNAKRecv, Retransmits: st.Retransmits,
+		ParseErrors: st.ParseErrors, Dropped: st.Dropped, Gaps: st.Gaps,
+	}
+}
+
+// statsLink is the optional part of a Link that reports counters.
+type statsLink interface{ Stats() iax2.Stats }
+
 // farEnded reports whether err means the far node ended the link itself,
 // as opposed to a transport failure or a timeout worth retrying.
 func farEnded(err error) bool {
@@ -425,7 +465,7 @@ func (m *Mode) linkOnce(ctx context.Context, t mode.Target) error {
 		return err
 	}
 	cfg := iax2.Config{LocalNode: m.node, RemoteNode: t.ID, Addr: addr,
-		Secret: m.password, Callsign: m.callsign}
+		Secret: m.password, Callsign: m.callsign, Logger: m.env.Logger()}
 	if m.iaxPort > 0 {
 		cfg.ListenAddr = netip.AddrPortFrom(netip.IPv4Unspecified(), uint16(m.iaxPort))
 	}
@@ -457,8 +497,20 @@ func (m *Mode) linkOnce(ctx context.Context, t mode.Target) error {
 		m.TalkEnd()
 	}()
 	recv, events := l.Recv(), l.Events()
+	var statTick <-chan time.Time
+	sl, hasStats := l.(statsLink)
+	if hasStats {
+		tk := time.NewTicker(2 * time.Second)
+		defer tk.Stop()
+		statTick = tk.C
+		defer func() {
+			m.SetLinkStats(linkStats(sl.Stats()))
+		}()
+	}
 	for {
 		select {
+		case <-statTick:
+			m.SetLinkStats(linkStats(sl.Stats()))
 		case <-ctx.Done():
 			_ = l.Hangup()
 			return nil

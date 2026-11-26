@@ -1,5 +1,5 @@
 // The modes of the node: names, order and small helpers for the UI. Pure functions, tested in modes.test.ts.
-import type { Favorite, Heard, ModeField, ModeInfo, NowCall, Station, Target, Vocoder } from './types';
+import type { Favorite, Heard, LinkStats, ModeField, ModeInfo, NowCall, Station, Target, Vocoder } from './types';
 
 /** The modes in the order the UI lists them. */
 export const MODE_ORDER = ['allstar', 'echolink', 'bm', 'dmr', 'tgif', 'ysf', 'p25', 'nxdn', 'm17'] as const;
@@ -96,6 +96,16 @@ export function needsVocoder(m: ModeInfo | undefined, v: Vocoder | null): boolea
 
 /** Whether to keep polling GET /api/vocoder: an install is running. */
 export const vocoderBusy = (v: Vocoder | null): boolean => v?.job === 'running';
+
+/** One compact line of the AllStar link counters ("rx 120+3400 tx 0 · VNAK 0/0 · retx 0 · gaps 0"), or "" without them. */
+export function linkStatsText(l: LinkStats | undefined): string {
+  if (!l) return '';
+  const parts = [`rx ${l.rxVoiceFull}+${l.rxVoiceMini}`, `tx ${l.txVoice}`, `VNAK ${l.vnakSent}/${l.vnakRecv}`, `retx ${l.retransmits}`];
+  if (l.gaps) parts.push(`gaps ${l.gaps}`);
+  if (l.dropped) parts.push(`dropped ${l.dropped}`);
+  if (l.parseErrors) parts.push(`bad ${l.parseErrors}`);
+  return parts.join(' · ');
+}
 
 /** A short line for a mode's link state, for the mode cards. */
 export function stateText(state: string | undefined, detail?: string, err?: string): string {

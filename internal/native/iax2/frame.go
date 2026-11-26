@@ -81,6 +81,14 @@ const (
 	flagRetrans   = 0x8000
 	callNoMask    = 0x7fff
 	subclassLog   = 0x80
+	// subclassNone is the "compressed -1" subclass byte 0xff. Asterisk
+	// decodes it as -1 and does not reject the frame.
+	subclassNone = 0xff
+	// SubclassNone is the decoded value of subclass byte 0xff.
+	SubclassNone uint32 = 0xffffffff
+	// SubclassHigh stands for a power-of-two subclass of 2^32 or more
+	// (64-bit Asterisk formats), which does not fit in Subclass.
+	SubclassHigh uint32 = 0xfffffffe
 )
 
 // ErrShort means a datagram is too short for its header.
@@ -114,6 +122,9 @@ type MiniFrame struct {
 
 // encodeSubclass returns the subclass byte for v.
 func encodeSubclass(v uint32) (byte, error) {
+	if v == SubclassNone {
+		return subclassNone, nil
+	}
 	if v < subclassLog {
 		return byte(v), nil
 	}
@@ -123,15 +134,21 @@ func encodeSubclass(v uint32) (byte, error) {
 	return subclassLog | byte(bits.TrailingZeros32(v)), nil
 }
 
-func decodeSubclass(b byte) (uint32, error) {
+// decodeSubclass never fails: like Asterisk's uncompress_subclass, which
+// accepts every byte, so that a well-formed full frame is always counted
+// in the sequence even when its content is of no use to us.
+func decodeSubclass(b byte) uint32 {
 	if b&subclassLog == 0 {
-		return uint32(b), nil
+		return uint32(b)
+	}
+	if b == subclassNone {
+		return SubclassNone
 	}
 	shift := b &^ subclassLog
 	if shift > 31 {
-		return 0, fmt.Errorf("iax2: subclass shift %d out of range", shift)
+		return SubclassHigh
 	}
-	return 1 << shift, nil
+	return 1 << shift
 }
 
 // Append encodes f onto dst.
@@ -178,10 +195,7 @@ func Decode(b []byte) (*FullFrame, *MiniFrame, error) {
 	if len(b) < fullHeaderLen {
 		return nil, nil, ErrShort
 	}
-	sc, err := decodeSubclass(b[11])
-	if err != nil {
-		return nil, nil, err
-	}
+	sc := decodeSubclass(b[11])
 	w1 := binary.BigEndian.Uint16(b[2:])
 	return &FullFrame{
 		SrcCall:  w0 & callNoMask,
@@ -212,5 +226,5 @@ func countsForSeq(t FrameType, sc uint32) bool {
 // String names the frame for logs and test failures.
 func (f *FullFrame) String() string {
 	return fmt.Sprintf("full{src=%d dst=%d r=%t ts=%d o=%d i=%d type=%d sc=%d len=%d}",
-		f.SrcCall, f.DstCall, f.Retrans, f.TS, f.OSeq, f.ISeq, f.Type, f.Subclass, len(f.Data))
+		f.SrcCall, f.DstCall, f.Retrans, f.TS, f.OSeq, f.ISeq, f.Type, int32(f.Subclass), len(f.Data))
 }
