@@ -7,6 +7,7 @@ MANAGER_CONF=/etc/asterisk/manager.conf
 FW_MARKER="$DATADIR/.firewalld-rule-added"
 FW_SUM="$DATADIR/.firewalld-service-sum"
 FW_SERVICE_FILE=/usr/lib/firewalld/services/aslcp.xml
+NODE_MARKER="$DATADIR/.node-enabled"
 
 # Timing notes (Raspberry Pi 3): every firewall-cmd call starts Python
 # (~1 s), a firewalld reload takes several seconds, runuser/su start a PAM
@@ -31,22 +32,39 @@ configure_user() {
 	install -d -m 0750 -o aslcp -g aslcp "$DATADIR"
 }
 
-# The digital voice engine runs as its own user, so it never gets access to
-# /var/lib/aslcp. The aslcp user joins its group to reach the control socket
-# (mode 0660, /run/aslcp-dv/ctl.sock).
-configure_dv_user() {
-	if ! getent passwd aslcp-dv >/dev/null 2>&1; then
-		if getent group aslcp-dv >/dev/null 2>&1; then
-			adduser --system --ingroup aslcp-dv --home /var/lib/aslcp-dv --no-create-home \
-				--gecos "ASLCP digital voice engine" --shell /usr/sbin/nologin aslcp-dv
+# The native node runs as its own user, so it never gets access to
+# /var/lib/aslcp. It owns /etc/aslcp/node.json (0600: it holds network
+# passwords) and gets the SHARI's devices through 60-aslcp-node.rules. The
+# aslcp user joins its group to reach the control socket (mode 0660,
+# /run/aslcp-node/control.sock).
+configure_node_user() {
+	if ! getent passwd aslcp-node >/dev/null 2>&1; then
+		if getent group aslcp-node >/dev/null 2>&1; then
+			adduser --system --ingroup aslcp-node --home /nonexistent --no-create-home \
+				--gecos "ASLCP native node" --shell /usr/sbin/nologin aslcp-node
 		else
-			adduser --system --group --home /var/lib/aslcp-dv --no-create-home \
-				--gecos "ASLCP digital voice engine" --shell /usr/sbin/nologin aslcp-dv
+			adduser --system --group --home /nonexistent --no-create-home \
+				--gecos "ASLCP native node" --shell /usr/sbin/nologin aslcp-node
 		fi
 	fi
-	if ! id -nG aslcp | tr ' ' '\n' | grep -qx aslcp-dv; then
-		adduser aslcp aslcp-dv >/dev/null
+	if getent group audio >/dev/null 2>&1 && ! id -nG aslcp-node | tr ' ' '\n' | grep -qx audio; then
+		adduser aslcp-node audio >/dev/null
+	fi
+	if ! id -nG aslcp | tr ' ' '\n' | grep -qx aslcp-node; then
+		adduser aslcp aslcp-node >/dev/null
 		GROUP_CHANGED=1
+	fi
+	# The node writes its config next to aslcp.conf (atomically, so it needs
+	# the directory); everyone else keeps read access.
+	install -d -m 0775 -o root -g aslcp-node /etc/aslcp
+	for f in /etc/aslcp/node.json /etc/aslcp/sa818.json; do
+		[ -e "$f" ] || continue
+		chown aslcp-node:aslcp-node "$f"
+		chmod 0600 "$f"
+	done
+	if command -v udevadm >/dev/null 2>&1; then
+		udevadm control --reload >/dev/null 2>&1 || true
+		udevadm trigger --action=change --subsystem-match=hidraw --subsystem-match=tty >/dev/null 2>&1 || true
 	fi
 }
 
@@ -95,10 +113,20 @@ prepare_services() {
 	if systemctl is-enabled aslcp-wifi-watchdog.timer >/dev/null 2>&1; then
 		systemctl restart aslcp-wifi-watchdog.timer >/dev/null 2>&1 || true
 	fi
-	# The engine is never enabled here (the web UI does that); a node that
-	# enabled it runs the new binary after an upgrade.
-	if systemctl is-enabled aslcp-dv.service >/dev/null 2>&1; then
-		systemctl restart aslcp-dv.service >/dev/null 2>&1 || echo "aslcp: warning: could not restart aslcp-dv.service (see: journalctl -u aslcp-dv)"
+	# 3.0 replaced the digital voice engine with the native node: stop the
+	# old engine if it is still running from before the upgrade.
+	if systemctl is-active aslcp-dv.service >/dev/null 2>&1 || systemctl is-enabled aslcp-dv.service >/dev/null 2>&1; then
+		systemctl disable --now aslcp-dv.service >/dev/null 2>&1 || true
+	fi
+	# The native node is enabled once (first install, or the upgrade that
+	# brings it), so an admin who disabled it keeps it off; an enabled node
+	# runs the new binary after an upgrade.
+	if [ ! -e "$NODE_MARKER" ]; then
+		systemctl enable aslcp-node.service >/dev/null 2>&1 || true
+		touch "$NODE_MARKER" 2>/dev/null || true
+	fi
+	if systemctl is-enabled aslcp-node.service >/dev/null 2>&1; then
+		systemctl restart aslcp-node.service >/dev/null 2>&1 || echo "aslcp: warning: could not start aslcp-node.service (see: journalctl -u aslcp-node)"
 	fi
 	# Restart (not just start) so an upgrade runs the new helper binary.
 	systemctl stop aslcp-helper.service >/dev/null 2>&1 || true
@@ -242,7 +270,7 @@ configure)
 	[ -n "$2" ] || FIRST_INSTALL=1
 	migrate_urls
 	configure_user
-	configure_dv_user
+	configure_node_user
 	configure_asterisk_access
 	prepare_services
 	purge_previous_stack "$2"

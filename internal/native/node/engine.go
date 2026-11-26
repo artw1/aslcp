@@ -128,6 +128,9 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.started = e.now()
 	cfg := e.cfg
 	e.mu.Unlock()
+	if err := e.applyVolumes(cfg.Station.Radio); err != nil {
+		e.logf(e.now(), "%v", err)
+	}
 	e.applyModes(cfg)
 	if a := cfg.Station.Active; a != nil {
 		if err := e.selectLocked(ctx, a.Mode, a.Target, false); err != nil {

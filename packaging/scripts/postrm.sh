@@ -80,7 +80,17 @@ purge)
 	rm -rf "$ROOT/var/lib/aslcp-config-history" "$ROOT/var/lib/aslcp-dvstate" "$ROOT/var/lib/aslcp-dvstate-history" "$ROOT"/var/lib/aslcp-dvswitch* "$ROOT/var/lib/aslcp-webport"
 	# The hotspot setting (WiFi networks saved in NetworkManager stay).
 	rm -rf "$ROOT/var/lib/aslcp-wifi"
+	# The native node: its config and the SA818 state (node.json holds
+	# network passwords), its runtime directory and its system user.
+	rm -f "$ROOT/etc/aslcp/node.json" "$ROOT/etc/aslcp/sa818.json" "$ROOT"/etc/aslcp/.node-*.json
+	rm -rf "$ROOT/run/aslcp-node"
 	rmdir "$ROOT/etc/aslcp" 2>/dev/null || true
+	if getent passwd aslcp-node >/dev/null 2>&1; then
+		deluser --system aslcp-node >/dev/null 2>&1 || true
+	fi
+	if getent group aslcp-node >/dev/null 2>&1; then
+		delgroup --system aslcp-node >/dev/null 2>&1 || true
+	fi
 	if getent passwd aslcp-dv >/dev/null 2>&1; then
 		deluser --system aslcp-dv >/dev/null 2>&1 || true
 	fi
