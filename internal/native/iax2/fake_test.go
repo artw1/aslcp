@@ -47,8 +47,37 @@ func (t *fakeTicker) Stop() {
 	t.clk.mu.Unlock()
 }
 
-// Advance moves the clock forward by d, firing tickers on the way. A tick
-// no one receives within a second is skipped (the call has ended).
+// deliver hands a tick to its receiver. It waits generously for a slow
+// (race-enabled, loaded) receiver and gives up early only once the ticker
+// is stopped, which is what a call that has ended does. A live ticker is
+// never switched off because its receiver was merely slow.
+func (f *fakeClock) deliver(t *fakeTicker, at time.Time) {
+	deadline := time.NewTimer(30 * time.Second)
+	defer deadline.Stop()
+	poll := time.NewTicker(10 * time.Millisecond)
+	defer poll.Stop()
+	for {
+		select {
+		case t.c <- at:
+			return
+		case <-poll.C:
+			f.mu.Lock()
+			stopped := t.stopped
+			f.mu.Unlock()
+			if stopped {
+				return
+			}
+		case <-deadline.C:
+			f.mu.Lock()
+			t.stopped = true
+			f.mu.Unlock()
+			return
+		}
+	}
+}
+
+// Advance moves the clock forward by d, firing tickers on the way. Ticks
+// for a stopped ticker (the call has ended) are skipped.
 func (f *fakeClock) Advance(d time.Duration) {
 	f.mu.Lock()
 	end := f.now.Add(d)
@@ -70,15 +99,13 @@ func (f *fakeClock) Advance(d time.Duration) {
 		due.next = due.next.Add(due.d)
 		at := f.now
 		f.mu.Unlock()
-		select {
-		case due.c <- at:
-		case <-time.After(time.Second):
-			f.mu.Lock()
-			due.stopped = true
-			f.mu.Unlock()
-		}
+		f.deliver(due, at)
 	}
 }
+
+// waitLong is how long tests wait for an event that should happen at once.
+// It is generous so slow, race-enabled runners do not fail spuriously.
+const waitLong = 15 * time.Second
 
 // fakePeer is a scripted IAX2 peer on loopback. In auto mode it ACKs
 // counted frames and answers PING and LAGRQ, as Asterisk does, and passes
@@ -227,7 +254,7 @@ func (p *fakePeer) mini(ts uint16, data []byte) {
 // expect waits for a full frame of type t and subclass sc, skipping others.
 func (p *fakePeer) expect(t FrameType, sc uint32) *FullFrame {
 	p.t.Helper()
-	deadline := time.After(3 * time.Second)
+	deadline := time.After(waitLong)
 	for {
 		select {
 		case r := <-p.received:
@@ -241,10 +268,28 @@ func (p *fakePeer) expect(t FrameType, sc uint32) *FullFrame {
 	}
 }
 
+// sync returns once the client has processed everything this peer sent
+// (including acknowledgements of the client's frames) before the call. The
+// fake clock jumps instantly while UDP delivery takes real time, so a test
+// that advances the clock right after the peer saw a frame could otherwise
+// outrun the ACK, and the call would exhaust its retransmissions in
+// virtual time. It sends a PONG, which the client only acknowledges (an
+// ACK is not itself acknowledged, so no new frame is left outstanding).
+func (p *fakePeer) sync() {
+	p.t.Helper()
+	const marker = 0x7ffe1234
+	p.sendTS(TypeIAX, CmdPong, marker, nil)
+	for {
+		if f := p.expect(TypeIAX, CmdAck); f.TS == marker {
+			return
+		}
+	}
+}
+
 // expectMini waits for a mini frame, skipping full frames.
 func (p *fakePeer) expectMini() *MiniFrame {
 	p.t.Helper()
-	deadline := time.After(3 * time.Second)
+	deadline := time.After(waitLong)
 	for {
 		select {
 		case r := <-p.received:
@@ -261,7 +306,7 @@ func (p *fakePeer) expectMini() *MiniFrame {
 // expectText waits for a TEXT frame with the given text.
 func (p *fakePeer) expectText(text string) {
 	p.t.Helper()
-	deadline := time.After(3 * time.Second)
+	deadline := time.After(waitLong)
 	for {
 		select {
 		case r := <-p.received:

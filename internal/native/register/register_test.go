@@ -18,6 +18,7 @@ type fakeClock struct {
 	waiters []chan time.Time
 	delays  []time.Duration
 	armed   chan struct{}
+	fired   int // timers already released by fire
 }
 
 func newClock() *fakeClock {
@@ -34,26 +35,36 @@ func (c *fakeClock) After(d time.Duration) <-chan time.Time {
 	return ch
 }
 
-// fire waits for the loop to arm a timer, advances time and releases it.
+// fire waits for the loop to arm its next timer, advances time and
+// releases it. Timers are taken strictly in the order they were armed, so
+// a slow loop can never make fire act on an earlier timer.
 func (c *fakeClock) fire(t *testing.T) time.Duration {
 	t.Helper()
-	select {
-	case <-c.armed:
-	case <-time.After(5 * time.Second):
-		t.Fatal("loop never armed a timer")
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		c.mu.Lock()
+		if len(c.waiters) > c.fired {
+			break
+		}
+		c.mu.Unlock()
+		if time.Now().After(deadline) {
+			t.Fatal("loop never armed a timer")
+		}
+		time.Sleep(time.Millisecond)
 	}
-	c.mu.Lock()
-	d := c.delays[len(c.delays)-1]
-	ch := c.waiters[len(c.waiters)-1]
+	d := c.delays[c.fired]
+	ch := c.waiters[c.fired]
+	c.fired++
 	c.now = c.now.Add(d)
+	now := c.now
 	c.mu.Unlock()
-	ch <- c.now
+	ch <- now
 	return d
 }
 
 func waitAttempts(t *testing.T, r *Registrar, n int, srv *fakeServer) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for srv.count() < n {
 		if time.Now().After(deadline) {
 			t.Fatalf("want %d requests, got %d", n, srv.count())
@@ -200,12 +211,6 @@ func TestTimingAndBackoff(t *testing.T) {
 		if i == len(want)-1 {
 			break
 		}
-		// wait for next request before checking next delay
-		waitAttempts(t, r, i+2, s)
-		c.armed <- struct{}{} // re-arm marker consumed by fire
-		<-c.armed
-		// fire consumed marker; put back so next fire sees it
-		c.armed <- struct{}{}
 	}
 	waitAttempts(t, r, 7, s)
 	for !r.Status().Registered {
@@ -245,7 +250,7 @@ func TestDNSCheck(t *testing.T) {
 	mu.Unlock()
 	c.fire(t)
 	waitAttempts(t, r, 2, s)
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for !r.Ready() && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
@@ -266,7 +271,7 @@ func TestStop(t *testing.T) {
 	go func() { r.Stop(); r.Stop(); close(done) }()
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("stop hung")
 	}
 	if s.count() != 1 {

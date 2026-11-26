@@ -39,7 +39,7 @@ func waitDial(t *testing.T, ch chan dialResult) dialResult {
 	select {
 	case r := <-ch:
 		return r
-	case <-time.After(3 * time.Second):
+	case <-time.After(waitLong):
 		t.Fatal("dial did not return")
 		return dialResult{}
 	}
@@ -82,7 +82,7 @@ func simpleCall(t *testing.T, mod func(*Config)) (*Call, *fakePeer, *fakeClock) 
 
 func nextEvent(t *testing.T, c *Call, kind EventKind) Event {
 	t.Helper()
-	deadline := time.After(3 * time.Second)
+	deadline := time.After(waitLong)
 	for {
 		select {
 		case ev, ok := <-c.Events():
@@ -103,7 +103,7 @@ func waitDone(t *testing.T, c *Call) error {
 	select {
 	case <-c.Done():
 		return c.Err()
-	case <-time.After(3 * time.Second):
+	case <-time.After(waitLong):
 		t.Fatal("call did not end")
 		return nil
 	}
@@ -214,12 +214,12 @@ func TestCallFullSession(t *testing.T) {
 		t.Fatal("RxKeyed false")
 	}
 	var got []int16
-	for i := 0; i < 10 && len(got) < 3; i++ {
+	for i := 0; i < 200 && len(got) < 3; i++ {
 		clk.Advance(FrameDuration)
 		select {
 		case f := <-c.Recv():
 			got = append(got, f[0])
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(250 * time.Millisecond):
 		}
 	}
 	wantV := []int16{ULawDecode(ULawEncode(1000)), ULawDecode(ULawEncode(2000)), ULawDecode(ULawEncode(3000))}
@@ -258,10 +258,12 @@ func TestCallFullSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.expect(TypeControl, CtlRadioUnkey)
+	p.sync() // let our UNKEY be acknowledged before the clock jumps
 
 	// Keepalives: LAGRQ at 10 s, PING at 20 s, answered by the peer.
 	clk.Advance(10 * time.Second)
 	p.expect(TypeIAX, CmdLagRq)
+	p.sync() // let the LAGRP arrive before the clock jumps again
 	clk.Advance(10 * time.Second)
 	p.expect(TypeIAX, CmdPing)
 
@@ -466,7 +468,7 @@ func TestDialContextCancel(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("err %v", err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(waitLong):
 		t.Fatal("dial did not return")
 	}
 	p.expect(TypeIAX, CmdHangup)
@@ -560,7 +562,17 @@ func TestPeerTimeout(t *testing.T) {
 	clk.Advance(200 * time.Millisecond)
 	p.expectText("L ") // acked automatically
 	p.setAuto(false)
-	clk.Advance(61 * time.Second)
+	// Advance in steps until the call gives up. A late ack of the link
+	// list can refresh the peer's last-heard time after the first step, so
+	// a single fixed advance is not guaranteed to cross the timeout.
+	for i := 0; i < 20; i++ {
+		clk.Advance(10 * time.Second)
+		select {
+		case <-c.Done():
+			i = 20
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 	if err := waitDone(t, c); !errors.Is(err, ErrTimeout) {
 		t.Fatalf("err %v", err)
 	}
@@ -626,7 +638,7 @@ func TestIncomingNewRefused(t *testing.T) {
 	if _, err := other.WriteToUDPAddrPort(pkt, c.LocalAddr()); err != nil {
 		t.Fatal(err)
 	}
-	other.SetReadDeadline(time.Now().Add(3 * time.Second))
+	other.SetReadDeadline(time.Now().Add(waitLong))
 	buf := make([]byte, 1500)
 	k, _, err := other.ReadFromUDPAddrPort(buf)
 	if err != nil {
