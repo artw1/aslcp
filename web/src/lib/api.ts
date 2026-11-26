@@ -1,5 +1,10 @@
-import type { ManualAction, Schedule, ScheduleInput, SchedulesSnapshot, FavStatsUpdate, Favorite, ImportPreview, NodeInfo, NodeListStatus, NodeStatus, SystemInfo, User, ConnectMode, Settings, NodeStats, UpdateInfo, About, PublicInfo, PublicSettings, ConfigFileInfo, ConfigFile, ConfigDraft, ConfigPreview, ConfigApplyResult, ConfigCommit, ConfigCommitDetail, BackupInfo, BackupSelection, RestoreUpload, RestoreApplyResult, RestoreResult, TuneList, TuneState, TunePatch, TuneApplyResult, TuneMeter, TuneEcho, TuneSaveResult, DVStatus, DVJob, DVSetup, DVList, DVListMode, DVResume, DVTuneMode, DVSnapshot, DVNetworks, DVAudio, DVMeter, DVNetView, DVNetPut, DVIdentity, DVCmdReply, DVFavorite, DVPlan, DVApplyResult, DVPrivateReq, DVRollbackResult, HostStatus, HostPatch, SysLogs, SysServices, SysNetwork, AuditPage, WifiState, WifiScan, TerminalStatus, TerminalTicket, TerminalSessionInfo, DiagPlan, NowCalling, UserListStatus, HamDBStatus } from './types';
-import type { SvcStatus, SvcSetResult, WebPortStatus } from './svcweb';
+import type {
+  About, BackupInfo, BackupSelection, Favorite, HostList, HostPatch, HostStatus, Heard, ManualAction, ModeInfo, ModeSettings, NodeJSON, NodeService,
+  NowCalling, PublicInfo, PublicSettings, RadioLevels, RestoreApplyResult, RestoreResult, RestoreUpload, Schedule, ScheduleInput, SchedulesSnapshot,
+  Settings, Station, SysLogs, SysNetwork, SysServices, SystemInfo, Target, TerminalSessionInfo, TerminalStatus, TerminalTicket, UpdateInfo, User,
+  UserListStatus, HamDBStatus, DiagPlan, AuditPage, WifiScan, WifiState, NodeInfo,
+} from './types';
+import type { WebPortStatus } from './svcweb';
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public body?: Record<string, unknown>) { super(message); }
@@ -62,7 +67,7 @@ async function saveDownload(res: Response, fallback: string): Promise<string> {
   return name;
 }
 
-/** POST /api/backup: fetch as a blob and save it through an object URL, named by Content-Disposition. */
+/** POST /api/backup: fetch as a blob and save it through an object URL, named by Content-Disposition. `secrets` keeps the network passwords in the file. */
 async function downloadBackup(sel: BackupSelection): Promise<string> {
   let res: Response;
   try {
@@ -103,8 +108,11 @@ function restoreUpload(file: File, auth: { password?: string; code?: string }, o
     xhr.send(fd);
   });
 }
+/** The target of a select or connect: the ID, and for hosts the address the pickers resolved. */
+export type TargetBody = { target: string; name?: string; host?: string; port?: number; slot?: number; private?: boolean };
+
 export const api = {
-  setupNeeded: () => req<{ needed: boolean; hotspot?: boolean }>('GET', '/setup', undefined, { noAuthRedirect: true }),
+  setupNeeded: () => req<{ needed: boolean; hotspot?: boolean; station?: boolean }>('GET', '/setup', undefined, { noAuthRedirect: true }),
   setup: (code: string, username: string, password: string) => req<void>('POST', '/setup', { code, username, password }, { noAuthRedirect: true }),
   login: (username: string, password: string) => req<User>('POST', '/login', { username, password }, { noAuthRedirect: true }),
   logout: () => req<void>('POST', '/logout', undefined, { noAuthRedirect: true }),
@@ -116,20 +124,32 @@ export const api = {
   updateUser: (id: number, patch: { role?: string; password?: string }) => req<User>('PUT', `/users/${id}`, patch),
   deleteUser: (id: number) => req<void>('DELETE', `/users/${id}`),
 
-  nodes: () => req<NodeStatus[]>('GET', '/nodes'),
-  connect: (node: string, target: string, mode: ConnectMode, permanent: boolean, exclusive = false) => req<void>('POST', `/nodes/${q(node)}/connect`, { target, mode, permanent, exclusive }),
-  disconnect: (node: string, target: string, permanent: boolean) => req<void>('POST', `/nodes/${q(node)}/disconnect`, { target, permanent }),
-  disconnectAll: (node: string) => req<void>('POST', `/nodes/${q(node)}/disconnect-all`),
+  // The node: status, modes, station, the one active mode.
+  node: () => req<NodeJSON>('GET', '/node'),
+  nodeReload: () => req<NodeJSON>('POST', '/node/reload'),
+  modes: () => req<ModeInfo[]>('GET', '/modes'),
+  saveMode: (mode: string, s: ModeSettings) => req<ModeInfo[]>('PUT', `/modes/${q(mode)}`, s),
+  deleteMode: (mode: string) => req<void>('DELETE', `/modes/${q(mode)}`),
+  station: () => req<Station>('GET', '/station'),
+  saveStation: (s: Station) => req<NodeJSON>('PUT', '/station', s),
+  /** Makes `mode` the active one (and connects `t` when given); an empty mode makes the node idle. */
+  select: (mode: string, t?: TargetBody) => req<NodeJSON>('POST', '/select', { mode, ...(t ?? {}) }),
+  connect: (t: TargetBody) => req<NodeJSON>('POST', '/connect', t),
+  disconnect: () => req<NodeJSON>('POST', '/disconnect'),
+  heard: (limit = 50) => req<Heard[]>('GET', `/heard?limit=${limit}`),
+  radio: () => req<RadioLevels>('GET', '/radio'),
+  setRadio: (p: { rxVolume?: number; txVolume?: number }) => req<RadioLevels>('PUT', '/radio', p),
+  radioProgram: () => req<NodeJSON>('POST', '/radio/program'),
+  hostLists: (mode: string) => req<HostList>('GET', `/hostlists?mode=${q(mode)}`),
+  refreshHostLists: () => req<unknown>('POST', '/hostlists/refresh'),
+  nodeService: () => req<NodeService>('GET', '/system/node-service'),
+  restartNodeService: () => req<{ ok: boolean }>('POST', '/system/node-service/restart'),
 
-  favorites: () => req<Favorite[]>('GET', '/favorites'),
-  favStats: () => req<FavStatsUpdate>('GET', '/favorites/stats'),
-  setFavScan: (enabled: boolean) => req<FavStatsUpdate>('PUT', '/favorites/scan', { enabled }),
-  addFavorite: (f: { node: string; label?: string; group?: string }) => req<Favorite>('POST', '/favorites', f),
-  updateFavorite: (id: number, f: { node?: string; label?: string; group?: string; pinned?: boolean }) => req<Favorite>('PUT', `/favorites/${id}`, f),
+  favorites: (mode = '') => req<Favorite[]>('GET', `/favorites${mode ? '?mode=' + q(mode) : ''}`),
+  addFavorite: (f: { mode: string; target: string; label?: string; group?: string }) => req<Favorite>('POST', '/favorites', f),
+  updateFavorite: (id: number, f: { target?: string; label?: string; group?: string; pinned?: boolean }) => req<Favorite>('PUT', `/favorites/${id}`, f),
   deleteFavorite: (id: number) => req<void>('DELETE', `/favorites/${id}`),
-  reorder: (ids: number[]) => req<void>('POST', '/favorites/reorder', { ids }),
-  importPreview: () => req<ImportPreview>('GET', '/favorites/import/allscan'),
-  importAllscan: () => req<{ imported: number; skipped: number }>('POST', '/favorites/import/allscan'),
+  reorder: (mode: string, ids: number[]) => req<void>('POST', '/favorites/reorder', { mode, ids }),
 
   schedules: () => req<SchedulesSnapshot>('GET', '/schedules'),
   addSchedule: (s: ScheduleInput) => req<Schedule>('POST', '/schedules', s),
@@ -140,19 +160,18 @@ export const api = {
 
   lookup: (node: string) => req<NodeInfo>('GET', `/lookup/${q(node)}`),
   search: (text: string, limit = 50) => req<NodeInfo[]>('GET', `/lookup?q=${q(text)}&limit=${limit}`),
-  nodelist: () => req<NodeListStatus>('GET', '/nodelist'),
-  refreshNodelist: () => req<void>('POST', '/nodelist/refresh'),
   settings: () => req<Settings>('GET', '/settings'),
   system: () => req<SystemInfo>('GET', '/system'),
-  nodeStats: (node: string) => req<NodeStats>('GET', `/nodes/${q(node)}/stats`),
   about: () => req<About>('GET', '/about'),
   updates: () => req<UpdateInfo>('GET', '/updates'),
   checkUpdates: () => req<UpdateInfo>('POST', '/updates/check'),
   applyUpdate: () => req<UpdateInfo>('POST', '/updates/apply'),
   osCheck: () => req<UpdateInfo>('POST', '/updates/os/check'),
   osApply: () => req<UpdateInfo>('POST', '/updates/os/apply'),
+  setUpdateChannel: (channel: 'stable' | 'beta') => req<UpdateInfo>('PUT', '/updates/channel', { channel }),
   reboot: () => req<{ ok: boolean }>('POST', '/system/reboot'),
   poweroff: () => req<void>('POST', '/system/poweroff'),
+  restartAslcp: () => req<{ ok: boolean }>('POST', '/system/restart-aslcp'),
   sysHost: () => req<HostStatus>('GET', '/system/host'),
   setSysHost: (p: HostPatch) => req<HostStatus>('PUT', '/system/host', p),
   sysTimezones: () => req<{ timezones: string[] }>('GET', '/system/timezones'),
@@ -160,8 +179,6 @@ export const api = {
   sysLogs: (unit: string, lines: number, since: string) => req<SysLogs>('GET', `/system/logs?unit=${q(unit)}&lines=${lines}${since ? '&since=' + q(since) : ''}`),
   sysServices: () => req<SysServices>('GET', '/system/services'),
   sysNetwork: () => req<SysNetwork>('GET', '/system/network'),
-  svcStatus: () => req<SvcStatus>('GET', '/system/asl-services'),
-  svcSet: (scope: string, action: 'enable' | 'disable', firewall: boolean) => req<SvcSetResult>('PUT', `/system/asl-services/${q(scope)}`, { action, firewall }),
   webPort: () => req<WebPortStatus>('GET', '/system/web-port'),
   setWebPort: (action: 'move' | 'back' | 'confirm') => req<WebPortStatus>('PUT', '/system/web-port', { action }),
   wifi: () => req<WifiState>('GET', '/system/wifi'),
@@ -178,71 +195,23 @@ export const api = {
   diagPlan: () => req<DiagPlan>('GET', '/system/diagnostics'),
   diagBundle: downloadDiagnostics,
   audit: (o: { before?: number; limit?: number; user?: string; action?: string } = {}) => req<AuditPage>('GET', `/audit?limit=${o.limit ?? 50}${o.before ? '&before=' + o.before : ''}${o.user ? '&user=' + q(o.user) : ''}${o.action ? '&action=' + q(o.action) : ''}`),
-  restartAslcp: () => req<{ ok: boolean }>('POST', '/system/restart-aslcp'),
-  dv: () => req<DVSnapshot>('GET', '/dv'),
-  dvNetworks: () => req<DVNetworks>('GET', '/dv/networks'),
-  dvNetworkPut: (mode: string, b: DVNetPut) => req<DVNetView>('PUT', `/dv/networks/${mode}`, b),
-  dvIdentity: () => req<DVIdentity>('GET', '/dv/identity'),
-  dvIdentityPut: (b: { callsign: string; dmrId: number; repeaterId?: number }) => req<DVIdentity>('PUT', '/dv/identity', b),
-  dvAudioPut: (b: Omit<DVAudio, 'applied' | 'applyError'>) => req<DVAudio>('PUT', '/dv/audio', b),
-  dvMeter: () => req<DVMeter>('GET', '/dv/meter'),
-  dvStatus: () => req<DVStatus>('GET', '/dv/status'),
-  dvEnable: () => req<DVStatus>('POST', '/dv/enable', {}),
-  dvDisable: () => req<DVStatus>('POST', '/dv/disable', {}),
-  dvJob: () => req<DVJob>('GET', '/dv/job'),
-  dvSetup: () => req<DVSetup>('GET', '/dv/setup'),
-  dvTune: (b: { mode: DVTuneMode; tune: string }) => req<DVCmdReply>('POST', '/dv/tune', b),
-  dvSnapshot: () => req<DVSnapshot>('GET', '/dv/snapshot'),
+
   nowcalling: () => req<NowCalling>('GET', '/nowcalling'),
   userList: () => req<UserListStatus>('GET', '/dv/userlist'),
   setUserList: (enabled: boolean) => req<UserListStatus>('PUT', '/dv/userlist', { enabled }),
+  downloadUserList: () => req<UserListStatus>('POST', '/dv/userlist/download', {}),
   hamdb: () => req<HamDBStatus>('GET', '/dv/hamdb'),
   setHamDB: (enabled: boolean) => req<HamDBStatus>('PUT', '/dv/hamdb', { enabled }),
-  downloadUserList: () => req<UserListStatus>('POST', '/dv/userlist/download', {}),
-  dvMode: (mode: DVTuneMode) => req<DVCmdReply>('POST', '/dv/mode', { mode }),
-  dvUnlink: () => req<DVCmdReply>('POST', '/dv/unlink', {}),
-  dvFavorites: () => req<DVFavorite[]>('GET', '/dv/favorites'),
-  dvAddFavorite: (b: { mode: DVTuneMode; value: string; name: string }) => req<DVFavorite>('POST', '/dv/favorites', b),
-  dvUpdateFavorite: (id: number, b: { name?: string; sort?: number; pinned?: boolean }) => req<DVFavorite>('PUT', `/dv/favorites/${id}`, b),
-  dvDeleteFavorite: (id: number) => req<void>('DELETE', `/dv/favorites/${id}`),
-  dvResume: () => req<DVResume>('GET', '/dv/resume'),
-  dvSetResume: (resume: boolean) => req<DVResume>('PUT', '/dv/resume', { resume }),
-  dvList: (mode: DVListMode) => req<DVList>('GET', `/dv/lists?mode=${mode}`),
-  dvSetLinkExclusive: (exclusive: boolean) => req<{ exclusive: boolean }>('PUT', '/dv/link', { exclusive }),
-  dvSetNodeName: (name: string) => req<{ name: string }>('PUT', '/dv/private-node/name', { name }),
-  dvPrivatePlan: (b: DVPrivateReq) => req<DVPlan>('PUT', '/dv/private-node', { ...b, dryRun: true }),
-  dvPrivateApply: (b: DVPrivateReq) => req<DVApplyResult>('PUT', '/dv/private-node', { ...b, dryRun: false }),
-  dvPrivateRemovePlan: (base?: Record<string, string>) => req<DVPlan>('DELETE', '/dv/private-node', { dryRun: true, base }),
-  dvPrivateRemove: (b: { restart: boolean; base?: Record<string, string> }) => req<DVApplyResult>('DELETE', '/dv/private-node', { ...b, dryRun: false }),
-  dvPrivateAdopt: () => req<{ adopted: boolean; node: string }>('POST', '/dv/private-node/adopt', {}),
-  dvPrivateRollback: () => req<DVRollbackResult>('POST', '/dv/private-node/rollback', {}),
-  setUpdateChannel: (channel: 'stable' | 'beta') => req<UpdateInfo>('PUT', '/updates/channel', { channel }),
+
   publicInfo: () => req<PublicInfo>('GET', '/public/info', undefined, { noAuthRedirect: true }),
   publicSettings: () => req<PublicSettings>('GET', '/public'),
-  putPublic: (p: Partial<Omit<PublicSettings, 'defaultTitle' | 'localNodes' | 'clients'>>) => req<PublicSettings>('PUT', '/public', p),
-  configFiles: () => req<ConfigFileInfo[]>('GET', '/config/files'),
-  configFile: (path: string) => req<ConfigFile>('GET', `/config/file?path=${q(path)}`),
-  configPreview: (files: ConfigDraft[]) => req<ConfigPreview>('POST', '/config/preview', { files }),
-  configApply: (files: ConfigDraft[], message: string, reload: boolean) => req<ConfigApplyResult>('POST', '/config/apply', { files, message, reload }),
-  configHistory: (limit: number, offset: number) => req<ConfigCommit[]>('GET', `/config/history?limit=${limit}&offset=${offset}`),
-  configCommit: (commit: string, reveal = false) => req<ConfigCommitDetail>('GET', `/config/history/${q(commit)}${reveal ? '?reveal=1' : ''}`),
-  configRestore: (commit: string, reload: boolean) => req<ConfigApplyResult>('POST', `/config/history/${q(commit)}/restore`, { reload }),
-  restartAsteriskNow: () => req<{ ok: boolean }>('POST', '/system/asterisk/restart'),
-  restartAsterisk: () => req<void>('POST', '/system/restart-asterisk'),
+  putPublic: (p: Partial<Omit<PublicSettings, 'defaultTitle' | 'clients'>>) => req<PublicSettings>('PUT', '/public', p),
+
   backupInfo: () => req<BackupInfo>('GET', '/backup/info'),
   backup: downloadBackup,
   restoreUpload,
-  restoreApply: (id: string, deleteMissing: string[], code?: string) => req<RestoreApplyResult>('POST', `/restore/${q(id)}/apply`, code ? { deleteMissing, code } : { deleteMissing }, { noAuthRedirect: true }),
+  restoreApply: (id: string, code?: string) => req<RestoreApplyResult>('POST', `/restore/${q(id)}/apply`, code ? { code } : {}, { noAuthRedirect: true }),
   restoreCancel: (id: string) => req<void>('DELETE', `/restore/${q(id)}`, undefined, { noAuthRedirect: true }),
-  tuneList: () => req<TuneList>('GET', '/radio'),
-  tuneGet: (dev: string) => req<TuneState>('GET', `/radio/${q(dev)}`),
-  tuneSet: (dev: string, patch: TunePatch) => req<TuneApplyResult>('PUT', `/radio/${q(dev)}/params`, patch),
-  tuneMeter: (dev: string) => req<TuneMeter>('GET', `/radio/${q(dev)}/meter`),
-  tuneEcho: (dev: string, on: boolean) => req<TuneEcho>('POST', `/radio/${q(dev)}/echo`, { on }),
-  tuneSave: (dev: string) => req<TuneSaveResult>('POST', `/radio/${q(dev)}/save`),
-  tuneRevert: (dev: string) => req<TuneApplyResult>('POST', `/radio/${q(dev)}/revert`),
-  /** Best-effort echo off while the page is going away (keepalive lets the request outlive it). */
-  tuneEchoOffOnExit: (dev: string) => { try { void fetch(`/api/radio/${q(dev)}/echo`, { method: 'POST', keepalive: true, credentials: 'same-origin', headers: { 'X-ASLCP': '1', 'Content-Type': 'application/json' }, body: '{"on":false}' }).catch(() => {}); } catch { /* ignore */ } },
   restoreResult: () => req<RestoreResult>('GET', '/restore/result', undefined, { noAuthRedirect: true }),
 };
 

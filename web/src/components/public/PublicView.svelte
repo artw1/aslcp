@@ -5,12 +5,10 @@
   import { theme, cycleTheme } from '../../lib/theme.svelte';
   import { pub, startPublic, stopPublic } from '../../lib/publicLive.svelte';
   import { REPO_URL } from '../../lib/util';
-  import NodeTile from '../NodeTile.svelte';
   import LastHeardTable from '../LastHeardTable.svelte';
-  import PublicNetwork from './PublicNetwork.svelte';
   import PublicNowCalling from './PublicNowCalling.svelte';
-  import { pubTile } from '../../lib/tiles';
   import { pubNow } from '../../lib/pubnow';
+  import { stateText } from '../../lib/modes';
   import { pubHeardItems } from '../../lib/lastheard';
   import Radio from '@lucide/svelte/icons/radio-tower';
   import Sun from '@lucide/svelte/icons/sun';
@@ -33,7 +31,7 @@
   const nextTheme = $derived(theme.value === 'dark' ? 'light' : theme.value === 'light' ? 'system' : 'dark');
   const themeLabel = $derived(`Theme: ${theme.value}. Switch to ${nextTheme}.`);
   const updatedAt = $derived(pub.updated ? new Date(pub.updated).toLocaleTimeString() : '');
-  const banner = $derived(pubNow(snap, pub.skew, pub.nodeAt));
+  const banner = $derived(pubNow(snap, pub.skew));
   const heard = $derived(pubHeardItems(snap));
   // `clock` ticks once a second so the age of the data is current.
   const staleData = $derived(pub.updated > 0 && clock.now - pub.updated > 45000);
@@ -43,7 +41,7 @@
   <header class="border-b border-line bg-surface">
     <div class="mx-auto flex max-w-[1100px] items-center gap-2 px-3 py-1.5 sm:gap-3 sm:px-4">
       <Radio size={18} class="shrink-0 text-accent" aria-hidden="true" />
-      <h1 class="min-w-0 flex-1 truncate text-base font-bold tracking-tight">{snap?.title ?? 'AllStarLink node status'}</h1>
+      <h1 class="min-w-0 flex-1 truncate text-base font-bold tracking-tight">{snap?.title ?? 'Node status'}</h1>
       <span class="badge shrink-0 {live && !staleData ? 'text-ok' : 'text-warn'}" role="status">
         {#if live && !staleData}<Wifi size={13} aria-hidden="true" />{:else}<WifiOff size={13} aria-hidden="true" />{/if}{staleData && live ? 'No recent data' : connLabel}
       </span>
@@ -58,24 +56,22 @@
         <button class="btn btn-sm shrink-0" onclick={() => navigate('/')}>Back</button>
       {/if}
     </div>
-    {#if snap && snap.nodes.length > 0 && banner}<PublicNowCalling call={banner} />{/if}
+    {#if snap && banner}<PublicNowCalling call={banner} />{/if}
   </header>
 
   <main class="mx-auto w-full max-w-[1100px] flex-1 space-y-3 px-3 py-2 sm:px-4">
     {#if !snap}
       <p class="py-10 text-center text-sm text-muted" role="status">Loading…</p>
-    {:else if snap.nodes.length === 0}
-      <p class="py-10 text-center text-sm text-muted" role="status">No node data yet.</p>
     {:else}
-      <section class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" aria-label="Nodes" data-testid="tiles">
-        {#each snap.nodes as n, i (n.node + '/' + i)}<NodeTile tile={pubTile(n, snap.showDV ? snap.dv?.now : null)} />{/each}
+      <section class="rounded-md border border-line bg-surface px-3 py-2" aria-label="Station" data-testid="public-station">
+        <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span class="font-mono text-base font-semibold">{snap.station.callsign || 'Station'}</span>
+          <span class="text-sm text-muted">{snap.station.mode ? `${snap.station.modeTitle}${snap.station.target ? ' · ' + snap.station.target : ''}` : 'No mode active'}</span>
+          {#if snap.station.mode}<span class="text-xs text-muted">{stateText(snap.station.state)}</span>{/if}
+          {#if snap.station.txKeyed}<span class="badge text-danger">Transmitting</span>{:else if snap.station.rxKeyed}<span class="badge text-ok">Receiving</span>{/if}
+        </div>
       </section>
-      {#if snap.showNetwork}
-        {#each snap.nodes as n, i (n.node + '/' + i)}
-          {#if n.network && n.network.length > 0}<PublicNetwork node={n} showNode={snap.nodes.length > 1} />{/if}
-        {/each}
-      {/if}
-      {#if snap.showActivity || snap.showDV}
+      {#if snap.showHeard}
         <section aria-label="Last heard">
           <h2 class="mb-1 text-sm font-semibold uppercase tracking-wide text-muted">Last heard</h2>
           <div class="rounded-md border border-line bg-surface px-3 py-1">

@@ -1,40 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allmonStillOpen, offersAllmon, firewallText, listenText, webAddress, pagePort, shouldConfirm, watchOldAddress } from './svcweb.ts';
-import type { SvcScope, SvcPort, WebPortStatus } from './svcweb.ts';
-
-const scope = (name: SvcScope['scope'], active: boolean, installed = true, fw: string[] = []): SvcScope => ({
-  scope: name, label: name, installed, active, enabled: active, recorded: false, units: [], firewall: fw.map((service) => ({ service, open: true })),
-});
-
-test('allmonStillOpen: Apache off while Allmon3 runs', () => {
-  assert.equal(allmonStillOpen([scope('cockpit', true), scope('apache', false), scope('allmon3', true)]), true);
-  assert.equal(allmonStillOpen([scope('apache', true), scope('allmon3', true)]), false);
-  assert.equal(allmonStillOpen([scope('apache', false), scope('allmon3', false)]), false);
-  assert.equal(allmonStillOpen([scope('apache', false, false), scope('allmon3', true)]), false);
-});
-
-test('offersAllmon only for Apache off with Allmon3 running', () => {
-  const s = [scope('apache', true), scope('allmon3', true)];
-  assert.equal(offersAllmon(s, 'apache', 'disable'), true);
-  assert.equal(offersAllmon(s, 'apache', 'enable'), false);
-  assert.equal(offersAllmon(s, 'cockpit', 'disable'), false);
-  assert.equal(offersAllmon([scope('apache', true), scope('allmon3', false)], 'apache', 'disable'), false);
-});
-
-test('firewallText', () => {
-  assert.equal(firewallText(scope('apache', true, true, ['http', 'https']), 'disable'), 'Also close http and https in the firewall');
-  assert.equal(firewallText(scope('cockpit', false, true, ['cockpit']), 'enable'), 'Also reopen cockpit in the firewall');
-  assert.equal(firewallText(scope('allmon3', true), 'disable'), '');
-});
-
-test('listenText', () => {
-  const p = (o: Partial<SvcPort>): SvcPort => ({ scope: 'x', label: '80', listening: true, ports: [80], addrs: ['*'], ...o });
-  assert.equal(listenText(p({ listening: false, ports: [], addrs: [] })), 'closed');
-  assert.equal(listenText(p({})), 'listening on all addresses');
-  assert.equal(listenText(p({ addrs: ['127.0.0.1'] })), 'listening on 127.0.0.1');
-  assert.equal(listenText(p({ ports: [16700, 16701], addrs: ['0.0.0.0'] })), 'listening on all addresses (16700, 16701)');
-});
+import { webAddress, pagePort, shouldConfirm, watchOldAddress } from './svcweb.ts';
+import type { WebPortStatus } from './svcweb.ts';
 
 test('webAddress builds the link from the browser host', () => {
   assert.equal(webAddress({ protocol: 'http:', hostname: 'node2001.local' }, 80), 'http://node2001.local/');
@@ -46,7 +13,7 @@ test('webAddress builds the link from the browser host', () => {
 test('pagePort and shouldConfirm', () => {
   assert.equal(pagePort({ port: '', protocol: 'http:' }), 80);
   assert.equal(pagePort({ port: '8080', protocol: 'http:' }), 8080);
-  const st = (o: Partial<WebPortStatus>): WebPortStatus => ({ available: true, listen: ':80', port: 80, on80: true, canMove: false, reason: 'already', apacheActive: false, dropIn: true, previous: ':8080', backPort: 8080, pending: { deadline: '', seconds: 40 }, ...o });
+  const st = (o: Partial<WebPortStatus>): WebPortStatus => ({ available: true, listen: ':80', port: 80, on80: true, canMove: false, reason: 'already', dropIn: true, previous: ':8080', backPort: 8080, pending: { deadline: '', seconds: 40 }, ...o });
   assert.equal(shouldConfirm(st({}), { port: '', protocol: 'http:' }), true);
   assert.equal(shouldConfirm(st({}), { port: '8080', protocol: 'http:' }), false); // old address: do not confirm
   assert.equal(shouldConfirm(st({ pending: undefined }), { port: '', protocol: 'http:' }), false);

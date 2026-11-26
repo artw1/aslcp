@@ -7,7 +7,6 @@
 
   const op = $derived(canOperate());
   const snap = $derived(app.schedules);
-  const multi = $derived(app.nodes.length > 1);
   const next = $derived(snap?.upcoming[0]);
   const running = $derived.by(() => {
     if (!snap) return [];
@@ -39,10 +38,10 @@
       {/if}
       {#if snap.lastCancel}<span class="text-warn">{cancelText(snap.lastCancel)}</span>{/if}
       {#if running.length}
-        <span>Running: {running[0].s!.name || evLabel({ ...running[0].s!, action: 'connect' }, multi)} until <b class="font-semibold tabular-nums">{nodeParts(running[0].a.end).time}</b>{running.length > 1 ? ` (+${running.length - 1} more)` : ''}</span>
+        <span>Running: {running[0].s!.name || evLabel({ ...running[0].s!, action: 'connect' })} until <b class="font-semibold tabular-nums">{nodeParts(running[0].a.end).time}</b>{running.length > 1 ? ` (+${running.length - 1} more)` : ''}</span>
       {/if}
       {#if next}
-        <span class="{snap.enabled ? '' : 'text-muted'}">Next: {evLabel(next, multi)}{label(next)}, <span class="tabular-nums">{fmtAt(next.at, snap.now)}</span>, <span class="tabular-nums text-muted">{countdown(next.at, clock.now)}</span></span>
+        <span class="{snap.enabled ? '' : 'text-muted'}">Next: {evLabel(next)}{label(next)}, <span class="tabular-nums">{fmtAt(next.at, snap.now)}</span>, <span class="tabular-nums text-muted">{countdown(next.at, clock.now)}</span></span>
       {:else if !running.length}
         <span class="text-muted">Nothing upcoming</span>
       {/if}

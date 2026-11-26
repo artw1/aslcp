@@ -70,7 +70,7 @@
       </tr>
     </thead>
     <tbody class="divide-y divide-line">
-      {#each rows as r (r.key)}
+      {#each rows as r, i (r.key + i)}
         <tr title={r.title}>
           <td class="whitespace-nowrap pr-3 font-mono">
             {#if readonly && r.qrz}

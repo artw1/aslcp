@@ -1,11 +1,9 @@
 <script lang="ts">
   import { api, ApiError, MAX_BACKUP_BYTES } from '../lib/api';
-  import { toast } from '../lib/toast.svelte';
-  import type { RestoreAction, RestorePreview, RestoreResult, RestoreStep } from '../lib/types';
+  import type { RestorePreview, RestoreResult, RestoreStep } from '../lib/types';
   import Confirm from './Confirm.svelte';
   import Check from '@lucide/svelte/icons/check';
   import X from '@lucide/svelte/icons/x';
-  import Copy from '@lucide/svelte/icons/copy';
   import Refresh from '@lucide/svelte/icons/refresh-cw';
   import Warn from '@lucide/svelte/icons/triangle-alert';
   import Upload from '@lucide/svelte/icons/upload';
@@ -17,27 +15,9 @@
   let stage = $state<Stage>('pick');
   let file = $state<File | null>(null), password = $state(''), err = $state('');
   let progress = $state(0), id = $state(''), preview = $state<RestorePreview | null>(null);
-  let del = $state<Record<string, boolean>>({}), filter = $state<RestoreAction | 'all'>('all');
   let confirmOpen = $state(false), steps = $state<RestoreStep[]>([]), result = $state<RestoreResult | null>(null);
-  let waitNote = $state(''), copied = $state(false);
+  let waitNote = $state('');
 
-  const LABEL: Record<RestoreAction, string> = {
-    restore: 'Restored from backup',
-    restore_dist: 'Restored; new ASL3 default saved as .dpkg-dist, review',
-    keep_stock: 'Kept new ASL3 default',
-    keep_new: 'Kept (new in this ASL3)',
-    delete_optional: 'Deleted on old node, tick to delete here',
-    skip: 'Not restored (old package leftover)',
-  };
-  const SHORT: Record<RestoreAction, string> = { restore: 'Restored', restore_dist: 'Review', keep_stock: 'New default', keep_new: 'New here', delete_optional: 'Delete?', skip: 'Skipped' };
-  const ORDER: RestoreAction[] = ['restore_dist', 'delete_optional', 'restore', 'keep_stock', 'keep_new', 'skip'];
-  const counts = $derived.by(() => {
-    const c: Partial<Record<RestoreAction, number>> = {};
-    for (const f of preview?.files ?? []) c[f.action] = (c[f.action] ?? 0) + 1;
-    return c;
-  });
-  const shown = $derived((preview?.files ?? []).filter((f) => filter === 'all' || f.action === filter).sort((a, b) => ORDER.indexOf(a.action) - ORDER.indexOf(b.action) || a.path.localeCompare(b.path)));
-  const delCount = $derived(Object.values(del).filter(Boolean).length);
   const mb = (n: number) => (n / 1048576).toFixed(1);
 
   function pick(e: Event) {
@@ -70,7 +50,7 @@
     stage = 'uploading'; progress = 0;
     try {
       const r = await api.restoreUpload(file, mode === 'admin' ? { password } : { code: code.trim() }, (f) => (progress = f));
-      id = r.id; preview = r.preview; del = {}; filter = 'all'; password = ''; stage = 'preview';
+      id = r.id; preview = r.preview; password = ''; stage = 'preview';
     } catch (x) {
       stage = 'pick';
       err = uploadError(x);
@@ -84,7 +64,7 @@
   async function apply() {
     stage = 'applying'; err = '';
     try {
-      const r = await api.restoreApply(id, Object.keys(del).filter((p) => del[p]), mode === 'setup' ? code.trim() : undefined);
+      const r = await api.restoreApply(id, mode === 'setup' ? code.trim() : undefined);
       steps = r.steps;
       if (r.restarting) { stage = 'waiting'; void waitForServer(); }
       else { await loadResult(); stage = 'done'; void pollHealth(); }
@@ -122,9 +102,6 @@
   const checklist = $derived(result?.checklist ?? preview?.checklist ?? []);
   function login() { location.hash = '#/login'; location.reload(); }
 
-  async function copyCmd() {
-    try { await navigator.clipboard.writeText(preview?.installCommand ?? ''); copied = true; setTimeout(() => (copied = false), 2000); } catch { toast('Copy failed; select the command and copy it by hand.', 'error'); }
-  }
   const when = (s: string) => { const d = new Date(s); return isNaN(d.getTime()) ? s : d.toLocaleString(); };
 </script>
 
@@ -159,12 +136,10 @@
     <section aria-label="Backup summary">
       <h3 class="text-base font-semibold">Backup of {b.hostname}</h3>
       <dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-        <dt class="text-muted">Nodes</dt><dd class="font-mono break-words">{b.nodes.join(', ') || 'none'}</dd>
+        {#if b.callsign}<dt class="text-muted">Callsign</dt><dd class="font-mono">{b.callsign}</dd>{/if}
         <dt class="text-muted">Created</dt><dd>{when(b.created)}{#if b.createdBy}{" "}by {b.createdBy}{/if}</dd>
         <dt class="text-muted">ASLCP</dt><dd class="font-mono">{b.aslcpVersion}</dd>
         {#if b.osName || b.osCodename}<dt class="text-muted">System</dt><dd class="break-words">{b.osName || b.osCodename}{#if preview.node.osCodename && b.osCodename && preview.node.osCodename !== b.osCodename}{" "}<span class="text-warn">(this node: {preview.node.osName || preview.node.osCodename})</span>{/if}</dd>{/if}
-        <dt class="text-muted">ASL3</dt><dd class="font-mono break-all">{b.asl3Version}</dd>
-        <dt class="text-muted">Asterisk</dt><dd class="font-mono break-all">{b.asteriskVersion}</dd>
         <dt class="text-muted">Architecture</dt><dd class="font-mono">{b.arch}</dd>
         {#if b.channel}<dt class="text-muted">Update channel</dt><dd>{b.channel}</dd>{/if}
       </dl>
@@ -177,27 +152,10 @@
       </section>
     {/if}
 
-    <section aria-label="Asterisk files">
-      <h3 class="font-semibold">/etc/asterisk ({preview.files.length} files)</h3>
-      <div class="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Filter files by action">
-        <button class="btn btn-sm {filter === 'all' ? 'btn-primary' : ''}" aria-pressed={filter === 'all'} onclick={() => (filter = 'all')}>All {preview.files.length}</button>
-        {#each ORDER.filter((a) => counts[a]) as a}
-          <button class="btn btn-sm {filter === a ? 'btn-primary' : ''}" aria-pressed={filter === a} title={LABEL[a]} onclick={() => (filter = a)}>{SHORT[a]} {counts[a]}</button>
-        {/each}
-      </div>
-      {#if filter !== 'all'}<p class="mt-1 text-xs text-muted">{LABEL[filter]}</p>{/if}
-      <ul class="mt-2 max-h-72 divide-y divide-line overflow-y-auto rounded border border-line">
-        {#each shown as f (f.path)}
-          <li class="flex flex-wrap items-start gap-x-3 gap-y-0.5 px-2 py-1.5">
-            {#if f.action === 'delete_optional'}
-              <input type="checkbox" class="mt-0.5 size-4 accent-[var(--accent)]" aria-label="Delete {f.path} here" bind:checked={del[f.path]} disabled={stage === 'applying'} />
-            {/if}
-            <code class="min-w-0 flex-1 basis-48 font-mono text-xs break-all">{f.path}</code>
-            <span class="text-xs {f.action === 'restore_dist' || f.action === 'delete_optional' ? 'text-warn' : 'text-muted'}">{LABEL[f.action]}</span>
-            {#if f.note}<span class="basis-full text-xs text-muted">{f.note}</span>{/if}
-          </li>
-        {/each}
-      </ul>
+    <section aria-label="Node data">
+      <h3 class="font-semibold">Node</h3>
+      {#if preview.modes.length}<p class="mt-1">Modes set up: <span class="font-mono">{preview.modes.join(', ')}</span>.</p>{:else}<p class="mt-1 text-muted">No modes are set up in this backup.</p>{/if}
+      {#if preview.missingSecrets.length}<p class="mt-1 text-warn">No password in the backup for: <span class="font-mono">{preview.missingSecrets.join(', ')}</span>. Set them up again after the restore.</p>{/if}
     </section>
 
     <section aria-label="ASLCP data">
@@ -205,10 +163,7 @@
       <p class="mt-1">These users will exist afterwards. Log in with your old password.</p>
       <ul class="mt-1 flex flex-wrap gap-1.5">{#each preview.users as u}<li class="badge">{u.username} · {u.role}</li>{/each}</ul>
       <p class="mt-1 text-muted">{preview.favorites} favorite{preview.favorites === 1 ? '' : 's'}, {preview.schedules} schedule{preview.schedules === 1 ? '' : 's'}, settings and audit log.
-        {#if preview.parts.history}Config history included.{/if}
-        {#if preview.parts.allmon3} Allmon3 config included.{/if}
-        {#if preview.parts.sounds} Custom sounds included.{/if}
-        {#if preview.parts.dv} Digital modes configuration included (applied now if digital modes are enabled, otherwise kept and applied when you enable them).{/if}</p>
+        {#if preview.parts.secrets}Mode passwords included.{:else} Mode passwords not included.{/if}</p>
     </section>
 
     {#if preview.radio}
@@ -216,26 +171,12 @@
       <section class="rounded border border-line p-3" aria-label="Radio settings">
         <h3 class="font-semibold">Radio module settings (SA818)</h3>
         <dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5">
-          <dt class="text-muted">Band</dt><dd>{r.band}</dd>
-          <dt class="text-muted">RX / TX</dt><dd class="font-mono">{r.freqRx} / {r.freqTx} MHz</dd>
-          <dt class="text-muted">Tone</dt><dd class="break-words">{r.tone || `CTCSS ${r.ctcssRx}/${r.ctcssTx}, DCS ${r.dcsRx}/${r.dcsTx}`}</dd>
-          <dt class="text-muted">Port</dt><dd class="font-mono break-all">{r.port}</dd>
+          <dt class="text-muted">Bandwidth</dt><dd>{r.bandwidth}</dd>
+          <dt class="text-muted">RX / TX</dt><dd class="font-mono">{r.rxMHz} / {r.txMHz} MHz</dd>
+          <dt class="text-muted">Tone</dt><dd class="break-words">{r.rxTone || 'none'} / {r.txTone || 'none'}</dd>
+          <dt class="text-muted">Squelch</dt><dd>{r.squelch}</dd>
         </dl>
-        {#if !r.portPresent}
-          <p class="mt-2 flex items-start gap-1.5 text-warn"><Warn size={14} class="mt-0.5 shrink-0" />This serial port does not exist on this system. Plug the radio module in, or adjust the port, before you rely on these settings.</p>
-        {/if}
-        <p class="mt-1 text-xs text-muted">The module keeps its own settings; this file is restored to /etc/sa818.conf. It is not sent to the module automatically.</p>
-      </section>
-    {/if}
-
-    {#if preview.missingPackages.length}
-      <section aria-label="Missing packages">
-        <h3 class="font-semibold">Packages to install</h3>
-        <p class="mt-1">The old node had these packages, which are missing here: <span class="font-mono">{preview.missingPackages.join(', ')}</span>. Run this on the node:</p>
-        <div class="mt-1 flex items-start gap-2 rounded border border-line bg-surface-2/40 p-2">
-          <code class="min-w-0 flex-1 font-mono text-xs break-all select-all">{preview.installCommand}</code>
-          <button class="btn btn-sm shrink-0" onclick={copyCmd}>{#if copied}<Check size={12} />Copied{:else}<Copy size={12} />Copy{/if}</button>
-        </div>
+        <p class="mt-1 text-xs text-muted">The module keeps its own settings. They are written to the node, then programmed the next time you save the radio.</p>
       </section>
     {/if}
 
@@ -251,12 +192,11 @@
     <div class="flex flex-wrap items-center gap-2 border-t border-line pt-3">
       <button class="btn btn-primary" disabled={stage === 'applying'} onclick={() => (confirmOpen = true)}>{#if stage === 'applying'}<Refresh size={14} class="animate-spin" />Restoring…{:else}Restore{/if}</button>
       <button class="btn" disabled={stage === 'applying'} onclick={cancel}>Cancel</button>
-      {#if delCount}<span class="text-xs text-muted">{delCount} file{delCount === 1 ? '' : 's'} will be deleted</span>{/if}
     </div>
   {:else if stage === 'waiting'}
     <section class="space-y-3" aria-label="Restarting">
       <p class="flex items-center gap-2 font-medium" role="status"><Refresh size={14} class="animate-spin" />{waitNote}</p>
-      <p class="text-muted">Asterisk and ASLCP are restarting. This takes a minute or two. Keep this page open.</p>
+      <p class="text-muted">The node and ASLCP are restarting. This takes a minute or two. Keep this page open.</p>
       {@render stepList(steps)}
     </section>
   {:else if stage === 'done'}
@@ -309,5 +249,5 @@
 {/snippet}
 
 <Confirm bind:open={confirmOpen} title="Restore this backup?" confirmLabel="Restore and restart"
-  message="Asterisk will stop, all links will drop and the node will restart. Do not run the old SD card or old node at the same time: both would register the same node numbers. Your current /etc/asterisk is saved in the config history first."
+  message="The active mode will disconnect and the node will restart. Do not run the old node at the same time: both would connect with the same credentials."
   onconfirm={apply} />

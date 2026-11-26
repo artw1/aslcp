@@ -110,5 +110,5 @@
 {/if}
 
 <Confirm bind:open={askName} title="Change the hostname?" message={`Change the hostname to ${name.trim().toLowerCase()}? Other machines and tools that use the old name will no longer find this node by it. A reboot is recommended afterwards.`} confirmLabel="Change hostname" onconfirm={() => patch({ hostname: name.trim().toLowerCase() }, `Hostname: ${name.trim().toLowerCase()}`)} />
-<Confirm bind:open={askReboot} title="Reboot the node?" message="Reboot the node? Asterisk and all links go down; the panel comes back after the system starts." confirmLabel="Reboot" onconfirm={doReboot} />
-<Confirm bind:open={askOff} title="Shut down the node?" message="Shut down the node? Asterisk and all links go down and the node stays off until someone powers it on by hand. You cannot restart it from this page." confirmLabel="Shut down" onconfirm={doPoweroff} />
+<Confirm bind:open={askReboot} title="Reboot the node?" message="Reboot the node? The radio and the active link go down; the panel comes back after the system starts." confirmLabel="Reboot" onconfirm={doReboot} />
+<Confirm bind:open={askOff} title="Shut down the node?" message="Shut down the node? The radio and the active link go down and the node stays off until someone powers it on by hand. You cannot restart it from this page." confirmLabel="Shut down" onconfirm={doPoweroff} />

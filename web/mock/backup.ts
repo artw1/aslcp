@@ -11,38 +11,21 @@ const MOCK_PASSWORD = 'pass', MOCK_CODE = '123456';
 const pending = new Map<string, true>();
 let lastResult: unknown = null;
 
-const files = [
-  ['rpt.conf', 'restore_dist', 'ASL3 changed the default [general] section; compare with rpt.conf.dpkg-dist'],
-  ['iax.conf', 'restore', ''], ['simpleusb.conf', 'restore', ''], ['extensions.conf', 'restore', ''], ['allmon.ini.php', 'restore', ''],
-  ['savenode.conf', 'restore', ''], ['custom/local-id.conf', 'restore', ''], ['broadcastify/feed.conf', 'restore', ''],
-  ['manager.conf', 'restore_dist', 'ASL3 changed the default permissions'],
-  ['asterisk.conf', 'keep_stock', 'Stock file, unchanged on the old node'], ['modules.conf', 'keep_stock', ''], ['logger.conf', 'keep_stock', ''], ['http.conf', 'keep_stock', ''],
-  ['rpt_http_registrations.conf', 'keep_new', 'Added by a newer ASL3'], ['node-ids.conf', 'keep_new', ''],
-  ['voter.conf', 'delete_optional', 'Deleted on the old node'], ['echolink.conf.sample', 'delete_optional', 'Deleted on the old node'],
-  ['rpt.conf.dpkg-dist', 'skip', 'Old package leftover'], ['iax.conf.dpkg-old', 'skip', 'Old package leftover'],
-].map(([path, action, note]) => ({ path, action, ...(note ? { note } : {}) }));
-
 const preview = () => ({
-  backup: { hostname: 'node-demo', created: new Date(Date.now() - 3 * 86400e3).toISOString(), createdBy: 'admin', aslcpVersion: '1.1.2', asl3Version: '3.10.7-1.deb12', asteriskVersion: '22.10.1+asl3-3.10.7-1.deb12', arch: 'arm64', osId: 'debian', osCodename: 'bookworm', osName: 'Debian GNU/Linux 12 (bookworm)', nodes: ['2000', '2002'], channel: 'beta' },
-  node: { asl3Version: '3.10.8-1.deb13', asteriskVersion: '22.10.1+asl3-3.10.8-1.deb13', arch: 'arm64', osId: 'debian', osCodename: 'trixie', osName: 'Debian GNU/Linux 13 (trixie)' },
-  warnings: [
-    { code: 'os_release', message: "This backup was made on Debian 12 (bookworm); this node runs Debian 13 (trixie). Files you edited will replace the new release's defaults; the new defaults are kept next to them as .dpkg-dist. ASL3 changes some configs between releases (for example DAHDI timing is no longer needed), so if Asterisk or app_rpt does not start, compare your files against the .dpkg-dist copies." },
-    { code: 'dv_settings_not_restored', message: 'The backup holds the settings of the previous digital voice stack. ASLCP 2.0 does not restore them: set up digital modes again in Settings, Digital Modes, after the restore.' },
-    { code: 'asl3_version', message: 'The backup was made on ASL3 3.10.7; this node runs 3.10.8. Stock files keep the new version.' },
-  ],
-  files,
+  backup: { hostname: 'node-demo', created: new Date(Date.now() - 3 * 86400e3).toISOString(), createdBy: 'admin', aslcpVersion: '3.0.0', arch: 'arm64', osId: 'debian', osCodename: 'trixie', osName: 'Debian GNU/Linux 13 (trixie)', callsign: 'N0CALL', channel: 'stable' },
+  node: { arch: 'arm64', osId: 'debian', osCodename: 'trixie', osName: 'Debian GNU/Linux 13 (trixie)', callsign: 'N0CALL' },
+  warnings: [{ code: 'secrets_missing', message: 'The backup has no mode passwords. Set them up again after the restore.' }],
   users: [{ username: 'admin', role: 'admin' }, { username: 'op', role: 'operator' }, { username: 'guest', role: 'viewer' }],
   favorites: 5,
   schedules: 2,
-  missingPackages: ['allmon3', 'asl3-tts'],
-  installCommand: 'sudo apt install allmon3 asl3-tts',
   checklist: [
     { item: 'Hostname', value: 'node-demo' }, { item: 'Timezone', value: 'America/Chicago' },
     { item: 'Network and Wi-Fi', value: 'Not included in the backup' }, { item: 'SSH keys and OS users', value: 'Not included in the backup' },
-    { item: 'Other software', value: 'm17-gateway (service)' },
   ],
-  radio: { band: 'UHF', freqRx: '446.0000', freqTx: '446.0000', tone: 'CTCSS 123.0 / 123.0', ctcssRx: '123.0', ctcssTx: '123.0', dcsRx: '', dcsTx: '', port: '/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0', portPresent: false },
-  parts: { history: true, allmon3: true, sounds: true, sa818: true, dv: true },
+  radio: { bandwidth: 'narrow', rxMHz: 446.0, txMHz: 446.0, rxTone: '123.0', txTone: '123.0', squelch: 4 },
+  parts: { node: true, sa818: true, secrets: false, conf: true },
+  modes: ['allstar', 'echolink', 'bm'],
+  missingSecrets: ['echolink'],
 });
 
 /** Returns true when the request was handled. Runs before the login check: the first-run page uploads with a setup code. */
@@ -50,7 +33,7 @@ export function handleBackup({ m, p, raw, res, user, setupNeeded, setupDone, bod
   if (p === '/backup/info' && m === 'GET') {
     if (!user) return err(401, 'authentication required', 'unauthorized'), true;
     if (user.role !== 'admin') return err(403, 'forbidden', 'forbidden'), true;
-    json(200, { parts: [{ id: 'history', present: true, size: 2.4e6 }, { id: 'allmon3', present: true, size: 18e3 }, { id: 'sounds', present: true, size: 5.8e6 }, { id: 'dv', present: true, size: 9e3 }], sa818: true });
+    json(200, { node: true, secrets: true, sa818: true });
     return true;
   }
   if (p === '/backup' && m === 'POST') {
@@ -81,16 +64,14 @@ export function handleBackup({ m, p, raw, res, user, setupNeeded, setupDone, bod
     if (!user && !(setupNeeded && body.code === MOCK_CODE)) return err(403, 'wrong setup code', 'bad_setup_code'), true;
     pending.delete(mm[1]);
     const steps = [
-      { name: 'Stop Asterisk', ok: true, detail: '' }, { name: 'Snapshot current /etc/asterisk to history', ok: true, detail: 'Before restore from backup' },
-      { name: 'Restore /etc/asterisk', ok: true, detail: `${files.filter((f) => f.action.startsWith('restore')).length} files, ${(body.deleteMissing ?? []).length} deleted` },
-      { name: 'Replace AstDB', ok: true, detail: '' }, { name: 'Start Asterisk', ok: true, detail: '' }, { name: 'Stage ASLCP database', ok: true, detail: 'restart pending' },
+      { name: 'Stop the node', ok: true, detail: '' }, { name: 'Restore the node configuration', ok: true, detail: 'station and 3 modes' },
+      { name: 'Stage ASLCP database', ok: true, detail: 'restart pending' }, { name: 'Start the node', ok: true, detail: '' },
     ];
     lastResult = {
       at: new Date().toISOString(), backupCreated: preview().backup.created, steps,
-      health: { ok: true, checks: [{ name: 'Asterisk running', ok: true, detail: '' }, { name: 'AMI answers', ok: true, detail: '' }, { name: 'Node 2000 registered', ok: true, detail: '' }, { name: 'Node 2002 registered', ok: false, detail: 'not registered yet' }] },
+      health: { ok: true, checks: [{ name: 'Node running', ok: true, detail: '' }, { name: 'Control socket answers', ok: true, detail: '' }, { name: 'Radio present', ok: true, detail: '' }] },
       checklist: preview().checklist,
     };
-    lastResult = { ...(lastResult as object), health: { ok: false, checks: (lastResult as any).health.checks } };
     json(200, { ok: true, steps, restarting: true });
     // Simulate the restart: drop streams, then refuse connections for a few seconds.
     setTimeout(() => { restart(); downUntil = Date.now() + 6000; if (setupNeeded) setupDone(); }, 800);

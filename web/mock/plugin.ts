@@ -1,160 +1,149 @@
 // In-memory implementation of docs/API.md for `npm run dev:mock`. Dev only; never part of the build.
+// One node, one radio, one active mode. Every callsign, ID, host and number is a placeholder.
 import type { Plugin } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { handleConfig } from './config.ts';
 import { handleBackup, downUntil } from './backup.ts';
-import { handleRadio } from './radio.ts';
-import { dvNodeLink, handleDV } from './dv.ts';
-import { BRIDGE_NODE, handleNowCalling, nowCalling, talkerLink } from './nowcalling.ts';
 import { createSchedules } from './schedules.ts';
 import { handleSystem } from './system.ts';
 import { handleWifi } from './wifi.ts';
 
 type Info = { node: string; callsign: string; description: string; location: string };
-const calls = Array.from({ length: 20 }, (_, i) => 'TEST' + String(i + 1).padStart(2, '0'));
 const places = ['Exampleton, ST', 'Sampleburg, ST', 'Testville, ST', 'Demoton, ST', 'Mockville, ST'];
 const descs = ['Hub', 'Repeater 146.520', 'Simplex node', 'Net control', 'Club repeater', 'Linked UHF'];
-const NODES: Info[] = calls.map((c, i) => ({ node: String(1000 + i * 37), callsign: c, description: `${descs[i % descs.length]} (fake)`, location: places[i % places.length] }));
-NODES.push({ node: '2001', callsign: 'LOCAL1', description: 'Local test node', location: 'Exampleton, ST' }, { node: '1997', callsign: 'LOCAL2', description: 'Second local node', location: 'Exampleton, ST' });
+const NODES: Info[] = Array.from({ length: 12 }, (_, i) => ({ node: String(1000 + i * 37), callsign: 'TEST' + String(i + 1).padStart(2, '0'), description: `${descs[i % descs.length]} (fake)`, location: places[i % places.length] }));
 const byNode = new Map(NODES.map((n) => [n.node, n]));
-const info = (n: string) => byNode.get(n) ?? null;
+const allstarInfo = (n: string) => byNode.get(n) ?? null;
 
-interface L { node: string; kind: string; direction: 'IN' | 'OUT'; start: number; mode: string; keyedUntil: number; lastKey: number | null; lastUnkey: number | null }
-const locals: Record<string, { links: L[]; rx: number; tx: number }> = {};
-const now = () => Date.now();
-function addLink(local: string, node: string, mode: string, dir: 'IN' | 'OUT', ago = 0) {
-  const kind = /^3\d{6}$/.test(node) ? 'echolink' : /^\d{5,}$/.test(node) || byNode.has(node) ? 'allstar' : 'unknown';
-  locals[local].links.push({ node, kind, direction: dir, start: now() - ago * 1000, mode: mode === 'monitor' ? 'R' : mode === 'localmonitor' ? 'L' : 'T', keyedUntil: 0, lastKey: null, lastUnkey: null });
-}
-locals['2001'] = { links: [], rx: 0, tx: 0 };
-locals['1997'] = { links: [], rx: 0, tx: 0 };
-// Nodes with a SimpleUSB device in the mock (Audio levels); placeholder numbers.
-NODES.push({ node: '2000', callsign: 'TUNE1', description: 'Tuning test node', location: 'Exampleton, ST' }, { node: '2002', callsign: 'TUNE2', description: 'Second tuning node', location: 'Exampleton, ST' });
-byNode.set('2000', NODES[NODES.length - 2]); byNode.set('2002', NODES[NODES.length - 1]);
-locals['2000'] = { links: [], rx: 0, tx: 0 };
-locals['2002'] = { links: [], rx: 0, tx: 0 };
-addLink('2001', '1000', 'transceive', 'OUT', 5400);
-addLink('2001', '1037', 'monitor', 'OUT', 1200);
-addLink('2001', '1074', 'transceive', 'IN', 300);
-addLink('2001', '1111', 'transceive', 'IN', 61);
-addLink('2001', BRIDGE_NODE, 'transceive', 'OUT', 3600);
-addLink('2001', '1998', 'transceive', 'OUT', 3000);
-addLink('1997', '1148', 'transceive', 'OUT', 800);
-addLink('2000', '1000', 'transceive', 'OUT', 900);
-
-let favs: { id: number; node: string; label: string; group: string; position: number; pinned: boolean }[] = [
-  { id: 1, node: '1000', label: 'Main hub', group: 'Hubs', position: 0, pinned: true },
-  { id: 2, node: '1037', label: 'Club repeater', group: 'Hubs', position: 1, pinned: false },
-  { id: 3, node: '1185', label: 'Evening net', group: 'Nets', position: 0, pinned: false },
-  { id: 4, node: '1222', label: 'Simplex friends', group: 'Nets', position: 1, pinned: false },
-  { id: 5, node: '1259', label: 'Test node', group: '', position: 0, pinned: false },
+// ---- Modes. Fields are what the settings forms draw; secrets are never returned, only whether they are set.
+type Field = { key: string; label: string; kind: 'text' | 'number' | 'password' | 'bool' | 'select'; required?: boolean; secret?: boolean; default?: string; options?: string[]; help?: string; advanced?: boolean };
+interface ModeDef { name: string; title: string; targetLabel: string; targetHelp: string; needsHost?: boolean; fields: Field[]; targets: string[] }
+const pw = (key: string, label: string, required = true): Field => ({ key, label, kind: 'password', secret: true, required });
+const MODES: ModeDef[] = [
+  { name: 'allstar', title: 'AllStar', targetLabel: 'Node number', targetHelp: 'An AllStar node number, for example 1000.', targets: ['1000', '1037', '1185'],
+    fields: [{ key: 'node', label: 'Node number', kind: 'text', required: true, default: '1999' }, pw('password', 'Node password'), { key: 'server', label: 'Registration server', kind: 'text', advanced: true, default: 'register.example.net' }] },
+  { name: 'echolink', title: 'EchoLink', targetLabel: 'Callsign or node', targetHelp: 'An EchoLink node number or callsign with -L or -R.', targets: ['N1CALL-L', '123456'],
+    fields: [{ key: 'callsign', label: 'EchoLink callsign', kind: 'text', required: true, default: 'N0CALL-L' }, pw('password', 'EchoLink password'), { key: 'location', label: 'Location text', kind: 'text', advanced: true }] },
+  { name: 'bm', title: 'BrandMeister', targetLabel: 'Talkgroup', targetHelp: 'A talkgroup number, for example 91.', targets: ['91', '3100', '9'],
+    fields: [{ key: 'id', label: 'DMR ID', kind: 'number', required: true, default: '1234567' }, pw('password', 'Hotspot security password'), { key: 'master', label: 'Master', kind: 'text', default: 'master.example.net', advanced: true }] },
+  { name: 'dmr', title: 'DMR (other master)', targetLabel: 'Talkgroup', targetHelp: 'A talkgroup on the master you set up.', targets: ['9', '1'],
+    fields: [{ key: 'id', label: 'DMR ID', kind: 'number', required: true, default: '1234567' }, { key: 'master', label: 'Master host', kind: 'text', required: true, default: 'dmr.example.net' }, { key: 'port', label: 'Master port', kind: 'number', default: '62031' }, pw('password', 'Master password')] },
+  { name: 'tgif', title: 'TGIF', targetLabel: 'Talkgroup', targetHelp: 'A TGIF talkgroup number.', targets: ['31665', '9'],
+    fields: [{ key: 'id', label: 'DMR ID', kind: 'number', required: true, default: '1234567' }, pw('password', 'TGIF password')] },
+  { name: 'ysf', title: 'YSF', targetLabel: 'Reflector', targetHelp: 'A YSF reflector.', needsHost: true, targets: ['YSF-TEST'],
+    fields: [{ key: 'callsign', label: 'Callsign', kind: 'text', required: true, default: 'N0CALL' }, { key: 'suffix', label: 'Suffix', kind: 'text', advanced: true }] },
+  { name: 'p25', title: 'P25', targetLabel: 'Talkgroup', targetHelp: 'A P25 reflector talkgroup.', needsHost: true, targets: ['10100'],
+    fields: [{ key: 'id', label: 'DMR ID', kind: 'number', required: true, default: '1234567' }] },
+  { name: 'nxdn', title: 'NXDN', targetLabel: 'Talkgroup', targetHelp: 'An NXDN reflector talkgroup.', needsHost: true, targets: ['65000'],
+    fields: [{ key: 'id', label: 'NXDN ID', kind: 'number', required: true, default: '1234' }] },
+  { name: 'm17', title: 'M17', targetLabel: 'Reflector and module', targetHelp: 'A reflector and module, for example M17-XXX C.', needsHost: true, targets: ['M17-XXX C'],
+    fields: [{ key: 'callsign', label: 'Callsign', kind: 'text', required: true, default: 'N0CALL' }, { key: 'module', label: 'Module', kind: 'select', options: ['A', 'B', 'C', 'D'], default: 'C' }] },
 ];
-let nextFav = 6;
-const sortedFavs = () => [...favs].sort((a, b) => a.group.localeCompare(b.group) || a.position - b.position).map((f) => ({ ...f, info: info(f.node) }));
+const defOf = (n: string) => MODES.find((m) => m.name === n);
+const values: Record<string, Record<string, string>> = {
+  allstar: { node: '1999', server: 'register.example.net' }, echolink: { callsign: 'N0CALL-L' }, bm: { id: '1234567', master: 'master.example.net' }, ysf: { callsign: 'N0CALL' },
+};
+const secrets: Record<string, Record<string, boolean>> = { allstar: { password: true }, bm: { password: true } };
+const isConfigured = (m: ModeDef) => m.fields.filter((f) => f.required && !f.secret).every((f) => (values[m.name]?.[f.key] ?? '') !== '') && m.fields.filter((f) => f.required && f.secret).every((f) => secrets[m.name]?.[f.key]);
+
+const HOSTS: Record<string, { value: string; name: string; detail?: string; address: string; port: number }[]> = {
+  ysf: [{ value: 'YSF-TEST', name: 'Test reflector', detail: 'Placeholder', address: 'ysf1.example.net', port: 42000 }, { value: 'YSF-DEMO', name: 'Demo reflector', address: 'ysf2.example.net', port: 42000 }],
+  p25: [{ value: '10100', name: 'Test talkgroup', address: 'p25.example.net', port: 41000 }],
+  nxdn: [{ value: '65000', name: 'Test talkgroup', address: 'nxdn.example.net', port: 41400 }],
+  m17: [{ value: 'M17-XXX C', name: 'Test reflector', address: 'm17.example.net', port: 17000 }, { value: 'M17-YYY A', name: 'Second reflector', address: 'm17b.example.net', port: 17000 }],
+};
+
+// ---- Station and node state.
+const station = { callsign: 'N0CALL', radio: { frequencyMHz: 146.52, tone: '100.0', squelch: 4, narrow: false, rxVolume: 60, txVolume: 55, pttGpio: 17, pttActiveLow: false, cosActiveLow: false, sa818Port: '/dev/ttyUSB0' }, id: { enabled: true, intervalS: 600, wpm: 20, pitchHz: 800, levelDb: -12 } };
+let stationSet = process.env.MOCK_STATION_SETUP !== '1';
+if (!stationSet) station.callsign = '';
+const radioPresent = process.env.MOCK_NO_RADIO !== '1';
+const started = new Date(Date.now() - 5 * 3600e3).toISOString();
+let active = 'allstar', target = '1000', state: 'idle' | 'connecting' | 'connected' = 'connected', since = new Date(Date.now() - 1800e3).toISOString();
+let nodeRunning = true, ptt = false, cos = false;
+let talker: { callsign: string; name: string; place: string; id?: number; since: string } | null = null;
+
+interface Call { callsign: string; name: string; place: string; id?: number; mode: string; target: string; node?: string; desc?: string }
+const CALLERS: Call[] = [
+  { callsign: 'TEST01', name: 'Pat Example', place: 'Exampleton, ST', mode: 'allstar', target: '1000', node: '1000', desc: 'Hub (fake)' },
+  { callsign: 'TEST02', name: 'Sam Example', place: 'Sampleburg, ST', mode: 'allstar', target: '1037', node: '1037', desc: 'Repeater (fake)' },
+  { callsign: 'N0CALL', name: 'Pat Example', place: 'Springfield, XX', id: 1234567, mode: 'bm', target: '91' },
+  { callsign: 'N1CALL', name: 'Sam Example', place: 'Shelbyville, XX', id: 1234568, mode: 'bm', target: '3100' },
+  { callsign: 'N1CALL', name: 'Sam Example', place: 'Shelbyville, XX', mode: 'ysf', target: 'YSF-TEST' },
+  { callsign: 'N0CALL', name: 'Pat Example', place: 'Springfield, XX', mode: 'm17', target: 'M17-XXX C' },
+  { callsign: 'N1CALL-L', name: 'Sam Example', place: 'Shelbyville, XX', mode: 'echolink', target: 'N1CALL-L' },
+];
+interface HeardRow { mode: string; callsign: string; name: string; place: string; id?: number; target: string; start: number; end?: number }
+const heard: HeardRow[] = CALLERS.slice(0, 6).map((c, i) => ({ mode: c.mode, callsign: c.callsign, name: c.name, place: c.place, id: c.id, target: c.target, start: Date.now() - (i + 1) * 420e3, end: Date.now() - (i + 1) * 420e3 + (4 + i) * 1000 }));
+const now = () => Date.now();
+const iso = (t: number) => new Date(t).toISOString();
+
+const nodeJSON = () => ({
+  callsign: station.callsign || undefined, started,
+  radio: { present: radioPresent, ptt, cos },
+  active: active || undefined, since: active ? since : undefined,
+  mode: active ? modeStatus(active) : undefined,
+  id: { enabled: station.id.enabled, owed: false, last: iso(now() - 240e3) },
+  configured: stationSet, running: nodeRunning, ...(nodeRunning ? {} : { error: 'dial unix /run/aslcp-node/control.sock: connect: no such file or directory' }),
+  setupNeeded: !stationSet,
+});
+function modeStatus(name: string) {
+  const d = defOf(name)!, on = name === active;
+  return {
+    mode: name, title: d.title, active: on, state: !on ? 'idle' : state === 'idle' ? 'ready' : state,
+    ...(on && target ? { target: { id: target, ...(name === 'allstar' ? { name: allstarInfo(target)?.callsign } : {}) } } : {}), ...(on ? { since } : {}),
+    ...(on && talker ? { talker: { callsign: talker.callsign, name: talker.name, place: talker.place, id: talker.id, since: talker.since } } : {}),
+    ...(name === 'allstar' || name === 'echolink' ? { registration: { registered: isConfigured(d), ready: isConfigured(d), dnsOk: true, publicIp: '203.0.113.7', lastSuccess: iso(now() - 600e3) } } : {}),
+  };
+}
+const modeList = (role: string) => MODES.map((d) => ({
+  name: d.name, title: d.title, targetLabel: d.targetLabel, targetHelp: d.targetHelp, needsHost: d.needsHost,
+  ...(role === 'admin' ? { fields: d.fields, settings: { values: Object.fromEntries(Object.entries(values[d.name] ?? {})) }, secretsSet: secrets[d.name] ?? {} } : {}),
+  configured: isConfigured(d), active: d.name === active, status: modeStatus(d.name),
+}));
+
+// ---- Favorites.
+let favs: { id: number; mode: string; target: string; label: string; group: string; position: number; pinned: boolean }[] = [
+  { id: 1, mode: 'allstar', target: '1000', label: 'Main hub', group: 'Hubs', position: 0, pinned: true },
+  { id: 2, mode: 'allstar', target: '1037', label: 'Club repeater', group: 'Hubs', position: 1, pinned: false },
+  { id: 3, mode: 'bm', target: '91', label: 'World-wide', group: 'DMR', position: 0, pinned: true },
+  { id: 4, mode: 'bm', target: '3100', label: 'USA', group: 'DMR', position: 1, pinned: false },
+  { id: 5, mode: 'ysf', target: 'YSF-TEST', label: 'Test reflector', group: '', position: 0, pinned: false },
+  { id: 6, mode: 'm17', target: 'M17-XXX C', label: 'M17 test', group: '', position: 0, pinned: false },
+];
+let nextFav = 7;
+const sortedFavs = () => [...favs].sort((a, b) => a.mode.localeCompare(b.mode) || a.group.localeCompare(b.group) || a.position - b.position).map((f) => ({ ...f, info: f.mode === 'allstar' ? allstarInfo(f.target) : null }));
+
+// ---- Now calling (the lookup strip) and the public view.
+const callOf = (c: Call, active_: boolean, start: number, end?: number) => ({ id: `${c.mode}-${c.callsign}-${start}`, kind: c.mode, call: c.callsign, name: c.name, location: c.place, ...(c.id ? { dmrId: String(c.id) } : {}), ...(c.node ? { node: c.node, desc: c.desc } : {}), target: c.target, start: iso(start), ...(end ? { end: iso(end) } : {}), active: active_ });
+const callFor = (h: HeardRow): Call => ({ callsign: h.callsign, name: h.name, place: h.place, id: h.id, mode: h.mode, target: h.target });
+const nowCalling = () => ({
+  current: talker ? callOf({ callsign: talker.callsign, name: talker.name, place: talker.place, id: talker.id, mode: active, target }, true, Date.parse(talker.since)) : null,
+  recent: heard.filter((h) => h.end).sort((a, b) => b.start - a.start).slice(0, 10).map((h) => callOf(callFor(h), false, h.start, h.end)),
+});
+const heardJSON = () => [...heard].sort((a, b) => b.start - a.start).map((h) => ({ mode: h.mode, callsign: h.callsign, name: h.name, place: h.place, ...(h.id ? { id: h.id } : {}), target: h.target, start: iso(h.start), ...(h.end ? { end: iso(h.end), durationNs: (h.end - h.start) * 1e6 } : {}) }));
+
+const pubCfg = { enabled: true, title: '', showCallsigns: true, showHeard: true, allowEmbedding: false, trustProxy: false };
+const pubDefaultTitle = () => `${station.callsign || 'Station'} node`;
+function pubSnapshot() {
+  const cs = pubCfg.showCallsigns, d = defOf(active);
+  const row = (c: { callsign: string; name: string; place: string; mode: string; target: string }, at: number, dur: number) => ({ mode: c.mode, ...(cs ? { callsign: c.callsign, name: c.name, location: c.place } : {}), target: c.target, at: Math.floor(at / 1000), duration: dur });
+  return {
+    title: pubCfg.title || pubDefaultTitle(), now: Math.floor(now() / 1000), callsigns: cs, showHeard: pubCfg.showHeard,
+    station: { callsign: cs ? station.callsign : '', mode: active, modeTitle: d?.title ?? '', target, state: active ? state : 'idle', txKeyed: ptt, rxKeyed: cos },
+    calling: talker ? row({ callsign: talker.callsign, name: talker.name, place: talker.place, mode: active, target }, Date.parse(talker.since), 0) : null,
+    ...(pubCfg.showHeard ? { heard: heard.filter((h) => h.end).sort((a, b) => b.start - a.start).slice(0, 15).map((h) => row(h, h.start, Math.round((h.end! - h.start) / 1000))) } : {}),
+  };
+}
+
+// ---- Radio levels (the sound chip) and the caller lookup lists.
+const level = (on: boolean) => ({ RMSDb: on ? -24 + Math.random() * 6 : -60, PeakDb: on ? -12 + Math.random() * 4 : -55, Active: on, Clipped: 0, Frames: 480 });
+const radioLevels = () => ({ CaptureVolume: station.radio.rxVolume, PlaybackVolume: station.radio.txVolume, Rx: level(cos), Tx: level(ptt), DroppedRx: 0, DroppedTx: 0, Xruns: 0 });
+let userList = { enabled: true, entries: 183204, updated: iso(now() - 86400e3), checked: iso(now() - 3600e3), size: 9.4e6, busy: false };
+let hamdb = { enabled: false, cached: 0, today: 0, dailyMax: 500 };
 
 let users = [{ id: 1, username: 'admin', role: 'admin' }, { id: 2, username: 'op', role: 'operator' }, { id: 3, username: 'guest', role: 'viewer' }];
 let nextUser = 4;
-// Favorites activity scan (synthetic values, like demo mode): one node every 3 s (20/min), 0.8 s each.
-let favScan = false;
-let favChecking = '';
-let favNextAt = 0;
-let favPassStart = 0;
-const favCheckedAt: Record<string, number> = {};
-const favEligible = () => favs.map((f) => f.node).filter((n) => +n >= 1000 && +n <= 999999);
-const favOffline = (n: number) => n % 9 === 4;
-const favNext = () => {
-  const list = favEligible().filter((n) => n !== favChecking);
-  return list.length ? list.reduce((b, n) => ((favCheckedAt[n] ?? 0) < (favCheckedAt[b] ?? 0) ? n : b)) : '';
-};
-const favActivity = () => {
-  const stats: Record<string, unknown> = {};
-  const list = favEligible();
-  const checkedAt: Record<string, string> = {};
-  let checked = 0;
-  if (favScan) for (const node of list) {
-    const n = +node, c = favCheckedAt[node];
-    if (c != null) { checkedAt[node] = new Date(c).toISOString(); if (c >= favPassStart) checked++; }
-    if (c == null || favOffline(n)) continue;
-    const t = Math.floor(Date.now() / 1000);
-    stats[node] = { rxPct: n % 4 === 0 ? null : (n % 23) + 1, linkCnt: n % 7, active: n % 5 !== 0, webTx: n % 3 === 0, keyed: false, txAvg: 0, lastSeen: new Date().toISOString() };
-  }
-  return { enabled: favScan, rate: 20, effRate: 20, backoff: false, backoffReason: '', retryAt: null, updated: favScan && Object.keys(favCheckedAt).length ? new Date().toISOString() : null, stats,
-    checking: favScan ? favChecking : '', next: favScan ? favNext() : '', nextAt: favScan && list.length ? new Date(favNextAt || Date.now()).toISOString() : null, checked, total: list.length, checkedAt };
-};
-function favStep(broadcast: (ev: string, f: (role: string) => unknown) => void) {
-  if (!favScan || favChecking) return;
-  const list = favEligible();
-  if (!list.length || Date.now() < favNextAt) return;
-  const node = list.reduce((b, n) => ((favCheckedAt[n] ?? 0) < (favCheckedAt[b] ?? 0) ? n : b));
-  if (favCheckedAt[node] != null && favCheckedAt[node] >= favPassStart) favPassStart = Date.now();
-  favChecking = node; favNextAt = Date.now() + 3000;
-  broadcast('favstats', favActivity);
-  setTimeout(() => { favChecking = ''; favCheckedAt[node] = Date.now(); broadcast('favstats', favActivity); }, 800);
-}
 let setupNeeded = process.env.MOCK_SETUP === '1';
-let nodelistUpdated: string | null = new Date().toISOString();
-
-// At most one link in the whole mock is keyed: the talker of the Now Calling timeline. Idempotent, so status() and the tick agree.
-function syncKeyed(t: number) {
-  const tk = talkerLink(t);
-  for (const id of Object.keys(locals)) for (const l of locals[id].links) {
-    const on = !!tk && tk.local === id && tk.node === l.node;
-    if (on && l.keyedUntil <= t) {
-      l.keyedUntil = Infinity; l.lastKey = t;
-      activity.push({ node: id, link: l.node, at: t, duration: tk!.len });
-      activity.splice(0, Math.max(0, activity.length - 200));
-    } else if (!on && l.keyedUntil > t) { l.keyedUntil = 0; l.lastUnkey = t; }
-  }
-}
-function status(id: string, role = 'admin') {
-  syncKeyed(now());
-  const s = locals[id], t = now();
-  const sec = (ms: number | null) => (ms == null ? null : Math.floor((t - ms) / 1000));
-  const links = s.links.map((l) => {
-    const keyed = l.keyedUntil > t;
-    return { node: l.node, kind: l.kind, info: info(l.node), ip: role === 'viewer' ? '' : l.kind === 'allstar' ? `192.0.2.${(Number(l.node) % 200) + 10}` : '', direction: l.direction, connected: Math.floor((t - l.start) / 1000), state: 'ESTABLISHED', mode: l.mode, keyed, sinceKey: keyed ? 0 : sec(l.lastKey), sinceUnkey: sec(l.lastUnkey) };
-  });
-  const network = [...links.map((l) => ({ node: l.node, mode: l.mode, kind: l.kind, info: l.info })), ...NODES.filter((n) => n.node !== id && !s.links.some((l) => l.node === n.node)).slice(0, 18 + Number(id) % 7).map((n) => ({ node: n.node, mode: 'T', kind: 'allstar', info: n }))];
-  return { node: id, info: info(id), stale: false, rxKeyed: s.rx > t, txKeyed: s.tx > t || links.some((l) => l.keyed && l.mode === 'T'), extTxKeyed: false, numLinks: network.length, links, network, flags: { txDisabled: false, linkFunsDisabled: false, parrot: false }, updated: new Date().toISOString() };
-}
-// Public status view (docs/API.md "Public page"): on by default in the mock so the logged-out view can be developed.
-const pubCfg = { enabled: true, title: '', nodes: [] as string[], showCallsigns: true, showNetwork: true, showActivity: true, showDV: false, allowEmbedding: false, trustProxy: false };
-const activity: { node: string; link: string; at: number; duration: number }[] = [
-  { node: '2001', link: '1000', at: Date.now() - 95e3, duration: 14 },
-  { node: '2001', link: 'local', at: Date.now() - 260e3, duration: 6 },
-  { node: '1997', link: '1148', at: Date.now() - 700e3, duration: 1 },
-  { node: '2001', link: '1074', at: Date.now() - 3.2e6, duration: 41 },
-];
-// Digital modes calls of the public page (placeholders): only sent while "Show digital modes activity" is on, without callsigns/names when callsigns are hidden.
-const pubDVCalls = [
-  { mode: 'DMR', call: 'N0CALL', target: 'TG 91', slot: 2, ago: 240, name: 'Pat Example', place: 'Springfield, XX' },
-  { mode: 'YSF', call: 'N1CALL', target: 'YSF-TEST', slot: 0, ago: 780, name: 'Sam Example', place: 'Shelbyville, XX' },
-  { mode: 'M17', call: 'N1CALL', target: 'M17-XXX C', slot: 0, ago: 1500, name: '', place: '' },
-  { mode: 'DMR', call: 'N0CALL', target: 'TG 9', slot: 1, ago: 3300, name: 'Pat Example', place: 'Springfield, XX' },
-];
-function pubDV() {
-  const t = Date.now(), cs = pubCfg.showCallsigns;
-  const row = (c: (typeof pubDVCalls)[number], ago: number) => ({ mode: c.mode, ...(cs ? { callsign: c.call, ...(c.name ? { name: c.name } : {}), ...(c.place ? { location: c.place } : {}) } : {}), target: c.target, ...(c.slot ? { slot: c.slot } : {}), at: Math.floor((t - ago * 1000) / 1000) });
-  // one call in progress for 20 s of every minute
-  const talking = Math.floor(t / 1000) % 60 < 20;
-  return { now: talking ? row(pubDVCalls[0], Math.floor(t / 1000) % 60) : null, heard: pubDVCalls.map((c) => row(c, c.ago)) };
-}
-const pubDefaultTitle = () => `${info('2001')?.callsign} AllStarLink node 2001`;
-function pubSnapshot() {
-  const ids = Object.keys(locals).filter((id) => !pubCfg.nodes.length || pubCfg.nodes.includes(id));
-  const nodes = ids.map((id) => {
-    const s = status(id, 'viewer');
-    return {
-      node: s.node, info: s.info && { callsign: s.info.callsign, description: s.info.description, location: s.info.location }, stale: false,
-      txKeyed: s.txKeyed, rxKeyed: s.rxKeyed, numLinks: s.numLinks,
-      links: s.links.map((l) => ({ node: l.node, ...(l.node === BRIDGE_NODE ? { label: 'Digital modes linked node' } : {}), kind: l.kind, ...(pubCfg.showCallsigns && l.info ? { info: { callsign: l.info.callsign, description: l.info.description, location: l.info.location } } : {}), direction: l.direction, mode: l.mode, connected: l.connected, keyed: l.keyed, sinceKey: l.sinceKey, sinceUnkey: l.sinceUnkey })),
-      ...(pubCfg.showNetwork ? { network: s.network.map((n) => ({ node: n.node, ...(pubCfg.showCallsigns && n.info ? { callsign: n.info.callsign } : {}) })) } : {}),
-    };
-  });
-  const acts = activity.filter((a) => ids.includes(a.node)).sort((a, b) => b.at - a.at).slice(0, 25)
-    .map((a) => ({ node: a.node, link: a.link, ...(a.link === BRIDGE_NODE ? { label: "Digital modes linked node" } : {}), ...(pubCfg.showCallsigns && a.link !== 'local' && info(a.link) ? { callsign: info(a.link)!.callsign } : {}), at: Math.floor(a.at / 1000), duration: a.duration, kerchunk: a.duration < 2 }));
-  return { title: pubCfg.title || pubDefaultTitle(), now: Math.floor(now() / 1000), callsigns: pubCfg.showCallsigns, showNetwork: pubCfg.showNetwork, showActivity: pubCfg.showActivity, showDV: pubCfg.showDV, nodes, ...(pubCfg.showActivity ? { activity: acts } : {}), ...(pubCfg.showDV ? { dv: pubDV() } : {}) };
-}
 // Simulated update: apply runs ~6s, then the "server" restarts (SSE streams close) and reports the new version.
 let mockVersion = '2.0.0';
 let mockInstance = Math.random().toString(16).slice(2, 10);
@@ -170,9 +159,9 @@ const updInfo = () => ({
   jobLog: updJob === 'running' ? 'Reading package lists...\nUnpacking aslcp (0.2.0) over (0.1.0) ...' : updJob === 'succeeded' ? 'Setting up aslcp (0.2.0) ...' : '',
   notes: upgradable() ? '- New **Updates** section in Settings\n- Faster dashboard\n\nThanks for testing <script>alert(1)</script>' : null, checked: updChecked,
 });
-// Simulated OS (apt) updates: a security package, an asterisk package, a reboot-required toggle.
+// Simulated OS (apt) updates: a security package, an ordinary package, a reboot-required toggle.
 const osAll = [
-  { name: 'asterisk', from: '1:20.5.0-1', to: '1:20.9.0-1', security: false },
+  { name: 'ffmpeg', from: '7:5.1.5-1', to: '7:5.1.6-1', security: false },
   { name: 'libssl3', from: '3.0.11-1~deb12u1', to: '3.0.13-1~deb12u2', security: true },
   { name: 'linux-image-rpi-v8', from: '6.1.63-1+rpt1', to: '6.1.69-1+rpt1', security: false },
   { name: 'tzdata', from: '2024a-0+deb12u1', to: '2024b-0+deb12u1', security: false },
@@ -182,10 +171,10 @@ const osPkgs = () => (osApplied ? [] : osAll);
 const osInfo = () => ({
   available: true, reason: null, checkedAt: osChecked, checking: osChecking, error: null, packages: osPkgs(), keptBack: osApplied ? [] : ['raspi-firmware'],
   rebootRequired: osReboot, rebootPkgs: osReboot ? ['linux-image-rpi-v8'] : [], job: osJob,
-  jobLog: osJob === 'running' ? 'Reading package lists...\nUnpacking libssl3 (3.0.13-1~deb12u2) over (3.0.11-1~deb12u1) ...' : osJob === 'succeeded' ? 'Setting up libssl3 (3.0.13-1~deb12u2) ...\nSetting up asterisk (1:20.9.0-1) ...' : '',
+  jobLog: osJob === 'running' ? 'Reading package lists...\nUnpacking libssl3 (3.0.13-1~deb12u2) over (3.0.11-1~deb12u1) ...' : osJob === 'succeeded' ? 'Setting up libssl3 (3.0.13-1~deb12u2) ...\nSetting up ffmpeg (7:5.1.6-1) ...' : '',
 });
 const osBadge = () => ({ aslcp: upgradable(), aslcpVersion: upgradable() ? candidate() : '', os: osPkgs().length, security: osPkgs().filter((p) => p.security).length, reboot: osReboot });
-const system = () => ({ updateAvailable: upgradable(), updateVersion: upgradable() ? candidate() : '', hostname: 'node2001', cpuTemp: 44 + Math.random() * 6, load: [0.12, 0.1, 0.05].map((x) => x + Math.random() * 0.1), memTotal: 1024e6, memAvailable: 512e6, uptime: 120660 + Math.floor(process.uptime()), asterisk: { connected: true, version: '22.10.1+asl3-3.10.8-1.deb13', uptime: 120000, error: null }, version: mockVersion });
+const system = () => ({ updateAvailable: upgradable(), updateVersion: upgradable() ? candidate() : '', hostname: 'node-demo', cpuTemp: 44 + Math.random() * 6, load: [0.12, 0.1, 0.05].map((x) => x + Math.random() * 0.1), memTotal: 1024e6, memAvailable: 512e6, uptime: 120660 + Math.floor(process.uptime()), node: { running: nodeRunning, mode: active, uptime: nodeRunning ? 18000 : null, error: nodeRunning ? null : 'control socket unreachable' }, version: mockVersion });
 
 export function mockApi(): Plugin {
   const sessions = new Map<string, { id: number; username: string; role: string }>();
@@ -201,13 +190,22 @@ export function mockApi(): Plugin {
   const sse = (c: { res: ServerResponse }, ev: string, data: unknown) => c.res.write(`event: ${ev}\ndata: ${JSON.stringify(data)}\n\n`);
   restartClients = () => { clients.forEach((c) => c.res.end()); clients.clear(); };
   const broadcast = (ev: string, f: (role: string) => unknown) => clients.forEach((c) => { const d = f(c.role); if (d !== undefined) sse(c, ev, d); });
+  const pushNode = () => broadcast('node', () => nodeJSON());
+  const event = (kind: string, extra: Record<string, unknown> = {}) => broadcast('nodeevent', () => ({ kind, mode: active, at: iso(now()), ...extra }));
 
-  const pushNodes = () => broadcast('nodes', (r) => Object.keys(locals).map((id) => status(id, r)));
+  // The one active mode: select it, optionally connect a target (a connect takes a moment).
+  const selectMode = (mode: string, t?: string) => {
+    active = mode; talker = null; cos = false;
+    since = iso(now());
+    if (!mode) { target = ''; state = 'idle'; } else if (t) { target = t; state = 'connecting'; setTimeout(() => { if (active === mode && target === t) { state = 'connected'; pushNode(); event('state', { state: 'connected' }); } }, 1200); } else { target = ''; state = 'idle'; }
+    pushNode();
+  };
   const sched = createSchedules({
-    locals, broadcast, pushNodes,
-    link: (local, target, mode) => addLink(local, target, mode, 'OUT'),
-    unlink: (local, target) => { locals[local].links = locals[local].links.filter((l) => l.node !== target); },
-    dropOthers: (local, target) => { locals[local].links = locals[local].links.filter((l) => l.node === target); },
+    current: () => ({ mode: active, target: state === 'idle' ? '' : target }),
+    link: (mode, t) => selectMode(mode, t),
+    unlink: () => { target = ''; state = 'idle'; talker = null; pushNode(); },
+    modes: () => MODES.map((m) => m.name),
+    broadcast, pushNode,
   });
 
   return {
@@ -216,18 +214,25 @@ export function mockApi(): Plugin {
       let tick = 0;
       setInterval(() => {
         tick++;
-        const t = now();
-        for (const id of Object.keys(locals)) {
-          const s = locals[id];
-          if (Math.random() < 0.05) s.rx = t + 2000;
+        // A talker on the active mode for 8 s of every 30 s, once it is connected.
+        const want = active && state === 'connected' && nodeRunning && tick % 30 < 8;
+        if (want && !talker) {
+          const pool = CALLERS.filter((c) => c.mode === active); const c = pool[tick % Math.max(1, pool.length)] ?? CALLERS[0];
+          talker = { callsign: c.callsign, name: c.name, place: c.place, id: c.id, since: iso(now()) }; cos = true;
+          heard.push({ mode: active, callsign: c.callsign, name: c.name, place: c.place, id: c.id, target, start: now() });
+          event('talk_start', { talker });
+        } else if (!want && talker) {
+          const h = [...heard].reverse().find((x) => !x.end); if (h) h.end = now();
+          const was = talker; talker = null; cos = false;
+          event('talk_end', { talker: was });
+          heard.splice(0, Math.max(0, heard.length - 100));
         }
-        broadcast('nodes', (r) => Object.keys(locals).map((id) => status(id, r)));
+        pushNode();
         broadcast('nowcalling', () => nowCalling());
         if (pubCfg.enabled) pubClients.forEach((res) => res.write(`event: snapshot\ndata: ${JSON.stringify(pubSnapshot())}\n\n`));
         if (tick % 10 === 0) broadcast('system', system);
       }, 1000);
       setInterval(() => clients.forEach((c) => c.res.write(': ping\n\n')), 15000);
-      setInterval(() => favStep(broadcast), 250);
 
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url ?? '/', 'http://x');
@@ -239,10 +244,10 @@ export function mockApi(): Plugin {
         const user = cookie ? sessions.get(cookie) : undefined;
         if (m !== 'GET' && req.headers['x-aslcp'] !== '1') return err(res, 403, 'missing X-ASLCP header', 'csrf');
         const body = m === 'GET' ? {} : await readBody(req);
-        const login = (u: { id: number; username: string; role: string }) => { const tok = Math.random().toString(36).slice(2); sessions.set(tok, u); res.setHeader('Set-Cookie', `aslcp_session=${tok}; Path=/; HttpOnly; SameSite=Lax`); };
+        const login = (u: { id: number; username: string; role: string }) => { const tok = Math.random().toString(36).slice(2); sessions.set(tok, u); res.setHeader('Set-Cookie', `aslcp_session=${tok}; Path=/; HttpOnly; SameSite=Strict`); };
 
         if (p === '/setup') {
-          if (m === 'GET') return json(res, 200, { needed: setupNeeded, hotspot: process.env.MOCK_HOTSPOT === '1' });
+          if (m === 'GET') return json(res, 200, { needed: setupNeeded, hotspot: process.env.MOCK_HOTSPOT === '1', station: !stationSet });
           if (!setupNeeded) return err(res, 409, 'setup has already been completed', 'setup_done');
           if (body.code !== '123456') return err(res, 403, 'wrong setup code (mock: 123456)', 'bad_setup_code');
           users = [{ id: 1, username: body.username, role: 'admin' }]; setupNeeded = false; login(users[0]); return json(res, 204);
@@ -253,7 +258,7 @@ export function mockApi(): Plugin {
           login(u); return json(res, 200, u);
         }
         if (p === '/logout') { if (cookie) sessions.delete(cookie); return json(res, 204); }
-        if (p === '/public/info') return json(res, 200, { enabled: pubCfg.enabled, title: pubCfg.enabled ? pubSnapshot().title : '' });
+        if (p === '/public/info') return json(res, 200, { enabled: pubCfg.enabled, title: pubCfg.enabled ? pubSnapshot().title : '', loggedIn: !!user });
         if (p === '/public/status') return pubCfg.enabled ? json(res, 200, pubSnapshot()) : err(res, 404, 'no such endpoint', 'not_found');
         if (p === '/public/events') {
           if (!pubCfg.enabled) return err(res, 404, 'no such endpoint', 'not_found');
@@ -267,12 +272,8 @@ export function mockApi(): Plugin {
         const isAdmin = user.role === 'admin', canOp = user.role !== 'viewer';
         const forbid = () => err(res, 403, 'forbidden', 'forbidden');
         let mm: RegExpExecArray | null;
-        if (handleRadio({ m, p, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }), links: (n) => locals[n]?.links.map((l) => l.node) ?? [] })) return;
         if (handleWifi({ m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleSystem({ m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }), file: (name, text) => { res.statusCode = 200; res.setHeader('Content-Type', 'application/gzip'); res.setHeader('Content-Disposition', `attachment; filename="${name}"`); res.end(text); } })) return;
-        if (handleNowCalling({ m, p, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
-        if (handleDV({ push: (ev, d) => broadcast(ev, () => d), m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
-        if (handleConfig({ m, p, body, url, user, json: (c, b) => json(res, c, b), err: (c, msg, code, extra) => json(res, c, { error: msg, code, ...extra }) })) return;
 
         if (p === '/session') return json(res, 200, user);
         if (p === '/password') { if (body.current !== 'pass') return err(res, 400, 'current password is wrong', 'bad_credentials'); return json(res, 204); }
@@ -280,48 +281,110 @@ export function mockApi(): Plugin {
           res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
           const c = { res, role: user.role };
           clients.add(c); req.on('close', () => clients.delete(c));
-          sse(c, 'hello', { user, version: mockVersion, instance: mockInstance, settings: { favoritesScan: favScan } });
-          sse(c, 'nodes', Object.keys(locals).map((id) => status(id, user.role)));
+          sse(c, 'hello', { user, version: mockVersion, instance: mockInstance, settings: {}, setupNeeded: !stationSet });
+          sse(c, 'node', nodeJSON());
           sse(c, 'nowcalling', nowCalling());
           if (user.role === 'admin') sse(c, 'updates', osBadge());
-          sse(c, 'system', system()); sse(c, 'favorites', sortedFavs()); sse(c, 'schedules', sched.snapshot()); if (favScan) sse(c, 'favstats', favActivity());
+          sse(c, 'system', system()); sse(c, 'favorites', sortedFavs()); sse(c, 'schedules', sched.snapshot());
           return;
         }
+
+        // ---- The node: status, modes, station, the one active mode.
+        if (p === '/node' && m === 'GET') return json(res, 200, nodeJSON());
+        if (p === '/node/reload' && m === 'POST') { if (!isAdmin) return forbid(); return json(res, 200, nodeJSON()); }
+        if (p === '/modes' && m === 'GET') return json(res, 200, modeList(user.role));
+        if ((mm = /^\/modes\/([a-z0-9]+)$/.exec(p)) && (m === 'PUT' || m === 'DELETE')) {
+          if (!isAdmin) return forbid();
+          const d = defOf(mm[1]); if (!d) return err(res, 404, 'unknown mode', 'not_found');
+          if (m === 'DELETE') { delete values[d.name]; delete secrets[d.name]; return json(res, 204); }
+          const v: Record<string, string> = (body.values ?? {}) as Record<string, string>;
+          for (const f of d.fields) {
+            if (!(f.key in v)) continue;
+            if (f.secret) { if (v[f.key] !== '') (secrets[d.name] ??= {})[f.key] = true; } else (values[d.name] ??= {})[f.key] = String(v[f.key]);
+          }
+          const miss = d.fields.find((f) => f.required && !f.secret && (values[d.name]?.[f.key] ?? '') === '' && !f.default);
+          if (miss) return err(res, 400, `${miss.label} is required`, 'bad_request');
+          return json(res, 200, modeList(user.role));
+        }
+        if (p === '/station') {
+          if (!isAdmin) return forbid();
+          if (m === 'GET') return json(res, 200, { ...station, advanced: {}, active: active ? { mode: active, target: target ? { id: target } : undefined } : undefined });
+          if (m === 'PUT') {
+            if (!/^[A-Za-z0-9/]{3,12}$/.test(String(body.callsign ?? ''))) return err(res, 400, 'enter the station callsign', 'bad_request');
+            station.callsign = String(body.callsign).toUpperCase();
+            if (body.radio) Object.assign(station.radio, body.radio);
+            if (body.id) Object.assign(station.id, body.id);
+            stationSet = true; pushNode(); return json(res, 200, nodeJSON());
+          }
+        }
+        if (p === '/select' && m === 'POST') {
+          if (!canOp) return forbid();
+          const mode = String(body.mode ?? '');
+          if (mode && !defOf(mode)) return err(res, 400, 'unknown mode', 'bad_request');
+          if (mode && !isConfigured(defOf(mode)!)) return err(res, 409, `${defOf(mode)!.title} is not set up yet`, 'not_configured');
+          sched.manual(`manual select ${mode || 'idle'} by ${user.username}`);
+          selectMode(mode, body.target ? String(body.target) : undefined); return json(res, 200, nodeJSON());
+        }
+        if (p === '/connect' && m === 'POST') {
+          if (!canOp) return forbid();
+          if (!active) return err(res, 409, 'pick a mode first', 'no_mode');
+          if (!String(body.target ?? '').trim()) return err(res, 400, 'a target is required', 'bad_request');
+          sched.manual(`manual connect ${body.target} by ${user.username}`);
+          selectMode(active, String(body.target)); return json(res, 200, nodeJSON());
+        }
+        if (p === '/disconnect' && m === 'POST') {
+          if (!canOp) return forbid();
+          sched.manual(`manual disconnect by ${user.username}`);
+          target = ''; state = 'idle'; talker = null; pushNode(); return json(res, 200, nodeJSON());
+        }
+        if (p === '/heard' && m === 'GET') return json(res, 200, heardJSON().slice(0, +(url.searchParams.get('limit') ?? 50)));
+        if (p === '/radio' && (m === 'GET' || m === 'PUT')) {
+          if (m === 'PUT') { if (!isAdmin) return forbid(); if (typeof body.rxVolume === 'number') station.radio.rxVolume = body.rxVolume; if (typeof body.txVolume === 'number') station.radio.txVolume = body.txVolume; }
+          if (!radioPresent) return err(res, 404, 'this node has no radio', 'no_radio');
+          return json(res, 200, radioLevels());
+        }
+        if (p === '/radio/program' && m === 'POST') { if (!isAdmin) return forbid(); return json(res, 200, nodeJSON()); }
+        if (p === '/hostlists' && m === 'GET') {
+          const mode = url.searchParams.get('mode') ?? '';
+          return json(res, 200, { mode, items: HOSTS[mode] ?? [], etag: 'mock' });
+        }
+        if (p === '/hostlists/refresh' && m === 'POST') { if (!isAdmin) return forbid(); return json(res, 202); }
+        if (p === '/system/node-service' && m === 'GET') {
+          if (!isAdmin) return forbid();
+          return json(res, 200, { available: true, service: { unit: 'aslcp-node.service', description: 'ASLCP node', active: nodeRunning ? 'active' : 'failed', sub: nodeRunning ? 'running' : 'failed', enabled: 'enabled', since: 'Mon 2026-11-16 08:00:01 UTC' } });
+        }
+        if (p === '/system/node-service/restart' && m === 'POST') {
+          if (!isAdmin) return forbid();
+          nodeRunning = false; pushNode(); setTimeout(() => { nodeRunning = true; pushNode(); }, 3000);
+          return json(res, 202, { ok: true });
+        }
+
+        // ---- Caller lookup lists.
+        if (p === '/dv/userlist') {
+          if (!isAdmin) return forbid();
+          if (m === 'PUT') userList = { ...userList, enabled: !!body.enabled };
+          if (m === 'POST' || p.endsWith('/download')) userList = { ...userList, updated: iso(now()) };
+          return json(res, 200, userList);
+        }
+        if (p === '/dv/userlist/download' && m === 'POST') { if (!isAdmin) return forbid(); userList = { ...userList, updated: iso(now()) }; return json(res, 200, userList); }
+        if (p === '/dv/hamdb') {
+          if (!isAdmin) return forbid();
+          if (m === 'PUT') hamdb = { ...hamdb, enabled: !!body.enabled };
+          return json(res, 200, hamdb);
+        }
+        if (p === '/nowcalling' && m === 'GET') return json(res, 200, nowCalling());
+
+        // ---- Public page settings.
         if (p === '/public') {
           if (!isAdmin) return forbid();
           if (m === 'PUT') {
-            for (const k of ['enabled', 'showCallsigns', 'showNetwork', 'showActivity', 'showDV', 'allowEmbedding', 'trustProxy'] as const) if (typeof body[k] === 'boolean') pubCfg[k] = body[k];
+            for (const k of ['enabled', 'showCallsigns', 'showHeard', 'allowEmbedding', 'trustProxy'] as const) if (typeof body[k] === 'boolean') pubCfg[k] = body[k];
             if (typeof body.title === 'string') { if (body.title.length > 80) return err(res, 400, 'title is too long', 'bad_request'); pubCfg.title = body.title; }
-            if (Array.isArray(body.nodes)) { if (body.nodes.some((n: string) => !locals[n])) return err(res, 400, 'not a local node', 'bad_request'); pubCfg.nodes = body.nodes.length === Object.keys(locals).length ? [] : body.nodes; }
             if (!pubCfg.enabled) { pubClients.forEach((r) => r.end()); pubClients.clear(); }
           }
-          return json(res, 200, { ...pubCfg, nodes: [...pubCfg.nodes], defaultTitle: pubDefaultTitle(), localNodes: Object.keys(locals).map((id) => ({ node: id, info: info(id) })), clients: pubClients.size });
+          return json(res, 200, { ...pubCfg, defaultTitle: pubDefaultTitle(), clients: pubClients.size });
         }
-        if (p === '/activity' && m === 'GET') return json(res, 200, [...activity].sort((a, b) => b.at - a.at).slice(0, +(url.searchParams.get('limit') ?? 50)).map((a, i) => ({ id: i, node: a.node, link: a.link, info: a.link === 'local' ? null : info(a.link), start: new Date(a.at).toISOString(), duration: a.duration, kerchunk: a.duration < 1.5 })));
-        if (p === '/settings') {
-          if (m === 'GET') return json(res, 200, { favoritesScan: favScan });
-        }
-        if (p === '/users' || p.startsWith('/users/')) {
-          if (!isAdmin) return forbid();
-          if (p === '/users' && m === 'GET') return json(res, 200, users);
-          if (p === '/users' && m === 'POST') {
-            if (!body.username || !body.password) return err(res, 400, 'username and password required', 'bad_request');
-            if (users.some((u) => u.username === body.username)) return err(res, 409, 'user exists', 'conflict');
-            const u = { id: nextUser++, username: body.username, role: body.role || 'viewer' }; users.push(u); return json(res, 201, u);
-          }
-          if ((mm = /^\/users\/(\d+)$/.exec(p))) {
-            const u = users.find((x) => x.id === +mm![1]); if (!u) return err(res, 404, 'not found', 'not_found');
-            if (m === 'PUT') { if (body.role) { if (u.role === 'admin' && body.role !== 'admin' && users.filter((x) => x.role === 'admin').length < 2) return err(res, 409, 'cannot demote the last admin', 'last_admin'); u.role = body.role; } return json(res, 200, u); }
-            if (m === 'DELETE') { if (u.id === user.id) return err(res, 409, 'cannot delete yourself', 'conflict'); users = users.filter((x) => x !== u); return json(res, 204); }
-          }
-        }
-        if (p === '/about' && m === 'GET') return json(res, 200, { version: mockVersion, asterisk: '22.10.1+asl3-3.10.8-1.deb13', platform: { os: 'linux', arch: 'arm64', model: 'Raspberry Pi 4 Model B Rev 1.5', distro: 'Debian GNU/Linux 13 (trixie)', kernel: '6.12.34+rpt-rpi-v8', hardware: 'Raspberry Pi 4' } });
-        if (p === '/diagnostics' && m === 'GET') {
-          if (!isAdmin) return forbid();
-          res.statusCode = 200; res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-          res.setHeader('Content-Disposition', `attachment; filename="aslcp-diagnostics-${new Date().toISOString().slice(0, 10)}.txt"`);
-          return res.end(`ASLCP diagnostics (mock)\nASLCP: ${mockVersion}\nPeer <ipv4>, secret = <redacted>\n`);
-        }
+        if (p === '/settings' && m === 'GET') return json(res, 200, {});
         if (p === '/updates' || p.startsWith('/updates/')) {
           if (!isAdmin) return forbid();
           if (p === '/updates' && m === 'GET') return json(res, 200, updInfo());
@@ -361,76 +424,57 @@ export function mockApi(): Plugin {
           return json(res, 202, { ok: true });
         }
         if (p === '/system/restart-aslcp' && m === 'POST') { if (!isAdmin) return forbid(); setTimeout(() => { mockInstance = Math.random().toString(16).slice(2, 10); restartClients(); }, 500); return json(res, 202, { ok: true }); }
-        if (p === '/system/restart-asterisk' && m === 'POST') { if (!isAdmin) return forbid(); return json(res, 202); }
-        if ((mm = /^\/nodes\/([^/]+)\/stats$/.exec(p)) && m === 'GET') {
-          const local = locals[mm[1]]; if (!local) return err(res, 404, 'no such local node', 'unknown_node');
-          const t = now();
-          const kv = (k: string, v: string) => ({ key: k, value: v });
-          return json(res, 200, { node: mm[1], stats: [kv('IsRemoteBase', 'NO'), kv('NodeState', '0'), kv('SignalOnInput', local.rx > t ? 'YES' : 'NO'), kv('TransmitterKeyed', local.tx > t ? 'YES' : 'NO'), kv('Transmitter', 'ENABLED'), kv('Parrot', 'DISABLED'), kv('KeyupsToday', '12'), kv('KeyupsSinceSystemInitialization', '140'), kv('TxTimeToday', '00:04:12:340'), kv('NodesCurrentlyConnectedToUs', local.links.map((l) => l.node).join(', ') || '<NONE>'), kv('UserLinkingCommands', 'ENABLED')] });
-        }
-        if (p === '/nodes' && m === 'GET') return json(res, 200, Object.keys(locals).map((id) => status(id, user.role)));
-        if ((mm = /^\/nodes\/([^/]+)\/(connect|disconnect|disconnect-all)$/.exec(p)) && m === 'POST') {
-          if (!canOp) return forbid();
-          const local = locals[mm[1]]; if (!local) return err(res, 404, 'unknown node', 'not_found');
-          const push = pushNodes;
-          // a manual action pauses or cancels schedules per the manual-action setting (reason like the server's)
-          sched.manual(mm[1], mm[2] === 'disconnect-all' ? `manual disconnect all on ${mm[1]} by ${user.username}` : `manual ${mm[2]} ${body.target ?? ''} on ${mm[1]} by ${user.username}`);
-          if (mm[2] === 'disconnect-all') { local.links = []; push(); return json(res, 202); }
-          dvNodeLink(mm[1], String(body.target ?? ''), mm[2] === 'connect', (ev, d) => broadcast(ev, () => d));
-          if (!/^\d{3,}$/.test(body.target ?? '')) return err(res, 400, 'invalid target node', 'bad_target');
-          if (mm[2] === 'connect' && body.exclusive === true && (body.mode === 'transceive' || body.mode === 'monitor' || !body.mode)) {
-            // like the server: drop every other direct link first (the mock has no permanent links)
-            local.links = local.links.filter((l) => l.node === body.target);
+        if (p === '/users' || p.startsWith('/users/')) {
+          if (!isAdmin) return forbid();
+          if (p === '/users' && m === 'GET') return json(res, 200, users);
+          if (p === '/users' && m === 'POST') {
+            if (!body.username || !body.password) return err(res, 400, 'username and password required', 'bad_request');
+            if (users.some((u) => u.username === body.username)) return err(res, 409, 'user exists', 'conflict');
+            const u = { id: nextUser++, username: body.username, role: body.role || 'viewer' }; users.push(u); return json(res, 201, u);
           }
-          if (mm[2] === 'connect') setTimeout(() => { if (!local.links.some((l) => l.node === body.target)) addLink(mm![1], body.target, body.mode, 'OUT'); push(); }, 1200);
-          else { local.links = local.links.filter((l) => l.node !== body.target); push(); }
-          return json(res, 202);
+          if ((mm = /^\/users\/(\d+)$/.exec(p))) {
+            const u = users.find((x) => x.id === +mm![1]); if (!u) return err(res, 404, 'not found', 'not_found');
+            if (m === 'PUT') { if (body.role) { if (u.role === 'admin' && body.role !== 'admin' && users.filter((x) => x.role === 'admin').length < 2) return err(res, 409, 'cannot demote the last admin', 'last_admin'); u.role = body.role; } return json(res, 200, u); }
+            if (m === 'DELETE') { if (u.id === user.id) return err(res, 409, 'cannot delete yourself', 'conflict'); users = users.filter((x) => x !== u); return json(res, 204); }
+          }
+        }
+        if (p === '/about' && m === 'GET') return json(res, 200, { version: mockVersion, nodeRunning, nodeStarted: started, platform: { os: 'linux', arch: 'arm64', model: 'Raspberry Pi 4 Model B Rev 1.5', distro: 'Debian GNU/Linux 13 (trixie)', kernel: '6.12.0-rpi', hardware: 'SHARI SA818 (placeholder)' } });
+        if (p === '/diagnostics' && m === 'GET') {
+          if (!isAdmin) return forbid();
+          res.statusCode = 200; res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.setHeader('Content-Disposition', `attachment; filename="aslcp-diagnostics-${new Date().toISOString().slice(0, 10)}.txt"`);
+          return res.end(`ASLCP diagnostics (mock)\nASLCP: ${mockVersion}\nPassword = <redacted>\n`);
         }
         if (sched.handle(m, p, body, canOp, (c, b) => json(res, c, b), (c, msg, code) => err(res, c, msg, code), forbid)) return;
-        if (p === '/favorites/stats' && m === 'GET') return json(res, 200, favActivity());
-        if (p === '/favorites/scan' && m === 'PUT') {
-          if (!canOp) return forbid();
-          if (typeof body.enabled !== 'boolean') return err(res, 400, 'enabled (bool) is required', 'bad_request');
-          favScan = body.enabled; if (!favScan) { favChecking = ''; for (const k of Object.keys(favCheckedAt)) delete favCheckedAt[k]; favNextAt = favPassStart = 0; } broadcast('favstats', favActivity); return json(res, 200, favActivity());
-        }
-        if (p === '/favorites/import/allscan') {
-          if (m === 'GET') return json(res, 200, { found: true, path: '/var/www/html/allscan/favorites.ini', items: [{ node: '1000', label: 'Main hub' }, { node: '1296', label: 'Imported net' }, { node: '1333', label: 'Imported repeater' }] });
-          if (!canOp) return forbid();
-          let imported = 0, skipped = 0;
-          for (const it of [{ node: '1000', label: 'Main hub' }, { node: '1296', label: 'Imported net' }, { node: '1333', label: 'Imported repeater' }]) {
-            if (favs.some((f) => f.node === it.node)) skipped++; else { favs.push({ id: nextFav++, node: it.node, label: it.label, group: '', position: 99, pinned: false }); imported++; }
-          }
-          broadcast('favorites', sortedFavs); return json(res, 200, { imported, skipped });
-        }
+
+        // ---- Favorites: a saved target of one mode.
         if (p === '/favorites/reorder' && m === 'POST') {
           if (!canOp) return forbid();
           (body.ids as number[]).forEach((id, i) => { const f = favs.find((x) => x.id === id); if (f) f.position = i; });
-          // positions are global order here; sortedFavs sorts by group then position, which preserves intra-group order.
           broadcast('favorites', sortedFavs); return json(res, 204);
         }
         if (p === '/favorites') {
-          if (m === 'GET') return json(res, 200, sortedFavs());
+          if (m === 'GET') { const mode = url.searchParams.get('mode'); return json(res, 200, sortedFavs().filter((f) => !mode || f.mode === mode)); }
           if (!canOp) return forbid();
           if (m === 'POST') {
-            if (!/^\d{3,}$/.test(body.node ?? '')) return err(res, 400, 'invalid node', 'bad_target');
-            const i = info(body.node);
-            const f = { id: nextFav++, node: body.node, label: body.label || (i ? `${i.callsign} ${i.description}` : body.node), group: body.group || '', position: 99, pinned: false };
-            favs.push(f); broadcast('favorites', sortedFavs); return json(res, 201, { ...f, info: i });
+            if (!defOf(body.mode ?? '')) return err(res, 400, 'unknown mode', 'bad_request');
+            if (!String(body.target ?? '').trim()) return err(res, 400, 'a target is required', 'bad_request');
+            if (favs.some((f) => f.mode === body.mode && f.target === body.target)) return err(res, 409, 'already a favorite', 'conflict');
+            const f = { id: nextFav++, mode: body.mode, target: String(body.target).trim(), label: body.label || String(body.target), group: body.group || '', position: 99, pinned: false };
+            favs.push(f); broadcast('favorites', sortedFavs); return json(res, 201, { ...f, info: f.mode === 'allstar' ? allstarInfo(f.target) : null });
           }
         }
         if ((mm = /^\/favorites\/(\d+)$/.exec(p))) {
           if (!canOp) return forbid();
           const f = favs.find((x) => x.id === +mm![1]); if (!f) return err(res, 404, 'not found', 'not_found');
-          if (m === 'PUT') { Object.assign(f, Object.fromEntries(Object.entries(body).filter(([k, v]) => ['node', 'label', 'group'].includes(k) || (k === 'pinned' && typeof v === 'boolean') && v !== undefined))); broadcast('favorites', sortedFavs); return json(res, 200, { ...f, info: info(f.node) }); }
+          if (m === 'PUT') { for (const k of ['target', 'label', 'group'] as const) if (typeof body[k] === 'string') f[k] = body[k]; if (typeof body.pinned === 'boolean') f.pinned = body.pinned; broadcast('favorites', sortedFavs); return json(res, 200, { ...f, info: f.mode === 'allstar' ? allstarInfo(f.target) : null }); }
           if (m === 'DELETE') { favs = favs.filter((x) => x !== f); broadcast('favorites', sortedFavs); return json(res, 204); }
         }
         if (p === '/lookup' && m === 'GET') {
           const q = (url.searchParams.get('q') ?? '').toLowerCase(), lim = +(url.searchParams.get('limit') ?? 50);
           return json(res, 200, NODES.filter((n) => n.node.startsWith(q) || [n.callsign, n.description, n.location].some((s) => s.toLowerCase().includes(q))).slice(0, lim));
         }
-        if ((mm = /^\/lookup\/(.+)$/.exec(p))) { const i = info(decodeURIComponent(mm[1])); return i ? json(res, 200, i) : err(res, 404, 'node not found', 'not_found'); }
-        if (p === '/nodelist') return json(res, 200, { count: NODES.length, updated: nodelistUpdated, source: 'mock://fake-node-list', error: null });
-        if (p === '/nodelist/refresh' && m === 'POST') { if (!isAdmin) return forbid(); nodelistUpdated = new Date().toISOString(); return json(res, 202); }
+        if ((mm = /^\/lookup\/(.+)$/.exec(p))) { const i = allstarInfo(decodeURIComponent(mm[1])); return i ? json(res, 200, i) : err(res, 404, 'node not found', 'not_found'); }
         if (p === '/system') return json(res, 200, system());
         return err(res, 404, 'not found', 'not_found');
       });

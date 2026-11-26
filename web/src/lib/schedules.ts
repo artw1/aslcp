@@ -1,3 +1,4 @@
+import { modeTitle } from './modes.ts';
 import type { Schedule, ScheduleEvent, ScheduleInput, SchedulesSnapshot } from './types';
 
 export const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -69,27 +70,24 @@ export function fmtIn(sec: number): string {
 }
 export const countdown = (at: string, nowMs: number) => fmtIn((Date.parse(at) - nowMs) / 1000);
 
-export const evLabel = (e: Pick<ScheduleEvent, 'action' | 'node' | 'target'>, withNode: boolean) =>
-  `${e.action === 'connect' ? 'Connect' : 'Disconnect'} ${withNode ? `${e.node} → ` : ''}${e.target}`;
-
-export const MODE_NAMES = { transceive: 'Transceive', monitor: 'Monitor', localmonitor: 'Local monitor' } as const;
+/** "Connect AllStar 2001", "Disconnect EchoLink". */
+export const evLabel = (e: Pick<ScheduleEvent, 'action' | 'mode' | 'target'>) =>
+  [e.action === 'connect' ? 'Connect' : 'Disconnect', modeTitle(e.mode), e.target].filter(Boolean).join(' ');
 
 /** Color class for the last result. */
 export function resultClass(r: string): string {
   return r === 'ok' ? 'text-ok' : r.startsWith('error') ? 'text-danger' : 'text-muted';
 }
 
-export const emptyInput = (node: string, exclusive: boolean): ScheduleInput => ({
-  name: '', enabled: true, node, target: '', action: 'connect', mode: 'transceive', permanent: false, exclusive,
-  days: [], date: '', start: '19:00', end: '',
+export const emptyInput = (mode: string): ScheduleInput => ({
+  name: '', enabled: true, mode, target: '', action: 'connect', days: [], date: '', start: '19:00', end: '',
 });
 
 /** Mirrors the server's validation; returns an error message or ''. */
-export function validateSchedule(s: ScheduleInput, localNodes: string[]): string {
+export function validateSchedule(s: ScheduleInput, modes: string[]): string {
   if (s.name.length > 60) return 'Name is at most 60 characters';
-  if (!s.node || !localNodes.includes(s.node)) return 'Choose a local node';
-  if (!/^[1-9][0-9]{0,9}$/.test(s.target)) return 'Enter a valid target node number';
-  if (s.target === s.node) return 'The target cannot be the node itself';
+  if (!s.mode || !modes.includes(s.mode)) return 'Choose a mode';
+  if (s.action === 'connect' && !s.target.trim()) return 'Enter a target';
   const time = /^([01]\d|2[0-3]):[0-5]\d$/;
   if (!time.test(s.start)) return 'Enter a start time';
   if (s.action === 'connect' && s.end) {
@@ -140,22 +138,20 @@ function pairOverlap(a: Sched, b: Sched): boolean {
   const n = dayNum(b.date), x = span(b, n * DAY_MIN);
   return onDates(a, n).some((y) => overlaps(x, y));
 }
-const effExclusive = (s: Pick<Schedule, 'exclusive' | 'mode'>) => s.exclusive && s.mode !== 'localmonitor';
 
-/** The schedules in `others` that `s` conflicts with: same node, both connects, both enabled, one exclusive, overlapping spans. `selfId` is skipped. */
+/** The schedules in `others` that `s` conflicts with: both connects, both enabled, overlapping spans. The node has one radio and one active mode, so the mode does not matter. `selfId` is skipped. */
 export function findConflicts(s: ScheduleInput, others: Schedule[], selfId?: number): Schedule[] {
   if (s.action !== 'connect' || !s.enabled) return [];
   if (s.date ? !/^\d{4}-\d\d-\d\d$/.test(s.date) || Number.isNaN(Date.parse(s.date)) : s.days.length === 0) return [];
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(s.start) || (s.end && !/^([01]\d|2[0-3]):[0-5]\d$/.test(s.end)) || s.end === s.start) return [];
-  return others.filter((o) => o.id !== selfId && o.node === s.node && o.action === 'connect' && o.enabled
-    && (effExclusive(s) || effExclusive(o)) && pairOverlap(s, o));
+  return others.filter((o) => o.id !== selfId && o.action === 'connect' && o.enabled && pairOverlap(s, o));
 }
 
-/** `overlaps "Tuesday net" (Tue 19:00–20:30) on node 2006` (same text as the server's). */
-export function conflictMessage(node: string, clash: Schedule[]): string {
+/** `overlaps "Tuesday net" (Tue 19:00–20:30)` (same text as the server's). */
+export function conflictMessage(clash: Schedule[]): string {
   const parts = clash.map((c) => `${c.name ? JSON.stringify(c.name) : `#${c.id}`} (${fmtWhen(c)})`);
   const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0];
-  return `overlaps ${list} on node ${node}`;
+  return `overlaps ${list}`;
 }
 
 export const MANUAL_ACTIONS: { value: 'pause' | 'pause_today' | 'cancel'; label: string }[] = [

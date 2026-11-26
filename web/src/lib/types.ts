@@ -1,25 +1,7 @@
 export type Role = 'admin' | 'operator' | 'viewer';
 export interface User { id: number; username: string; role: Role }
+/** An AllStar node list entry (favorites and calls of the AllStar mode). */
 export interface NodeInfo { node: string; callsign: string; description: string; location: string }
-export type LinkKind = 'allstar' | 'echolink' | 'phone' | 'client' | 'unknown';
-export type LinkMode = 'T' | 'R' | 'L' | 'C';
-export interface Link {
-  node: string; kind: LinkKind; info: NodeInfo | null; ip: string;
-  direction: 'IN' | 'OUT'; connected: number; state: 'ESTABLISHED' | 'CONNECTING';
-  mode: LinkMode; keyed: boolean; sinceKey: number | null; sinceUnkey: number | null;
-}
-export interface NetworkEntry { node: string; mode: string; kind: LinkKind; info: NodeInfo | null }
-export interface NodeStatus {
-  node: string; info: NodeInfo | null; stale: boolean; staleReason?: string;
-  rxKeyed: boolean; txKeyed: boolean; extTxKeyed: boolean; numLinks: number;
-  links: Link[]; network: NetworkEntry[]; flags: Record<string, boolean>; updated: string;
-}
-export interface Favorite { id: number; node: string; label: string; group: string; position: number; pinned: boolean; info: NodeInfo | null }
-export interface SystemInfo {
-  hostname: string; cpuTemp: number | null; load: number[]; memTotal: number; memAvailable: number;
-  uptime: number; asterisk: { connected: boolean; version: string; uptime: number; error: string | null }; version: string;
-  updateAvailable?: boolean; updateVersion?: string;
-}
 export interface UpdateInfo {
   available: boolean; reason: string | null; applyReason: string | null; channel: 'stable' | 'beta'; installed: string; candidate: string; upgradable: boolean;
   job: 'idle' | 'running' | 'succeeded' | 'failed' | 'noop'; jobLog: string; notes: string | null; checked: string | null;
@@ -35,126 +17,138 @@ export interface OSUpdates {
 }
 /** Admin-only SSE event "updates": counts only. */
 export interface UpdatesBadge { aslcp: boolean; aslcpVersion: string; os: number; security: number; reboot: boolean }
+
+// ---- The node: one radio, one active mode (GET /api/node, SSE "node").
+
+/** The state of a mode's link. */
+export type ModeState = 'idle' | 'starting' | 'ready' | 'connecting' | 'connected' | 'error';
+export interface Target { id: string; name?: string; host?: string; port?: number; slot?: number; private?: boolean }
+export interface Talker { callsign?: string; name?: string; place?: string; id?: number; target?: string; since: string }
+export interface Registration {
+  registered: boolean; ready: boolean; publicIp?: string; dnsOk: boolean;
+  lastAttempt?: string; lastSuccess?: string; lastError?: string; httpStatus?: number;
+}
+export interface ModeStatus {
+  mode: string; title: string; active: boolean; state: ModeState; target?: Target; since?: string;
+  detail?: string; error?: string; talker?: Talker; registration?: Registration; links?: string[];
+}
+export interface NodeJSON {
+  callsign?: string; started: string;
+  radio: { present: boolean; ptt: boolean; cos: boolean; rxLocked?: boolean; txLocked?: boolean };
+  /** The active mode ("" or absent when the node is idle) and its status. */
+  active?: string; since?: string; mode?: ModeStatus; registration?: Registration;
+  id: { enabled: boolean; owed: boolean; due?: string; last?: string; why?: string };
+  configured: boolean;
+  /** False while the node daemon cannot be reached; `error` says why. */
+  running: boolean; error?: string;
+  /** True until the station has a callsign: the first-run setup opens. */
+  setupNeeded: boolean;
+}
+
+export type FieldKind = 'text' | 'number' | 'password' | 'bool' | 'select';
+export interface ModeField {
+  key: string; label: string; kind: FieldKind; required?: boolean; secret?: boolean;
+  default?: string; options?: string[]; help?: string; advanced?: boolean;
+}
+export interface ModeSettings { values?: Record<string, string>; favorites?: Target[]; reflectors?: Target[] }
+/** One mode of GET /api/modes. Operators and viewers get no fields, settings or secretsSet. */
+export interface ModeInfo {
+  name: string; title: string; targetLabel?: string; targetHelp?: string; needsHost?: boolean;
+  fields?: ModeField[]; settings?: ModeSettings; secretsSet?: Record<string, boolean>;
+  configured: boolean; active: boolean; status?: ModeStatus; error?: string;
+}
+
+/** GET and PUT /api/station (admin). */
+export interface Station {
+  callsign?: string;
+  radio: {
+    frequencyMHz?: number; tone?: string; squelch?: number; narrow?: boolean; rxVolume?: number; txVolume?: number;
+    pttGpio?: number; pttActiveLow?: boolean; cosActiveLow?: boolean; sa818Port?: string;
+  };
+  id: { enabled?: boolean; intervalS?: number; wpm?: number; pitchHz?: number; levelDb?: number };
+  advanced: Record<string, unknown>;
+  active?: { mode: string; target?: Target };
+}
+export interface Reading { RMSDb: number; PeakDb: number; Active: boolean; Clipped: number; Frames: number }
+/** GET and PUT /api/radio: the sound chip's levels. -1 means the chip has no such control. */
+export interface RadioLevels {
+  CaptureVolume: number; PlaybackVolume: number; Rx: Reading; Tx: Reading; DroppedRx: number; DroppedTx: number; Xruns: number;
+}
+
+/** One row of GET /api/heard: who was heard on which mode. */
+export interface Heard {
+  mode: string; callsign?: string; name?: string; place?: string; id?: number; target?: string;
+  start: string; end?: string; durationNs?: number;
+}
+
+/** A reflector or master of GET /api/hostlists. */
+export interface HostItem { value: string; name: string; detail?: string; address: string; port: number; password?: string }
+export interface HostList { mode: string; items: HostItem[]; truncated?: boolean; etag: string }
+
+/** A favorite: a saved target of one mode (GET /api/favorites). */
+export interface Favorite { id: number; mode: string; target: string; label: string; group: string; position: number; pinned: boolean; info: NodeInfo | null }
+
+/** The state of the aslcp-node systemd unit. */
+export interface NodeService { available: boolean; service?: { unit: string; description: string; active: string; sub: string; enabled: string; since: string } }
+
+export interface SystemInfo {
+  hostname: string; cpuTemp: number | null; load: number[]; memTotal: number; memAvailable: number;
+  uptime: number; node: { running: boolean; mode: string; uptime: number | null; error: string | null }; version: string;
+  updateAvailable?: boolean; updateVersion?: string;
+}
 export interface About {
-  version: string; asterisk: string;
+  version: string; nodeRunning: boolean; nodeStarted: string;
   platform: { os: string; arch: string; model: string; distro: string; kernel: string; hardware: string };
 }
-export interface Settings { favoritesScan?: boolean }
-/** Activity of one favorite from the stats scan (GET /api/favorites/stats, SSE favstats). */
-export interface FavActivity { rxPct: number | null; linkCnt: number; active: boolean; webTx: boolean; keyed: boolean; txAvg: number; lastSeen: string }
-export interface FavStatsUpdate { enabled: boolean; rate: number; effRate: number; backoff: boolean; retryAt: string | null; /** Why polling is paused. */ backoffReason?: 'rate-limit' | 'service-error' | 'network-error' | ''; updated: string | null; stats: Record<string, FavActivity>;
-  /** Node being requested right now ('' when idle). Kept for compatibility; the UI marks `next`. */ checking?: string;
-  /** Node that will be requested next ('' when none). */ next?: string;
-  /** When the next request is due (null: scan off, nobody watching or nothing to check). */ nextAt?: string | null;
-  /** Eligible favorites with an answer in the current pass, and how many are eligible. */ checked?: number; total?: number;
-  /** Last attempt per node, offline ones included; SSE carries only the changed nodes. */ checkedAt?: Record<string, string>;
-  /** SSE only: nodes whose values were cleared (offline, unknown, no longer a favorite). */ removed?: string[] }
-export interface StatField { key: string; value: string }
-export interface NodeStats { node: string; stats: StatField[] }
-export type ConnectMode = 'transceive' | 'monitor' | 'localmonitor';
-export interface NodeListStatus { count: number; updated: string | null; source: string; error: string | null }
-export interface ImportPreview { found: boolean; path: string; items: { node: string; label: string }[] }
+export type Settings = Record<string, unknown>
 
-// Public status view (GET /api/public/*): never contains IPs or system info.
-export interface PubInfo { callsign: string; description: string; location: string }
-export interface PubLink {
-  node: string; label?: string; kind: LinkKind; info?: PubInfo; direction: 'IN' | 'OUT'; mode: LinkMode;
-  connected: number; keyed: boolean; sinceKey: number | null; sinceUnkey: number | null;
-}
-export interface PubNetNode { node: string; label?: string; callsign?: string }
-export interface PubNode {
-  node: string; info: PubInfo | null; stale: boolean; txKeyed: boolean; rxKeyed: boolean; numLinks: number;
-  links: PubLink[]; network?: PubNetNode[];
-}
-export interface PubActivity { node: string; link: string; label?: string; callsign?: string; at: number; duration: number; kerchunk: boolean }
-/** A digital modes call on the public page: no IDs, hosts or addresses. `callsign`, `name` and `location` are absent when callsigns are hidden. */
-export interface PubDVCall { mode: string; callsign?: string; target?: string; slot?: number; at: number; name?: string; location?: string }
-/** The digital modes part of the public page; sent only while the "Show digital modes activity" setting is on. */
-export interface PubDV { now: PubDVCall | null; heard: PubDVCall[] }
+// ---- The public status view (GET /api/public/status, SSE "snapshot"): no IPs, no system info.
+export interface PubStation { callsign: string; mode: string; modeTitle: string; target: string; state: ModeState | string; txKeyed: boolean; rxKeyed: boolean }
+/** One call on the public page; callsign, name and location are absent when callsigns are hidden. */
+export interface PubCall { mode: string; callsign?: string; target?: string; at: number; duration: number; name?: string; location?: string }
 export interface PubSnapshot {
-  title: string; now: number; callsigns: boolean; showNetwork: boolean; showActivity: boolean; showDV: boolean;
-  nodes: PubNode[]; activity?: PubActivity[]; dv?: PubDV;
+  title: string; now: number; callsigns: boolean; showHeard: boolean;
+  station: PubStation; calling: PubCall | null; heard?: PubCall[];
 }
 export interface PublicInfo { enabled: boolean; title: string; loggedIn: boolean }
 /** GET/PUT /api/public (admin). */
 export interface PublicSettings {
-  enabled: boolean; title: string; nodes: string[]; showCallsigns: boolean; showNetwork: boolean; showActivity: boolean; showDV: boolean;
-  allowEmbedding: boolean; trustProxy: boolean; defaultTitle: string;
-  localNodes: { node: string; info: NodeInfo | null }[]; clients: number;
+  enabled: boolean; title: string; showCallsigns: boolean; showHeard: boolean; allowEmbedding: boolean; trustProxy: boolean;
+  defaultTitle: string; clients: number;
 }
 
-// Configuration editing (docs/CONFIG.md, /api/config/*). Admin only.
-export interface ConfigFileInfo { path: string; size: number; mtime: string; sha256: string; known: boolean; group: string }
-export interface ConfigFile { path: string; content: string; sha256: string }
-export interface ConfigDraft { path: string; content: string; base: string }
-export interface ConfigPreviewFile { path: string; ok: boolean; error?: { line: number; message: string }; diff: string; changed: boolean; conflict?: boolean }
-export interface ConfigPreview { files: ConfigPreviewFile[]; reload: { command: string; reason: string }[]; restart: boolean }
-export interface ConfigHealthCheck { name: string; ok: boolean; detail: string }
-export interface ConfigApplyResult {
-  commit: string; before: string;
-  /** Files written, and whether any of them only takes effect after an Asterisk restart. */
-  files?: string[]; restart?: boolean;
-  reload?: { command: string; ok: boolean; output: string }[] | null;
-  health?: { ok: boolean; checks: ConfigHealthCheck[] } | null;
-  /** Restore only (helper `skipped`): files that did not exist in the restored commit. */
-  skipped?: string[];
-}
-export interface ConfigCommit { commit: string; date: string; author: string; message: string; files: string[] }
-export interface ConfigCommitDetail extends Omit<ConfigCommit, 'files'> { files: { path: string; status: 'added' | 'modified' | 'deleted'; diff: string }[] }
-
-// Backup and full restore (docs/BACKUP.md, /api/backup/*, /api/restore/*). Admin only (restore upload also with a setup code).
-export type BackupPartId = 'history' | 'allmon3' | 'sounds' | 'dv';
-export interface BackupInfo { parts: { id: BackupPartId; present: boolean; size: number }[]; sa818: boolean }
-export interface BackupSelection { history: boolean; allmon3: boolean; sounds: boolean; dv: boolean }
-export type RestoreAction = 'restore' | 'restore_dist' | 'keep_stock' | 'keep_new' | 'delete_optional' | 'skip';
-export interface RestoreRadio {
-  band: string; freqRx: string; freqTx: string; tone: string; ctcssRx: string; ctcssTx: string; dcsRx: string; dcsTx: string; port: string; portPresent: boolean;
-}
+// ---- Backup and restore (docs/BACKUP.md, /api/backup/*, /api/restore/*). Admin only (the restore upload also with a setup code).
+export interface BackupInfo { node: boolean; secrets: boolean; sa818: boolean }
+export interface BackupSelection { secrets: boolean }
+export interface RestoreWarning { code: string; message: string }
+export interface RestoreRadio { bandwidth: string; rxMHz: number; txMHz: number; rxTone: string; txTone: string; squelch: number }
 export interface RestorePreview {
-  backup: { hostname: string; created: string; createdBy: string; aslcpVersion: string; asl3Version: string; asteriskVersion: string; arch: string; osId?: string; osCodename?: string; osName?: string; nodes: string[]; channel: string };
-  node: { asl3Version: string; asteriskVersion: string; arch: string; osId?: string; osCodename?: string; osName?: string };
-  warnings: { code: string; message: string }[];
-  files: { path: string; action: RestoreAction; note?: string }[];
+  backup: { hostname: string; created: string; createdBy: string; aslcpVersion: string; arch: string; osId?: string; osCodename?: string; osName?: string; callsign: string; channel: string };
+  node: { arch: string; osId?: string; osCodename?: string; osName?: string; callsign: string };
+  warnings: RestoreWarning[];
   users: { username: string; role: string }[];
-  favorites: number;
-  schedules: number;
-  missingPackages: string[];
-  installCommand: string;
+  favorites: number; schedules: number;
   checklist: { item: string; value: string }[];
   radio: RestoreRadio | null;
-  parts: { history: boolean; allmon3: boolean; sounds: boolean; sa818: boolean; dv?: boolean };
+  parts: { node: boolean; sa818: boolean; secrets: boolean; conf: boolean };
+  /** The modes the restored node will have set up. */
+  modes: string[];
+  /** Modes left out: no password in the backup and none on this node. Set them up again after the restore. */
+  missingSecrets: string[];
 }
 export interface RestoreUpload { id: string; preview: RestorePreview }
 export interface RestoreStep { name: string; ok: boolean; detail: string }
-export interface RestoreApplyResult { ok: boolean; steps: RestoreStep[]; restarting: boolean }
+export interface RestoreApplyResult { ok: boolean; steps: RestoreStep[]; restarting: boolean; error?: string }
+export interface ConfigHealthCheck { name: string; ok: boolean; detail: string }
 export interface RestoreResult {
   at: string; backupCreated: string; steps: RestoreStep[];
   health: { ok: boolean; pending?: boolean; checks: ConfigHealthCheck[] }; checklist: { item: string; value: string }[];
 }
 
-// SimpleUSB audio tuning (GET /api/radio/*, docs/API.md "Radio tuning").
-export interface TuneDevice { name: string; node?: string; usbPath?: string; card: number; links: string[] }
-export interface TuneList { available: boolean; reason?: string; devices: TuneDevice[] }
-export type SignalFrom = 'no' | 'usb' | 'usbinvert' | 'pp' | 'ppinvert';
-export interface TuneParams {
-  rxVoice: number; txA: number; txB: number; echo: boolean; rxBoost: boolean; preEmphasis: boolean; deEmphasis: boolean;
-  plFilter: boolean; pttInvert: boolean; carrierFrom: SignalFrom | string; ctcssFrom: SignalFrom | string;
-  rxOnDelayMs: number; txOffDelayMs: number; micPlayMax: number; spkrMax: number; micMax: number;
-  carrierOther?: boolean; ctcssOther?: boolean;
-}
-export type TunePatch = Partial<Pick<TuneParams, 'rxVoice' | 'txA' | 'txB' | 'rxBoost' | 'preEmphasis' | 'deEmphasis' | 'plFilter' | 'pttInvert' | 'carrierFrom' | 'ctcssFrom' | 'rxOnDelayMs' | 'txOffDelayMs'>>;
-export interface TuneEcho { on: boolean; expiresAt?: string }
-export interface TuneState {
-  device: string; node?: string; params: TuneParams; saved: TuneParams; dirty: string[];
-  identity: { device: string; usbString?: string; serial?: string; card?: number }; echoState: TuneEcho;
-}
-export interface TuneApplyResult { applied: { field: string; reply: string }[]; errors: { field: string; message: string; reply?: string }[]; params: TuneParams; dirty: string[] }
-export interface TuneMeter { pk: number; avg: number; min: number; max: number; clip: number; at: string; stale?: boolean }
-export interface TuneSaveResult { saved: boolean; params: TuneParams; changed: string[]; commit?: string; warning?: string }
-
+// ---- Schedules (docs/SCHEDULES.md): a window selects a mode with a target, and disconnects at its end.
 export interface Schedule {
-  id: number; name: string; enabled: boolean; node: string; target: string;
-  action: 'connect' | 'disconnect'; mode: ConnectMode; permanent: boolean; exclusive: boolean;
+  id: number; name: string; enabled: boolean; mode: string; target: string;
+  action: 'connect' | 'disconnect';
   /** Weekly: days of week, 0 = Sunday .. 6 = Saturday. Empty for a one-off. */
   days: number[];
   /** One-off: YYYY-MM-DD, else "". */
@@ -164,9 +158,7 @@ export interface Schedule {
 }
 /** Body of POST/PUT /api/schedules: a Schedule without the server-side fields. */
 export type ScheduleInput = Omit<Schedule, 'id' | 'lastRun' | 'lastResult'>;
-export interface ScheduleEvent {
-  at: string; id: number; name: string; node: string; target: string; action: 'connect' | 'disconnect'; mode: ConnectMode;
-}
+export interface ScheduleEvent { at: string; id: number; name: string; mode: string; target: string; action: 'connect' | 'disconnect' }
 export type ManualAction = 'pause' | 'pause_today' | 'cancel';
 /** Cancel mode: windows canceled by a manual action, while they would still be running. */
 export interface CancelNotice { reason: string; at: string; until: string; ids: number[]; names: string[] }
@@ -175,113 +167,6 @@ export interface SchedulesSnapshot {
   manualAction: ManualAction; lastCancel: CancelNotice | null; timezone: string; now: string;
   schedules: Schedule[]; active: { id: number; start: string; end: string }[]; upcoming: ScheduleEvent[];
 }
-
-/** GET /api/dv/status (admin; plan C.1 DVStatus). `job` is the state of the enable job unit; its log is GET /api/dv/job. */
-export type DVJobState = '' | 'idle' | 'running' | 'failed' | 'done' | 'succeeded';
-export interface DVStatus {
-  /** The platform can run the engine (bookworm/trixie; amd64 or arm64). `reason` says why not ("armhf_unsupported" on a 32-bit system). */
-  supported: boolean; reason?: string;
-  md380Installed: boolean;
-  /** aslcp-dv.service is enabled / running; md380-emu.service is running. */
-  enabled: boolean; active: boolean; md380Active: boolean;
-  job?: DVJobState;
-  /** Units of the previous stack still loaded on the node (stopped by Enable; the upgrade removes the ones ASLCP installed). */
-  legacyUnits?: string[];
-}
-/** GET /api/dv/job: the enable job's state and the last lines of its log (`log` text, or `lines`). */
-export interface DVJob { job: DVJobState; log?: string; lines?: string[]; at?: number }
-
-/** The private-node part of GET /api/dv/setup. `files[].sha256` is the version a private-node write is checked against (`base`). */
-export interface DVFileView { id: string; present: boolean; writable: boolean; sha256: string; history: number }
-/** The "Bridge node" part of GET /api/dv/setup. `suggested` is the first free node of 1900-1997. */
-export interface DVBridgeSetup {
-  node: string; owned: boolean; /** Found but not added by ASLCP, and it looks exactly like the node ASLCP adds: "Manage this bridge node with ASLCP" works. */ adoptable?: boolean; suggested: string; used: string[]; localNodes: string[];
-  rxPort: number; txPort: number; link: { mode: DVLinkMode; localNode: string; bridge: string; exclusive: boolean }; paused: boolean;
-  /** Display name of the bridge node (the default when none was saved). */
-  name?: string;
-}
-/** PUT /api/dv/private-node (docs/API.md "Digital modes private node"). */
-export interface DVPrivateReq { node: string; rxPort: number; txPort: number; linkMode: DVLinkMode; localNode: string; /** "Disconnect other links first"; absent keeps the saved value. */ linkExclusive?: boolean; dryRun?: boolean; restart?: boolean; base?: Record<string, string>; renumber?: boolean }
-export type DVPlanKind = 'set' | 'renumber' | 'remove';
-/** `kind` says what the plan does: save the node, renumber it (`oldNode` goes away) or remove it. `unlinks` are the local nodes disconnected first; `keepRecord` says the removal leaves ASLCP's record because something could not be reverted. */
-export interface DVPlan {
-  kind: DVPlanKind; oldNode: string; unlinks: string[]; keepRecord: boolean;
-  node: string; rxPort: number; txPort: number; layout: string;
-  files: { path: string; diff: string; changed: boolean }[];
-  restartAsterisk: boolean; restarts: string[]; warnings: string[]; base: Record<string, string>;
-  link: { mode: DVLinkMode; localNode: string; bridge: string; exclusive: boolean };
-}
-export interface DVStep { name: string; ok: boolean; detail?: string }
-export interface DVRollbackInfo { available: boolean; before?: boolean; ini?: boolean }
-export interface DVApplyResult { applied: boolean; kind: DVPlanKind; node: string; steps: DVStep[]; warnings?: string[]; keepRecord?: boolean; health?: unknown; rollback: DVRollbackInfo }
-export interface DVRollbackResult { rolledBack: boolean; problems: string[]; steps: DVStep[] }
-/** GET /api/dv/setup (admin): only the private-node view and the file versions are used. */
-export interface DVSetup { bridgeNode: DVBridgeSetup; files?: DVFileView[] }
-
-/** GET /api/dv/lists?mode=... (operator and admin; docs/API.md "Digital modes host lists"). 404 `no_list` when the node has no file for the mode. */
-export type DVListMode = 'dmr' | 'ysf' | 'p25' | 'nxdn' | 'm17' | 'bm' | 'dmr-other';
-/** `value` is what gets written: the master address (dmr), the 5-digit reflector ID (ysf) or the TG (p25, nxdn) or the reflector designator `M17-XXX` (m17; the module is picked apart from the list). `port` is the master port for dmr. The DMR list never carries a password. */
-export interface DVListItem { value: string; name: string; detail?: string; address: string; port: number; password?: string }
-export interface DVList { mode: DVListMode; items: DVListItem[]; truncated?: boolean; etag: string }
-
-/** GET and PUT /api/dv/resume (docs/API.md "Digital modes tune and resume"): the last tune of each mode and the toggle. */
-/** LOOP is the echo test (the local test network) of the native engine; BM, TGIF, DMR, YSF, P25, NXDN and M17 are carried but marked unavailable in M1. */
-export type DVTuneMode = 'LOOP' | 'BM' | 'TGIF' | 'DMR' | 'YSF' | 'P25' | 'NXDN' | 'M17';
-export interface DVRemembered { tune: string; ts?: string; at: string }
-export interface DVResume { resume: boolean; lastMode?: string; perMode: Partial<Record<DVTuneMode, DVRemembered>> }
-
-/** GET /api/dv/snapshot and the SSE `dv` event (all roles; docs/API.md "Digital modes panel"). No install log, no identity, no secret. */
-export interface DVBridge { mode: string; tune: string; targetName?: string; slot: number; muted: boolean; /** The last tune was a DMR private call (the BrandMeister Parrot): `tune` is empty then. */ private?: boolean; source: 'aslcp-dv' | 'abinfo' | 'none'; updated: string }
-/** One talker from the Analog_Bridge log. `at` is the log's own time, no zone. */
-export interface DVCaller { call?: string; private?: boolean; dmrId?: string; dst?: string; slot?: number; at?: string; /** "YSF" for a YSF call: `dst` is then the reflector (address or id), not a talkgroup, and `dstName` its name when known. */ mode?: string; dstName?: string; /** The caller's name and "City, ST" for a callsign-only call (YSF, P25, NXDN, M17), from the radioid.net list or, when the admin turned it on, hamdb.org. */ name?: string; place?: string }
-export interface DVSnapshot {
-  installed: boolean; running: boolean; configured: boolean;
-  bridge: DVBridge;
-  /** `label`: the button's name when it is not the id (a DMR network's registry label: "BrandMeister", "TGIF", "DMR - Other"). `available`: the engine implements the mode (LOOP and BM in this build). */
-  modes: { id: DVTuneMode; enabled: boolean; available: boolean; unlink: string; label?: string; /** The engine's login state of an enabled network (`off`, `pending`, `ok`, `failed`, `idle`: an on-demand network, BrandMeister, that is not the active mode) and its detail. */ login?: DVLogin; detail?: string; /** A tuned YSF, P25, NXDN or M17 reflector sends nothing back (the engine's lost state). */ silent?: boolean; /** DMR - Other: when the tuned talkgroup last had traffic (RFC 3339); absent during a call or when none is tuned. */ quietSince?: string; /** BrandMeister and DMR - Other: the master the mode is set to (its name in the host list, else the address as saved). */ master?: string }[];
-  /** M1: aslcp-dv and md380-emu. */
-  services: { unit: string; active: boolean }[];
-  /** md380 vocoder health (`ok`; `timeouts` counts the calls that timed out) and the engine's version and uptime in seconds; absent while the engine is not reachable. */
-  vocoder?: { ok: boolean; timeouts: number };
-  engine?: { version: string; uptime: number };
-  /** `name` is the display name of the bridge node (the default "Digital modes linked node" when none was saved); present with `present`. */
-  bridgeNode: { present: boolean; node?: string; name?: string };
-  /** The link of the bridge node to a local node (docs/DV.md "Link mode"). */
-  link: DVLink;
-  /** Who is talking now (the log's last call that has not ended); only meaningful while RX is keyed. */
-  caller?: DVCaller;
-  /** The last few distinct callers, newest first. */
-  heard: DVCaller[];
-}
-export type DVLogin = 'off' | 'pending' | 'ok' | 'failed' | 'idle';
-/** One option of a network (GET /api/dv/networks): `kind` text, int or bool; `default` is what the engine uses when it is unset. */
-export interface DVOptSpec { key: string; label: string; kind: 'text' | 'int' | 'bool'; default: string; help?: string; min?: number; max?: number; maxLen?: number; advanced?: boolean }
-/** One network of GET /api/dv/networks and the reply of PUT /api/dv/networks/{mode}. The password is write-only: only `passwordSet` comes back. */
-export interface DVNetView {
-  mode: DVTuneMode; label: string; available: boolean; enabled: boolean; address: string; port: number; defaultPort?: number; defaultAddress?: string; defaultPassword?: string; passwordSet: boolean;
-  fields: { address: boolean; port: boolean; password: boolean }; needsIdentity: boolean; help?: string;
-  options: DVOptSpec[]; values: Record<string, string>; login?: DVLogin; detail?: string;
-  /** PUT only: the engine took the new settings; otherwise `applyError` says why not. */
-  applied?: boolean; applyError?: string;
-}
-export interface DVIdentity { callsign: string; dmrId: number; repeaterId?: number; applied?: boolean; applyError?: string }
-/** The audio settings shared by all modes (GET and PUT /api/dv/audio). `agcTx`: the node's audio going to the network, `agcRx`: the network's audio going to the node; `gainRxDb` is the node audio gain, `gainTxDb` the network audio gain. */
-export interface DVAudio { agcTx: boolean; agcRx: boolean; agcTargetDb: number; agcMaxGainDb: number; gainRxDb: number; gainTxDb: number; applied?: boolean; applyError?: string }
-export interface DVNetworks { identity: DVIdentity; audio: DVAudio; modes: DVNetView[] }
-/** One transmission or received call, levels in dBFS before and after the AGC (-90 is silence). */
-export interface DVAudioSummary { speechDb: number; outSpeechDb: number; peakDb: number; outPeakDb: number; clipped: number; durationMs: number; verdict: 'low' | 'ok' | 'high' | string; agc: boolean; at: string }
-export interface DVAudioDir { agc: boolean; active: boolean; peakDb: number; rmsDb: number; outPeakDb: number; outRmsDb: number; last?: DVAudioSummary }
-/** GET /api/dv/meter: `tx` is the node's audio to the network, `rx` the network's audio to the node. */
-export interface DVMeter { running: boolean; audio?: { targetDb: number; tx: DVAudioDir; rx: DVAudioDir } }
-/** PUT /api/dv/networks/{mode}: only the fields that change. `password` sets, `clearPassword` removes. */
-export interface DVNetPut { enabled?: boolean; address?: string; port?: number; password?: string; clearPassword?: boolean; options?: Record<string, string> }
-export type DVLinkMode = 'ondemand' | 'permanent';
-/** `exclusive` is the saved "Disconnect other links first" (dv.link_exclusive). */
-export interface DVLink { mode: DVLinkMode; localNode: string; linked: boolean; paused: boolean; exclusive: boolean }
-/** The reply of POST /api/dv/mode, /unlink and /tune. */
-/** `left`: the mode a switch unlinked before leaving it (it reconnects when switched back). */
-export interface DVCmdReply { mode: string; switched: boolean; confirmed: boolean; left?: string; snapshot: DVSnapshot }
-export interface DVFavorite { id: number; mode: DVTuneMode; value: string; name: string; sort: number; pinned: boolean }
 
 // System tab (docs/API.md "System"); all admin-only.
 export interface HostStatus { hostname: string; prettyHostname: string; os: string; hostnameAvailable: boolean; hostnamectlAvailable: boolean; hostnamectlMissing: boolean; timezone: string; ntp: boolean; ntpSynchronized: boolean; canNtp: boolean; localRtc: boolean; timeAvailable: boolean; now: string; clock: string }
@@ -315,15 +200,25 @@ export interface TerminalTicket { ticket: string; expiresIn: number }
 // One live terminal session (attached or detached); GET /system/terminal/sessions.
 export interface TerminalSessionInfo { id: string; owner: string; mine: boolean; started: number; attached: boolean; detachedSince?: number; linuxUser?: string }
 
-/** One call shown by the Now Calling strip (GET /api/nowcalling, SSE "nowcalling"). */
+/** One call of the Now Calling strip (GET /api/nowcalling, SSE "nowcalling"). `kind` is the mode name. */
 export interface NowCall {
-  id: string; kind: 'allstar' | 'dmr' | 'ysf' | 'm17'; call?: string; first?: string; name?: string;
+  id: string; kind: string; call?: string; first?: string; name?: string;
   city?: string; state?: string; country?: string; location?: string; dmrId?: string;
-  node?: string; desc?: string; local?: string; network?: string; tg?: string; tgName?: string;
-  slot?: number; private?: boolean; room?: string; /** Where the name and place came from when not the radioid.net list ("hamdb.org"). */ source?: string; start: string; end?: string; active: boolean;
+  /** AllStar: the node and its node list entry. */
+  node?: string; desc?: string;
+  /** The talkgroup, room or reflector, and its name when known. */
+  target?: string; targetName?: string;
+  /** Where the name and place came from when not the radioid.net list ("hamdb.org"). */ source?: string;
+  start: string; end?: string; active: boolean;
 }
 export interface NowCalling { current: NowCall | null; recent: NowCall[] }
 /** The hamdb.org callsign lookup (admin, digital modes settings): off by default. `cached` answers are kept, `today` requests were made in the last 24 hours (at most `dailyMax`); `pausedUntil` while a back-off holds requests back. */
 export interface HamDBStatus { enabled: boolean; cached: number; today: number; dailyMax: number; pausedUntil?: string }
 /** The radioid.net user list (admin, digital modes settings). */
 export interface UserListStatus { enabled: boolean; entries: number; updated?: string; checked?: string; error?: string; busy?: boolean; size?: number }
+
+/** SSE "nodeevent": something a mode reported (a talker started or ended, a state change, an error, text). */
+export interface NodeEvent {
+  kind: 'talk_start' | 'talk_end' | 'state' | 'error' | 'text'; mode: string; at: string;
+  talker?: Talker; state?: ModeState; target?: Target; text?: string; error?: string;
+}

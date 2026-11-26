@@ -43,13 +43,13 @@
   }
 
   const reasons: Record<string, string> = {
-    busy: 'Port 80 is in use by another program, most likely Apache. Turn Apache off in ASL services first.',
+    busy: 'Port 80 is in use by another program, such as a web server. Stop that program first.',
     unchecked: 'Cannot check whether port 80 is free (the ss tool is missing), so the move is not offered.',
     unavailable: 'The ASLCP configuration could not be read.',
   };
 </script>
 
-<p class="text-sm text-muted">ASLCP listens on port 8080 by default. Moving it to port 80 lets you open it as http://{location.hostname}/ without a port number. Port 80 must be free, so Apache has to be off.</p>
+<p class="text-sm text-muted">ASLCP listens on port 8080 by default. Moving it to port 80 lets you open it as http://{location.hostname}/ without a port number. Port 80 must be free.</p>
 
 {#if err}
   <p class="text-sm text-danger" role="alert">{err}</p>
@@ -86,14 +86,13 @@
     {/if}
 
     {#if st.on80}
-      <p class="text-sm">ASLCP is on port 80. Apache cannot be turned on while it is. To use Apache again, move ASLCP back to port {st.backPort} first.</p>
+      <p class="text-sm">ASLCP is on port 80. To free port 80 again, move ASLCP back to port {st.backPort}.</p>
       <button class="btn" disabled={busy || !!wait} onclick={() => (askBack = true)}>Move back to port {st.backPort}</button>
     {:else if st.canMove}
       <p class="text-sm">Port 80 is free.</p>
       <button class="btn btn-primary" disabled={busy || !!wait} onclick={() => (askMove = true)}>Move to port 80</button>
     {:else}
       <p class="text-sm" role="note">{reasons[st.reason] ?? 'Moving to port 80 is not possible now.'}</p>
-      {#if st.reason === 'busy'}<a class="btn btn-sm" href="#/settings/system/asl-services">Go to ASL services</a>{/if}
       {#if st.dropIn}<button class="btn" disabled={busy || !!wait} onclick={() => (askBack = true)}>Undo the earlier move</button>{/if}
     {/if}
     {#if st.firewall}<p class="text-xs text-muted">{st.firewall}</p>{/if}

@@ -1,59 +1,9 @@
-// Types and pure helpers of the Settings "ASL web services" and "Web port"
-// sections (docs/API.md "ASL services and web port"). No imports from the app,
+// Types and pure helpers of the Settings "Web port" section. No imports from the app,
 // so node:test runs it directly.
 
-export interface SvcUnit { unit: string; description: string; active: string; sub: string; enabled: string; since: string }
-export interface SvcFirewall { service: string; open: boolean }
-export interface SvcScope {
-  scope: 'cockpit' | 'apache' | 'allmon3'; label: string; installed: boolean; active: boolean; enabled: boolean; recorded: boolean;
-  units: SvcUnit[]; firewall: SvcFirewall[];
-}
-export interface SvcPort { scope: string; label: string; listening: boolean; ports: number[]; addrs: string[] }
-export interface SvcStatus {
-  available: boolean; scopes: SvcScope[]; portsAvailable: boolean; ports: SvcPort[]; aslcpPort: number; aslcpOnPort80: boolean; firewalld: boolean;
-}
-export interface SvcSetResult extends SvcStatus { changed: string[]; firewallChanged: string[]; firewallError?: string }
 export interface WebPortStatus {
-  available: boolean; listen: string; port: number; on80: boolean; canMove: boolean; reason: string; apacheActive: boolean;
+  available: boolean; listen: string; port: number; on80: boolean; canMove: boolean; reason: string;
   dropIn: boolean; previous: string; backPort: number; pending?: { deadline: string; seconds: number }; reverted?: string; firewall?: string;
-}
-
-/** What turning a service off costs (plan 6.3): shown in the confirm dialog. */
-export const LOSSES: Record<string, string> = {
-  cockpit: 'Cockpit is your fallback terminal, log viewer and WiFi settings if ASLCP ever breaks. Keep it if you rely on its terminal or WiFi settings, and make sure SSH works before you turn it off.',
-  apache: 'Apache serves the ASL3 landing page, the /allmon3/master/ proxy path and anything else on ports 80 and 443. Allmon3 itself stays reachable on ports 16080 and 16700+.',
-  allmon3: 'Allmon3 is the monitoring daemon and web UI on ports 16080 and 16700+. Other people may use it, even through a public link.',
-};
-
-/** Apache is off while Allmon3 still answers on its own ports (plan 6.4). */
-export function allmonStillOpen(scopes: SvcScope[]): boolean {
-  const apache = scopes.find((s) => s.scope === 'apache');
-  const allmon = scopes.find((s) => s.scope === 'allmon3');
-  return !!apache && apache.installed && !apache.active && !!allmon && allmon.installed && allmon.active;
-}
-
-/** The "also turn Allmon3 off" checkbox is offered when Apache goes off and Allmon3 is running. */
-export function offersAllmon(scopes: SvcScope[], scope: string, action: string): boolean {
-  if (scope !== 'apache' || action !== 'disable') return false;
-  const a = scopes.find((s) => s.scope === 'allmon3');
-  return !!a && a.installed && a.active;
-}
-
-/** Firewall checkbox text, or '' when firewalld does not run or the service has no firewalld services. */
-export function firewallText(s: SvcScope, action: string): string {
-  const names = s.firewall.map((f) => f.service);
-  if (!names.length) return '';
-  const list = names.join(' and ');
-  return action === 'disable' ? `Also close ${list} in the firewall` : `Also reopen ${list} in the firewall`;
-}
-
-/** One line for a listening-port row: "listening on all addresses", "closed", ... */
-export function listenText(p: SvcPort): string {
-  if (!p.listening) return 'closed';
-  const all = p.addrs.some((a) => a === '*' || a === '0.0.0.0' || a === '::');
-  const where = all ? 'all addresses' : p.addrs.join(', ');
-  const ports = p.ports.length > 1 ? ` (${p.ports.join(', ')})` : '';
-  return `listening on ${where}${ports}`;
 }
 
 /** Address of ASLCP on `port`, built from the browser's own host (plan 7.4). Port 80 is left out. */

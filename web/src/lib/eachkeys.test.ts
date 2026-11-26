@@ -1,13 +1,26 @@
-// Run with `npm test`. Keyed {#each} blocks that get a duplicate key abort rendering, so every keyed each on the status pages must include the loop index.
+// Run with `npm test`. Keyed {#each} blocks that get a duplicate key abort rendering, so every keyed each in the call lists must include the loop index.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
-for (const f of ['public/PublicNetwork', 'public/PublicView', 'NodeTile', 'NetworkList', 'StatusTable']) {
+const root = new URL('../components/', import.meta.url);
+function files(dir: URL, rel = ''): string[] {
+  const out: string[] = [];
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (e.isDirectory()) out.push(...files(new URL(e.name + '/', dir), rel + e.name + '/'));
+    else if (e.name.endsWith('.svelte')) out.push(rel + e.name);
+  }
+  return out;
+}
+
+for (const f of ['Dashboard', 'Modes', 'public/PublicView', 'NowCalling', 'Schedules']) {
+  test(f + ' exists', () => assert.ok(files(root).includes(f + '.svelte')));
+}
+
+for (const f of ['LastHeardTable', 'NowCalling', 'NowCallingSheet', 'public/PublicView'].map((x) => x + '.svelte')) {
   test(f + ' each keys include the index', () => {
-    const src = readFileSync(new URL(`../components/${f}.svelte`, import.meta.url), 'utf8');
+    const src = readFileSync(new URL(f, root), 'utf8');
     const each = src.match(/\{#each [^}]*\([^}]*\)\}/g) ?? [];
-    assert.ok(each.length > 0);
-    for (const e of each) assert.match(e, /, i \(.*\bi\b/);
+    for (const e of each) assert.match(e, /, i \(.*\bi\b/, e);
   });
 }

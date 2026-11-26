@@ -1,5 +1,5 @@
 import { api, probeServer, setUnauthorizedHandler } from './api';
-import type { DVSnapshot, NowCalling, ManualAction, SchedulesSnapshot, UpdatesBadge, FavActivity, FavStatsUpdate, Favorite, NodeStatus, SystemInfo, TuneDevice, User } from './types';
+import type { NowCalling, ManualAction, SchedulesSnapshot, UpdatesBadge, Favorite, Heard, ModeInfo, NodeJSON, NodeEvent, SystemInfo, User } from './types';
 import { navigate } from './router.svelte';
 import { applySettings } from './settings.svelte';
 import { toast, toastError } from './toast.svelte';
@@ -10,9 +10,9 @@ export const app = $state<{
   ready: boolean; setupNeeded: boolean; user: User | null;
   /** Id of the server process (SSE hello); changes when the panel restarts. */
   instance: string;
-  nodes: NodeStatus[]; favorites: Favorite[]; schedules: SchedulesSnapshot | null; dv: DVSnapshot | null; nowcalling: NowCalling | null; system: SystemInfo | null;
-  conn: 'connecting' | 'live' | 'reconnecting' | 'offline'; stateAt: number; version: string;
-  selectedNode: string; haveNodes: boolean; haveFavorites: boolean;
+  node: NodeJSON | null; modes: ModeInfo[]; heard: Heard[]; events: NodeEvent[];
+  favorites: Favorite[]; schedules: SchedulesSnapshot | null; nowcalling: NowCalling | null; system: SystemInfo | null;
+  conn: 'connecting' | 'live' | 'reconnecting' | 'offline'; stateAt: number; version: string; haveFavorites: boolean;
   /** Set while an ASLCP update is installing; cleared when the server returns with a new version. */
   updating: { from: string; target: string } | null;
   /** Admins only: what the header badge and the Updates tab show (SSE "updates"). */
@@ -23,16 +23,11 @@ export const app = $state<{
   publicEnabled: boolean; embed: boolean;
   /** This page was opened over the setup hotspot (GET /api/setup): a login typed here is not encrypted. */
   hotspot: boolean;
-  /** SimpleUSB devices (admins only); the Audio levels section is listed only when there is one. */
-  tune: { loaded: boolean; devices: TuneDevice[]; reason: string };
-  /** Favorites activity scan: switch, state and the latest values per node. */
-  favstats: { enabled: boolean; rate: number; effRate: number; backoff: boolean; backoffReason: string; retryAt: number | null; updated: number | null; stats: Record<string, FavActivity>; checking: string; next: string; nextAt: number | null; checked: number; total: number | null; checkedAt: Record<string, number> };
 }>({
-  ready: false, setupNeeded: false, user: null, instance: '', nodes: [], favorites: [], schedules: null, dv: null, nowcalling: null, system: null,
-  conn: 'offline', stateAt: Date.now(), version: '', selectedNode: '', haveNodes: false, haveFavorites: false, updating: null,
+  ready: false, setupNeeded: false, user: null, instance: '', node: null, modes: [], heard: [], events: [], favorites: [], schedules: null, nowcalling: null, system: null,
+  conn: 'offline', stateAt: Date.now(), version: '', haveFavorites: false, updating: null,
   updates: { aslcp: false, aslcpVersion: '', os: 0, security: 0, reboot: false }, restarting: null,
-  favstats: { enabled: false, rate: 20, effRate: 20, backoff: false, backoffReason: '', retryAt: null, updated: null, stats: {}, checking: '', next: '', nextAt: null, checked: 0, total: null, checkedAt: {} },
-  tune: { loaded: false, devices: [], reason: '' }, publicEnabled: false, hotspot: false, embed: location.pathname === '/embed' || location.pathname === '/embed/',
+  publicEnabled: false, hotspot: false, embed: location.pathname === '/embed' || location.pathname === '/embed/',
 });
 
 /** Ticking clock (ms) so durations advance between updates. */
@@ -46,36 +41,20 @@ let es: EventSource | null = null;
 let retry = 0;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
-function setNodes(n: NodeStatus[]) {
-  app.nodes = n;
-  app.stateAt = Date.now();
-  app.haveNodes = true;
-  if (!n.some((x) => x.node === app.selectedNode)) app.selectedNode = n[0]?.node ?? '';
+function setNode(n: NodeJSON) {
+  app.node = n; app.stateAt = Date.now();
 }
 
-/** Merge a favstats update (SSE sends only the changed nodes plus `removed` for cleared ones; a snapshot replaces all). */
-export function applyFavStats(u: FavStatsUpdate, full = false) {
-  const f = app.favstats;
-  f.enabled = u.enabled; f.rate = u.rate; f.effRate = u.effRate ?? u.rate; f.backoff = u.backoff; f.backoffReason = u.backoff ? u.backoffReason ?? '' : '';
-  f.retryAt = u.backoff && u.retryAt ? Date.parse(u.retryAt) : null;
-  if (u.updated) f.updated = Date.parse(u.updated);
-  else if (!u.enabled || full) f.updated = null;
-  f.checking = u.enabled ? u.checking ?? '' : '';
-  f.next = u.enabled ? u.next ?? '' : '';
-  f.nextAt = u.enabled && u.nextAt ? Date.parse(u.nextAt) : null;
-  f.checked = u.checked ?? 0; f.total = u.enabled && u.total != null ? u.total : null;
-  if (!u.enabled) { f.stats = {}; f.checkedAt = {}; return; }
-  const at: Record<string, number> = {};
-  for (const [n, t] of Object.entries(u.checkedAt ?? {})) at[n] = Date.parse(t);
-  const stats = u.stats ?? {};
-  if (full) { f.stats = { ...stats }; f.checkedAt = at; return; }
-  const m = { ...f.stats, ...stats };
-  for (const n of u.removed ?? []) if (!(n in stats)) delete m[n];
-  f.stats = m;
-  f.checkedAt = { ...f.checkedAt, ...at };
+/** Re-read the Last heard rows (after a talker ends) at most once a second. */
+let heardTimer: ReturnType<typeof setTimeout> | undefined;
+export function refreshHeard(now = false) {
+  clearTimeout(heardTimer);
+  const go = () => { api.heard(50).then((h) => { app.heard = h ?? []; }).catch(() => {}); };
+  if (now) go(); else heardTimer = setTimeout(go, 800);
 }
-export async function refreshFavStats() { try { applyFavStats(await api.favStats(), true); } catch { /* ignore */ } }
-export async function setFavScan(on: boolean) { applyFavStats(await api.setFavScan(on), true); }
+/** The mode list with settings (admins) or status only (others). */
+export async function refreshModes() { app.modes = (await api.modes()) ?? []; }
+export async function refreshNode() { setNode(await api.node()); }
 
 /**
  * The panel or the node restarts. Poll the session until the server answers
@@ -140,22 +119,22 @@ export function startEvents() {
     }
     app.version = h.version; if (h.user) app.user = h.user;
     if (h.settings) applySettings(h.settings);
-    app.favstats.enabled = !!h.settings?.favoritesScan;
-    if (app.favstats.enabled) void refreshFavStats(); else app.favstats.stats = {};
   });
-  es.addEventListener('nodes', (e) => { app.conn = 'live'; setNodes(parse<NodeStatus[]>(e)); });
   es.addEventListener('node', (e) => {
-    const n = parse<NodeStatus>(e);
-    const i = app.nodes.findIndex((x) => x.node === n.node);
-    if (i >= 0) app.nodes[i] = n; else app.nodes.push(n);
-    setNodes(app.nodes.slice());
+    app.conn = 'live';
+    const before = app.node?.active;
+    setNode(parse<NodeJSON>(e));
+    if (before !== app.node?.active || !app.modes.length) void refreshModes().catch(() => {});
+  });
+  es.addEventListener('nodeevent', (e) => {
+    const ev = parse<NodeEvent>(e);
+    app.events = [ev, ...app.events].slice(0, 50);
+    if (ev.kind === 'talk_end') refreshHeard();
   });
   es.addEventListener('updates', (e) => { app.updates = parse<UpdatesBadge>(e); });
   es.addEventListener('system', (e) => { app.system = parse<SystemInfo>(e); });
-  es.addEventListener('favstats', (e) => applyFavStats(parse<FavStatsUpdate>(e)));
   es.addEventListener('favorites', (e) => { app.favorites = parse<Favorite[]>(e); app.haveFavorites = true; });
   es.addEventListener('schedules', (e) => { app.schedules = parse<SchedulesSnapshot>(e); });
-  es.addEventListener('dv', (e) => { app.dv = parse<DVSnapshot>(e); });
   es.addEventListener('nowcalling', (e) => { app.nowcalling = parse<NowCalling>(e); });
   es.onerror = () => {
     es?.close(); es = null;
@@ -175,37 +154,29 @@ export function stopEvents() {
   es?.close(); es = null; app.conn = 'offline';
 }
 
-/** Admins only: find out whether any node has a SimpleUSB device (the Audio levels section depends on it). */
-export async function refreshTune() {
-  if (!isAdmin()) { app.tune = { loaded: true, devices: [], reason: '' }; return; }
-  try { const l = await api.tuneList(); app.tune = { loaded: true, devices: l.devices, reason: l.reason ?? '' }; }
-  catch (e) { app.tune = { loaded: true, devices: [], reason: e instanceof Error ? e.message : String(e) }; }
-}
-
 export async function refreshSchedules() { app.schedules = await api.schedules(); }
 /** The global switch (operators). The response is the new snapshot. */
 export async function setSchedulesEnabled(on: boolean) { app.schedules = await api.setSchedulesEnabled(on); }
 /** What a manual connect/disconnect does to the schedules (operators). */
 export async function setManualAction(m: ManualAction) { app.schedules = await api.setScheduleSettings(m); }
 
-export async function refreshFavorites() { app.favorites = await api.favorites(); app.haveFavorites = true; }
+export async function refreshFavorites() { app.favorites = (await api.favorites()) ?? []; app.haveFavorites = true; }
 
 export async function logout() {
   try { await api.logout(); } catch { /* ignore */ }
-  stopEvents(); app.user = null; app.nodes = []; app.favorites = []; app.schedules = null; app.dv = null; app.nowcalling = null; app.haveNodes = false; app.haveFavorites = false; app.tune = { loaded: false, devices: [], reason: '' };
-  app.favstats = { enabled: false, rate: 20, effRate: 20, backoff: false, backoffReason: '', retryAt: null, updated: null, stats: {}, checking: '', next: '', nextAt: null, checked: 0, total: null, checkedAt: {} };
+  stopEvents(); app.user = null; app.node = null; app.modes = []; app.heard = []; app.events = []; app.favorites = []; app.schedules = null; app.nowcalling = null; app.haveFavorites = false;
   navigate('/login');
 }
 
 export function onLoggedIn(u: User) {
   app.user = u; retry = 0; startEvents();
-  api.favorites().then((f) => { app.favorites = f; app.haveFavorites = true; }).catch(() => {});
+  api.favorites().then((f) => { app.favorites = f ?? []; app.haveFavorites = true; }).catch(() => {});
   api.schedules().then((s) => { app.schedules = s; }).catch(() => {});
-  api.dvSnapshot().then((s) => { app.dv = s; }).catch(() => {});
   api.nowcalling().then((n) => { app.nowcalling = n; }).catch(() => {});
-  api.nodes().then(setNodes).catch(() => {});
+  api.node().then(setNode).catch(() => {});
+  refreshModes().catch(() => {});
+  refreshHeard(true);
   api.settings().then(applySettings).catch(() => {});
-  void refreshTune();
   api.system().then((s) => { app.system = s; }).catch(() => {});
 }
 
@@ -233,3 +204,6 @@ export async function boot() {
     if (v) { sessionStorage.removeItem('aslcp-updated'); toast(`Updated to ${v}`); }
   } catch { /* ignore */ }
 }
+
+/** The first-run station setup is open: an administrator is signed in and the node has no callsign yet. */
+export const stationSetupOpen = () => isAdmin() && !!app.node?.setupNeeded;

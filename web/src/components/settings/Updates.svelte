@@ -88,7 +88,6 @@
   const osChecked = $derived(os?.checkedAt ? fmtAgoLong((nowMs - new Date(os.checkedAt).getTime()) / 1000) : 'not checked yet');
   const secCount = $derived(os ? os.packages.filter((p) => p.security).length : 0);
   const hasAslcpPkg = $derived(!!os?.packages.some((p) => p.name === 'aslcp'));
-  const hasAsteriskPkg = $derived(!!os?.packages.some((p) => /^(asterisk|asl3)/.test(p.name)));
   const osRunning = $derived(os?.job === 'running');
   const aptBusy = $derived(osRunning || upd?.job === 'running' || !!app.updating);
   async function osCheck() {
@@ -206,7 +205,7 @@
       {#if os.rebootRequired}
         <div class="flex flex-wrap items-center gap-3 rounded border border-warn/60 p-3 text-sm" role="status">
           <ShieldAlert size={16} class="text-warn" />
-          <span class="min-w-0 flex-1">A reboot is required{#if os.rebootPkgs.length} ({os.rebootPkgs.join(', ')}){/if}. Asterisk and all links go down while the node restarts.</span>
+          <span class="min-w-0 flex-1">A reboot is required{#if os.rebootPkgs.length} ({os.rebootPkgs.join(', ')}){/if}. The radio node and its link go down while the system restarts.</span>
           <button class="btn btn-danger" disabled={osRunning} onclick={() => (rebootOpen = true)}><Power size={14} />Reboot now</button>
         </div>
       {/if}
@@ -238,13 +237,10 @@
   </section>
   </div>
 </div>
-<Confirm bind:open={updOpen} title="Update ASLCP?" message="Update to {upd?.candidate}? ASLCP will restart; links are not affected." confirmLabel="Update" onconfirm={applyUpd} />
+<Confirm bind:open={updOpen} title="Update ASLCP?" message="Update to {upd?.candidate}? ASLCP will restart; the active link drops for a moment." confirmLabel="Update" onconfirm={applyUpd} />
 
 <Dialog bind:open={osOpen} title="Install {os?.packages.length ?? 0} system update{os?.packages.length === 1 ? '' : 's'}?">
   <div class="space-y-3 text-sm">
-    {#if hasAsteriskPkg}
-      <p class="rounded border border-warn/60 p-2 text-warn" role="alert">Asterisk packages are in this list. Asterisk restarts and all links drop until it is back up.</p>
-    {/if}
     {#if hasAslcpPkg}
       <p class="rounded border border-warn/60 p-2 text-warn" role="alert">The aslcp package is in this list. The panel restarts for a few seconds; this page reloads by itself.</p>
     {/if}
@@ -261,4 +257,4 @@
     <button class="btn btn-primary" onclick={() => { osOpen = false; osApply(); }}>Install updates</button>
   {/snippet}
 </Dialog>
-<Confirm bind:open={rebootOpen} title="Reboot the node?" message="Asterisk and all links go down; the panel comes back after the system starts." confirmLabel="Reboot now" onconfirm={doReboot} />
+<Confirm bind:open={rebootOpen} title="Reboot the node?" message="The node and its link go down; the panel comes back after the system starts." confirmLabel="Reboot now" onconfirm={doReboot} />

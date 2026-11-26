@@ -1,16 +1,14 @@
 // Live data of the public status view: SSE with backoff, falling back to
 // polling /api/public/status every 10 s while the stream is down.
-import type { PubActivity, PubDV, PubNetNode, PubNode, PubSnapshot } from './types';
+import type { PubSnapshot } from './types';
 
 export const pub = $state<{
   snap: PubSnapshot | null;
   conn: 'connecting' | 'live' | 'polling' | 'offline';
-  /** When each node's data arrived (ms), so ages can tick between updates. */
-  nodeAt: Record<string, number>;
   /** Server clock minus browser clock (ms), from the last snapshot. */
   skew: number;
   updated: number;
-}>({ snap: null, conn: 'connecting', nodeAt: {}, skew: 0, updated: 0 });
+}>({ snap: null, conn: 'connecting', skew: 0, updated: 0 });
 
 let es: EventSource | null = null;
 let retry = 0;
@@ -23,7 +21,6 @@ function setSnapshot(s: PubSnapshot) {
   const now = Date.now();
   pub.snap = s;
   pub.skew = s.now * 1000 - now;
-  pub.nodeAt = Object.fromEntries(s.nodes.map((n) => [n.node, now]));
   pub.updated = now;
 }
 
@@ -47,32 +44,6 @@ function connect() {
     retry = 0; pub.conn = 'live';
     clearInterval(pollTimer); pollTimer = undefined;
     setSnapshot(parse<PubSnapshot>(e));
-  });
-  src.addEventListener('node', (e) => {
-    if (!pub.snap) return;
-    const n = parse<PubNode>(e);
-    const i = pub.snap.nodes.findIndex((x) => x.node === n.node);
-    if (i < 0) return;
-    n.network = pub.snap.nodes[i].network;
-    pub.snap.nodes[i] = n;
-    pub.nodeAt[n.node] = Date.now(); pub.updated = Date.now();
-  });
-  src.addEventListener('network', (e) => {
-    if (!pub.snap) return;
-    const m = parse<{ node: string; network: PubNetNode[] }>(e);
-    const n = pub.snap.nodes.find((x) => x.node === m.node);
-    if (n) n.network = m.network;
-  });
-  src.addEventListener('activity', (e) => {
-    if (!pub.snap) return;
-    const a = parse<{ now: number; activity: PubActivity[] }>(e);
-    pub.snap.activity = a.activity;
-    pub.skew = a.now * 1000 - Date.now();
-  });
-  src.addEventListener('dv', (e) => {
-    if (!pub.snap) return;
-    pub.snap.dv = parse<PubDV>(e);
-    pub.updated = Date.now();
   });
   src.onerror = () => {
     src.close(); if (es === src) es = null;

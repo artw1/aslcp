@@ -1,4 +1,3 @@
-import type { LinkKind, LinkMode, NodeInfo } from './types';
 
 export function fmtDuration(total: number): string {
   total = Math.max(0, Math.floor(total));
@@ -18,14 +17,6 @@ export function fmtAgo(sec: number): string {
   if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
   return `${Math.floor(sec / 86400)}d ago`;
 }
-export const MODE_LABEL: Record<LinkMode, string> = { T: 'Transceive', R: 'Monitor', L: 'Local monitor', C: 'Connecting' };
-export const KIND_LABEL: Record<LinkKind, string> = { allstar: 'AllStar', echolink: 'EchoLink', phone: 'Phone', client: 'Client', unknown: 'Unknown' };
-export function infoLine(i: { description?: string; location?: string } | null | undefined): string {
-  if (!i) return '';
-  return [i.description, i.location].filter(Boolean).join(' · ');
-}
-export function isNodeNumber(s: string): boolean { return /^\d{3,}$/.test(s.trim()); }
-
 /** "KeyupsSinceSystemInitialization" -> "Keyups Since System Initialization". */
 export function humanizeKey(k: string): string {
   const words = k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').split(' ');

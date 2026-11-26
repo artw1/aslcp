@@ -14,6 +14,11 @@ Release notes are taken from the section of the tag being released
 - The node config is `/etc/aslcp/node.json` (mode 0600). It holds the station (callsign, radio channel and levels, ID, the active mode and target restored at boot, advanced settings) and each mode's settings. Errors are reported in plain words, and the file reloads on SIGHUP or when it changes. Without the file the node runs idle.
 - Control API on `/run/aslcp-node/control.sock` (JSON lines, no TCP listener). Ops: `status`, `modes` (never returns passwords), `save_station`, `save_mode`, `delete_mode`, `select`, `connect`, `disconnect`, `last_heard`, `now_calling`, `radio_levels`, `radio_tune`, `radio_program`, `reload` and `subscribe`.
 - A udev rule (`60-aslcp-node.rules`) gives the node's user the CM108 HID interface and the CH340 serial port of the SA818.
+- The web UI is rebuilt around modes. A first-run Node setup (shown when the node reports it needs one) asks for the station callsign, the radio frequency and CTCSS/DCS (hidden on a radioless node), the station ID on or off (the licensee is responsible for IDing), and collapsible sections for AllStar, EchoLink, BrandMeister and the other DMR masters, YSF, P25, NXDN and M17. Detected hardware is shown read-only, and saved passwords show "set" and stay empty unless changed.
+- A Modes view with the modes as equal choices: pick a mode, pick a target (favorites, recent or typed), connect or disconnect. One mode is active at a time, and the audio goes to the radio whatever the mode.
+- The Dashboard shows the station card, the active mode and target, who is talking, and one Last heard list across all modes.
+- Settings pages per mode, a Station page, a Radio tune page for the native levels and the SA818 (with a Program button), a Caller lookup page, and a Node service page (status and restart).
+- The demo and mock modes (`npm run dev:mock`, `aslcp -demo`) render every page, with `MOCK_STATION_SETUP=1`, `MOCK_NO_RADIO=1` and `MOCK_HOTSPOT=1` to try the first-run setup, a radioless node and the hotspot case.
 
 ### Changed
 - `aslcp-node.service` is enabled and started on install and runs as its own user, `aslcp-node`. An upgrade stops and disables the old `aslcp-dv.service`.
@@ -21,11 +26,13 @@ Release notes are taken from the section of the tag being released
 - Backups use format 2: the ASLCP database, `aslcp.conf`, the node config and the SA818 settings. Mode passwords are only included when asked for. A restore fills a blank password from the node's current config and lists the modes that still need one (`missingSecrets`), which are left out. Backups made by 2.x (format 1, an Asterisk node) are refused with a message.
 - Diagnostics collect the node config (passwords removed) and the `aslcp-node` journal instead of the Asterisk files.
 - The installer no longer installs AllStarLink 3. `ASLCP_DV` is still accepted and does nothing (digital modes are built in).
+- Schedules, favorites, Now Calling, Last heard and the public page use modes and targets. A schedule's overlap check ignores the mode, because the node has one radio and one active mode.
 
 ### Removed
 - The digital voice engine `aslcp-dv`, its service and its Asterisk USRP bridge (`internal/dv/bridge`, `internal/dv/usrp`). The native node replaces them.
 - Everything that needed Asterisk or ASL3: the AMI client, the Asterisk config editor and its history, the SimpleUSB tune page, the bridge and private node handling, the Asterisk service control and the ASL3 package checks, the `[ami]` section of `aslcp.conf` (an old file with it still loads), the `asl3` package recommendation, and the installer options `ASLCP_ASL3` and `ASLCP_ASL_TELEMETRY`.
 - The aslcp user is no longer added to group `asterisk`.
+- The web UI pages for Asterisk, AllStarLink services, the node list, favorite statistics, the digital modes bridge and the private node.
 
 ## [2.4.2] - 2026-11-25
 

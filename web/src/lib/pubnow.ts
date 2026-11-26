@@ -2,12 +2,13 @@
 // Built only from the public snapshot, so it never holds an ID; the sheet shows plain rows and a QRZ link. Tested in pubnow.test.ts.
 import { agoText, mmss, qrzUrl } from './nowcalling.ts';
 import type { SheetRow } from './nowcalling.ts';
-import { pubBanner } from './tiles.ts';
-import type { PubSnapshot } from './types';
+import { modeTitle } from './modes.ts';
+import { targetCell } from './lastheard.ts';
+import type { PubCall, PubSnapshot } from './types';
 
 export interface PubNow {
   mode: 'talking' | 'idle';
-  /** "ASL", "DMR", "YSF". */
+  /** "AllStar", "BrandMeister", "YSF". */
   source: string;
   /** "N0CALL · Pat Example" (the strip's main line); '' when nothing is known. */
   main: string;
@@ -19,30 +20,17 @@ export interface PubNow {
   qrz: string;
 }
 
-/** Talking: the banner call. Idle: the newest public ASL activity with a callsign or DV heard call. null when there is nothing. */
-export function pubNow(snap: Pick<PubSnapshot, 'nodes' | 'dv' | 'showDV' | 'showActivity' | 'activity'> | null | undefined, skewMs: number, nodeAt: Record<string, number>): PubNow | null {
+/** Talking: the call in progress. Idle: the newest heard call with a callsign. null when there is nothing. */
+export function pubNow(snap: Pick<PubSnapshot, 'calling' | 'heard' | 'showHeard'> | null | undefined, skewMs: number): PubNow | null {
   if (!snap) return null;
-  const b = pubBanner(snap, skewMs, nodeAt);
-  if (b) {
-    return { mode: 'talking', source: b.source, main: [b.main, b.sub].filter(Boolean).join(' · '), call: b.call, name: b.name, place: b.place, target: b.target, startMs: b.startMs, durSec: null, qrz: b.qrz };
-  }
-  const cands: PubNow[] = [];
-  if (snap.showActivity) {
-    for (const a of snap.activity ?? []) {
-      if (!a.callsign || a.link === 'local' || (snap.showDV && a.label)) continue;
-      cands.push({ mode: 'idle', source: 'ASL', main: a.callsign, call: a.callsign, name: '', place: '', target: `Node ${a.link}`, startMs: a.at * 1000 - skewMs, durSec: a.duration, qrz: qrzUrl(a.callsign) });
-    }
-  }
-  if (snap.showDV) {
-    for (const c of snap.dv?.heard ?? []) {
-      cands.push({
-        mode: 'idle', source: c.mode, main: c.callsign ?? '', call: c.callsign ?? '', name: c.name ?? '', place: c.location ?? '',
-        target: [c.target, c.slot ? `TS${c.slot}` : ''].filter(Boolean).join(' · '), startMs: c.at * 1000 - skewMs, durSec: null, qrz: qrzUrl(c.callsign),
-      });
-    }
-  }
-  cands.sort((a, b2) => b2.startMs - a.startMs);
-  return cands[0] ?? null;
+  const mk = (c: PubCall, mode: 'talking' | 'idle'): PubNow => ({
+    mode, source: modeTitle(c.mode), main: [c.callsign, c.name].filter(Boolean).join(' · '), call: c.callsign ?? '', name: c.name ?? '', place: c.location ?? '',
+    target: targetCell(c.mode, c.target), startMs: c.at * 1000 - skewMs, durSec: mode === 'idle' ? c.duration : null, qrz: qrzUrl(c.callsign),
+  });
+  if (snap.calling) return mk(snap.calling, 'talking');
+  if (!snap.showHeard) return null;
+  const last = [...(snap.heard ?? [])].filter((c) => c.callsign).sort((a, b) => b.at - a.at)[0];
+  return last ? mk(last, 'idle') : null;
 }
 
 /** "Last: N0CALL · DMR TG 91 · 5 min ago", with the empty parts left out. */

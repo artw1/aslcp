@@ -4,9 +4,8 @@ import { movedPath, MOVED, OLD_IDS, isSettingsPath, settingsRoute, clampLines, a
 
 test('movedPath redirects every legacy route', () => {
   assert.equal(movedPath('/updates'), '/settings/system/updates');
-  assert.equal(movedPath('/config'), '/settings/allstarlink/asterisk');
-  assert.equal(movedPath('/tune'), '/settings/allstarlink/audio-levels');
-  assert.equal(movedPath('/digital'), '/settings/digital-modes');
+  assert.equal(movedPath('/tune'), '/settings/station/radio');
+  assert.equal(movedPath('/digital'), '/settings/modes');
   assert.equal(movedPath('/backup'), '/settings/maintenance/backup');
   assert.equal(movedPath('/system'), '/settings/system/overview');
   assert.equal(movedPath('/system/'), '/settings/system/overview');
@@ -14,7 +13,7 @@ test('movedPath redirects every legacy route', () => {
 
 test('movedPath maps each old System section to its tab', () => {
   assert.equal(movedPath('/system/updates'), '/settings/system/updates');
-  assert.equal(movedPath('/system/asl-services'), '/settings/system/asl-services');
+  assert.equal(movedPath('/system/wifi'), '/settings/system/wifi');
   assert.equal(movedPath('/system/logs'), '/settings/maintenance/logs');
   assert.equal(movedPath('/system/diagnostics'), '/settings/maintenance/diagnostics');
   assert.equal(movedPath('/system/audit'), '/settings/maintenance/audit');
@@ -22,11 +21,10 @@ test('movedPath maps each old System section to its tab', () => {
 });
 
 test('movedPath maps every flat settings id of the first Settings layout', () => {
-  assert.equal(Object.keys(OLD_IDS).length, 24);
-  assert.equal(movedPath('/settings/asterisk'), '/settings/allstarlink/asterisk');
-  assert.equal(movedPath('/settings/audio-levels'), '/settings/allstarlink/audio-levels');
-  assert.equal(movedPath('/settings/node-list'), '/settings/allstarlink/node-list');
-  for (const id of ['dv-engine', 'dv-identity', 'dv-bridge', 'dv-audio', 'dv-user-list', 'dv-callsigns']) assert.equal(movedPath('/settings/' + id), '/settings/digital-modes');
+  assert.equal(Object.keys(OLD_IDS).length, 21);
+  assert.equal(movedPath('/settings/audio-levels'), '/settings/station/radio');
+  for (const id of ['dv-engine', 'dv-identity', 'dv-bridge', 'dv-audio']) assert.equal(movedPath('/settings/' + id), '/settings/modes');
+  assert.equal(movedPath('/settings/dv-user-list'), '/settings/modes/lookup');
   assert.equal(movedPath('/settings/users'), '/settings/access');
   assert.equal(movedPath('/settings/public'), '/settings/access');
   assert.equal(movedPath('/settings/web-port'), '/settings/system/web-port');
@@ -35,7 +33,7 @@ test('movedPath maps every flat settings id of the first Settings layout', () =>
 });
 
 test('movedPath leaves current routes alone', () => {
-  for (const p of ['/', '/settings', '/settings/about', '/settings/account', '/settings/system', '/settings/system/updates', '/settings/access', '/dv', '/allstar', '/schedules', '/systematic']) assert.equal(movedPath(p), null);
+  for (const p of ['/', '/settings', '/settings/about', '/settings/account', '/settings/system', '/settings/system/updates', '/settings/access', '/modes', '/schedules', '/systematic']) assert.equal(movedPath(p), null);
 });
 
 test('every redirect target is a settings route', () => {

@@ -53,7 +53,7 @@
       <p class="text-muted">Nobody else heard yet.</p>
     {:else}
       <ul class="divide-y divide-line">
-        {#each recent as r (r.id)}
+        {#each recent as r, i (r.id + i)}
           <li class="flex min-h-11 items-center gap-2 py-1">
             <span class="min-w-0 flex-1">
               <span class="block truncate font-medium">{who(r)}</span>

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { agoText, ariaLabel, durationSec, durText, idleLine, mainLine, mmss, placeText, qrzUrl, radioidUrl, sourceDetail, sourceLabel, sourceShort, stateAbbrev, stripState } from './nowcalling.ts';
 import type { NowCall } from './types';
 
-const base: NowCall = { id: 'a', kind: 'dmr', call: 'N0CALL', first: 'Alex', name: 'Alex Example', city: 'Springfield', state: 'Illinois', country: 'United States', dmrId: '1234567', tg: '91', tgName: 'Example', start: '2026-11-21T10:00:00Z', active: true };
+const base: NowCall = { id: 'a', kind: 'bm', call: 'N0CALL', first: 'Alex', name: 'Alex Example', city: 'Springfield', state: 'Illinois', country: 'United States', dmrId: '1234567', target: '91', targetName: 'Example', start: '2026-11-21T10:00:00Z', active: true };
 
 test('state abbreviations', () => {
   assert.equal(stateAbbrev('Illinois'), 'IL');
@@ -22,18 +22,24 @@ test('place: city, ST in the US, city, country elsewhere', () => {
   assert.equal(placeText({}), '');
 });
 
-test('P25 and NXDN calls show their own mode name', () => {
-  assert.equal(sourceLabel({ ...base, network: 'P25', slot: 0 }), 'P25 · TG 91');
-  assert.equal(sourceLabel({ ...base, network: 'NXDN', slot: 0 }), 'NXDN · TG 91');
-  assert.equal(sourceLabel({ ...base, network: 'BrandMeister', slot: 2 }), 'DMR · TG 91 · TS2');
-  assert.equal(sourceShort({ ...base, network: 'NXDN' }), 'NXDN TG 91');
-  assert.equal(sourceShort({ ...base, network: 'P25', tg: '' }), 'P25');
+test('mode titles and targets in the source labels', () => {
+  assert.equal(sourceLabel(base), 'BrandMeister · TG 91');
+  assert.equal(sourceLabel({ ...base, kind: 'p25', target: '10100' }), 'P25 · 10100');
+  assert.equal(sourceLabel({ ...base, kind: 'nxdn', target: '65000' }), 'NXDN · 65000');
+  assert.equal(sourceLabel({ ...base, kind: 'ysf', target: 'YSF-TEST' }), 'YSF · YSF-TEST');
+  assert.equal(sourceLabel({ ...base, kind: 'allstar', target: '' }), 'AllStar');
+  assert.equal(sourceShort(base), 'BrandMeister TG 91');
+  assert.equal(sourceShort({ ...base, kind: 'm17', target: 'M17-XXX C' }), 'M17 M17-XXX C');
+  assert.equal(sourceShort({ ...base, kind: 'm17', target: '' }), 'M17');
+  assert.equal(sourceDetail(base), 'BrandMeister · TG 91 Example');
+  assert.equal(sourceDetail({ ...base, targetName: '' }), 'BrandMeister · TG 91');
+  assert.equal(sourceDetail({ id: 'n', kind: 'allstar', start: base.start, active: true }), 'AllStar');
 });
 
 test('main line leaves out what is unknown', () => {
   assert.equal(mainLine(base), 'N0CALL · Alex · Springfield, IL');
-  assert.equal(mainLine({ id: 'x', kind: 'allstar', node: '2001', start: base.start, active: true }), 'Node 2001');
-  const asl = { id: 'x', kind: 'allstar' as const, call: 'N0CALL', node: '1998', start: base.start, active: true };
+  assert.equal(mainLine({ id: 'x', kind: 'allstar', node: '1000', start: base.start, active: true }), 'Node 1000');
+  const asl = { id: 'x', kind: 'allstar', call: 'N0CALL', node: '1037', start: base.start, active: true };
   assert.equal(mainLine({ ...asl, desc: 'Example hub', location: 'Example Hill' }), 'N0CALL · Example hub · Example Hill');
   assert.equal(mainLine({ ...asl, desc: 'Example hub' }), 'N0CALL · Example hub');
   assert.equal(mainLine({ ...asl, location: 'Example Hill' }), 'N0CALL · Example Hill');
@@ -42,51 +48,13 @@ test('main line leaves out what is unknown', () => {
   assert.equal(mainLine({ ...base, call: '', city: '', state: '', country: '', first: '', name: '' }), 'ID 1234567');
 });
 
-test('DMR source label shows the slot when known', () => {
-  assert.equal(sourceLabel({ ...base, slot: 1 }), 'DMR · TG 91 · TS1');
-  assert.equal(sourceLabel({ ...base, slot: 2 }), 'DMR · TG 91 · TS2');
-  assert.equal(sourceLabel({ ...base, slot: 0 }), 'DMR · TG 91');
-  assert.equal(sourceLabel({ ...base, slot: undefined }), 'DMR · TG 91');
-  assert.equal(sourceLabel({ ...base, kind: 'ysf', room: 'Example Room', slot: 2 }), 'YSF · Example Room');
-});
-
-test('source labels', () => {
-  assert.equal(sourceLabel(base), 'DMR · TG 91');
-  assert.equal(sourceLabel({ ...base, tgName: '' }), 'DMR · TG 91');
-  assert.equal(sourceLabel({ ...base, private: true }), 'DMR · Private call');
-  assert.equal(sourceLabel({ ...base, kind: 'ysf', room: 'Example Room' }), 'YSF · Example Room');
-  assert.equal(sourceLabel({ ...base, kind: 'allstar' }), 'AllStar');
-  assert.equal(sourceShort(base), 'DMR TG 91');
-  assert.equal(sourceShort({ ...base, kind: 'ysf', room: 'Room' }), 'YSF Room');
-  assert.equal(sourceShort({ ...base, kind: 'm17', room: 'M17-XXX C' }), 'M17 M17-XXX C');
-  assert.equal(sourceShort({ ...base, kind: 'm17' }), 'M17');
-  assert.equal(sourceLabel({ ...base, kind: 'm17', room: 'M17-XXX C' }), 'M17 · M17-XXX C');
-  assert.equal(sourceDetail({ ...base, kind: 'm17', room: 'M17-XXX C' }), 'Digital modes · M17 · reflector M17-XXX C');
-});
-
-test('source detail for the sheet', () => {
-  assert.equal(
-    sourceDetail({ id: 'n', kind: 'allstar', local: '2001', node: '1998', desc: 'Example hub', start: base.start, active: true }),
-    'AllStar node 2001 · link 1998 (Example hub)',
-  );
-  assert.equal(sourceDetail({ id: 'n', kind: 'allstar', start: base.start, active: true }), 'AllStar');
-  assert.equal(
-    sourceDetail({ ...base, network: 'Example net', tgName: 'Example hub', slot: 2 }),
-    'Digital modes · Example net · TG 91 Example hub · slot 2',
-  );
-  assert.equal(sourceDetail({ ...base, network: '', tgName: '', slot: undefined }), 'Digital modes · DMR · TG 91');
-  assert.equal(sourceDetail({ ...base, private: true, slot: 1 }), 'Digital modes · DMR · private call · slot 1');
-  assert.equal(sourceDetail({ ...base, kind: 'ysf', room: 'Example Room' }), 'Digital modes · YSF · room Example Room');
-  assert.equal(sourceDetail({ ...base, kind: 'ysf', room: '' }), 'Digital modes · YSF');
-});
-
 test('links', () => {
   assert.equal(qrzUrl('n0call'), 'https://www.qrz.com/db/N0CALL');
   assert.equal(qrzUrl('bad call'), '');
   assert.equal(qrzUrl(''), '');
   assert.equal(radioidUrl(base), 'https://radioid.net/database/view?id=1234567');
   assert.equal(radioidUrl({ kind: 'allstar', dmrId: '1234567' }), '');
-  assert.equal(radioidUrl({ kind: 'dmr', dmrId: 'x' }), '');
+  assert.equal(radioidUrl({ kind: 'bm', dmrId: 'x' }), '');
 });
 
 test('time text', () => {
@@ -118,9 +86,9 @@ test('strip state and idle line', () => {
   const idle = stripState({ current: null, recent: [done] });
   assert.equal(idle.mode, 'idle');
   const now = Date.parse('2026-11-21T10:05:10Z');
-  assert.equal(idleLine(done, now), 'Last: N0CALL · DMR TG 91 · 5 min ago');
+  assert.equal(idleLine(done, now), 'Last: N0CALL · BrandMeister TG 91 · 5 min ago');
   assert.match(ariaLabel(idle, now), /^Last: N0CALL/);
   const talk = stripState({ current: base, recent: [done] });
   assert.equal(talk.mode, 'talking');
-  assert.match(ariaLabel(talk, Date.parse(base.start) + 65000), /Now calling: N0CALL · Alex · Springfield, IL, DMR · TG 91, 01:05/);
+  assert.match(ariaLabel(talk, Date.parse(base.start) + 65000), /Now calling: N0CALL · Alex · Springfield, IL, BrandMeister · TG 91, 01:05/);
 });

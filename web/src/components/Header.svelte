@@ -17,7 +17,7 @@
   import { fade, fly } from 'svelte/transition';
   import NowCalling from './NowCalling.svelte';
 
-  const nav = $derived([['/', 'Dashboard'], ['/allstar', 'ASL'], ...(app.dv?.installed ? [['/dv', 'DV']] : []), ['/schedules', 'Schedules'], ...(isAdmin() ? [['/settings', 'Settings']] : [])] as [string, string][]);
+  const nav = $derived([['/', 'Dashboard'], ['/modes', 'Modes'], ['/schedules', 'Schedules'], ...(isAdmin() ? [['/settings', 'Settings']] : [])] as [string, string][]);
   // Admin only: counts only (SSE "updates"); security updates or a reboot use the warn color.
   const updCount = $derived((app.updates.aslcp || (app.system?.updateAvailable ?? false) ? 1 : 0) + app.updates.os);
   const updWarn = $derived(app.updates.security > 0 || app.updates.reboot);

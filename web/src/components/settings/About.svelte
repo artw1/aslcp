@@ -8,7 +8,7 @@
   let about = $state<About | null>(null);
   async function loadAbout() { try { about = await api.about(); } catch (e) { toastError(e); } }
   const platformText = $derived(about ? [about.platform.model, `${about.platform.os}/${about.platform.arch}`].filter(Boolean).join(', ') : '');
-  const reportUrl = $derived(bugReportUrl({ version: about?.version || app.version, asl: about?.asterisk, hardware: about?.platform.hardware, os: about?.platform.distro }));
+  const reportUrl = $derived(bugReportUrl({ version: about?.version || app.version, hardware: about?.platform.hardware, os: about?.platform.distro }));
   $effect(() => { loadAbout(); });
 </script>
 
@@ -16,7 +16,6 @@
   <h2 class="text-base font-semibold">About</h2>
   <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
     <dt class="text-muted">ASLCP</dt><dd class="font-mono">{about?.version || app.version || '…'}</dd>
-    <dt class="text-muted">Asterisk</dt><dd class="font-mono break-all">{about ? about.asterisk || 'n/a' : '…'}</dd>
     <dt class="text-muted">Platform</dt><dd class="break-words">{about ? platformText : '…'}</dd>
     <dt class="text-muted">OS</dt><dd class="break-words">{about ? about.platform.distro || 'n/a' : '…'}</dd>
   </dl>

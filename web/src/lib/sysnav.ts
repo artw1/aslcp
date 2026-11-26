@@ -2,15 +2,13 @@
 
 /** Every flat section id of the first Settings layout (#/settings/<id>) and where it lives now: [group, tab?]. */
 export const OLD_IDS: Readonly<Record<string, readonly [string, string?]>> = {
-  'asterisk': ['allstarlink', 'asterisk'],
-  'audio-levels': ['allstarlink', 'audio-levels'],
-  'node-list': ['allstarlink', 'node-list'],
-  'dv-engine': ['digital-modes'],
-  'dv-identity': ['digital-modes'],
-  'dv-bridge': ['digital-modes'],
-  'dv-audio': ['digital-modes'],
-  'dv-user-list': ['digital-modes'],
-  'dv-callsigns': ['digital-modes'],
+  'audio-levels': ['station', 'radio'],
+  'dv-engine': ['modes'],
+  'dv-identity': ['modes'],
+  'dv-bridge': ['modes'],
+  'dv-audio': ['modes'],
+  'dv-user-list': ['modes', 'lookup'],
+  'dv-callsigns': ['modes', 'lookup'],
   'users': ['access'],
   'public': ['access'],
   'overview': ['system', 'overview'],
@@ -18,7 +16,6 @@ export const OLD_IDS: Readonly<Record<string, readonly [string, string?]>> = {
   'network': ['system', 'network'],
   'wifi': ['system', 'wifi'],
   'web-port': ['system', 'web-port'],
-  'asl-services': ['system', 'asl-services'],
   'terminal': ['system', 'terminal'],
   'backup': ['maintenance', 'backup'],
   'logs': ['maintenance', 'logs'],
@@ -33,12 +30,11 @@ const route = ([g, t]: readonly [string, string?]) => '/settings/' + g + (t ? '/
 /** Old top-level routes that moved; the router rewrites them so old links and bookmarks keep working. */
 export const MOVED: Readonly<Record<string, string>> = {
   '/updates': route(OLD_IDS['updates']),
-  '/config': route(OLD_IDS['asterisk']),
   '/tune': route(OLD_IDS['audio-levels']),
   '/digital': route(OLD_IDS['dv-engine']),
   '/backup': route(OLD_IDS['backup']),
   '/system': route(OLD_IDS['overview']),
-  ...Object.fromEntries(['overview', 'updates', 'network', 'wifi', 'asl-services', 'web-port', 'terminal', 'logs', 'diagnostics', 'audit'].map((id) => ['/system/' + id, route(OLD_IDS[id])])),
+  ...Object.fromEntries(['overview', 'updates', 'network', 'wifi', 'web-port', 'terminal', 'logs', 'diagnostics', 'audit'].map((id) => ['/system/' + id, route(OLD_IDS[id])])),
   ...Object.fromEntries(Object.entries(OLD_IDS).map(([id, to]) => ['/settings/' + id, route(to)])),
 };
 

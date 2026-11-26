@@ -7,8 +7,8 @@ type Ctx = {
 };
 
 const ZONES = ['America/Chicago', 'America/New_York', 'Europe/London', 'UTC'];
-const UNITS = ['asterisk', 'aslcp', 'aslcp-helper', 'NetworkManager', 'systemd-networkd'];
-const host = { hostname: 'node2001', prettyHostname: '', os: 'Debian GNU/Linux 12 (bookworm)', hostnameAvailable: true, hostnamectlAvailable: true, hostnamectlMissing: false, timezone: 'America/Chicago', ntp: true, ntpSynchronized: true, canNtp: true, localRtc: false, timeAvailable: true, now: '', clock: '' };
+const UNITS = ['aslcp', 'aslcp-node', 'aslcp-helper', 'NetworkManager', 'systemd-networkd'];
+const host = { hostname: 'node-demo', prettyHostname: '', os: 'Debian GNU/Linux 12 (bookworm)', hostnameAvailable: true, hostnamectlAvailable: true, hostnamectlMissing: false, timezone: 'America/Chicago', ntp: true, ntpSynchronized: true, canNtp: true, localRtc: false, timeAvailable: true, now: '', clock: '' };
 const audit: { id: number; time: string; user: string; action: string; detail: string }[] = [];
 function note(user: string, action: string, detail: object) { audit.push({ id: audit.length + 1, time: new Date().toISOString(), user, action, detail: JSON.stringify(detail) }); }
 for (let i = 0; i < 120; i++) audit.push({ id: audit.length + 1, time: new Date(Date.now() - (120 - i) * 3600e3).toISOString(), user: i % 3 ? 'admin' : 'op', action: i % 4 ? 'favorite.add' : 'config.apply', detail: JSON.stringify({ node: '2001', n: i }) });
@@ -18,17 +18,17 @@ const DIAG_PLAN = {
   available: true, maskDefault: true, maxBytes: 12 << 20, timeLimit: 90,
   items: [
     { name: 'README.txt', desc: 'What was collected, what was redacted, and what could not be collected' },
-    { name: 'report.txt', desc: 'ASLCP status report: versions, nodes and links, AMI state, updates, recent ASLCP log' },
-    { name: 'versions.txt', desc: 'ASLCP, Asterisk, operating system, kernel, and package versions' },
+    { name: 'report.txt', desc: 'ASLCP status report: versions, the node and its active mode, updates, recent ASLCP log' },
+    { name: 'versions.txt', desc: 'ASLCP, the node, operating system, kernel, and package versions' },
     { name: 'system.txt', desc: 'Uptime and load, memory, disk use' },
-    { name: 'services.txt', desc: 'State of the Asterisk, ASLCP, network, digital modes and ASL3 services, and listening ports' },
+    { name: 'services.txt', desc: 'State of the ASLCP, node and network services, and listening ports' },
     { name: 'network.txt', desc: 'Interfaces, addresses, default gateway, DNS servers (no WiFi passwords or saved networks)' },
     { name: 'journal/<unit>.txt', desc: 'Last 500 journal lines of each allowed unit' },
-    { name: 'config/', desc: 'Asterisk config files, aslcp.conf, Allmon3 and digital modes config files, with secret values replaced by <redacted>' },
+    { name: 'config/', desc: 'The node configuration and aslcp.conf, with secret values replaced by <redacted>' },
     { name: 'audit.txt', desc: 'The last 200 audit log entries' },
   ],
-  excluded: ['/etc/shadow and every other password file', 'Private keys and certificates', 'The ASLCP database and session tokens', 'Saved WiFi networks', 'The Allmon3 user list'],
-  redacted: ['Asterisk, AMI, IAX and registration passwords', 'EchoLink and digital modes passwords', 'ASLCP secrets', 'WiFi pre-shared keys', 'Your node callsigns and public IP addresses (when masking is on)'],
+  excluded: ['/etc/shadow and every other password file', 'Private keys and certificates', 'The ASLCP database and session tokens', 'Saved WiFi networks'],
+  redacted: ['Mode passwords (AllStar, EchoLink, DMR masters)', 'ASLCP secrets', 'WiFi pre-shared keys', 'Your callsign and public IP addresses (when masking is on)'],
 };
 const status = () => { const d = new Date(); return { ...host, now: d.toISOString(), clock: d.toString() }; };
 
@@ -82,11 +82,11 @@ export function handleSystem(c: Ctx): boolean {
     if (!unit) { c.json(200, { units: UNITS }); return true; }
     if (!UNITS.includes(unit)) { c.err(400, 'unknown unit', 'bad_request'); return true; }
     const lines = Math.min(1000, Math.max(50, +(c.url.searchParams.get('lines') ?? 200) || 200));
-    const text = Array.from({ length: Math.min(lines, 80) }, (_, i) => `${new Date(Date.now() - (80 - i) * 60e3).toISOString().slice(0, 19)}+0000 node2001 ${unit}[612]: sample log line ${i + 1}`).join('\n') + '\n';
+    const text = Array.from({ length: Math.min(lines, 80) }, (_, i) => `${new Date(Date.now() - (80 - i) * 60e3).toISOString().slice(0, 19)}+0000 node-demo ${unit}[612]: sample log line ${i + 1}`).join('\n') + '\n';
     c.json(200, { unit, lines, since: c.url.searchParams.get('since') ?? '', text, truncated: false, available: true }); return true;
   }
   if (p === '/system/services') {
-    c.json(200, { available: true, services: [['asterisk.service', 'Asterisk PBX', 'active', 'running'], ['aslcp.service', 'ASL Control Panel', 'active', 'running'], ['aslcp-helper.service', 'ASLCP helper', 'active', 'running'], ['NetworkManager.service', 'Network Manager', 'active', 'running'], ['chrony.service', 'chrony', 'inactive', 'dead']].map(([unit, description, active, sub]) => ({ unit, description, active, sub, enabled: 'enabled', since: active === 'active' ? 'Mon 2026-11-16 08:00:01 UTC' : '' })) }); return true;
+    c.json(200, { available: true, services: [['aslcp-node.service', 'ASLCP node', 'active', 'running'], ['aslcp.service', 'ASL Control Panel', 'active', 'running'], ['aslcp-helper.service', 'ASLCP helper', 'active', 'running'], ['NetworkManager.service', 'Network Manager', 'active', 'running'], ['chrony.service', 'chrony', 'inactive', 'dead']].map(([unit, description, active, sub]) => ({ unit, description, active, sub, enabled: 'enabled', since: active === 'active' ? 'Mon 2026-11-16 08:00:01 UTC' : '' })) }); return true;
   }
   if (p === '/system/network') {
     c.json(200, { available: true, interfaces: [

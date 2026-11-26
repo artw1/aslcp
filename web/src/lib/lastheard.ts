@@ -1,14 +1,14 @@
-// The rows of the Last heard table (LastHeardTable.svelte), shared by the overview Dashboard, the DV tab and the digital modes card.
-// An AllStar call and a digital call end up in the same shape: callsign, mode, target, when, and the lookup links the callsign opens.
-import { heardRow } from './dvpanel.ts';
+// The rows of the Last heard table (LastHeardTable.svelte), shared by the Dashboard and the public page.
+// A call of any mode ends up in the same shape: callsign, mode, target, when, and the lookup links the callsign opens.
+import { modeTitle } from './modes.ts';
 import { qrzUrl, radioidUrl } from './nowcalling.ts';
-import type { DVCaller, NowCall, PubSnapshot } from './types';
+import type { Heard, NowCall, PubSnapshot } from './types';
 
 export interface HeardItem {
   key: string;
   /** What the callsign cell shows ("N0CALL", a DMR ID, "Echo test", "Private call"). */
   call: string;
-  /** "ASL", "DMR", "YSF", "M17", ... */
+  /** "AllStar", "BrandMeister", "YSF", ... */
   mode: string;
   /** "TG 91 · TS2", "YSF-TEST" (the Mode column says YSF), "Node 2001"; '' when not known. */
   target: string;
@@ -34,67 +34,68 @@ export function lookupCall(call: string | undefined): string {
 
 const parseAt = (s: string | undefined): number => { const t = s ? Date.parse(s.replace(' ', 'T')) : NaN; return Number.isFinite(t) ? t : 0; };
 
-/** Digital modes heard list (the snapshot's `heard`) as table rows. A private call has no callsign to look up. */
-export function dvHeardItems(heard: DVCaller[] | undefined): HeardItem[] {
-  return (heard ?? []).map((c, i) => {
-    const r = heardRow(c);
+/** The "target" cell: a talkgroup reads "TG 91", an AllStar node "Node 2001", others as they are. */
+export function targetCell(mode: string, target: string | undefined): string {
+  const t = (target ?? '').trim();
+  if (!t) return '';
+  if (mode === 'bm' || mode === 'dmr' || mode === 'tgif') return `TG ${t}`;
+  if (mode === 'allstar' && /^\d+$/.test(t)) return `Node ${t}`;
+  return t;
+}
+
+/** GET /api/heard rows (every mode) as table rows. */
+export function heardItems(heard: Heard[] | undefined): HeardItem[] {
+  return (heard ?? []).map((h, i) => {
+    const call = (h.callsign ?? '').trim();
     return {
-      key: `dv:${i}:${c.at ?? ''}`,
-      call: r.call,
-      mode: r.mode,
-      target: [r.target, r.slot].filter(Boolean).join(' · '),
-      at: parseAt(c.at),
-      person: c.private ? '' : personLine(c.name, c.place),
-      title: c.dmrId ? `DMR ID ${c.dmrId}` : undefined,
-      qrz: c.private ? '' : lookupCall(c.call),
-      radioid: c.private ? '' : radioidUrl({ kind: 'dmr', dmrId: c.dmrId }),
+      key: `h:${i}:${h.start}`,
+      call: call || (h.id ? `ID ${h.id}` : 'Unknown'),
+      mode: modeTitle(h.mode),
+      target: targetCell(h.mode, h.target),
+      at: parseAt(h.end || h.start),
+      person: personLine(h.name, h.place),
+      title: h.id ? `ID ${h.id}` : undefined,
+      qrz: lookupCall(call),
+      radioid: h.id ? radioidUrl({ kind: h.mode, dmrId: String(h.id) }) : '',
     };
   });
 }
 
-/** AllStar calls (the Now Calling list; digital calls come from the snapshot instead) as table rows: mode "ASL", target the node. */
-export function aslHeardItems(recent: NowCall[] | undefined): HeardItem[] {
-  const out: HeardItem[] = [];
-  for (const c of recent ?? []) {
-    if (c.kind !== 'allstar') continue;
+/** Now Calling's recent list (of every mode) as table rows. */
+export function callItems(recent: NowCall[] | undefined): HeardItem[] {
+  return (recent ?? []).map((c) => {
     const call = (c.call ?? '').trim();
-    out.push({
-      key: `asl:${c.id}`,
-      call: call || (c.node ? `Node ${c.node}` : 'Unknown'),
-      mode: 'ASL',
-      target: c.node ? `Node ${c.node}` : '',
+    return {
+      key: `c:${c.id}`,
+      call: call || (c.dmrId ? `ID ${c.dmrId}` : c.node ? `Node ${c.node}` : 'Unknown'),
+      mode: modeTitle(c.kind),
+      target: targetCell(c.kind, c.target),
       at: parseAt(c.end || c.start),
-      person: '',
-      title: (c.desc ?? '').trim() || undefined,
+      person: c.kind === 'allstar' ? (c.desc ?? '').trim() : personLine(c.first || c.name, c.location || c.city),
+      title: (c.targetName ?? '').trim() || undefined,
       qrz: lookupCall(call),
-      radioid: '',
-    });
+      radioid: radioidUrl(c),
+    };
+  });
+}
+
+/** The one Last heard list: the node's heard log and the strip's recent calls, newest first, without the same call twice. */
+export function mergeHeard(recent: NowCall[] | undefined, heard: Heard[] | undefined, limit = 12): HeardItem[] {
+  const all = [...heardItems(heard), ...callItems(recent)].sort((a, b) => b.at - a.at);
+  const seen = new Set<string>(), out: HeardItem[] = [];
+  for (const r of all) {
+    const k = `${r.call}|${r.mode}|${Math.round(r.at / 5000)}`;
+    if (seen.has(k)) continue;
+    seen.add(k); out.push(r);
   }
-  return out;
+  return out.slice(0, limit);
 }
 
-/** AllStar and digital rows together, newest first, at most `limit`. */
-export function mergeHeard(recent: NowCall[] | undefined, heard: DVCaller[] | undefined, limit = 12): HeardItem[] {
-  return [...aslHeardItems(recent), ...dvHeardItems(heard)].sort((a, b) => b.at - a.at).slice(0, limit);
-}
-
-/** The public page's Last heard rows: ASL transmissions (the public activity list) and, when the digital modes setting is on, DV calls, newest first.
- *  Only what the public API sends: no IDs, so a callsign opens QRZ and nothing opens radioid.net. A bridge node's ASL row is the DV call itself, so it is left out when DV is shown. */
-export function pubHeardItems(snap: Pick<PubSnapshot, 'activity' | 'dv' | 'showDV' | 'showActivity'> | null | undefined, limit = 12): HeardItem[] {
-  const out: HeardItem[] = [];
-  (snap?.showActivity ? snap.activity ?? [] : []).forEach((a, i) => {
-    if (a.link === 'local' || (snap?.showDV && a.label)) return;
-    out.push({
-      key: `asl:${i}:${a.at}`, call: a.callsign || a.label || `Node ${a.link}`, mode: 'ASL', target: `Node ${a.link}`, at: a.at * 1000,
-      person: '', qrz: lookupCall(a.callsign), radioid: '',
-    });
-  });
-  (snap?.showDV ? snap.dv?.heard ?? [] : []).forEach((c, i) => {
-    out.push({
-      key: `dv:${i}:${c.at}`, call: c.callsign || `${c.mode} caller`, mode: c.mode,
-      target: [c.target, c.slot ? `TS${c.slot}` : ''].filter(Boolean).join(' \u00b7 '), at: c.at * 1000,
-      person: personLine(c.name, c.location), qrz: lookupCall(c.callsign), radioid: '',
-    });
-  });
-  return out.sort((a, b) => b.at - a.at).slice(0, limit);
+/** The public page's Last heard rows, newest first. Only what the public API sends: a callsign opens QRZ and nothing opens radioid.net. */
+export function pubHeardItems(snap: Pick<PubSnapshot, 'heard' | 'showHeard'> | null | undefined, limit = 12): HeardItem[] {
+  if (!snap?.showHeard) return [];
+  return (snap.heard ?? []).map((c, i) => ({
+    key: `p:${i}:${c.at}`, call: c.callsign || `${modeTitle(c.mode)} caller`, mode: modeTitle(c.mode), target: targetCell(c.mode, c.target),
+    at: c.at * 1000, person: personLine(c.name, c.location), qrz: lookupCall(c.callsign), radioid: '',
+  })).sort((a, b) => b.at - a.at).slice(0, limit);
 }

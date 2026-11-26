@@ -5,15 +5,13 @@
   import { groups, defaultFor, visibleGroups, visibleTabs } from './sections';
 
   const admin = $derived(isAdmin());
-  // Resolution knows every tab the role may open (a direct link to Audio levels works before the device list loads);
-  // the tab bar hides the ones that need audio devices the node does not have.
   const openable = $derived(visibleGroups(groups, admin));
   const route = $derived(
     settingsRoute(router.path, openable.map((g) => ({ id: g.id, tabs: (g.tabs ?? []).map((t) => t.id) })), defaultFor(admin), admin)
       ?? { group: defaultFor(admin), tab: null },
   );
   const grp = $derived(openable.find((g) => g.id === route.group) ?? openable[0]);
-  const tabs = $derived(visibleTabs(grp, app.tune.devices.length > 0));
+  const tabs = $derived(visibleTabs(grp));
   const tab = $derived(grp.tabs?.find((t) => t.id === route.tab));
   // Updates carries the same badge as the header, on the System group and on its Updates tab.
   const updCount = $derived((app.updates.aslcp || (app.system?.updateAvailable ?? false) ? 1 : 0) + app.updates.os);
@@ -53,7 +51,7 @@
     {#if grp.tabs}
       {#if tab}
         {#key tab.id}
-          {#await tab.load() then m}<m.default />{:catch}<p class="text-sm text-danger">Could not load this page. Reload the page.</p>{/await}
+          {#await tab.load() then m}<m.default {...(tab.props ?? {})} />{:catch}<p class="text-sm text-danger">Could not load this page. Reload the page.</p>{/await}
         {/key}
       {/if}
     {:else}

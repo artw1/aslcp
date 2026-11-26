@@ -1,5 +1,6 @@
 // Text helpers for the Now Calling strip and its details sheet. Pure functions, tested in nowcalling.test.ts.
 import type { NowCall, NowCalling } from './types';
+import { modeTitle } from './modes.ts';
 
 const US: Record<string, string> = {
   alabama: 'AL', alaska: 'AK', arizona: 'AZ', arkansas: 'AR', california: 'CA', colorado: 'CO', connecticut: 'CT', delaware: 'DE',
@@ -48,46 +49,27 @@ export function mainLine(c: NowCall): string {
   return [who(c), firstName(c), placeText(c)].filter(Boolean).join(' · ');
 }
 
-/** "TS1" or "TS2" for a DMR call; "" when the slot is not known (0 or missing). */
-export const slotLabel = (slot: number | undefined): string => (slot === 1 || slot === 2 ? `TS${slot}` : '');
+/** The target of a call as the UI shows it: "TG 91", "Room", "2001". */
+function targetPart(c: NowCall): string {
+  const t = (c.target ?? '').trim();
+  if (!t) return '';
+  if (c.kind === 'bm' || c.kind === 'dmr' || c.kind === 'tgif') return `TG ${t}`;
+  return t;
+}
 
-/** The mode name of a digital voice call of kind "dmr": P25 and NXDN calls arrive with the mode in network, everything else is DMR. */
-export const modeName = (c: Pick<NowCall, 'network'>): string => (c.network === 'P25' || c.network === 'NXDN' ? c.network : 'DMR');
-
-/** "AllStar", "DMR · TG 91 · TS2", "YSF · Room", "M17 · M17-XXX C". The TG name is left to sourceDetail. */
+/** "AllStar", "BrandMeister · TG 91", "YSF · Room". The target name is left to sourceDetail. */
 export function sourceLabel(c: NowCall): string {
-  if (c.kind === 'dmr') return [modeName(c), c.private ? 'Private call' : c.tg ? `TG ${c.tg}` : '', slotLabel(c.slot)].filter(Boolean).join(' · ');
-  if (c.kind === 'ysf') return ['YSF', c.room].filter(Boolean).join(' · ');
-  if (c.kind === 'm17') return ['M17', c.room].filter(Boolean).join(' · ');
-  return 'AllStar';
+  return [modeTitle(c.kind), targetPart(c)].filter(Boolean).join(' · ');
 }
 
-/** The full source for the details sheet: "AllStar node 2001 · link 1998 (Example hub)", "Digital modes · DMR · TG 91 Example · slot 2". */
+/** The full source for the details sheet: "AllStar · 2001 Example hub", "BrandMeister · TG 91 Example". */
 export function sourceDetail(c: NowCall): string {
-  if (c.kind === 'allstar') {
-    return [
-      `AllStar${c.local ? ` node ${c.local}` : ''}`,
-      c.node ? `link ${c.node}${c.desc ? ` (${c.desc})` : ''}` : '',
-    ].filter(Boolean).join(' · ');
-  }
-  if (c.kind === 'dmr') {
-    return [
-      'Digital modes',
-      c.network || 'DMR',
-      c.private ? 'private call' : c.tg ? `TG ${c.tg}${c.tgName ? ' ' + c.tgName : ''}` : '',
-      c.slot ? `slot ${c.slot}` : '',
-    ].filter(Boolean).join(' · ');
-  }
-  if (c.kind === 'm17') return ['Digital modes', 'M17', c.room ? `reflector ${c.room}` : ''].filter(Boolean).join(' · ');
-  return ['Digital modes', 'YSF', c.room ? `room ${c.room}` : ''].filter(Boolean).join(' · ');
+  return [modeTitle(c.kind), [targetPart(c), (c.targetName ?? '').trim()].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
 }
 
-/** The short form for the idle line: "AllStar", "DMR TG 91", "YSF Room". */
+/** The short form for the idle line: "AllStar", "BrandMeister TG 91". */
 export function sourceShort(c: NowCall): string {
-  if (c.kind === 'dmr') return c.private ? modeName(c) : c.tg ? `${modeName(c)} TG ${c.tg}` : modeName(c);
-  if (c.kind === 'ysf') return c.room ? `YSF ${c.room}` : 'YSF';
-  if (c.kind === 'm17') return c.room ? `M17 ${c.room}` : 'M17';
-  return 'AllStar';
+  return [modeTitle(c.kind), targetPart(c)].filter(Boolean).join(' ');
 }
 
 export function qrzUrl(call: string | undefined): string {
@@ -96,7 +78,7 @@ export function qrzUrl(call: string | undefined): string {
 }
 export function radioidUrl(c: Pick<NowCall, 'kind' | 'dmrId'>): string {
   const id = (c.dmrId ?? '').trim();
-  return c.kind !== 'allstar' && /^\d{1,9}$/.test(id) ? `https://radioid.net/database/view?id=${id}` : '';
+  return c.kind !== 'allstar' && c.kind !== 'echolink' && /^\d{1,9}$/.test(id) ? `https://radioid.net/database/view?id=${id}` : '';
 }
 
 /** "just now", "12 s ago", "5 min ago", "2 h ago", "3 d ago". */
