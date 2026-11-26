@@ -3,6 +3,7 @@ package mode
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -121,9 +122,12 @@ func TestSettingsHelpers(t *testing.T) {
 	}
 }
 
+var regRuns int
+
 func TestRegistry(t *testing.T) {
 	sp := testSpec()
-	sp.Name = "zz-registry-test"
+	regRuns++
+	sp.Name = fmt.Sprintf("zz-registry-test-%d", regRuns)
 	Register(sp)
 	if _, ok := Lookup(sp.Name); !ok {
 		t.Fatal("Lookup")
