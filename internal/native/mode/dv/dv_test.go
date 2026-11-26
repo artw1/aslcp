@@ -10,7 +10,6 @@ import (
 	"github.com/artw1/aslcp/internal/dv/ctl"
 	"github.com/artw1/aslcp/internal/dv/network"
 	"github.com/artw1/aslcp/internal/dv/vocoder"
-	"github.com/artw1/aslcp/internal/dv/vocoder/fake"
 	"github.com/artw1/aslcp/internal/native/audio"
 	"github.com/artw1/aslcp/internal/native/mode"
 )
@@ -100,14 +99,13 @@ func (fakeAMBE) Decode(_ context.Context, f [vocoder.AMBEBytes]byte) ([vocoder.P
 }
 
 var base = map[string]map[string]string{
-	mode.BM:       {KeyDMRID: "1234567", KeyPassword: "pw-secret", KeyAddress: "master.example.net:62031", "keepalive_ms": "5000"},
-	mode.TGIF:     {KeyDMRID: "1234567", KeyPassword: "pw-secret"},
-	mode.DMR:      {KeyDMRID: "1234567", KeyAddress: "192.0.2.4", KeyOptions: "options=TS2=91"},
-	mode.YSF:      {},
-	mode.P25:      {KeyAddress: "p25.example.net:41000"},
-	mode.NXDN:     {"nxdn_id": "12345"},
-	mode.M17:      {"suffix": "H"},
-	mode.EchoTest: {},
+	mode.BM:   {KeyDMRID: "1234567", KeyPassword: "pw-secret", KeyAddress: "master.example.net:62031", "keepalive_ms": "5000"},
+	mode.TGIF: {KeyDMRID: "1234567", KeyPassword: "pw-secret"},
+	mode.DMR:  {KeyDMRID: "1234567", KeyAddress: "192.0.2.4", KeyOptions: "options=TS2=91"},
+	mode.YSF:  {},
+	mode.P25:  {KeyAddress: "p25.example.net:41000"},
+	mode.NXDN: {"nxdn_id": "12345"},
+	mode.M17:  {"suffix": "H"},
 }
 
 var targets = map[string]struct {
@@ -116,14 +114,13 @@ var targets = map[string]struct {
 	codec  network.Codec
 	frameN int
 }{
-	mode.BM:       {mode.Target{ID: "91"}, ctl.Target{TG: 91}, network.CodecAMBE, 7},
-	mode.TGIF:     {mode.Target{ID: "777", Slot: 1}, ctl.Target{TG: 777, Slot: 1}, network.CodecAMBE, 7},
-	mode.DMR:      {mode.Target{ID: "9", Private: true}, ctl.Target{TG: 9, Private: true}, network.CodecAMBE, 7},
-	mode.YSF:      {mode.Target{ID: "Alpha"}, ctl.Target{Room: "Alpha", Name: "Alpha room", Host: "192.0.2.7", Port: 42000}, network.CodecAMBE, 7},
-	mode.P25:      {mode.Target{ID: "10200"}, ctl.Target{TG: 10200, Host: "p25.example.net", Port: 41000}, network.CodecIMBE, 11},
-	mode.NXDN:     {mode.Target{ID: "65000"}, ctl.Target{TG: 65000, Host: "203.0.113.9", Port: 41400}, network.CodecAMBE, 7},
-	mode.M17:      {mode.Target{ID: "m17-xxx c"}, ctl.Target{Room: "M17-XXX C", Host: "192.0.2.17", Port: 17000}, network.CodecC2, 8},
-	mode.EchoTest: {mode.Target{}, ctl.Target{}, network.CodecAMBE, 7},
+	mode.BM:   {mode.Target{ID: "91"}, ctl.Target{TG: 91}, network.CodecAMBE, 7},
+	mode.TGIF: {mode.Target{ID: "777", Slot: 1}, ctl.Target{TG: 777, Slot: 1}, network.CodecAMBE, 7},
+	mode.DMR:  {mode.Target{ID: "9", Private: true}, ctl.Target{TG: 9, Private: true}, network.CodecAMBE, 7},
+	mode.YSF:  {mode.Target{ID: "Alpha"}, ctl.Target{Room: "Alpha", Name: "Alpha room", Host: "192.0.2.7", Port: 42000}, network.CodecAMBE, 7},
+	mode.P25:  {mode.Target{ID: "10200"}, ctl.Target{TG: 10200, Host: "p25.example.net", Port: 41000}, network.CodecIMBE, 11},
+	mode.NXDN: {mode.Target{ID: "65000"}, ctl.Target{TG: 65000, Host: "203.0.113.9", Port: 41400}, network.CodecAMBE, 7},
+	mode.M17:  {mode.Target{ID: "m17-xxx c"}, ctl.Target{Room: "M17-XXX C", Host: "192.0.2.17", Port: 17000}, network.CodecC2, 8},
 }
 
 var reflectors = []mode.Target{
@@ -177,12 +174,10 @@ func TestEveryModeWithFakeNetwork(t *testing.T) {
 				m.Send(audio.Frame{}) // not sent while waiting for the login
 				fn.sink.Login(ctl.LoginOK, "")
 			}
-			if d.target != targetNone {
-				waitFor(t, "tune", func() bool { tunes, _, _, _ := fn.snapshot(); return len(tunes) == 1 })
-				tunes, _, _, _ := fn.snapshot()
-				if tunes[0] != tc.want {
-					t.Fatalf("tune\n got %+v\nwant %+v", tunes[0], tc.want)
-				}
+			waitFor(t, "tune", func() bool { tunes, _, _, _ := fn.snapshot(); return len(tunes) == 1 })
+			tunes, _, _, _ := fn.snapshot()
+			if tunes[0] != tc.want {
+				t.Fatalf("tune\n got %+v\nwant %+v", tunes[0], tc.want)
 			}
 			if !d.login {
 				fn.sink.Login(ctl.LoginOK, "linked")
@@ -239,16 +234,14 @@ func TestEveryModeWithFakeNetwork(t *testing.T) {
 				t.Fatal("AMBE encoder not used")
 			}
 
-			if d.target != targetNone {
-				_ = m.Disconnect(context.Background())
-				if m.Status().Target != nil || m.Status().State != mode.StateReady {
-					t.Fatalf("after disconnect %+v", m.Status())
-				}
-				m.Send(f) // nothing to send to
-				_, starts, _, _ = fn.snapshot()
-				if len(starts) != 1 {
-					t.Fatal("sent with no target")
-				}
+			_ = m.Disconnect(context.Background())
+			if m.Status().Target != nil || m.Status().State != mode.StateReady {
+				t.Fatalf("after disconnect %+v", m.Status())
+			}
+			m.Send(f) // nothing to send to
+			_, starts, _, _ = fn.snapshot()
+			if len(starts) != 1 {
+				t.Fatal("sent with no target")
 			}
 			_ = m.Stop()
 			if m.Status().State != mode.StateIdle {
@@ -391,54 +384,4 @@ func TestLoginFailure(t *testing.T) {
 		t.Fatalf("error %q", e)
 	}
 	_ = m.Stop()
-}
-
-// TestEchoTestLoopback runs the echo test end to end: the real loopback
-// network and the AMBE vocoder over UDP to a fake md380-emu on loopback.
-func TestEchoTestLoopback(t *testing.T) {
-	srv, err := fake.New("127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer srv.Close()
-	s := mode.Settings{Values: map[string]string{"playback_delay_ms": "10"}}
-	m, err := mode.Build(mode.EchoTest, mode.Env{Callsign: "N0CALL", MD380: srv.Addr()}, s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := m.Start(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	defer m.Stop()
-	if m.Status().State != mode.StateConnected {
-		t.Fatalf("state %s", m.Status().State)
-	}
-	var f audio.Frame
-	for i := range f {
-		f[i] = int16(i * 50)
-	}
-	for i := 0; i < 10; i++ {
-		m.Send(f)
-		time.Sleep(audio.FrameDuration)
-	}
-	m.EndTx()
-	got := 0
-	talker := ""
-	deadline := time.After(5 * time.Second)
-	for got < 10 {
-		select {
-		case ev := <-m.Events():
-			if ev.Kind == mode.EventTalkStart && ev.Talker != nil {
-				talker = ev.Talker.Callsign
-			}
-		case <-m.Recv():
-			got++
-		case <-deadline:
-			t.Fatalf("echo frames %d of 10", got)
-		}
-	}
-	if talker != ctl.EchoTestCall {
-		t.Fatalf("talker %q", talker)
-	}
-	waitFor(t, "echo end", func() bool { return !m.Talking() })
 }

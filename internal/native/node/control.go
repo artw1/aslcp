@@ -52,6 +52,7 @@ const (
 	OpLastHeard   = "last_heard"   // {limit?} -> []mode.Heard
 	OpNowCalling  = "now_calling"  // -> *Calling (null when nobody is talking)
 	OpRadioLevels = "radio_levels" // -> radio.Levels
+	OpInputLevel  = "input_level"  // -> InputLevel
 	OpRadioTune   = "radio_tune"   // {rxVolume?, txVolume?} -> radio.Levels
 	OpRadioProg   = "radio_program"
 	OpRadioInfo   = "radio_info" // -> RadioDetail
@@ -298,6 +299,8 @@ func (s *Server) do(ctx context.Context, req Request) (any, error) {
 		return e.NowCalling(), nil
 	case OpRadioLevels:
 		return e.Levels(), nil
+	case OpInputLevel:
+		return e.InputLevel(), nil
 	case OpRadioTune:
 		var a struct {
 			RxVolume *float64 `json:"rxVolume"`

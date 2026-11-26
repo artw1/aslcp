@@ -31,16 +31,27 @@ export interface Registration {
 export interface ModeStatus {
   mode: string; title: string; active: boolean; state: ModeState; target?: Target; since?: string;
   detail?: string; error?: string; talker?: Talker; registration?: Registration; links?: string[];
+  /** The echo test's last level report. */
+  levels?: EchoReport;
 }
+/** The level report of one echo test recording. Warnings are "clipping" and "too quiet". */
+export interface EchoReport {
+  at: string; frames: number; durationMs: number; peakDb: number; rmsDb: number; voicedFrames: number; clipped: number; warnings?: string[];
+}
+/** The live radio RX input level (GET /api/radio/input; also radio.level of the node status). */
+export interface InputLevel { peakDb: number; rmsDb: number; cos: boolean }
 export interface NodeJSON {
   callsign?: string; started: string;
   radio: {
     present: boolean; ptt: boolean; cos: boolean; rxLocked?: boolean; txLocked?: boolean;
     /** The preset in use and the interface found (chip name, USB id). */
     preset?: string; chip?: string; usbId?: string; product?: string; detected?: boolean; sa818?: boolean;
+    level?: InputLevel;
   };
   /** The active mode ("" or absent when the node is idle) and its status. */
   active?: string; since?: string; mode?: ModeStatus; registration?: Registration;
+  /** The last echo test report, when one was recorded. */
+  echoTest?: EchoReport;
   id: { enabled: boolean; owed: boolean; due?: string; last?: string; why?: string };
   configured: boolean;
   /** False while the node daemon cannot be reached; `error` says why. */

@@ -66,7 +66,7 @@ func TestVocoderGet(t *testing.T) {
 	}
 	// the AMBE modes of the node, and only those
 	sort.Strings(got.Needed)
-	want := "bm,dmr,echotest,nxdn,tgif,ysf"
+	want := "bm,dmr,nxdn,tgif,ysf" // the echo test only with its AMBE codec
 	if strings.Join(got.Needed, ",") != want {
 		t.Fatalf("needed %v, want %s", got.Needed, want)
 	}

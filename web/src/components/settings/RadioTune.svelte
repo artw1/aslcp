@@ -5,7 +5,8 @@
   import { toast, toastError } from '../../lib/toast.svelte';
   import { stationBody, validateStation } from '../../lib/station';
   import { hasSA818, isShari, pinError, radioBody, resolveInterface } from '../../lib/radio';
-  import type { RadioInfo, RadioLevels, Station } from '../../lib/types';
+  import { barPercent, targetBand, isHot, dbText, warningText, durationText } from '../../lib/levels';
+  import type { InputLevel, RadioInfo, RadioLevels, Station } from '../../lib/types';
   import StationFields from '../StationFields.svelte';
   import RadioPicker from '../RadioPicker.svelte';
 
@@ -24,6 +25,17 @@
     try { info = await api.radioInfo(); } catch { /* an old node has no info */ }
     await loadLevels();
   }
+  // The live input meter: radio RX peak and RMS, polled while the page is open.
+  let inp = $state<InputLevel | null>(null), sw = $state(false);
+  const band = targetBand();
+  const echo = $derived(app.node?.echoTest);
+  const echoActive = $derived(app.node?.active === 'echotest');
+  async function pollInput() { try { inp = await api.radioInput(); } catch { /* the node may be down */ } }
+  async function useEcho() {
+    sw = true;
+    try { await api.select('echotest'); await refreshNode(); toast('Echo test is active. Key up, talk, and listen to the playback.'); } catch (e) { toastError(e); } finally { sw = false; }
+  }
+  $effect(() => { pollInput(); const t = setInterval(pollInput, 250); return () => clearInterval(t); });
   $effect(() => { load(); const t = setInterval(loadLevels, 2000); return () => clearInterval(t); });
 
   async function setLevel(p: { rxVolume?: number; txVolume?: number }) { try { lv = await api.setRadio(p); } catch (e) { toastError(e); } }
@@ -63,6 +75,35 @@
     {#if lv.DroppedRx || lv.DroppedTx || lv.Xruns}<p class="text-xs text-muted">Dropped frames: receive {lv.DroppedRx}, transmit {lv.DroppedTx}. Audio underruns: {lv.Xruns}.</p>{/if}
   {:else}<p class="text-sm text-muted">Loading…</p>{/if}
 </section>
+
+{#if present}
+  <section class="card mt-4 space-y-3 p-4" aria-label="Input level">
+    <h2 class="text-base font-semibold">Input level</h2>
+    <div class="relative h-4 overflow-hidden rounded bg-black/10 dark:bg-white/10" role="meter" aria-label="Radio receive level" aria-valuemin={-60} aria-valuemax={0} aria-valuenow={Math.round(inp?.peakDb ?? -60)}>
+      <div class="absolute inset-y-0 bg-green-500/25" style="left: {band.left}%; width: {band.width}%"></div>
+      <div class="absolute inset-y-0 left-0 {isHot(inp?.peakDb ?? -90) ? 'bg-red-500' : 'bg-accent'}" style="width: {barPercent(inp?.peakDb ?? -90)}%"></div>
+    </div>
+    <p class="text-xs text-muted tabular-nums">Peak {dbText(inp?.peakDb)}, RMS {dbText(inp?.rmsDb)}{#if inp?.cos}, carrier detected{/if}. Aim for peaks inside the shaded band (-20 to -6 dBFS).</p>
+  </section>
+
+  <section class="card mt-4 space-y-3 p-4" aria-label="Echo test">
+    <h2 class="text-base font-semibold">Echo test</h2>
+    <p class="text-sm text-muted">Transmit to the radio's receiver, stop, and the node plays your audio back after a second. Use it to check levels.</p>
+    {#if echo}
+      <dl class="grid grid-cols-3 gap-2 text-sm tabular-nums">
+        <div><dt class="text-xs text-muted">Peak</dt><dd>{dbText(echo.peakDb)}</dd></div>
+        <div><dt class="text-xs text-muted">RMS</dt><dd>{dbText(echo.rmsDb)}</dd></div>
+        <div><dt class="text-xs text-muted">Duration</dt><dd>{durationText(echo.durationMs)}</dd></div>
+      </dl>
+      {#if echo.warnings?.length}
+        <ul class="list-disc pl-5 text-sm text-red-600 dark:text-red-400">{#each echo.warnings as w (w)}<li>{warningText(w)}</li>{/each}</ul>
+      {:else}<p class="text-sm text-muted">Levels look good.</p>{/if}
+    {:else}<p class="text-sm text-muted">No recording yet.</p>{/if}
+    {#if !echoActive}
+      <button type="button" class="btn btn-primary btn-sm" disabled={sw} onclick={useEcho}>Switch to echo test</button>
+    {:else}<p class="text-xs text-muted">The echo test is the active mode. Pick another mode on the Modes page when done.</p>{/if}
+  </section>
+{/if}
 
 {#if st && info}
   <section class="card mt-4 space-y-3 p-4" aria-label="Interface">

@@ -70,6 +70,12 @@ type simplex struct {
 	idT  idTimer
 
 	modeAGC, radioAGC *audio.AGC
+
+	// rx is the receive level over the last 100 ms, taken from every frame
+	// the sound chip delivers (before the AGC); rxAt is when the last one
+	// arrived.
+	rx   audio.Rolling
+	rxAt time.Time
 }
 
 // Playout prebuffer at the start of a talk spurt: 2 frames, or what has
@@ -248,7 +254,7 @@ func (e *Engine) stepRF(now time.Time, m mode.Mode, rfActive bool) {
 	p := e.params
 	capt := e.o.Radio.Capture()
 	if !rfActive || s.rfLocked {
-		drain(capt)
+		e.drainRX(capt, now)
 		if !rfActive && !s.rfStart.IsZero() {
 			e.endRF(now, m)
 		}
@@ -263,7 +269,7 @@ func (e *Engine) stepRF(now time.Time, m mode.Mode, rfActive bool) {
 		e.logf(now, "receive timeout: the local station has transmitted for %s", p.txTimeout)
 		e.endRF(now, m)
 		s.rfStart = now // keep the carrier marked busy until it drops
-		drain(capt)
+		e.drainRX(capt, now)
 		return
 	}
 	if s.rfSentTo != nil && s.rfSentTo != m {
@@ -277,6 +283,8 @@ func (e *Engine) stepRF(now time.Time, m mode.Mode, rfActive bool) {
 		default:
 			return
 		}
+		s.rx.Add(&f)
+		s.rxAt = now
 		if m == nil {
 			continue
 		}
@@ -285,6 +293,19 @@ func (e *Engine) stepRF(now time.Time, m mode.Mode, rfActive bool) {
 		}
 		m.Send(f)
 		s.rfSentTo = m
+	}
+}
+
+// drainRX drops the receiver's queued audio after measuring it.
+func (e *Engine) drainRX(c <-chan audio.Frame, now time.Time) {
+	for {
+		select {
+		case f := <-c:
+			e.sx.rx.Add(&f)
+			e.sx.rxAt = now
+		default:
+			return
+		}
 	}
 }
 

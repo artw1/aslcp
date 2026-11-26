@@ -166,10 +166,23 @@ type Spec struct {
 	// NeedsAMBE: the mode's voice is AMBE, which the md380-emu vocoder
 	// encodes and decodes (the UI offers to install it).
 	NeedsAMBE bool `json:"needsAmbe,omitempty"`
+	// AMBEFor, when set, decides NeedsAMBE from the saved settings (the
+	// echo test needs the vocoder only when its codec is AMBE). See
+	// Spec.AMBENeeded.
+	AMBEFor func(Settings) bool `json:"-"`
 	// Validate checks settings beyond Required fields (optional).
 	Validate func(Settings) error `json:"-"`
 	// New builds the mode from validated settings.
 	New func(Env, Settings) (Mode, error) `json:"-"`
+}
+
+// AMBENeeded reports whether the mode needs the md380-emu vocoder with the
+// settings s: AMBEFor when the spec has one, else NeedsAMBE.
+func (sp Spec) AMBENeeded(s Settings) bool {
+	if sp.AMBEFor != nil {
+		return sp.AMBEFor(s)
+	}
+	return sp.NeedsAMBE
 }
 
 // Field returns the field with key.

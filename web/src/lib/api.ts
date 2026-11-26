@@ -1,6 +1,6 @@
 import type {
   About, BackupInfo, BackupSelection, Favorite, HostList, HostPatch, HostStatus, Heard, ManualAction, ModeInfo, ModeSettings, NodeJSON, NodeService,
-  NowCalling, PublicInfo, PublicSettings, RadioInfo, RadioLevels, RestoreApplyResult, RestoreResult, RestoreUpload, Schedule, ScheduleInput, SchedulesSnapshot,
+  InputLevel, NowCalling, PublicInfo, PublicSettings, RadioInfo, RadioLevels, RestoreApplyResult, RestoreResult, RestoreUpload, Schedule, ScheduleInput, SchedulesSnapshot,
   Settings, Station, SysLogs, SysNetwork, SysServices, SystemInfo, Target, TerminalSessionInfo, TerminalStatus, TerminalTicket, UpdateInfo, User,
   UserListStatus, Vocoder, HamDBStatus, DiagPlan, AuditPage, WifiScan, WifiState, NodeInfo,
 } from './types';
@@ -141,6 +141,7 @@ export const api = {
   heard: (limit = 50) => req<Heard[]>('GET', `/heard?limit=${limit}`),
   radio: () => req<RadioLevels>('GET', '/radio'),
   setRadio: (p: { rxVolume?: number; txVolume?: number }) => req<RadioLevels>('PUT', '/radio', p),
+  radioInput: () => req<InputLevel>('GET', '/radio/input'),
   radioInfo: () => req<RadioInfo>('GET', '/radio/info'),
   radioProgram: () => req<NodeJSON>('POST', '/radio/program'),
   hostLists: (mode: string) => req<HostList>('GET', `/hostlists?mode=${q(mode)}`),

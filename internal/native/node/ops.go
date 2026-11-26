@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/artw1/aslcp/internal/native/audio"
 	"github.com/artw1/aslcp/internal/native/mode"
 	"github.com/artw1/aslcp/internal/native/radio"
 	"github.com/artw1/aslcp/internal/native/radio/sa818"
@@ -26,7 +27,10 @@ type Status struct {
 	// Registration is the AllStar registration, kept up whenever AllStar
 	// is configured, active or not.
 	Registration *mode.Registration `json:"registration,omitempty"`
-	ID           IDStatus           `json:"id"`
+	// EchoTest is the level report of the echo test's last recording, kept
+	// whether or not the echo test is the active mode.
+	EchoTest *audio.Report `json:"echoTest,omitempty"`
+	ID       IDStatus      `json:"id"`
 	// Configured is false until the station has a callsign.
 	Configured bool `json:"configured"`
 	// RestartRequired: the saved radio wiring (preset, pins, polarity,
@@ -53,11 +57,23 @@ type RadioStatus struct {
 	SA818    bool   `json:"sa818"`
 	PTT      bool   `json:"ptt"`
 	COS      bool   `json:"cos"`
-	RxLocked bool   `json:"rxLocked,omitempty"` // a local transmission timed out
-	TxLocked bool   `json:"txLocked,omitempty"` // the network timed out the transmitter
+	// Level is the receive level over the last 100 ms (see InputLevel).
+	Level    InputLevel `json:"level"`
+	RxLocked bool       `json:"rxLocked,omitempty"` // a local transmission timed out
+	TxLocked bool       `json:"txLocked,omitempty"` // the network timed out the transmitter
 	// PTTStuck: unkeying the transmitter failed and is being retried, so
 	// it may still be on the air.
 	PTTStuck bool `json:"pttStuck,omitempty"`
+}
+
+// InputLevel is the radio's receive level as the node hears it from the sound
+// chip, before any AGC: the peak and RMS over the last 100 ms in dBFS (-90
+// for silence, also when the radio has stopped delivering audio) and
+// whether the carrier is on.
+type InputLevel struct {
+	PeakDb float64 `json:"peakDb"`
+	RMSDb  float64 `json:"rmsDb"`
+	COS    bool    `json:"cos"`
 }
 
 // IDStatus is the station ID.
@@ -77,6 +93,7 @@ func (e *Engine) Status() Status {
 		Started:  e.started,
 		Radio: RadioStatus{
 			Present: !e.o.RadioAbsent, PTT: e.sx.ptt, COS: e.sx.cos,
+			Level:  e.inputLevelLocked(),
 			Preset: string(e.info.Interface.Preset), Chip: e.info.Chip, USBID: e.info.USBID,
 			Product: e.info.Product, Detected: e.info.Detected, SA818: e.info.Interface.SA818,
 			RxLocked: e.sx.rfLocked, TxLocked: e.sx.txLocked, PTTStuck: e.sx.pttStuck,
@@ -93,6 +110,7 @@ func (e *Engine) Status() Status {
 	}
 	in := e.active
 	as := e.modes[mode.AllStar]
+	et := e.modes[mode.EchoTest]
 	if in != nil {
 		st.Active, st.Since = in.name, e.since
 	}
@@ -104,6 +122,9 @@ func (e *Engine) Status() Status {
 	}
 	if as != nil {
 		st.Registration = as.m.Status().Registration
+	}
+	if et != nil {
+		st.EchoTest = et.m.Status().Levels
 	}
 	return st
 }
@@ -147,7 +168,7 @@ func (e *Engine) Modes() []ModeInfo {
 		red, set := sp.Redact(s)
 		mi := ModeInfo{
 			Name: sp.Name, Title: sp.Title, TargetLabel: sp.TargetLabel,
-			TargetHelp: sp.TargetHelp, NeedsHost: sp.NeedsHost, NeedsAmbe: sp.NeedsAMBE, Fields: sp.Fields,
+			TargetHelp: sp.TargetHelp, NeedsHost: sp.NeedsHost, NeedsAmbe: sp.AMBENeeded(s), Fields: sp.Fields,
 			Settings: red, SecretsSet: set, Configured: ok, Error: errs[sp.Name],
 		}
 		if in := built[sp.Name]; in != nil {
@@ -461,4 +482,23 @@ func (e *Engine) RadioInfo() RadioDetail {
 		d.Resolved = &iface
 	}
 	return d
+}
+
+// inputStale is how long after its last frame the receive level reads as
+// silence.
+const inputStale = 200 * time.Millisecond
+
+// InputLevel returns the radio's current receive level (cheap: no I/O).
+func (e *Engine) InputLevel() InputLevel {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.inputLevelLocked()
+}
+
+func (e *Engine) inputLevelLocked() InputLevel {
+	l := InputLevel{PeakDb: audio.FloorDb, RMSDb: audio.FloorDb, COS: e.sx.cos}
+	if !e.sx.rxAt.IsZero() && e.now().Sub(e.sx.rxAt) <= inputStale {
+		l.PeakDb, l.RMSDb = e.sx.rx.Levels()
+	}
+	return l
 }

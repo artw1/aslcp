@@ -36,6 +36,7 @@ func (s *Server) nodeRoutes() {
 	m.HandleFunc("POST /api/disconnect", s.authed(store.RoleOperator, s.handleDisconnect))
 	m.HandleFunc("GET /api/heard", s.authed(store.RoleViewer, s.handleHeard))
 	m.HandleFunc("GET /api/radio", s.authed(store.RoleAdmin, s.handleRadioGet))
+	m.HandleFunc("GET /api/radio/input", s.authed(store.RoleAdmin, s.handleRadioInput))
 	m.HandleFunc("PUT /api/radio", s.authed(store.RoleAdmin, s.handleRadioPut))
 	m.HandleFunc("GET /api/radio/info", s.authed(store.RoleAdmin, s.handleRadioInfo))
 	m.HandleFunc("POST /api/radio/program", s.authed(store.RoleAdmin, s.handleRadioProgram))
@@ -405,6 +406,24 @@ func (s *Server) handleRadioGet(w http.ResponseWriter, r *http.Request, _ store.
 	ctx, cancel := nodeCtx(r)
 	defer cancel()
 	l, err := s.d.Node.RadioLevels(ctx)
+	if err != nil {
+		s.nodeErr(w, err)
+		return
+	}
+	writeJSON(w, 200, l)
+}
+
+// handleRadioInput answers the radio's live receive level, {peakDb, rmsDb,
+// cos} over the last 100 ms. It is small and cheap for the Radio tune page
+// to poll a few times a second. (The same level is in GET /api/node as
+// radio.level, as fresh as that status.)
+func (s *Server) handleRadioInput(w http.ResponseWriter, r *http.Request, _ store.User) {
+	if !s.nodeReady(w) {
+		return
+	}
+	ctx, cancel := nodeCtx(r)
+	defer cancel()
+	l, err := s.d.Node.InputLevel(ctx)
 	if err != nil {
 		s.nodeErr(w, err)
 		return

@@ -28,6 +28,7 @@ type Node interface {
 	Disconnect(ctx context.Context) (node.Status, error)
 	LastHeard(ctx context.Context, limit int) ([]mode.Heard, error)
 	RadioLevels(ctx context.Context) (radio.Levels, error)
+	InputLevel(ctx context.Context) (node.InputLevel, error)
 	RadioTune(ctx context.Context, rx, tx *float64) (radio.Levels, error)
 	RadioInfo(ctx context.Context) (node.RadioDetail, error)
 	RadioProgram(ctx context.Context) (node.Status, error)

@@ -1,5 +1,5 @@
 // Package dv is the digital voice modes: BrandMeister, TGIF, other DMR
-// Homebrew masters, YSF, P25, NXDN, M17 and the local echo test. Each is a
+// Homebrew masters, YSF, P25, NXDN, M17. Each is a
 // mode.Mode over one internal/dv/network client, with the radio's audio
 // encoded to the network's codec (AMBE through md380-emu, IMBE or Codec2
 // in Go) and the network's voice decoded for the radio.
@@ -17,7 +17,6 @@ import (
 	// The networks register themselves with internal/dv/network.
 	_ "github.com/artw1/aslcp/internal/dv/network/bm"
 	_ "github.com/artw1/aslcp/internal/dv/network/homebrew"
-	_ "github.com/artw1/aslcp/internal/dv/network/loopback"
 	_ "github.com/artw1/aslcp/internal/dv/network/m17"
 	_ "github.com/artw1/aslcp/internal/dv/network/nxdn"
 	_ "github.com/artw1/aslcp/internal/dv/network/p25"
@@ -41,7 +40,6 @@ const (
 	targetTG        targetKind = iota // a talkgroup number
 	targetReflector                   // a reflector name, resolved through Settings.Reflectors or host:port
 	targetM17                         // "M17-XXX B": reflector and module
-	targetNone                        // the echo test: no target
 )
 
 // def is one DV mode.
@@ -155,13 +153,6 @@ var defs = []def{
 			advanced("suffix", "Callsign suffix", mode.FieldText, "", "Added to the station callsign, such as H."),
 			advanced("can", "Channel access number", mode.FieldNumber, "", ""),
 			optionsField,
-		},
-	},
-	{
-		ambe: true, name: mode.EchoTest, title: "Echo test", ctlMode: ctl.ModeLoop, target: targetNone,
-		label: "", help: "Plays your transmission back through the DMR vocoder.",
-		fields: []mode.Field{
-			advanced("playback_delay_ms", "Playback delay (ms)", mode.FieldNumber, "", ""),
 		},
 	},
 }
@@ -312,8 +303,6 @@ func (d def) netTarget(s mode.Settings, cfg ctl.NetConfig, t mode.Target) (ctl.T
 		}
 	}
 	switch d.target {
-	case targetNone:
-		return nt, nil
 	case targetTG:
 		n, err := strconv.ParseUint(id, 10, 32)
 		if err != nil || n == 0 || n > 0xFFFFFF {

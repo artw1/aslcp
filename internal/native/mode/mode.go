@@ -125,6 +125,8 @@ type Status struct {
 	Registration *Registration `json:"registration,omitempty"`
 	// Links: the far side's link list (AllStar) or conference members, when known.
 	Links []string `json:"links,omitempty"`
+	// Levels: the level report of the last recording (echo test only).
+	Levels *audio.Report `json:"levels,omitempty"`
 }
 
 // Heard is one finished (or, with a zero End, ongoing) call, in the one

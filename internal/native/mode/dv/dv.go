@@ -226,20 +226,12 @@ func (m *Mode) Start(context.Context) error {
 	go m.loop(ctx, gen)
 	go m.encoder(ctx, n, ambe)
 	go m.decoder(ctx, ambe)
-	if m.d.target == targetNone {
-		// The echo test is always "connected".
-		m.SetTarget(&mode.Target{ID: "echo", Name: "Echo test"})
-		m.SetState(mode.StateConnected, "talk to hear yourself", "")
-	}
 	return nil
 }
 
 // Connect tunes the network to t. A DMR network that has not logged in
 // yet tunes once it has.
 func (m *Mode) Connect(ctx context.Context, t mode.Target) error {
-	if m.d.target == targetNone {
-		return nil
-	}
 	nt, err := m.d.netTarget(m.s, m.cfg, t)
 	if err != nil {
 		return fmt.Errorf("%s: %w", m.d.title, err)
@@ -293,9 +285,6 @@ func describe(t mode.Target) string {
 // Disconnect unlinks: a DMR network drops its talkgroup, a reflector
 // network leaves the reflector.
 func (m *Mode) Disconnect(ctx context.Context) error {
-	if m.d.target == targetNone {
-		return nil
-	}
 	m.mu.Lock()
 	n := m.n
 	m.target, m.pending = nil, false
@@ -367,7 +356,7 @@ func (m *Mode) Stop() error {
 func (m *Mode) Send(f audio.Frame) {
 	m.mu.Lock()
 	n := m.n
-	if n == nil || (m.d.target != targetNone && (m.target == nil || m.pending)) {
+	if n == nil || m.target == nil || m.pending {
 		m.mu.Unlock()
 		return
 	}
@@ -647,7 +636,7 @@ func (m *Mode) onLogin(ctx context.Context, st ctl.LoginState, detail string) {
 		m.env.Logger().Warn(m.d.name + ": " + msg)
 		m.SetState(mode.StateError, "", msg)
 	case ctl.LoginOff, ctl.LoginIdle:
-		if !m.d.login && tgt == nil && m.d.target != targetNone {
+		if !m.d.login && tgt == nil {
 			m.SetState(mode.StateReady, "", "")
 		}
 	}

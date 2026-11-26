@@ -218,6 +218,13 @@ func (c *Client) RadioLevels(ctx context.Context) (radio.Levels, error) {
 	return out, err
 }
 
+// InputLevel returns the radio's current receive level and carrier.
+func (c *Client) InputLevel(ctx context.Context) (InputLevel, error) {
+	var out InputLevel
+	err := c.Call(ctx, OpInputLevel, nil, &out)
+	return out, err
+}
+
 // RadioTune sets the sound chip's receive and transmit levels (nil keeps
 // one) and saves them.
 func (c *Client) RadioTune(ctx context.Context, rx, tx *float64) (radio.Levels, error) {

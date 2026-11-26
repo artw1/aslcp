@@ -55,6 +55,8 @@ Digital Modes is one scrolling page in Settings (`#/settings/digital-modes`, no 
 
 ## Echo test
 
+> In 3.0.0 the native node has its own `echotest` mode (see docs/NATIVE_NODE.md) and the engine's `LOOP` mode described here is gone from the node.
+
 The Echo test is a local test with no network and no account: the engine records one transmission, waits about a second and plays it back through the bridge node as a received call from the pseudo callsign "ECHO TEST" (no talkgroup, no DMR ID). It proves the audio path of the node, USRP, the engine and the md380 vocoder in both directions. Its engine mode id is `LOOP`; it is always enabled while digital modes are enabled, so it has no Enable card, and a `LOOP` entry in an older `networks.json` is ignored. Not to be confused with the **BrandMeister Parrot** (TG 9990 on BrandMeister), a service of the real network that is called from the BrandMeister mode on the dashboard.
 
 **Using it.** Settings, Digital Modes, *Audio*: press *Start echo test*, key up, talk, unkey, and you hear yourself back a second later. While it runs the dashboard card says "Echo test running" (it has no mode button there) and *Now calling* and *Last heard* show the playback as "Echo test". *Stop* switches back to the mode that was in effect before you started (the page remembers it; failing that, the last mode from `GET /api/dv/resume`, then the first enabled mode), and that mode's remembered talkgroup or reflector is tuned again, as when you switch modes on the dashboard. The Echo test is never remembered as the last mode, so a restart does not come back in it. Starting and stopping use `POST /api/dv/mode` (operator or admin).

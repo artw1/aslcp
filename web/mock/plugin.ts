@@ -36,9 +36,13 @@ const MODES: ModeDef[] = [
     fields: [{ key: 'id', label: 'DMR ID', kind: 'number', required: true, stationDefault: 'dmrId' }] },
   { name: 'nxdn', title: 'NXDN', targetLabel: 'Talkgroup', targetHelp: 'An NXDN reflector talkgroup.', needsHost: true, targets: ['65000'],
     fields: [{ key: 'id', label: 'NXDN ID', kind: 'number', required: true, stationDefault: 'nxdnId' }] },
+  { name: 'echotest', title: 'Echo test', targetLabel: 'Target', targetHelp: 'The echo test has no target.', targets: [],
+    fields: [{ key: 'codec', label: 'Codec', kind: 'select', options: ['plain', 'ambe', 'imbe', 'codec2', 'gsm', 'ulaw'], default: 'plain', help: 'What the recording goes through before it is played back. Plain is the radio audio unchanged; ambe needs the vocoder.' },
+      { key: 'playback_delay_ms', label: 'Playback delay (ms)', kind: 'number', advanced: true, default: '1000' }] },
   { name: 'm17', title: 'M17', targetLabel: 'Reflector and module', targetHelp: 'A reflector and module, for example M17-XXX C.', needsHost: true, targets: ['M17-XXX C'],
     fields: [{ key: 'callsign', label: 'Callsign', kind: 'text', required: true, default: 'N0CALL' }, { key: 'module', label: 'Module', kind: 'select', options: ['A', 'B', 'C', 'D'], default: 'C' }] },
 ];
+const ambeNeeded = (d: ModeDef) => AMBE_MODES.includes(d.name) || (d.name === 'echotest' && (values.echotest?.codec ?? 'plain').toLowerCase() === 'ambe');
 const defOf = (n: string) => MODES.find((m) => m.name === n);
 const values: Record<string, Record<string, string>> = {
   allstar: { node: '1999', server: 'register.example.net' }, echolink: { callsign: 'N0CALL-L' }, bm: { id: '1234567', master: 'master.example.net' }, ysf: { callsign: 'N0CALL' },
@@ -95,9 +99,15 @@ const heard: HeardRow[] = CALLERS.slice(0, 6).map((c, i) => ({ mode: c.mode, cal
 const now = () => Date.now();
 const iso = (t: number) => new Date(t).toISOString();
 
+const inputLevel = () => {
+  const t = Date.now() / 1000, on = cos || Math.sin(t / 3) > 0.2;
+  const peakDb = on ? -14 + 10 * Math.sin(t * 2.3) + Math.random() * 2 : -90;
+  return { peakDb, rmsDb: on ? peakDb - 9 : -90, cos };
+};
 const nodeJSON = () => ({
   callsign: station.callsign || undefined, started,
-  radio: { present: radioPresent && resolved().audio, ptt, cos, preset: resolved().preset, ...usbChip, detected: radioPresent, sa818: resolved().sa818 },
+  echoTest: { at: iso(now() - 30e3), frames: 160, durationMs: 3200, peakDb: -9.4, rmsDb: -21.8, voicedFrames: 142, clipped: 0 },
+  radio: { present: radioPresent && resolved().audio, level: inputLevel(), ptt, cos, preset: resolved().preset, ...usbChip, detected: radioPresent, sa818: resolved().sa818 },
   active: active || undefined, since: active ? since : undefined,
   mode: active ? modeStatus(active) : undefined,
   id: { enabled: station.id.enabled, owed: false, last: iso(now() - 240e3) },
@@ -114,7 +124,7 @@ function modeStatus(name: string) {
   };
 }
 const modeList = (role: string) => MODES.map((d) => ({
-  name: d.name, title: d.title, targetLabel: d.targetLabel, targetHelp: d.targetHelp, needsHost: d.needsHost, ...(AMBE_MODES.includes(d.name) ? { needsAmbe: true } : {}),
+  name: d.name, title: d.title, targetLabel: d.targetLabel, targetHelp: d.targetHelp, needsHost: d.needsHost, ...(ambeNeeded(d) ? { needsAmbe: true } : {}),
   ...(role === 'admin' ? { fields: d.fields, settings: { values: Object.fromEntries(Object.entries(values[d.name] ?? {})) }, secretsSet: secrets[d.name] ?? {} } : {}),
   configured: isConfigured(d), active: d.name === active, status: modeStatus(d.name),
 }));
@@ -290,7 +300,7 @@ export function mockApi(): Plugin {
         const isAdmin = user.role === 'admin', canOp = user.role !== 'viewer';
         const forbid = () => err(res, 403, 'forbidden', 'forbidden');
         let mm: RegExpExecArray | null;
-        if (handleVocoder({ m, p, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
+        if (handleVocoder({ extra: () => (ambeNeeded(defOf('echotest')!) ? ['echotest'] : []), m, p, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleWifi({ m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleSystem({ m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }), file: (name, text) => { res.statusCode = 200; res.setHeader('Content-Type', 'application/gzip'); res.setHeader('Content-Disposition', `attachment; filename="${name}"`); res.end(text); } })) return;
 
@@ -370,6 +380,11 @@ export function mockApi(): Plugin {
           if (m === 'PUT') { if (!isAdmin) return forbid(); if (typeof body.rxVolume === 'number') station.radio.rxVolume = body.rxVolume; if (typeof body.txVolume === 'number') station.radio.txVolume = body.txVolume; }
           if (!radioPresent) return err(res, 404, 'this node has no radio', 'no_radio');
           return json(res, 200, radioLevels());
+        }
+        if (p === '/radio/input' && m === 'GET') {
+          if (!isAdmin) return forbid();
+          if (!radioPresent) return err(res, 404, 'this node has no radio', 'no_radio');
+          return json(res, 200, inputLevel());
         }
         if (p === '/radio/info' && m === 'GET') {
           if (!isAdmin) return forbid();

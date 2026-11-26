@@ -136,6 +136,19 @@ func (b *Base) SetRegistration(r *Registration) {
 	b.mu.Unlock()
 }
 
+// SetLevels records the level report of the last recording (nil clears it).
+func (b *Base) SetLevels(r *audio.Report) {
+	b.mu.Lock()
+	if r == nil {
+		b.st.Levels = nil
+	} else {
+		c := *r
+		c.Warnings = append([]string(nil), r.Warnings...)
+		b.st.Levels = &c
+	}
+	b.mu.Unlock()
+}
+
 // TalkStart records that t started talking. A talker already marked is
 // ended first when it is someone else; the same talker only updates.
 func (b *Base) TalkStart(t Talker) {
@@ -245,6 +258,11 @@ func (b *Base) Status() Status {
 		st.Registration = &r
 	}
 	st.Links = append([]string(nil), st.Links...)
+	if st.Levels != nil {
+		r := *st.Levels
+		r.Warnings = append([]string(nil), r.Warnings...)
+		st.Levels = &r
+	}
 	return st
 }
 

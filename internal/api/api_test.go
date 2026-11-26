@@ -1291,3 +1291,25 @@ func TestSSENodeRestart(t *testing.T) {
 		return ev.name == "node" && json.Unmarshal([]byte(ev.data), &n) == nil && n.Running
 	})
 }
+
+func TestRadioInputLevel(t *testing.T) {
+	e := newEnv(t, opts{})
+	var l struct {
+		PeakDb, RMSDb *float64
+		COS           *bool
+	}
+	if c := e.do("admin", "GET", "/api/radio/input", nil, &l); c != 200 {
+		t.Fatal(c)
+	}
+	if l.PeakDb == nil || l.RMSDb == nil || l.COS == nil || *l.PeakDb != -90 {
+		t.Fatalf("%+v", l)
+	}
+	// The level is in the node status too.
+	var n struct {
+		Radio struct{ Level map[string]any }
+	}
+	if c := e.do("viewer", "GET", "/api/node", nil, &n); c != 200 || n.Radio.Level["peakDb"] == nil {
+		t.Fatalf("%d %+v", c, n)
+	}
+	expectErr(t, e, "viewer", "GET", "/api/radio/input", nil, 403, "forbidden")
+}

@@ -9,7 +9,7 @@ import (
 // The modes whose network carries AMBE voice are the ones that need the
 // md380-emu vocoder; P25 (IMBE) and M17 (Codec2) are computed in Go.
 func TestSpecNeedsAMBE(t *testing.T) {
-	want := map[string]bool{mode.BM: true, mode.TGIF: true, mode.DMR: true, mode.YSF: true, mode.NXDN: true, mode.EchoTest: true}
+	want := map[string]bool{mode.BM: true, mode.TGIF: true, mode.DMR: true, mode.YSF: true, mode.NXDN: true}
 	n := 0
 	for _, d := range defs {
 		sp := d.spec()
