@@ -30,6 +30,7 @@ func (s *Server) systemRoutes() {
 	s.systemLogsRoutes()
 	s.systemNetRoutes()
 	s.systemSvcRoutes()
+	s.systemNodeRoutes()
 	s.systemWifiRoutes()
 	s.systemTerminalRoutes()
 	s.systemDiagRoutes()

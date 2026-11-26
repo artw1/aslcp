@@ -439,4 +439,3 @@ func TestInstallArchCheckBeforeChanges(t *testing.T) {
 		}
 	}
 }
-

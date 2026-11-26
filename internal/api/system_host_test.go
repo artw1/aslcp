@@ -13,9 +13,10 @@ import (
 
 // fakeSys is the System tab helper; it records the calls that change things.
 type fakeSys struct {
-	mu    sync.Mutex
-	host  helper.HostStatus
-	calls []string
+	mu         sync.Mutex
+	host       helper.HostStatus
+	calls      []string
+	restartErr error // NodeRestart answers this
 }
 
 func newFakeSys() *fakeSys {
@@ -50,8 +51,9 @@ func (f *fakeSys) Logs(_ context.Context, unit string, lines int, since string) 
 	return helper.LogsResult{Unit: unit, Lines: lines, Since: since, Text: "line\n", Available: true}, nil
 }
 func (f *fakeSys) Services(context.Context) (helper.ServicesResult, error) {
-	return helper.ServicesResult{Available: true, Services: []helper.ServiceState{{Unit: "asterisk.service", Active: "active"}}}, nil
+	return helper.ServicesResult{Available: true, Services: []helper.ServiceState{{Unit: "aslcp.service", Active: "active"}, {Unit: "aslcp-node.service", Active: "active", Sub: "running"}}}, nil
 }
+func (f *fakeSys) NodeRestart(context.Context) error { f.rec("node-restart"); return f.restartErr }
 func (f *fakeSys) Network(context.Context) (helper.NetStatus, error) {
 	return helper.NetStatus{Available: true, Interfaces: []helper.NetIface{{Name: "eth0", State: "UP"}}}, nil
 }
@@ -60,7 +62,7 @@ func TestSystemRoles(t *testing.T) {
 	e := newEnv(t, opts{sysHost: newFakeSys()})
 	for _, ep := range [][2]string{
 		{"GET", "/api/system/host"}, {"PUT", "/api/system/host"}, {"GET", "/api/system/timezones"}, {"POST", "/api/system/poweroff"},
-		{"GET", "/api/system/logs?unit=asterisk"}, {"GET", "/api/system/services"}, {"GET", "/api/system/network"}, {"GET", "/api/audit"},
+		{"GET", "/api/system/logs?unit=aslcp-node"}, {"GET", "/api/system/node-service"}, {"POST", "/api/system/node-service/restart"}, {"GET", "/api/system/services"}, {"GET", "/api/system/network"}, {"GET", "/api/audit"},
 	} {
 		for _, role := range []string{"op", "viewer"} {
 			var body any
@@ -159,7 +161,7 @@ func TestSystemLogsServicesNetwork(t *testing.T) {
 		t.Fatalf("%d %v", c, units)
 	}
 	var sv helper.ServicesResult
-	if c := e.do("admin", "GET", "/api/system/services", nil, &sv); c != 200 || len(sv.Services) != 1 {
+	if c := e.do("admin", "GET", "/api/system/services", nil, &sv); c != 200 || len(sv.Services) != 2 {
 		t.Fatalf("%d %+v", c, sv)
 	}
 	var ns helper.NetStatus

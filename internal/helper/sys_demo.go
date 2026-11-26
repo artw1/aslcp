@@ -106,7 +106,7 @@ func (d *DemoSystem) Services(context.Context) (ServicesResult, error) {
 	}
 	return ServicesResult{Available: true, Services: []ServiceState{
 		mk("aslcp-node.service", "ASLCP native node (one radio, one network mode)", "enabled"),
-		mk("aslcp.service", "ASLCP web control panel for AllStarLink", "enabled"),
+		mk("aslcp.service", "ASLCP web control panel", "enabled"),
 		{Unit: "aslcp-helper.service", Desc: "ASLCP privileged helper", Active: "inactive", Sub: "dead", Enabled: "static"},
 		mk("NetworkManager.service", "Network Manager", "enabled"),
 		mk("cockpit.socket", "Cockpit Web Service Socket", "enabled"),
