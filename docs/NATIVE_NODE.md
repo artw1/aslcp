@@ -1,0 +1,269 @@
+# Replacing ASL3 with a native ASLCP node
+
+Research notes, 2026-11-26. Sizes and times are estimates, not measured from a prototype.
+
+## Goal
+
+Register on AllStarLink, get a node number, install ASLCP, enter a few numbers and passwords, and be on AllStar and EchoLink. DV setup stays as it is today.
+
+| Field | From |
+| --- | --- |
+| Callsign | License |
+| AllStar node number and node password | AllStarLink portal |
+| EchoLink callsign (with or without -L) and password | EchoLink account |
+| Radio frequency and CTCSS/DCS | Written to the SA818; skipped for a radioless node |
+
+**Outbound only.** The node makes connections; it does not take them. AllStar out needs no port forwarding: our node starts the IAX2 call, the router keeps the reply path open, and the far node's IP check matches because registration and the call leave from the same public IP. EchoLink out works behind most home routers the same way. Incoming IAX2 calls are refused, so there is no public port to secure.
+
+**Later, only if problems show up:** UPnP or NAT-PMP port opening, EchoLink proxy or relay fallback for strict NAT, and hints for -L/-R callsigns.
+
+## Summary
+
+Replacing ASL3 entirely is a large project: about 12k–21k lines of Go plus 5k–8k lines of tests for the end-user scope (outbound only, one link, EchoLink, SHARI, DV, no DTMF or hub features). For one developer that is roughly 6–10 months, or 3–5 months for a first usable node (IAX2 linking, registration and the SHARI radio, simplex). These are estimates, not measured from a prototype.
+
+- **Biggest code piece:** IAX2 linking that interoperates with every app\_rpt node, about 3k–5k lines (client only).
+- **Biggest non-code risks:** undocumented app\_rpt link frames and EchoLink details, and AllStarLink's position on non-app\_rpt nodes. Third-party clients already register in node mode, which suggests it is allowed.
+- **Registration pitfall:** a node that only registers when it starts can be refused by other nodes for up to 15 minutes. A node registered continuously, as ASL3 does, is not.
+
+**Recommendation:** keep Asterisk for IAX2 linking first and move the radio side (SimpleUSB, EchoLink) into Go over USRP, about 4k–6.5k lines. Build native registration and IAX2 on a test node in parallel, and cut over only after a long soak with Asterisk kept as the rollback.
+
+## What ASLCP uses from ASL3 today
+
+ASLCP touches many files but does little with them: about 4 AMI actions, 10 CLI strings, 1 event family, 9 config files, 2 systemd units and one UDP bridge. About 3,500 lines of ASLCP Go exist only to talk to or configure Asterisk. All radio, linking, audio and EchoLink behavior lives in Asterisk.
+
+| Area | What ASLCP uses | Where |
+| --- | --- | --- |
+| AMI transport | Login, `Command` action, `Events: call` filter, credentials from manager.conf | `internal/ami/` |
+| Status | `RptLocalNodes`, `RptStatus` (RptStat, XStat, SawStat, NodeStat), `RPT_*` events | `internal/rpt/client.go`, `events.go`, `monitor.go` |
+| Control | `rpt cmd <local> ilink <code> <target>` only (codes 1, 2, 3, 6, 8, 11, 12, 13, 18) | `internal/rpt/client.go` |
+| Lifecycle | `core show uptime`, `core show version`, `core restart gracefully`, per-file module reloads | `internal/rpt/`, `internal/configsvc/reload.go` |
+| Config files | rpt.conf, simpleusb.conf, usbradio.conf (record only), iax.conf, echolink.conf, extensions.conf, modules.conf, manager.conf, rpt\_http\_registrations.conf | `internal/astconf/`, `internal/configsvc/` |
+| Services | `asterisk` restart and journal; allmon3, apache2, cockpit only switched off | `internal/helper/` |
+| Audio tuning | chan\_simpleusb's tune menu over the CLI (`susb tune menu-support`, `susb tune save`) | `internal/susb/` |
+| DV bridge node | chan\_usrp over loopback UDP, a rpt.conf stanza, a permanent `ilink 13` link | `internal/dv/usrp/`, `internal/astconf/bridge.go` |
+| Node list and stats | Node directory download and public stats polling; never registration, extnodes or astdb | `internal/nodelist/`, `internal/favstats/` |
+
+ASLCP never sends `rpt fun`, `rpt macro`, playback or DTMF commands. It only reads status and issues ilink, which keeps the control surface a replacement must offer very narrow. The DV bridge already sits behind a small USRP interface, so it is the easiest piece to move.
+
+## Replacement pieces
+
+IAX2 linking is the largest and riskiest piece; the radio side is bounded and well documented. The DV engine gives scaffolding only: the 20 ms pacer, call state machine, AGC and meters, UDP client patterns and test fakes. It has no resampler, jitter buffer, G.711, GSM, IAX2, RTP, HID or ALSA code.
+
+| Piece | Size | Go lines | Main risk |
+| --- | --- | --- | --- |
+| IAX2 client, outgoing only (call token, MD5 auth, ulaw, jitter buffer, keepalives) | XL | 3,000–5,000 | Interop with every app\_rpt node; no public port to secure |
+| app\_rpt link text conventions (link lists, keyup) | M | 600–1,200 | Undocumented; needs packet captures and the app\_rpt source |
+| Simplex node logic (COS/PTT, timeout, hang, ID, courtesy tone; no DTMF) | M | 1,500–2,500 | Matching app\_rpt behavior people expect |
+| Radio interface for SHARI (USB sound chip audio, HID PTT/COS, resampling, AGC and levels, SA818 programming) | M–L | 2,000–3,000 | Clock drift and audio quality |
+| EchoLink, required (directory login, UDP 5198/5199, GSM) | M–L | 1,800–2,800 | Directory strings and timers not documented |
+| Registration and node lookup (stats posting later, opt-in) | S–M | 500–900 | Low; stats posting is opt-in and comes later |
+| Radioless node and link mixer | S | 300–500 | Low: one link at a time, no hub mixing |
+| DV bridge integration | S | 200–400 | Low |
+| ASLCP migration (new state source, config, backup) | L | 2,500–5,000 changed, 3,500 deleted | UI and API mostly kept |
+| Tests, fakes, captures, soak | L | 6,000–9,000 | Realistically the larger half of the work |
+
+Left out on purpose: remote base and autopatch. Lost unless rebuilt: the app\_rpt web transceiver, Allmon3 and Supermon compatibility (they read AMI; not needed, ASLCP replaces them), and community troubleshooting knowledge.
+
+## Middle paths
+
+Keeping Asterisk for IAX2 linking and moving the radio side into Go is much easier, at about 4,000–6,500 lines.
+
+- **A. Keep Asterisk for linking (recommended first).** Go owns SimpleUSB, EchoLink and the DV engine, and talks to Asterisk over USRP, the pattern the DV bridge already uses. ID, telemetry and timers stay in app\_rpt, so the Go side must send keyup and DTMF through USRP. Asterisk, AMI and the reload code stay.
+- **B. The reverse (not recommended).** Replacing IAX2 but keeping the channel drivers fails because app\_rpt couples link logic with keying, mixing and ID. The Go stack would end up as another bridge node.
+- **C. A sidecar IAX2 endpoint (not recommended).** It carries the full IAX2 and registration risk for little gain.
+
+Path A also builds pieces a later IAX2 slice needs: the audio device, resampler, GSM codec, mixer, and tone and ID generation.
+
+## Minimum native node
+
+ASLCP needs a small part of what Asterisk and app\_rpt offer: AllStar linking, EchoLink, one radio and the DV bridge. It is an end-user node with one link at a time, not a hub. Everything else stays out.
+
+**Must have**
+
+1. **IAX2 subset.** Call setup, call token, MD5 auth, ulaw audio, keepalives and hangup, outgoing only; incoming calls are refused. No SIP, dialplan or codec translation.
+2. **app\_rpt link text.** Link lists and keyup messages, so other nodes and dashboards see who is linked and talking. Links work without them, but we would look like an empty node.
+3. **Registration and lookup.** The HTTPS registration in Registration spec, plus the SRV/A lookup of the nodes we link to.
+4. **EchoLink (required).** Directory login, UDP 5198/5199 and GSM. It is a mode of its own next to AllStar and DV, not an optional extra.
+5. **Mixer.** One AllStar link at a time (a hub we link to still arrives as one stream), EchoLink, the radio and the DV bridge in one mix, never echoing a source back to itself. Jitter buffer, timeout timer, hang time.
+6. **Radio.** The SHARI interface (see Radio hardware below); a radioless node skips it.
+7. **ID.** Required for an RF node: at least every 10 minutes and at the end of a QSO, CW or a voice file. Courtesy tone optional.
+8. **DV bridge.** Audio goes straight into the mixer instead of through Asterisk over USRP.
+
+**One audio path we own.** With every source in our own process, the same AGC, levels and meters the DV module uses apply to every leg: radio to network, network to radio, EchoLink and DV. No more tuning levels in chan\_simpleusb and again in the DV engine.
+
+**Left out on purpose:** dialplan, SIP, voicemail, CDR, AMI, autopatch, remote base, macros, the scheduler, DTMF commands (none are used today; maybe later) and most telemetry voice files apart from the ID. Stats posting comes later as an opt-in setting.
+
+**Radio hardware (SHARI).** The SHARI pairs the SA818 radio module with two USB chips:
+
+| Part | Job | Native node |
+| --- | --- | --- |
+| SA818 | The radio: transmit, receive, squelch, CTCSS/DCS | Nothing at run time; it just keys and opens squelch |
+| USB sound chip (CM108B on our SHARI) | Audio both ways; its GPIO pins key PTT and read COS (the SA818's squelch line) | Our audio and HID code, replacing chan\_simpleusb, with our AGC |
+| USB serial (usually CH340) | Programs the SA818: frequency, tones, squelch, volume, filters | An SA818 settings page, replacing `sa818-menu` |
+
+The SA818 cannot report its settings back, so we keep our own copy, as `/etc/sa818.conf` does today.
+
+## Lessons from QSO One
+
+A node that registers only when it starts can be refused by other nodes for 5–15 minutes; a continuously registered ASL3 node connects at once. QSO One in Node Mode shows exactly this: some nodes refuse it for 5–10 minutes after login, while its Web Transceiver mode and a normal ASL3 node work right away. QSO One itself says a new registration can take up to 15 minutes to reach every node.
+
+**How a node checks an incoming link (app\_rpt source).**
+
+- `rpt_exec()` in `apps/app_rpt.c` calls `node_lookup()`, then checks the caller's IP against the registered IP for its node number.
+- Lookup order: the local `[nodes]` stanza, then DNS (`_iax._udp.<node>.nodes.allstarlink.org` SRV, then the A record), then the downloaded `rpt_extnodes` file (`apps/app_rpt/rpt_config.c`).
+- A refusal logs `Node N IP x does not match link IP y!!` or `Reported node N cannot be found!!`.
+- Web Transceiver calls arrive in `[allstar-public]`, are checked by token against AllStarLink's API, then run `Rpt(N,X)`. The `X` option skips the IP check, so WT is never delayed.
+
+**Timing.**
+
+| Source of the delay | Duration |
+| --- | --- |
+| Positive DNS record cache (Route 53) | 60 s |
+| Negative cache of "not found" (Route 53 SOA record TTL; zone minimum is 86400) | up to 900 s (15 min) |
+| ASL3 node list file refresh | 3–5 min |
+| ASL2 node list refresh | about 10 min |
+| HamVOIP (its own DNS) | misses reportedly cached indefinitely |
+
+**What we observed.** While QSO One was logged in, an `asl-node-lookup` of its node number on our SHARI node found no SRV, A or TXT record and no local entry; the link was refused. The `nodes.allstarlink.org` zone is served by Amazon Route 53. Not yet measured: how long after login the record appears on the authoritative server.
+
+**Why ASL3 has no delay.** It registers over HTTPS every minute, around the clock, from the same IP, so its DNS record always exists and always matches. Starting ASL3 creates nothing new for other nodes to learn.
+
+## Registration design for our native node
+
+Our node registers the way ASL3 does, continuously, so no other node ever caches it as unknown. HTTP registration is small (a few hundred lines of Go) and easy to test, because the DNS record either appears or it does not.
+
+- **Always registered.** Register over HTTPS from service start and refresh every 60 s (ASL3's default; its shipped config uses 180 s), even with no links up. Mirror `res/res_rpt_http_registrations.c` in ASL3; the wire format is in Registration spec below.
+- **One IP for everything.** Registration and IAX2 run in one process and leave from the same public address. Re-register at once when the public IP changes.
+- **No links before DNS.** At startup, query our own SRV record on the authoritative Route 53 server. Until it shows our current IP, the UI shows "registering…" and outgoing links wait, so no node caches "not found" for us.
+- **Keep the existing node number.** Replacing ASL3 on the same node number and IP means the record already exists and matches, so cutover adds no delay.
+- **Clean handover.** Asterisk and our node cannot both register and listen on the same node number and port. Cutover stops Asterisk's registration before ours starts; rollback does the reverse.
+- **Plan for change.** ASL3 is moving toward key-based authentication, which would replace the IP check.
+
+## Registration spec
+
+ASL3 registers with one HTTPS POST per node to `https://register.allstarlink.org/`, repeated every 60 s by default (180 s in the shipped config); the server takes our IP from the connection. Taken from `res/res_rpt_http_registrations.c` at app\_rpt commit `d881a6b`; items marked unknown are server-side and cannot be read from the client.
+
+**Config** (`/etc/asterisk/rpt_http_registrations.conf`)
+
+| Setting | Section | Default | Notes |
+| --- | --- | --- | --- |
+| `register_interval` | `[general]` | 60 s | Shipped config sets 180. Invalid value keeps 60. |
+| `register => node:password@host[:port]` | `[registrations]` | none | One line per node. The optional port is the registrar's HTTPS port, not the IAX port. A password with `:` or `@` cannot be written. |
+
+**Request**
+
+- `POST https://<host>/` (or `https://<host>:<port>/`); path always `/`, HTTPS only, redirects not followed.
+- Headers: `Content-Type: application/json`; User-Agent is Asterisk's libcurl agent string (believed `asterisk-libcurl-agent/1.0`, not verified). No auth header.
+- Body, one node per request:
+
+```json
+{"port":4569,"data":{"nodes":{"1999":{"node":"1999","passwd":"secret","remote":0}}}}
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `port` | int, optional | IAX `bindport` from iax.conf; omitted if unknown |
+| `data.nodes.<n>.node` | string | Node number |
+| `data.nodes.<n>.passwd` | string | Node password, plaintext inside TLS |
+| `data.nodes.<n>.remote` | int | Always 0; meaning unknown |
+
+**Response**
+
+- JSON with `ipaddr` (the IP the server sees), `port`, `refresh` and `data`.
+- Success = the re-serialized `data` contains the substring `successfully registered`. A 2xx reply without it sets "Not Registered".
+- Non-2xx, transport errors and non-JSON bodies leave the state unchanged, so ASL3 can show "Registered" after failures. We should track the last success time ourselves.
+
+**Timing**
+
+- Registers at startup, then every interval + 1 s measured from the start of each cycle.
+- 15 s connect and total timeouts; no retry, backoff or jitter; the server's `refresh` is ignored for scheduling.
+- A reload re-registers at once. Shutdown sends no unregister; the registration lapses on the server.
+
+**IP and DNS**
+
+- The client never sends an IP; the server uses the HTTPS source address (docs: hotspot proxies register the proxy's IP). The module does not force IPv4. Our Go client should dial `tcp4` until IPv6 is confirmed, since DNS publishes only A records.
+- Docs: registrations reach `nodes.allstarlink.org` DNS "within 60 seconds"; SRV TTL 30 s, A TTL 60 s. The legacy node list is CDN cached for 300 s.
+- Records stay for an unknown time after a node stops registering. ASL3's health check flags "not registered in last 10 minutes".
+- Register by one method only, HTTP or IAX, never both.
+
+**Status to mirror in our UI.** `rpt show registrations` prints Host, Username, Perceived (ip:port or `<Unregistered>`), Refresh and State. We add last attempt, last success, last error and HTTP status.
+
+**Security.** TLS verification on, system CA store. The password sits in plaintext in the conf file and ASL3 logs it at debug level 2; we never log the body.
+
+**Unknown (server side)**
+
+- [ ] Exact success and failure `data` strings, and error codes for a bad password or unknown node
+- [ ] Source IP only, or `X-Forwarded-For` too; IPv6 policy
+- [ ] Meaning of `remote`
+- [ ] Whether one request may carry several nodes
+- [ ] Rate limits for intervals under 60 s or repeated bad passwords
+- [ ] Registration expiry and how long DNS records persist
+- [ ] Whether the server probes the IAX port
+
+**Go sketch** (wire format only, not production code)
+
+```go
+type nodeEntry struct {
+	Node   string `json:"node"`
+	Passwd string `json:"passwd"`
+	Remote int    `json:"remote"` // always 0
+}
+type regBody struct {
+	Port int `json:"port,omitempty"` // IAX bindport
+	Data struct {
+		Nodes map[string]nodeEntry `json:"nodes"`
+	} `json:"data"`
+}
+type regReply struct {
+	IPAddr  string          `json:"ipaddr"`
+	Port    int             `json:"port"`
+	Refresh int             `json:"refresh"`
+	Data    json.RawMessage `json:"data"`
+}
+
+// ok = bytes.Contains(reply.Data, []byte("successfully registered"))
+// POST with a 15 s timeout, no redirects, tcp4 dialer; loop every interval+1 s.
+```
+
+Source: [res\_rpt\_http\_registrations.c](https://github.com/AllStarLink/app_rpt/blob/d881a6bf2e825efbb0d122985d1606892eb7fb55/res/res_rpt_http_registrations.c), [rpt\_http\_registrations.conf](https://github.com/AllStarLink/app_rpt/blob/d881a6bf2e825efbb0d122985d1606892eb7fb55/configs/rpt/rpt_http_registrations.conf), and the ASL3 manual pages on HTTP registration, IAX registration, DNS servers and the API.
+
+## Order of work and open questions
+
+Start with feasibility and the radio side; the native IAX2 node runs on a test node number until it has soaked for weeks.
+
+1. **Feasibility (1–2 weeks, no node code).** Ask AllStarLink about non-app\_rpt registration and stats posting. Capture IAX2 between two ASL3 test nodes and an EchoLink session as test vectors. ~~Write the registration spec from the ASL3 source.~~ Done, see Registration spec.
+2. **Path A: radio side in Go.** The SHARI radio interface and EchoLink as Go components talking USRP to Asterisk, with the DV module's AGC on every leg. Port the tune page to the native device and add SA818 programming.
+3. **Native registration.** The continuous HTTPS registration and DNS check from the section above, on a test node number.
+4. **IAX2 link, radioless node.** Framing, call token, MD5, ulaw, jitter buffer, keyup, link lists; the DV bridge attached through the existing USRP interface. Run beside Asterisk.
+5. **Simplex node logic.** COS/PTT, timeout, hang, ID, courtesy tone and announcements. DTMF control later, if ever needed.
+6. **Parity and cutover.** Opt-in stats posting, config migration, backup and restore, rollback to Asterisk, a security review (no inbound ports), a soak of several weeks.
+
+Keep the API and UI behind a `Node` interface backed today by `internal/rpt`, so each step ships without a UI rewrite.
+
+**Open questions**
+
+- [x] Answered: no DTMF functions or macros are used from RF. DTMF control can come later.
+- [x] Answered: public maps and stats are optional, an opt-in setting (off by default).
+- [x] Answered: either works. The protocol is the same; the callsign, with or without -L, is just a setting.
+- [x] Answered: one. This is an end-user node, not a hub.
+- [x] Answered: our SHARI's sound chip is a CM108B (USB ID 0d8c:0012, already on chan\_simpleusb's supported list). Pins are stock: COS from the chip's inverted input (carrierfrom = usbinvert), CTCSS input off, PTT not inverted.
+- [x] Answered: no. ASLCP does not use them at run time; it only switches Allmon3 off, can back up its config, and can import favorites from an AllScan or Supermon install. Its public page replaces their public pages.
+
+## Sources
+
+Code references point into the ASLCP repository; size estimates are rough and not measured from a prototype.
+
+- [AllStarLink/app\_rpt](https://github.com/AllStarLink/app_rpt) — `apps/app_rpt.c`, `apps/app_rpt/rpt_config.c`, `res/res_rpt_http_registrations.c`, `configs/rpt/extensions.conf`
+- [asl3-update-nodelist](https://github.com/AllStarLink/asl3-update-nodelist)
+- [ASL docs: DNS servers](https://allstarlink.github.io/adv-topics/dns-servers)
+- [ASL docs: node resolution](https://allstarlink.github.io/adv-topics/noderesolution)
+- [QSO One is much more stable now](https://community.allstarlink.org/t/qso-one-is-much-more-stable-now-still-looking-for-more-beta-testers-to-get-all-the-edge-cases/24651)
+- [QSO One: looking for beta testers](https://community.allstarlink.org/t/looking-for-beta-testers/24526)
+- [Can't create server to get started as a new user](https://community.allstarlink.org/t/cant-create-server-to-get-started-as-a-new-user/24926)
+- [IP address check and reject on attempt to connect](https://community.allstarlink.org/t/ip-address-check-and-reject-on-attempt-to-connect/16985)
+- [IP address does not match, stale DNS entry](https://community.allstarlink.org/t/ip-address-does-not-match-stale-dns-entry/22231)
+- [Unable to connect to certain nodes](https://community.allstarlink.org/t/unable-to-connect-to-certain-nodes/17662)
+- [Registration issues](https://community.allstarlink.org/t/registration-issues/10648)
+- [Can't connect to HamVOIP node](https://community.allstarlink.org/t/cant-connect-to-hamvoip-node/24494)
+- [ASL3 software update 2025-11-14](https://community.allstarlink.org/t/allstarlink-v3-software-update-release-2025-11-14/23960)
+- [nodes.allstarlink.org DNS service update](https://community.allstarlink.org/t/nodes-allstarlink-org-dns-service-update/21879)
