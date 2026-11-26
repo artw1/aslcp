@@ -43,7 +43,8 @@ const (
 	cmdQueue = 16
 )
 
-// USRP is the endpoint as the router uses it (*usrp.Endpoint implements it).
+// USRP is the audio endpoint as the router uses it. *usrp.Endpoint implements
+// it over chan_usrp; LocalEndpoint implements it in process for the native node.
 type USRP interface {
 	Rx() <-chan usrp.Packet
 	SendVoice(pcm [usrp.Samples]int16)
@@ -1171,7 +1172,7 @@ func (r *Router) Reload(ctx context.Context) (ctl.Status, error) {
 // address and timeout are applied by the caller (Options.Reload hook).
 func (r *Router) apply(cfg ctl.Config) {
 	if cfg.USRP.Listen != r.cfg.USRP.Listen || cfg.USRP.Peer != r.cfg.USRP.Peer {
-		r.log.Printf("config: usrp addresses changed; restart aslcp-dv to apply")
+		r.log.Printf("config: usrp addresses changed; restart the engine to apply")
 		cfg.USRP.Listen, cfg.USRP.Peer = r.cfg.USRP.Listen, r.cfg.USRP.Peer
 	}
 	identityChanged := !reflect.DeepEqual(cfg.Identity, r.cfg.Identity)
