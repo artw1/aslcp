@@ -1,0 +1,340 @@
+package mode
+
+import (
+	"errors"
+	"fmt"
+	"log/slog"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+// FieldKind says how the UI should edit a Field.
+type FieldKind string
+
+// Field kinds.
+const (
+	FieldText     FieldKind = "text"
+	FieldNumber   FieldKind = "number"
+	FieldPassword FieldKind = "password"
+	FieldBool     FieldKind = "bool"
+	FieldSelect   FieldKind = "select"
+)
+
+// Field is one setting of a mode.
+type Field struct {
+	Key      string    `json:"key"`
+	Label    string    `json:"label"`
+	Kind     FieldKind `json:"kind"`
+	Required bool      `json:"required,omitempty"`
+	// Secret fields are never returned by the control API. Saving an
+	// empty value keeps the stored one.
+	Secret   bool     `json:"secret,omitempty"`
+	Default  string   `json:"default,omitempty"`
+	Options  []string `json:"options,omitempty"` // FieldSelect choices
+	Help     string   `json:"help,omitempty"`
+	Advanced bool     `json:"advanced,omitempty"`
+}
+
+// Settings is what the operator saved for one mode.
+type Settings struct {
+	// Values holds the Field values by Key.
+	Values map[string]string `json:"values,omitempty"`
+	// Favorites are targets the operator saved for quick selection.
+	Favorites []Target `json:"favorites,omitempty"`
+	// Reflectors maps target IDs to addresses for modes that connect to a
+	// host (YSF, P25, NXDN, M17), so a target can be picked by ID alone.
+	Reflectors []Target `json:"reflectors,omitempty"`
+}
+
+// Get returns the value of key, or def when it is unset or blank.
+func (s Settings) Get(key, def string) string {
+	if v, ok := s.Values[key]; ok && strings.TrimSpace(v) != "" {
+		return strings.TrimSpace(v)
+	}
+	return def
+}
+
+// Int returns key as an integer, or def when it is unset.
+func (s Settings) Int(key string, def int) (int, error) {
+	v := s.Get(key, "")
+	if v == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %q is not a whole number", key, v)
+	}
+	return n, nil
+}
+
+// Bool returns key as a boolean, or def when it is unset.
+func (s Settings) Bool(key string, def bool) (bool, error) {
+	v := s.Get(key, "")
+	if v == "" {
+		return def, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("%s: %q is not true or false", key, v)
+	}
+	return b, nil
+}
+
+// Clone returns a deep copy.
+func (s Settings) Clone() Settings {
+	out := Settings{
+		Favorites:  append([]Target(nil), s.Favorites...),
+		Reflectors: append([]Target(nil), s.Reflectors...),
+	}
+	if s.Values != nil {
+		out.Values = make(map[string]string, len(s.Values))
+		for k, v := range s.Values {
+			out.Values[k] = v
+		}
+	}
+	return out
+}
+
+// Reflector looks id up in Reflectors (case-insensitive).
+func (s Settings) Reflector(id string) (Target, bool) {
+	for _, r := range s.Reflectors {
+		if strings.EqualFold(strings.TrimSpace(r.ID), strings.TrimSpace(id)) {
+			return r, true
+		}
+	}
+	return Target{}, false
+}
+
+// Env is what the node gives every mode.
+type Env struct {
+	// Callsign is the station callsign.
+	Callsign string
+	// Log is where the mode logs. Never log a password.
+	Log *slog.Logger
+	// Now is the clock (time.Now when nil).
+	Now func() time.Time
+	// MD380 is the address of the md380-emu AMBE vocoder (DMR and YSF).
+	MD380 string
+	// MD380Timeout bounds one vocoder request (0 = the vocoder default).
+	MD380Timeout time.Duration
+}
+
+// Logger returns e.Log, or a logger that discards.
+func (e Env) Logger() *slog.Logger {
+	if e.Log != nil {
+		return e.Log
+	}
+	return slog.New(slog.DiscardHandler)
+}
+
+// Clock returns e.Now, or time.Now.
+func (e Env) Clock() func() time.Time {
+	if e.Now != nil {
+		return e.Now
+	}
+	return time.Now
+}
+
+// Spec describes a mode: its settings and how to build it.
+type Spec struct {
+	Name  string `json:"name"`
+	Title string `json:"title"`
+	// TargetLabel and TargetHelp tell the UI what a Target ID is for
+	// this mode ("Node", "Talkgroup", ...).
+	TargetLabel string  `json:"targetLabel"`
+	TargetHelp  string  `json:"targetHelp,omitempty"`
+	Fields      []Field `json:"fields"`
+	// NeedsHost: targets need an address (from Reflectors or Target.Host).
+	NeedsHost bool `json:"needsHost,omitempty"`
+	// Validate checks settings beyond Required fields (optional).
+	Validate func(Settings) error `json:"-"`
+	// New builds the mode from validated settings.
+	New func(Env, Settings) (Mode, error) `json:"-"`
+}
+
+// Field returns the field with key.
+func (sp Spec) Field(key string) (Field, bool) {
+	for _, f := range sp.Fields {
+		if f.Key == key {
+			return f, true
+		}
+	}
+	return Field{}, false
+}
+
+// Check validates s against the spec: required fields, numbers, booleans,
+// select choices, then Validate. All problems are reported together.
+func (sp Spec) Check(s Settings) error {
+	var errs []error
+	for _, f := range sp.Fields {
+		v := s.Get(f.Key, f.Default)
+		if v == "" {
+			if f.Required {
+				errs = append(errs, fmt.Errorf("%s: %s is required", sp.Title, f.Label))
+			}
+			continue
+		}
+		switch f.Kind {
+		case FieldNumber:
+			if _, err := strconv.Atoi(v); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %s must be a whole number", sp.Title, f.Label))
+			}
+		case FieldBool:
+			if _, err := strconv.ParseBool(v); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %s must be true or false", sp.Title, f.Label))
+			}
+		case FieldSelect:
+			ok := false
+			for _, o := range f.Options {
+				if strings.EqualFold(o, v) {
+					ok = true
+				}
+			}
+			if !ok {
+				errs = append(errs, fmt.Errorf("%s: %s must be one of %s", sp.Title, f.Label, strings.Join(f.Options, ", ")))
+			}
+		}
+	}
+	for k := range s.Values {
+		if _, ok := sp.Field(k); !ok {
+			errs = append(errs, fmt.Errorf("%s: unknown setting %q", sp.Title, k))
+		}
+	}
+	if len(errs) == 0 && sp.Validate != nil {
+		if err := sp.Validate(s); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", sp.Title, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// Redact returns s with every Secret field blanked, for the control API.
+// A blank secret that is set reads as "set" in the second return value.
+func (sp Spec) Redact(s Settings) (Settings, map[string]bool) {
+	out := s.Clone()
+	set := map[string]bool{}
+	for _, f := range sp.Fields {
+		if !f.Secret {
+			continue
+		}
+		if out.Values[f.Key] != "" {
+			set[f.Key] = true
+		}
+		delete(out.Values, f.Key)
+	}
+	return out, set
+}
+
+// Merge applies an update from the control API onto old: secrets left
+// blank in upd keep their old values. Favorites and Reflectors are taken
+// from upd when it has them (nil keeps the old list).
+func (sp Spec) Merge(old, upd Settings) Settings {
+	out := upd.Clone()
+	if out.Values == nil {
+		out.Values = map[string]string{}
+	}
+	for _, f := range sp.Fields {
+		if f.Secret && strings.TrimSpace(out.Values[f.Key]) == "" && old.Values[f.Key] != "" {
+			out.Values[f.Key] = old.Values[f.Key]
+		}
+	}
+	for k, v := range out.Values {
+		if strings.TrimSpace(v) == "" {
+			delete(out.Values, k)
+		}
+	}
+	if upd.Favorites == nil {
+		out.Favorites = append([]Target(nil), old.Favorites...)
+	}
+	if upd.Reflectors == nil {
+		out.Reflectors = append([]Target(nil), old.Reflectors...)
+	}
+	return out
+}
+
+// Secrets returns every non-empty secret value in s, so a logger can scrub
+// them.
+func (sp Spec) Secrets(s Settings) []string {
+	var out []string
+	for _, f := range sp.Fields {
+		if f.Secret && s.Values[f.Key] != "" {
+			out = append(out, s.Values[f.Key])
+		}
+	}
+	return out
+}
+
+var (
+	regMu sync.RWMutex
+	reg   = map[string]Spec{}
+)
+
+// Register adds a mode. Mode packages call it from init. It panics on a
+// duplicate or incomplete spec.
+func Register(sp Spec) {
+	if sp.Name == "" || sp.New == nil {
+		panic("mode: Register needs a Name and New")
+	}
+	regMu.Lock()
+	defer regMu.Unlock()
+	if _, dup := reg[sp.Name]; dup {
+		panic("mode: duplicate " + sp.Name)
+	}
+	reg[sp.Name] = sp
+}
+
+// Lookup returns the spec of a registered mode.
+func Lookup(name string) (Spec, bool) {
+	regMu.RLock()
+	defer regMu.RUnlock()
+	sp, ok := reg[name]
+	return sp, ok
+}
+
+// order is the display order; unknown names sort after it by name.
+var order = []string{AllStar, EchoLink, BM, TGIF, DMR, YSF, P25, NXDN, M17, EchoTest}
+
+// Specs returns every registered mode in display order.
+func Specs() []Spec {
+	regMu.RLock()
+	defer regMu.RUnlock()
+	rank := func(n string) int {
+		for i, o := range order {
+			if o == n {
+				return i
+			}
+		}
+		return len(order)
+	}
+	out := make([]Spec, 0, len(reg))
+	for _, sp := range reg {
+		out = append(out, sp)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		ri, rj := rank(out[i].Name), rank(out[j].Name)
+		if ri != rj {
+			return ri < rj
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+// Build checks s and builds the named mode.
+func Build(name string, env Env, s Settings) (Mode, error) {
+	sp, ok := Lookup(name)
+	if !ok {
+		return nil, fmt.Errorf("mode %q is not available", name)
+	}
+	if err := sp.Check(s); err != nil {
+		return nil, err
+	}
+	m, err := sp.New(env, s)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", sp.Title, err)
+	}
+	return m, nil
+}
