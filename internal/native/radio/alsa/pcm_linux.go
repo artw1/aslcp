@@ -31,8 +31,9 @@ func PCMPath(card, device int, dir Direction) string {
 	return fmt.Sprintf("/dev/snd/pcmC%dD%d%c", card, device, c)
 }
 
-// Params selects the hardware format. The zero value means 48000 Hz mono with
-// a 10 ms period and an 80 ms buffer.
+// Params selects the hardware format. The zero value means 48000 Hz with a
+// 10 ms period and an 80 ms buffer, mono if the device takes it and stereo
+// otherwise (see OpenPCM).
 type Params struct {
 	Rate         int
 	Channels     int
@@ -43,9 +44,6 @@ type Params struct {
 func (p Params) withDefaults() Params {
 	if p.Rate == 0 {
 		p.Rate = hwRate
-	}
-	if p.Channels == 0 {
-		p.Channels = 1
 	}
 	if p.PeriodFrames == 0 {
 		p.PeriodFrames = 480
@@ -69,20 +67,33 @@ type PCM struct {
 }
 
 // OpenPCM opens path and configures it. The stream is left prepared; capture
-// starts on the first Read and playback on the first Write.
+// starts on the first Read and playback on the first Write. When par.Channels
+// is 0 it tries mono first and then stereo (CM108-family playback is stereo
+// only); Channels reports what was granted.
 func OpenPCM(path string, dir Direction, par Params) (*PCM, error) {
 	par = par.withDefaults()
-	fd, err := unix.Open(path, unix.O_RDWR|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return nil, fmt.Errorf("alsa: open %s: %w", path, err)
+	tries := []int{par.Channels}
+	if par.Channels == 0 {
+		tries = []int{1, 2}
 	}
-	p := &PCM{fd: fd, dir: dir, par: par}
-	if err := p.configure(); err != nil {
+	var lastErr error
+	for _, ch := range tries {
+		par.Channels = ch
+		fd, err := unix.Open(path, unix.O_RDWR|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+		if err != nil {
+			return nil, fmt.Errorf("alsa: open %s: %w", path, err)
+		}
+		p := &PCM{fd: fd, dir: dir, par: par}
+		if lastErr = p.configure(); lastErr == nil {
+			return p, nil
+		}
 		unix.Close(fd)
-		return nil, fmt.Errorf("alsa: configure %s: %w", path, err)
 	}
-	return p, nil
+	return nil, fmt.Errorf("alsa: configure %s: %w", path, lastErr)
 }
+
+// Channels reports the channel count the stream was configured with.
+func (p *PCM) Channels() int { return p.par.Channels }
 
 func (p *PCM) configure() error {
 	var ver int32
