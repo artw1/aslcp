@@ -6,16 +6,20 @@
   import { toast, toastError } from '../lib/toast.svelte';
   import { draftOf, missingField, savePayload, dirty, modeTitle } from '../lib/modes';
   import { stationBody, validateStation } from '../lib/station';
-  import type { ModeInfo, Station } from '../lib/types';
+  import { detectedLabel, hasSA818, isShari, pinError, radioBody, resolveInterface } from '../lib/radio';
+  import type { ModeInfo, RadioInfo, Station } from '../lib/types';
   import StationFields from './StationFields.svelte';
+  import RadioPicker from './RadioPicker.svelte';
   import ModeFields from './ModeFields.svelte';
   import Radio from '@lucide/svelte/icons/radio';
 
-  let st = $state<Station | null>(null);
+  let st = $state<Station | null>(null), info = $state<RadioInfo | null>(null);
   let drafts = $state<Record<string, Record<string, string>>>({});
   let err = $state(''), busy = $state(false), loaded = $state(false);
   const modes = $derived(app.modes.filter((m) => (m.fields ?? []).length > 0));
-  const radio = $derived(app.node?.radio.present ?? true);
+  // The channel fields show only when the chosen interface programs an SA818; an old node without info keeps the old rule.
+  const iface = $derived(st && info ? resolveInterface(st.radio, info.presets, isShari(info)) : undefined);
+  const radio = $derived(info ? hasSA818(iface) : (app.node?.radio.present ?? true));
 
   async function load() {
     try {
@@ -23,6 +27,7 @@
       st = { ...s, radio: { ...s.radio }, id: { ...s.id } };
       app.modes = m ?? [];
       for (const x of app.modes) drafts[x.name] = draftOf(x);
+      try { info = await api.radioInfo(); } catch { /* an old node has no info */ }
       loaded = true;
     } catch (e) { err = e instanceof Error ? e.message : String(e); }
   }
@@ -31,7 +36,7 @@
   async function finish(ev: Event) {
     ev.preventDefault();
     if (!st) return;
-    err = validateStation(st, radio);
+    err = validateStation(st, radio) || (info ? pinError(iface) : '');
     if (err) return;
     for (const m of modes) {
       if (!dirty(m, drafts[m.name] ?? {})) continue;
@@ -45,7 +50,9 @@
         if (!dirty(m, d)) continue;
         await api.saveMode(m.name, { values: savePayload(m.fields ?? [], d) });
       }
-      await api.saveStation(stationBody(st, radio));
+      const body = stationBody(st, radio);
+      if (info) body.radio = radioBody(body.radio, info.presets, isShari(info));
+      await api.saveStation(body);
       await refreshModes();
       await refreshNode();
       toast('Station saved');
@@ -66,10 +73,16 @@
         <h2 class="text-base font-semibold">Station</h2>
         <StationFields bind:st {radio} idPrefix="setup" />
       </section>
+      {#if info}
+        <section class="card space-y-3 p-4" aria-label="Radio interface">
+          <h2 class="text-base font-semibold">Radio interface</h2>
+          <RadioPicker bind:st {info} idPrefix="setup-rp" />
+        </section>
+      {/if}
       <section class="card space-y-1 p-4" aria-label="Hardware">
         <h2 class="text-base font-semibold">Detected hardware</h2>
         <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-          <dt class="text-muted">Radio</dt><dd>{radio ? 'Present' : 'None (the node runs without a radio)'}</dd>
+          <dt class="text-muted">Radio</dt><dd>{info ? (detectedLabel(info) || 'No USB radio interface found') : (app.node?.radio.present ?? true) ? 'Present' : 'None (the node runs without a radio)'}</dd>
           {#if radio && st.radio.sa818Port}<dt class="text-muted">SA818 port</dt><dd class="font-mono">{st.radio.sa818Port}</dd>{/if}
         </dl>
       </section>

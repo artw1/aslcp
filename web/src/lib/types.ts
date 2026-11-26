@@ -34,7 +34,11 @@ export interface ModeStatus {
 }
 export interface NodeJSON {
   callsign?: string; started: string;
-  radio: { present: boolean; ptt: boolean; cos: boolean; rxLocked?: boolean; txLocked?: boolean };
+  radio: {
+    present: boolean; ptt: boolean; cos: boolean; rxLocked?: boolean; txLocked?: boolean;
+    /** The preset in use and the interface found (chip name, USB id). */
+    preset?: string; chip?: string; usbId?: string; product?: string; detected?: boolean; sa818?: boolean;
+  };
   /** The active mode ("" or absent when the node is idle) and its status. */
   active?: string; since?: string; mode?: ModeStatus; registration?: Registration;
   id: { enabled: boolean; owed: boolean; due?: string; last?: string; why?: string };
@@ -63,11 +67,25 @@ export interface Station {
   callsign?: string;
   radio: {
     frequencyMHz?: number; tone?: string; squelch?: number; narrow?: boolean; rxVolume?: number; txVolume?: number;
-    pttGpio?: number; pttActiveLow?: boolean; cosActiveLow?: boolean; sa818Port?: string;
+    /** "", "shari", "uri" or "none"; empty is automatic. The settings below override the preset's; unset keeps the preset's. */
+    preset?: string;
+    pttGpio?: number; pttActiveLow?: boolean; cosSource?: string; cosActiveLow?: boolean;
+    ctcssSource?: string; ctcssActiveLow?: boolean; sa818?: boolean; sa818Port?: string;
   };
   id: { enabled?: boolean; intervalS?: number; wpm?: number; pitchHz?: number; levelDb?: number };
   advanced: Record<string, unknown>;
   active?: { mode: string; target?: Target };
+}
+/** The settings of a radio interface (a preset's defaults, or what runs). */
+export interface RadioInterface {
+  preset: string; audio: boolean; pttPin: number; pttActiveLow: boolean; cos: string; cosActiveLow: boolean;
+  ctcss: string; ctcssActiveLow: boolean; sa818: boolean;
+}
+export interface RadioPreset { name: string; title: string; description: string; defaults: RadioInterface }
+/** GET /api/radio/info (admin). */
+export interface RadioInfo {
+  present: boolean; detected: boolean; chip?: string; usbId?: string; product?: string; busPath?: string; shari: boolean;
+  interface: RadioInterface; preset: string; presets: RadioPreset[]; resolved?: RadioInterface; restartRequired?: boolean;
 }
 export interface Reading { RMSDb: number; PeakDb: number; Active: boolean; Clipped: number; Frames: number }
 /** GET and PUT /api/radio: the sound chip's levels. -1 means the chip has no such control. */

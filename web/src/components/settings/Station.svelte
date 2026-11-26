@@ -7,7 +7,8 @@
   import StationFields from '../StationFields.svelte';
 
   let st = $state<Station | null>(null), err = $state(''), busy = $state(false);
-  const radio = $derived(app.node?.radio.present ?? true);
+  // The channel fields belong here only when the node programs an SA818.
+  const radio = $derived(app.node?.radio.sa818 ?? app.node?.radio.present ?? true);
   async function load() { try { const s = await api.station(); st = { ...s, radio: { ...s.radio }, id: { ...s.id } }; } catch (e) { toastError(e); } }
   $effect(() => { load(); });
   async function save(ev: Event) {

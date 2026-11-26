@@ -53,10 +53,26 @@ const HOSTS: Record<string, { value: string; name: string; detail?: string; addr
 };
 
 // ---- Station and node state.
-const station = { callsign: 'N0CALL', radio: { frequencyMHz: 146.52, tone: '100.0', squelch: 4, narrow: false, rxVolume: 60, txVolume: 55, pttGpio: 17, pttActiveLow: false, cosActiveLow: false, sa818Port: '/dev/ttyUSB0' }, id: { enabled: true, intervalS: 600, wpm: 20, pitchHz: 800, levelDb: -12 } };
+const station = { callsign: 'N0CALL', radio: { frequencyMHz: 146.52, tone: '100.0', squelch: 4, narrow: false, rxVolume: 60, txVolume: 55, preset: '', sa818Port: '/dev/ttyUSB0' }, id: { enabled: true, intervalS: 600, wpm: 20, pitchHz: 800, levelDb: -12 } };
 let stationSet = process.env.MOCK_STATION_SETUP !== '1';
 if (!stationSet) station.callsign = '';
 const radioPresent = process.env.MOCK_NO_RADIO !== '1';
+// The radio interface presets, as the node lists them. MOCK_NO_RADIO=1 is a node with no USB interface.
+const iface = (preset: string, audio: boolean, o: Record<string, unknown>) => ({ preset, audio, pttPin: 0, pttActiveLow: false, cos: 'none', cosActiveLow: false, ctcss: 'none', ctcssActiveLow: false, sa818: false, ...o });
+const presets = [
+  { name: 'shari', title: 'SHARI', description: 'The SHARI board: a CM108B sound chip and an SA818 radio module. PTT on GPIO3, carrier from GPIO2 (volume down) present when high, no CTCSS input. The node programs the SA818.', defaults: iface('shari', true, { pttPin: 3, cos: 'gpio2', sa818: true }) },
+  { name: 'uri', title: 'USB interface (URI-style)', description: 'A CM108 or CM119 USB interface wired to an external radio, such as a URI-style or RA-style board. PTT on GPIO3, carrier from GPIO2 (volume down) present when low, no CTCSS input. Set the frequency and tones on the radio.', defaults: iface('uri', true, { pttPin: 3, cos: 'gpio2', cosActiveLow: true }) },
+  { name: 'none', title: 'None (radioless)', description: 'No radio. The node links modes with no audio to or from a radio.', defaults: iface('none', false, {}) },
+];
+const usbChip = radioPresent ? { chip: 'CM108B', usbId: '0d8c:0012', product: 'USB Audio Device' } : {};
+/** The settings the saved station would run with (the mock applies a save at once). */
+const resolved = () => {
+  const r = station.radio as Record<string, any>;
+  const name = r.preset || (radioPresent ? 'shari' : 'none');
+  const d = presets.find((x) => x.name === name)!.defaults;
+  if (!d.audio) return { ...d };
+  return { ...d, pttPin: r.pttGpio || d.pttPin, pttActiveLow: r.pttActiveLow ?? d.pttActiveLow, cos: r.cosSource || d.cos, cosActiveLow: r.cosActiveLow ?? d.cosActiveLow, ctcss: r.ctcssSource || d.ctcss, ctcssActiveLow: r.ctcssActiveLow ?? d.ctcssActiveLow, sa818: r.sa818 ?? d.sa818 };
+};
 const started = new Date(Date.now() - 5 * 3600e3).toISOString();
 let active = 'allstar', target = '1000', state: 'idle' | 'connecting' | 'connected' = 'connected', since = new Date(Date.now() - 1800e3).toISOString();
 let nodeRunning = true, ptt = false, cos = false;
@@ -79,7 +95,7 @@ const iso = (t: number) => new Date(t).toISOString();
 
 const nodeJSON = () => ({
   callsign: station.callsign || undefined, started,
-  radio: { present: radioPresent, ptt, cos },
+  radio: { present: radioPresent && resolved().audio, ptt, cos, preset: resolved().preset, ...usbChip, detected: radioPresent, sa818: resolved().sa818 },
   active: active || undefined, since: active ? since : undefined,
   mode: active ? modeStatus(active) : undefined,
   id: { enabled: station.id.enabled, owed: false, last: iso(now() - 240e3) },
@@ -312,7 +328,10 @@ export function mockApi(): Plugin {
           if (m === 'PUT') {
             if (!/^[A-Za-z0-9/]{3,12}$/.test(String(body.callsign ?? ''))) return err(res, 400, 'enter the station callsign', 'bad_request');
             station.callsign = String(body.callsign).toUpperCase();
-            if (body.radio) Object.assign(station.radio, body.radio);
+            if (body.radio) {
+              for (const k of ['preset', 'pttGpio', 'pttActiveLow', 'cosSource', 'cosActiveLow', 'ctcssSource', 'ctcssActiveLow', 'sa818']) delete (station.radio as Record<string, unknown>)[k];
+              Object.assign(station.radio, body.radio);
+            }
             if (body.id) Object.assign(station.id, body.id);
             stationSet = true; pushNode(); return json(res, 200, nodeJSON());
           }
@@ -342,6 +361,11 @@ export function mockApi(): Plugin {
           if (m === 'PUT') { if (!isAdmin) return forbid(); if (typeof body.rxVolume === 'number') station.radio.rxVolume = body.rxVolume; if (typeof body.txVolume === 'number') station.radio.txVolume = body.txVolume; }
           if (!radioPresent) return err(res, 404, 'this node has no radio', 'no_radio');
           return json(res, 200, radioLevels());
+        }
+        if (p === '/radio/info' && m === 'GET') {
+          if (!isAdmin) return forbid();
+          const r = resolved();
+          return json(res, 200, { present: radioPresent && r.audio, detected: radioPresent, ...usbChip, shari: radioPresent, interface: r, preset: station.radio.preset ?? '', presets, resolved: r });
         }
         if (p === '/radio/program' && m === 'POST') { if (!isAdmin) return forbid(); return json(res, 200, nodeJSON()); }
         if (p === '/hostlists' && m === 'GET') {
