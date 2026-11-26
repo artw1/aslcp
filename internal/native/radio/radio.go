@@ -55,8 +55,8 @@ type Radio interface {
 	Close() error
 }
 
-// Config tells Open what to use. The zero value detects everything and uses
-// the SHARI defaults.
+// Config tells Open what to use. The zero value detects everything: a SHARI
+// is used with the SHARI preset, and without one the node has no radio.
 type Config struct {
 	// SysRoot and DevRoot default to /sys and /dev; tests point them at a
 	// fake tree.
@@ -64,13 +64,11 @@ type Config struct {
 	// BusPath selects one USB sound chip when several are plugged in.
 	BusPath string
 
-	// PTTGPIO is the CM108 pin that keys the radio (1 to 4). Default 3.
-	PTTGPIO int
-	// PTTActiveLow drives the pin low to transmit.
-	PTTActiveLow bool
-	// COSActiveLow reads the carrier as present when the input is low. The
-	// default is the SHARI wiring (carrier present when high).
-	COSActiveLow bool
+	// Preset picks the interface settings; the empty preset means the SHARI
+	// when one is detected, otherwise none. Overrides change single
+	// settings of the preset.
+	Preset    Preset
+	Overrides Overrides
 
 	// InitialVolumes, when not nil, sets the sound chip mixer at Open.
 	InitialVolumes *Volumes
@@ -79,6 +77,26 @@ type Config struct {
 	// the applied settings are saved to (default sa818.DefaultStatePath).
 	SA818Port      string
 	SA818StatePath string
+}
+
+// Info says what Open found and how it set the interface up.
+type Info struct {
+	// Present is true when a real radio interface was opened. It is false
+	// for the none preset, which runs the [Fake].
+	Present bool `json:"present"`
+	// Interface is the settings in use (the resolved preset and overrides).
+	Interface Interface `json:"interface"`
+	// Detected is true when a supported USB sound chip is plugged in,
+	// whether or not the preset uses it. Chip, USBID, Product and BusPath
+	// describe it.
+	Detected bool   `json:"detected"`
+	Chip     string `json:"chip,omitempty"`
+	USBID    string `json:"usbId,omitempty"`
+	Product  string `json:"product,omitempty"`
+	BusPath  string `json:"busPath,omitempty"`
+	// SHARI is true when the detected hardware looks like a SHARI: a CM108B
+	// chip, or any supported chip beside the SA818's serial bridge.
+	SHARI bool `json:"shari"`
 }
 
 // Volumes is a pair of mixer positions, 0 to 1.

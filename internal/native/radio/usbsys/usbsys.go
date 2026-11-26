@@ -74,6 +74,19 @@ func List(root string) ([]Device, error) {
 // Find returns the devices whose id is in ids. When busPath is not empty only
 // the device with that bus path ("1-1.2") is returned.
 func Find(root string, ids []ID, busPath string) ([]Device, error) {
+	return FindFunc(root, func(id ID) bool {
+		for _, w := range ids {
+			if id == w {
+				return true
+			}
+		}
+		return false
+	}, busPath)
+}
+
+// FindFunc is like [Find] but takes a matcher, for id families such as
+// "every product 0x6a00 to 0x6aff".
+func FindFunc(root string, match func(ID) bool, busPath string) ([]Device, error) {
 	all, err := List(root)
 	if err != nil {
 		return nil, err
@@ -83,11 +96,8 @@ func Find(root string, ids []ID, busPath string) ([]Device, error) {
 		if busPath != "" && d.Name != busPath {
 			continue
 		}
-		for _, id := range ids {
-			if d.ID == id {
-				out = append(out, d)
-				break
-			}
+		if match(d.ID) {
+			out = append(out, d)
 		}
 	}
 	return out, nil

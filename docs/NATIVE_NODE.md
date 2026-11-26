@@ -112,6 +112,16 @@ ASLCP needs a small part of what Asterisk and app\_rpt offer: AllStar linking, E
 
 The SA818 cannot report its settings back, so we keep our own copy, as `/etc/sa818.conf` does today.
 
+**USB radio interfaces and presets.** The radio side is one USB driver with presets, not a SHARI special case. Any C-Media CM108, CM108AH, CM108B, CM109, CM119, CM119A or CM119B sound chip (USB vendor `0d8c`, the products chan\_simpleusb accepts, plus the 0x6a00 to 0x6aff range some small makers use) is detected from sysfs, with its hidraw node and ALSA card. A preset fills in the settings, and each can be overridden in the station's radio settings (`/etc/aslcp/node.json`, `station.radio`):
+
+| Preset | PTT | COS (carrier) | CTCSS input | SA818 |
+| --- | --- | --- | --- | --- |
+| `shari` | GPIO3, not inverted | GPIO2 (volume down), present when high (`carrierfrom=usbinvert`) | none (`ctcssfrom=no`) | programmed by the node |
+| `uri` (generic CM108/CM119 board on an external radio, URI-style or RA-style) | GPIO3, not inverted | GPIO2 (volume down), present when low (`carrierfrom=usb`) | none | no: set frequency and tone on the radio |
+| `none` | no PTT | none | none | no (radioless: the fake radio, no audio) |
+
+The pins are the chip's four GPIOs, which the HID input byte reports as volume up (GPIO1), volume down (GPIO2), mute playback (GPIO3) and mute record (GPIO4). COS can also be `none` (never a carrier) or `always` (squelch held open). When a CTCSS input is set, the carrier needs both COS and the tone input, as simpleusb does with `ctcssfrom`. The "active low" settings are simpleusb's `invertptt` and `carrierfrom=usb`. SA818 programming, the frequency, the tone and the squelch level apply only when the interface has an SA818; otherwise they are hidden because they are set on the external radio. A config with no preset keeps today's behavior: the SHARI when one is detected (a CM108B chip, or a CH340 serial bridge beside any supported chip), otherwise none. VOX squelch is not implemented.
+
 ## Lessons from QSO One
 
 A node that registers only when it starts can be refused by other nodes for 5–15 minutes; a continuously registered ASL3 node connects at once. QSO One in Node Mode shows exactly this: some nodes refuse it for 5–10 minutes after login, while its Web Transceiver mode and a normal ASL3 node work right away. QSO One itself says a new registration can take up to 15 minutes to reach every node.

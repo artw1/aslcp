@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/artw1/aslcp/internal/native/radio/usbsys"
 )
 
 func TestGPIOBit(t *testing.T) {
@@ -350,5 +352,160 @@ func TestPollLoopWithRealTicker(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("no COS release from poll loop")
+	}
+}
+
+func TestSenseEveryPinAndPolarity(t *testing.T) {
+	for n := 1; n <= 4; n++ {
+		src := PinSource(n)
+		bit := byte(1) << (n - 1)
+		if src.Pin() != n || !src.Valid() {
+			t.Fatalf("PinSource(%d) = %q", n, src)
+		}
+		for in := 0; in < 16; in++ {
+			b := byte(in)
+			high := b&bit != 0
+			if got := Sense(b, src, false); got != high {
+				t.Errorf("gpio%d in %#x active high: %v", n, b, got)
+			}
+			if got := Sense(b, src, true); got != !high {
+				t.Errorf("gpio%d in %#x active low: %v", n, b, got)
+			}
+		}
+	}
+	for in := 0; in < 16; in++ {
+		for _, low := range []bool{false, true} {
+			if Sense(byte(in), SourceNone, low) || Sense(byte(in), "", low) {
+				t.Error("none is present")
+			}
+			if !Sense(byte(in), SourceAlways, low) {
+				t.Error("always is absent")
+			}
+		}
+	}
+	if (Source("gpio5")).Valid() || Source("").Valid() || (Source("gpio5")).Pin() != 0 || PinSource(0) != SourceNone {
+		t.Error("bad source accepted")
+	}
+	// The legacy helper is GPIO2 (volume down).
+	if !Carrier(InVolumeDown, false) || Carrier(InVolumeDown, true) || !Carrier(0, true) {
+		t.Error("Carrier changed")
+	}
+}
+
+func TestSquelchWithCTCSS(t *testing.T) {
+	q := Squelch{COS: SourceGPIO2, CTCSS: SourceGPIO1}
+	tests := []struct {
+		in   byte
+		want bool
+	}{{0x00, false}, {0x02, false}, {0x01, false}, {0x03, true}, {0x0e, false}, {0x0f, true}}
+	for _, tc := range tests {
+		if got := q.Carrier(tc.in); got != tc.want {
+			t.Errorf("in %#x: %v", tc.in, got)
+		}
+	}
+	q = Squelch{COS: SourceGPIO2, COSActiveLow: true, CTCSS: SourceGPIO4, CTCSSActiveLow: true}
+	if !q.Carrier(0x00) || q.Carrier(0x02) || q.Carrier(0x08) || !q.Carrier(0x05) {
+		t.Error("active low squelch")
+	}
+	for _, none := range []Source{"", SourceNone} {
+		q = Squelch{COS: SourceGPIO3, CTCSS: none}
+		if !q.Carrier(0x04) || q.Carrier(0x00) {
+			t.Errorf("ctcss %q should be ignored", none)
+		}
+	}
+	if (Squelch{COS: SourceNone}).Carrier(0xff) || !(Squelch{COS: SourceAlways}).Carrier(0) {
+		t.Error("none and always")
+	}
+	if (Squelch{COS: SourceAlways, CTCSS: SourceGPIO1}).Carrier(0) {
+		t.Error("always COS still needs the CTCSS pin")
+	}
+}
+
+func TestDeviceCOSSources(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     Config
+		in      byte
+		carrier bool
+	}{
+		{"default gpio2 high", Config{}, 0x02, true},
+		{"default gpio2 low", Config{}, 0x00, false},
+		{"gpio1", Config{COS: SourceGPIO1}, 0x01, true},
+		{"gpio4 active low", Config{COS: SourceGPIO4, COSActiveLow: true}, 0x00, true},
+		{"gpio4 active low, high", Config{COS: SourceGPIO4, COSActiveLow: true}, 0x08, false},
+		{"always", Config{COS: SourceAlways}, 0x00, true},
+		{"none", Config{COS: SourceNone}, 0xff, false},
+		{"ctcss needed", Config{COS: SourceGPIO2, CTCSS: SourceGPIO1}, 0x02, false},
+		{"ctcss present", Config{COS: SourceGPIO2, CTCSS: SourceGPIO1}, 0x03, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.cfg.Clock = &manualClock{}
+			d, err := NewDevice(Info{}, &fakeHID{in: tc.in}, tc.cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer d.Close()
+			if d.COS() != tc.carrier {
+				t.Errorf("carrier = %v, want %v", d.COS(), tc.carrier)
+			}
+		})
+	}
+}
+
+func TestOutputMaskFollowsInputs(t *testing.T) {
+	tests := []struct {
+		cfg  Config
+		want byte
+	}{
+		{Config{}, 0x0c},                                     // GPIO3 PTT, GPIO4 out, COS gpio2 input
+		{Config{COS: SourceGPIO4}, 0x04},                     // gpio4 is an input now
+		{Config{COS: SourceGPIO1, CTCSS: SourceGPIO4}, 0x04}, //
+		{Config{PTTGPIO: 1, COS: SourceGPIO3}, 0x09},         // PTT gpio1, gpio3 input, gpio4 stays out
+		{Config{COS: SourceAlways, PTTGPIO: 2}, 0x0e},        // no input pins
+		{Config{OutputMask: 0x08, COS: SourceGPIO4}, 0x0c},   // an explicit mask is kept
+	}
+	for _, tc := range tests {
+		tc.cfg.Clock = &manualClock{}
+		h := &fakeHID{}
+		d, err := NewDevice(Info{}, h, tc.cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := h.last()[3]; got != tc.want {
+			t.Errorf("%+v: mask %#x, want %#x", tc.cfg, got, tc.want)
+		}
+		d.Close()
+	}
+}
+
+func TestDeviceRejectsBadPins(t *testing.T) {
+	for _, cfg := range []Config{
+		{COS: "gpio9"}, {CTCSS: SourceAlways}, {CTCSS: "x"},
+		{PTTGPIO: 3, COS: SourceGPIO3}, {PTTGPIO: 1, CTCSS: SourceGPIO1},
+		{COS: SourceGPIO1, CTCSS: SourceGPIO1},
+	} {
+		cfg.Clock = &manualClock{}
+		if _, err := NewDevice(Info{}, &fakeHID{}, cfg); err == nil {
+			t.Errorf("%+v accepted", cfg)
+		}
+	}
+}
+
+func TestIdentify(t *testing.T) {
+	good := map[uint16]string{
+		0x000c: "CM108", 0x000e: "CM109", 0x0008: "CM119", 0x0012: "CM108B", 0x013a: "CM119A", 0x013c: "CM108AH",
+		0x6a00: "CM108-compatible", 0x6a42: "CM108-compatible", 0x6aff: "CM108-compatible",
+	}
+	for p, name := range good {
+		got, ok := Identify(usbsys.ID{Vendor: 0x0d8c, Product: p})
+		if !ok || got != name {
+			t.Errorf("%04x: %q %v, want %q", p, got, ok, name)
+		}
+	}
+	for _, id := range []usbsys.ID{{Vendor: 0x0d8c, Product: 0x0010}, {Vendor: 0x0d8c, Product: 0x6b00}, {Vendor: 0x1234, Product: 0x000c}, {Vendor: 0x1234, Product: 0x6a00}} {
+		if Supported(id) {
+			t.Errorf("%v supported", id)
+		}
 	}
 }

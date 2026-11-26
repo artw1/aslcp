@@ -72,10 +72,15 @@ func Open(cfg Config) (*Device, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Until the chip reports, assume no carrier.
+	// Until the chip reports, assume no carrier: the COS pin at its
+	// inactive level.
 	var inactive byte
 	if cfg.COSActiveLow {
-		inactive = InVolumeDown
+		if b, err := GPIOBit(cfg.COS.Pin()); err == nil {
+			inactive = b
+		} else if cfg.COS == "" {
+			inactive = InVolumeDown
+		}
 	}
 	h, err := openHidraw(info.Hidraw, inactive)
 	if err != nil {

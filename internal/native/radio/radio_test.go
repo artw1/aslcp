@@ -341,9 +341,29 @@ func TestFake(t *testing.T) {
 func TestOpenNoRadio(t *testing.T) {
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, "bus", "usb", "devices"), 0o755)
-	_, err := Open(Config{SysRoot: root, DevRoot: root})
-	if !errors.Is(err, ErrNoRadio) {
-		t.Fatalf("err = %v, want ErrNoRadio", err)
+	// A preset that needs a chip fails with ErrNoRadio.
+	for _, p := range []Preset{PresetSHARI, PresetURI} {
+		_, info, err := Open(Config{SysRoot: root, DevRoot: root, Preset: p})
+		if !errors.Is(err, ErrNoRadio) || info.Present || info.Detected {
+			t.Fatalf("%s: info %+v err %v, want ErrNoRadio", p, info, err)
+		}
+		if info.Interface.Preset != p {
+			t.Errorf("%s: interface %+v", p, info.Interface)
+		}
+	}
+	// No preset and nothing plugged in is a radioless node, not an error.
+	for _, p := range []Preset{PresetAuto, PresetNone} {
+		r, info, err := Open(Config{SysRoot: root, DevRoot: root, Preset: p})
+		if err != nil || info.Present || info.Interface.Preset != PresetNone {
+			t.Fatalf("%q: info %+v err %v", p, info, err)
+		}
+		if _, ok := r.(*Fake); !ok {
+			t.Errorf("%q: radio is %T, want *Fake", p, r)
+		}
+		r.Close()
+	}
+	if _, _, err := Open(Config{SysRoot: root, DevRoot: root, Preset: "bogus"}); err == nil {
+		t.Error("unknown preset accepted")
 	}
 }
 

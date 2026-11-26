@@ -43,18 +43,30 @@ type Config struct {
 	// PTTActiveLow drives the pin low to transmit (chan_simpleusb invertptt).
 	PTTActiveLow bool
 	// OutputMask is the GPIO direction byte. The PTT pin is always added.
-	// Default [DefaultOutputMask].
+	// Default [DefaultOutputMask] without the pins read as COS or CTCSS.
 	OutputMask byte
+	// COS is where the carrier comes from. The default (empty) is GPIO2,
+	// the volume-down input, which is what the SHARI uses.
+	COS Source
 	// COSActiveLow means the carrier is present when the input is low
 	// (chan_simpleusb carrierfrom=usb). The default, false, is usbinvert:
 	// carrier present when the input is high, which is what the SHARI needs.
 	COSActiveLow bool
+	// CTCSS, when a pin, is a second input that must be present together
+	// with COS (chan_simpleusb ctcssfrom). Default none.
+	CTCSS          Source
+	CTCSSActiveLow bool
 	// Debounce is how long a COS change must hold. Default 30 ms.
 	Debounce time.Duration
 	// PollInterval is how often the input is sampled. Default 10 ms.
 	PollInterval time.Duration
 	// Clock defaults to the system clock.
 	Clock Clock
+}
+
+// squelch returns how the carrier is read.
+func (c Config) squelch() Squelch {
+	return Squelch{COS: c.COS, COSActiveLow: c.COSActiveLow, CTCSS: c.CTCSS, CTCSSActiveLow: c.CTCSSActiveLow}
 }
 
 func (c Config) withDefaults() (Config, byte, error) {
@@ -65,8 +77,33 @@ func (c Config) withDefaults() (Config, byte, error) {
 	if err != nil {
 		return c, 0, err
 	}
+	if c.COS == "" {
+		c.COS = SourceGPIO2
+	}
+	if c.CTCSS == "" {
+		c.CTCSS = SourceNone
+	}
+	if !c.COS.Valid() {
+		return c, 0, fmt.Errorf("cm108: COS source %q is not one of none, always, gpio1 to gpio4", c.COS)
+	}
+	if !c.CTCSS.Valid() || c.CTCSS == SourceAlways {
+		return c, 0, fmt.Errorf("cm108: CTCSS source %q is not one of none, gpio1 to gpio4", c.CTCSS)
+	}
+	for _, in := range []Source{c.COS, c.CTCSS} {
+		if in.Pin() == c.PTTGPIO {
+			return c, 0, fmt.Errorf("cm108: GPIO%d cannot be both the PTT output and an input", c.PTTGPIO)
+		}
+	}
+	if c.COS.Pin() != 0 && c.COS == c.CTCSS {
+		return c, 0, fmt.Errorf("cm108: COS and CTCSS cannot both use GPIO%d", c.COS.Pin())
+	}
 	if c.OutputMask == 0 {
 		c.OutputMask = DefaultOutputMask
+		for _, in := range []Source{c.COS, c.CTCSS} {
+			if b, err := GPIOBit(in.Pin()); err == nil {
+				c.OutputMask &^= b
+			}
+		}
 	}
 	c.OutputMask |= bit
 	if c.Debounce == 0 {
@@ -115,7 +152,9 @@ func NewDevice(info Info, hid HID, cfg Config) (*Device, error) {
 		return nil, fmt.Errorf("cm108: initialize outputs: %w", err)
 	}
 	if in, err := hid.Inputs(); err == nil {
-		d.cos = NewDebouncer(cfg.Debounce, Carrier(in, cfg.COSActiveLow))
+		d.cos = NewDebouncer(cfg.Debounce, cfg.squelch().Carrier(in))
+	} else if cfg.COS == SourceAlways {
+		d.cos = NewDebouncer(cfg.Debounce, true)
 	}
 	go d.run()
 	return d, nil
@@ -175,7 +214,7 @@ func (d *Device) poll() {
 	if err != nil {
 		return
 	}
-	d.step(d.cfg.Clock.Now(), Carrier(in, d.cfg.COSActiveLow))
+	d.step(d.cfg.Clock.Now(), d.cfg.squelch().Carrier(in))
 }
 
 // step feeds one raw carrier sample through the debouncer.
