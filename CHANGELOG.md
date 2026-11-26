@@ -3,6 +3,11 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [2.4.3] - 2026-11-27
+
+### Fixed
+- On the Dashboard the whole AllStar node tile now opens the ASL tab with the pointer cursor, like the DV tile. Before, only the top part of the tile was clickable and the rest showed the regular arrow. The Unlink buttons on the tile still work on their own.
+
 ## [2.4.2] - 2026-11-25
 
 ### Changed

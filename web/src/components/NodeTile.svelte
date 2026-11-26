@@ -1,5 +1,5 @@
 <script lang="ts">
-  // A node tile of the Dashboard and of the public page. With `onopen` the head is a button that opens the node; with `onunlink`
+  // A node tile of the Dashboard and of the public page. With `onopen` the whole tile is one link (like the DV tile) that opens the node; with `onunlink`
   // each linked node gets an Unlink button. Without both (the public page) it is a plain read-only card.
   import Unlink from '@lucide/svelte/icons/unlink';
   import { tileBorder, tileState } from '../lib/tiles';
@@ -24,12 +24,11 @@
   {/if}
 {/snippet}
 
-<div class="flex flex-col justify-start rounded-md border bg-surface {tileBorder(tile)} {selected ? 'ring-1 ring-accent' : ''}" data-testid="tile-{tile.node}">
-  {#if onopen}
-    <button type="button" class="w-full rounded-t-md px-3 pb-1 pt-2 text-left hover:bg-surface-2" onclick={onopen} aria-label="Node {tile.node}, open the ASL tab" data-testid="tile-open-{tile.node}">{@render head()}</button>
-  {:else}
-    <div class="px-3 pb-1 pt-2">{@render head()}</div>
-  {/if}
+<!-- svelte-ignore a11y_no_static_element_interactions: it is an <a> whenever it has a click handler -->
+<svelte:element this={onopen ? 'a' : 'div'} href={onopen ? '#/allstar' : undefined} onclick={onopen ? (e: Event) => { e.preventDefault(); onopen(); } : undefined}
+  class="flex flex-col justify-start rounded-md border bg-surface {onopen ? 'hover:bg-surface-2' : ''} {tileBorder(tile)} {selected ? 'ring-1 ring-accent' : ''}"
+  aria-label={onopen ? `Node ${tile.node}, open the ASL tab` : undefined} data-testid="tile-{tile.node}">
+  <div class="px-3 pb-1 pt-2" data-testid={onopen ? `tile-open-${tile.node}` : undefined}>{@render head()}</div>
   {#if tile.shown.length}
     <ul class="mx-3 mb-2 mt-0.5 space-y-0.5 border-t border-line pt-1.5 text-xs" aria-label="Links" data-testid="tile-links-{tile.node}">
       {#each tile.shown as l, i (l.node + '/' + i)}
@@ -37,11 +36,11 @@
           <span class="shrink-0 font-mono">{l.node}</span>
           <span class="min-w-0 flex-1 truncate text-muted">{l.label}</span>
           {#if onunlink}
-            <button type="button" class="btn btn-sm btn-bad-outline shrink-0 max-sm:min-h-11 pointer-coarse:min-h-11" disabled={busy} title="Unlink {l.node}" aria-label="Unlink {l.node}" data-testid="unlink-{tile.node}-{l.node}" onclick={() => onunlink(l.node)}><Unlink size={12} aria-hidden="true" />Unlink</button>
+            <button type="button" class="btn btn-sm btn-bad-outline shrink-0 max-sm:min-h-11 pointer-coarse:min-h-11" disabled={busy} title="Unlink {l.node}" aria-label="Unlink {l.node}" data-testid="unlink-{tile.node}-{l.node}" onclick={(e) => { e.preventDefault(); e.stopPropagation(); onunlink(l.node); }}><Unlink size={12} aria-hidden="true" />Unlink</button>
           {/if}
         </li>
       {/each}
       {#if tile.more}<li class="text-muted">+{tile.more} more</li>{/if}
     </ul>
   {/if}
-</div>
+</svelte:element>
