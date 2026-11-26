@@ -42,7 +42,7 @@ func TestDiagnostics(t *testing.T) {
 		return c
 	}})
 	e.srv.AddSecret(secret)
-	ring.Write([]byte("2026/11/15 login with secret=" + secret + " from 203.0.113.50\nplain mention " + secret + " here, peer K1ZZZ mail x@y.org\n"))
+	ring.Write([]byte("2026/11/15 login with secret=" + secret + " from 203.0.113.50\nplain mention " + secret + " here, peer N2CALL mail x@y.org\n"))
 	e.srv.AddSecret("late-resolved-secret")
 	ring.Write([]byte("oops late-resolved-secret\n"))
 
@@ -62,7 +62,7 @@ func TestDiagnostics(t *testing.T) {
 		t.Errorf("disposition %q", cd)
 	}
 	out := string(body)
-	for _, bad := range []string{secret, "late-resolved-secret", "203.0.113.50", "K1ZZZ", "x@y.org"} {
+	for _, bad := range []string{secret, "late-resolved-secret", "203.0.113.50", "N2CALL", "x@y.org"} {
 		if secret == "" || strings.Contains(out, bad) {
 			t.Errorf("diagnostics contains %q", bad)
 		}
