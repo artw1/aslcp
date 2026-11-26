@@ -1,5 +1,5 @@
 {
-  "version": "2.4.2",
-  "notes": "Merge pull request #37 from w1jar/try/menu-hierarchy\n\n2.4.2: stronger top menu, calls in progress in Now Calling, DMR names in Last heard",
-  "date": "2026-11-25"
+  "version": "2.4.3",
+  "notes": "Merge pull request #38 from w1jar/try/dashboard-asl-card\n\nDashboard: the whole ASL tile is one click target",
+  "date": "2026-11-26"
 }
