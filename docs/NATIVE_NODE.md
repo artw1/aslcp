@@ -86,7 +86,7 @@ ASLCP needs a small part of what Asterisk and app\_rpt offer: AllStar linking, E
 4. **EchoLink (required).** Directory login, UDP 5198/5199 and GSM. It is a mode of its own next to AllStar and DV, not an optional extra.
 5. **Mixer.** One AllStar link at a time (a hub we link to still arrives as one stream), EchoLink, the radio and the DV bridge in one mix, never echoing a source back to itself. Jitter buffer, timeout timer, hang time.
 6. **Radio.** The SHARI interface (see Radio hardware below); a radioless node skips it.
-7. **ID.** Required for an RF node: at least every 10 minutes and at the end of a QSO, CW or a voice file. Courtesy tone optional.
+7. **ID, on RF only.** The rule (Part 97.119 in the US) covers radio transmissions, so the ID goes into the local transmit path after the mixer and never to the AllStar, EchoLink or DV legs; each far-end RF station IDs itself. It plays only after activity: if the radio keyed up (for any source, local or net audio) since the last ID, the node IDs within 10 minutes and once at the end. An idle node stays silent. The ID rides the tail of a transmission already in progress where possible, as fast, low-level CW (voice ID optional). On by default; the operator can turn it off, with a note that the licensee is responsible for IDing. Courtesy tone optional.
 8. **DV bridge.** Audio goes straight into the mixer instead of through Asterisk over USRP.
 
 **One audio path we own.** With every source in our own process, the same AGC, levels and meters the DV module uses apply to every leg: radio to network, network to radio, EchoLink and DV. No more tuning levels in chan\_simpleusb and again in the DV engine.
