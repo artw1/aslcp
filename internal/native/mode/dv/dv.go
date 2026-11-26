@@ -1,0 +1,682 @@
+package dv
+
+import (
+	"context"
+
+	"fmt"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/artw1/aslcp/internal/dv/ctl"
+	"github.com/artw1/aslcp/internal/dv/imbe"
+	"github.com/artw1/aslcp/internal/dv/network"
+	"github.com/artw1/aslcp/internal/dv/vocoder"
+	"github.com/artw1/aslcp/internal/native/audio"
+	"github.com/artw1/aslcp/internal/native/mode"
+)
+
+// DefaultMD380 is the md380-emu address used when the node gives none.
+const DefaultMD380 = "127.0.0.1:2470"
+
+// Timing defaults, the same as the DV module's.
+const (
+	DefaultRxSilence = 1500 * time.Millisecond // a received call with no voice this long ends
+	DefaultTxTimeout = 300 * time.Millisecond  // a transmission with no audio this long ends
+	DefaultLoginWait = 12 * time.Second        // how long a connect shows "waiting for login" before an error
+	stopWait         = 3 * time.Second
+)
+
+// Options are injectable for tests. Zero values use the real thing.
+type Options struct {
+	// NewNetwork builds the network client; default network.New.
+	NewNetwork func(cfg ctl.NetConfig, id ctl.Identity) (network.Network, error)
+	// AMBE is the AMBE vocoder; default md380-emu at Env.MD380.
+	AMBE      vocoder.AMBE
+	NewIMBE   func() vocoder.IMBE
+	NewCodec2 func() vocoder.Codec2
+	RxSilence time.Duration
+	TxTimeout time.Duration
+	LoginWait time.Duration
+	// Tick is the housekeeping interval (20 ms).
+	Tick time.Duration
+}
+
+// netEvent is what the network's Sink reports, queued for the mode's loop.
+type netEvent struct {
+	gen    uint64
+	hdr    *network.CallHeader
+	frame  *network.VoiceFrame
+	end    bool
+	call   uint64
+	login  bool
+	state  ctl.LoginState
+	detail string
+}
+
+type job struct {
+	call  uint64
+	seq   uint32
+	codec network.Codec
+	pcm   audio.Frame
+	data  []byte
+	end   bool
+}
+
+type sink struct {
+	m   *Mode
+	gen uint64
+}
+
+func (s sink) push(ev netEvent) {
+	ev.gen = s.gen
+	select {
+	case s.m.netEv <- ev:
+	default: // never block the network
+	}
+}
+
+func (s sink) Header(h network.CallHeader) { s.push(netEvent{hdr: &h}) }
+func (s sink) Voice(f network.VoiceFrame) {
+	f.Data = append([]byte(nil), f.Data...)
+	s.push(netEvent{frame: &f})
+}
+func (s sink) End(c uint64) { s.push(netEvent{end: true, call: c}) }
+func (s sink) Login(st ctl.LoginState, d string) {
+	s.push(netEvent{login: true, state: st, detail: d})
+}
+
+// Mode is one DV network as a node mode.
+type Mode struct {
+	mode.Base
+
+	d    def
+	env  mode.Env
+	s    mode.Settings
+	cfg  ctl.NetConfig
+	id   ctl.Identity
+	opt  Options
+	ambe vocoder.AMBE
+	own  *vocoder.MD380 // closed on Stop when the mode made it
+
+	netEv chan netEvent
+	enc   chan job
+	dec   chan job
+
+	mu       sync.Mutex
+	gen      uint64
+	n        network.Network
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
+	loggedIn bool
+	loginAt  time.Time // when a connect started waiting for the login
+	target   *mode.Target
+	nt       ctl.Target
+	pending  bool // target set, Tune not yet done (waiting for login)
+	nextID   uint64
+
+	// TX (local transmission), guarded by mu.
+	tx     uint64 // call id, 0 = none
+	txSeq  uint32
+	txLast time.Time
+
+	// RX (network call), owned by the loop goroutine.
+	rxCall uint64 // the network's call id
+	rxID   uint64 // our call id
+	rxLast time.Time
+	rxOn   bool
+}
+
+var _ mode.Mode = (*Mode)(nil)
+
+// New builds the DV mode name from its settings.
+func New(name string, env mode.Env, s mode.Settings, opt Options) (*Mode, error) {
+	d, ok := lookupDef(name)
+	if !ok {
+		return nil, fmt.Errorf("dv: unknown mode %q", name)
+	}
+	cfg, id, err := d.netConfig(env, s)
+	if err != nil {
+		return nil, err
+	}
+	if opt.NewNetwork == nil {
+		opt.NewNetwork = network.New
+	}
+	if opt.NewIMBE == nil {
+		opt.NewIMBE = func() vocoder.IMBE { return imbe.NewCodec() }
+	}
+	if opt.NewCodec2 == nil {
+		opt.NewCodec2 = func() vocoder.Codec2 { return vocoder.NewCodec2() }
+	}
+	if opt.RxSilence <= 0 {
+		opt.RxSilence = DefaultRxSilence
+	}
+	if opt.TxTimeout <= 0 {
+		opt.TxTimeout = DefaultTxTimeout
+	}
+	if opt.LoginWait <= 0 {
+		opt.LoginWait = DefaultLoginWait
+	}
+	if opt.Tick <= 0 {
+		opt.Tick = audio.FrameDuration
+	}
+	m := &Mode{d: d, env: env, s: s.Clone(), cfg: cfg, id: id, opt: opt,
+		netEv: make(chan netEvent, 512), enc: make(chan job, 64), dec: make(chan job, 64)}
+	m.Init(d.name, d.title, env.Clock())
+	return m, nil
+}
+
+func (m *Mode) vocoder() vocoder.AMBE {
+	if m.opt.AMBE != nil {
+		return m.opt.AMBE
+	}
+	if m.ambe == nil {
+		addr := m.env.MD380
+		if addr == "" {
+			addr = DefaultMD380
+		}
+		m.own = vocoder.NewMD380(addr, m.env.MD380Timeout)
+		m.ambe = m.own
+	}
+	return m.ambe
+}
+
+// Start builds a fresh network client and runs it. A DMR network logs in
+// to its master; the others wait for a target.
+func (m *Mode) Start(context.Context) error {
+	m.mu.Lock()
+	if m.cancel != nil {
+		m.mu.Unlock()
+		return nil
+	}
+	n, err := m.opt.NewNetwork(m.cfg, m.id)
+	if err != nil {
+		m.mu.Unlock()
+		m.SetState(mode.StateError, "", err.Error())
+		return fmt.Errorf("%s: %w", m.d.title, err)
+	}
+	m.gen++
+	gen := m.gen
+	m.n = n
+	m.loggedIn = !m.d.login
+	if n.Codec() == network.CodecAMBE {
+		m.ambe = m.vocoder()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancel = cancel
+	m.mu.Unlock()
+
+	if m.d.login {
+		m.SetState(mode.StateStarting, "logging in", "")
+	} else {
+		m.SetState(mode.StateReady, "", "")
+	}
+	m.wg.Add(4)
+	go func() {
+		defer m.wg.Done()
+		if err := n.Run(ctx, sink{m, gen}); err != nil && ctx.Err() == nil {
+			m.env.Logger().Warn(m.d.name+": network stopped", "err", err)
+			m.SetState(mode.StateError, "", err.Error())
+		}
+	}()
+	go m.loop(ctx, gen)
+	go m.encoder(ctx, n)
+	go m.decoder(ctx)
+	if m.d.target == targetNone {
+		// The echo test is always "connected".
+		m.SetTarget(&mode.Target{ID: "echo", Name: "Echo test"})
+		m.SetState(mode.StateConnected, "talk to hear yourself", "")
+	}
+	return nil
+}
+
+// Connect tunes the network to t. A DMR network that has not logged in
+// yet tunes once it has.
+func (m *Mode) Connect(ctx context.Context, t mode.Target) error {
+	if m.d.target == targetNone {
+		return nil
+	}
+	nt, err := m.d.netTarget(m.s, m.cfg, t)
+	if err != nil {
+		return fmt.Errorf("%s: %w", m.d.title, err)
+	}
+	if t.Name == "" {
+		t.Name = nt.Name
+	}
+	m.mu.Lock()
+	if m.cancel == nil {
+		m.mu.Unlock()
+		return fmt.Errorf("%s: mode is not started", m.d.title)
+	}
+	n, in := m.n, m.loggedIn
+	tt := t
+	m.target, m.nt = &tt, nt
+	m.pending = !in
+	if !in {
+		m.loginAt = m.Now()
+	}
+	m.mu.Unlock()
+	m.cutRX()
+	m.SetTarget(&tt)
+	if !in {
+		m.SetState(mode.StateConnecting, "waiting for login", "")
+		return nil
+	}
+	return m.tune(ctx, n, tt, nt)
+}
+
+func (m *Mode) tune(ctx context.Context, n network.Network, t mode.Target, nt ctl.Target) error {
+	m.SetState(mode.StateConnecting, "linking to "+describe(t), "")
+	if err := n.Tune(ctx, nt); err != nil {
+		msg := fmt.Sprintf("link to %s: %v", describe(t), err)
+		m.SetState(mode.StateError, "", msg)
+		return fmt.Errorf("%s: %w", m.d.title, err)
+	}
+	if m.d.login {
+		// A master has no per-talkgroup answer: tuned is connected.
+		m.SetState(mode.StateConnected, describe(t), "")
+	}
+	return nil
+}
+
+func describe(t mode.Target) string {
+	if _, err := strconv.Atoi(t.ID); err == nil {
+		return "TG " + t.ID
+	}
+	return t.ID
+}
+
+// Disconnect unlinks: a DMR network drops its talkgroup, a reflector
+// network leaves the reflector.
+func (m *Mode) Disconnect(ctx context.Context) error {
+	if m.d.target == targetNone {
+		return nil
+	}
+	m.mu.Lock()
+	n := m.n
+	m.target, m.pending = nil, false
+	in := m.loggedIn
+	m.mu.Unlock()
+	m.cutRX()
+	m.SetTarget(nil)
+	if n == nil {
+		return nil
+	}
+	err := n.Unlink(ctx)
+	if in {
+		m.SetState(mode.StateReady, "", "")
+	} else {
+		m.SetState(mode.StateStarting, "logging in", "")
+	}
+	if err != nil {
+		return fmt.Errorf("%s: unlink: %w", m.d.title, err)
+	}
+	return nil
+}
+
+// Stop ends the network session. The next Start builds a new client.
+func (m *Mode) Stop() error {
+	m.mu.Lock()
+	cancel, n := m.cancel, m.n
+	tx := m.tx
+	m.cancel, m.n, m.tx = nil, nil, 0
+	m.target, m.pending, m.loggedIn = nil, false, false
+	m.gen++
+	m.mu.Unlock()
+	if cancel == nil {
+		return nil
+	}
+	if tx != 0 && n != nil {
+		_ = n.EndTX(tx)
+	}
+	cancel()
+	done := make(chan struct{})
+	go func() { m.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(stopWait):
+		m.env.Logger().Warn(m.d.name + ": network did not stop in time")
+	}
+	m.TalkEnd()
+	m.Flush()
+	m.SetTarget(nil)
+	m.SetState(mode.StateIdle, "", "")
+	if m.own != nil {
+		_ = m.own.Close()
+		m.own, m.ambe = nil, nil
+	}
+	return nil
+}
+
+// Send encodes one frame of radio audio for the network, starting a
+// transmission on the first.
+func (m *Mode) Send(f audio.Frame) {
+	m.mu.Lock()
+	n := m.n
+	if n == nil || (m.d.target != targetNone && (m.target == nil || m.pending)) {
+		m.mu.Unlock()
+		return
+	}
+	now := m.Now()
+	start := m.tx == 0
+	if start {
+		m.nextID++
+		m.tx, m.txSeq = m.nextID, 0
+	}
+	id := m.tx
+	seq := m.txSeq
+	m.txSeq++
+	m.txLast = now
+	var h network.CallHeader
+	if start {
+		h = network.CallHeader{Call: id, Src: m.id.Callsign, SrcID: m.id.DMRID,
+			TG: m.nt.TG, Room: m.nt.Room, Slot: m.nt.Slot, Private: m.nt.Private}
+	}
+	m.mu.Unlock()
+	if start {
+		m.cutRX() // the local transmission wins over a received call
+		if err := n.StartTX(h); err != nil {
+			m.env.Logger().Warn(m.d.name+": start transmit", "err", err)
+			m.mu.Lock()
+			if m.tx == id {
+				m.tx = 0
+			}
+			m.mu.Unlock()
+			return
+		}
+	}
+	select {
+	case m.enc <- job{call: id, seq: seq, codec: n.Codec(), pcm: f}:
+	default:
+	}
+}
+
+// EndTx ends the transmission behind the frames already queued.
+func (m *Mode) EndTx() {
+	m.mu.Lock()
+	id := m.tx
+	m.tx = 0
+	m.mu.Unlock()
+	if id == 0 {
+		return
+	}
+	select {
+	case m.enc <- job{call: id, end: true}:
+	default:
+		m.mu.Lock()
+		n := m.n
+		m.mu.Unlock()
+		if n != nil {
+			_ = n.EndTX(id)
+		}
+	}
+}
+
+func (m *Mode) encoder(ctx context.Context, n network.Network) {
+	defer m.wg.Done()
+	im := &imbeState{newf: m.opt.NewIMBE}
+	c2 := &c2State{newf: m.opt.NewCodec2}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case j := <-m.enc:
+			if j.end {
+				if err := n.EndTX(j.call); err != nil {
+					m.env.Logger().Warn(m.d.name+": end transmit", "err", err)
+				}
+				continue
+			}
+			pcm := [vocoder.PCMSamples]int16(j.pcm)
+			f := network.VoiceFrame{Call: j.call, Seq: j.seq, Codec: j.codec}
+			switch j.codec {
+			case network.CodecIMBE:
+				b := im.encode(j.call, &pcm)
+				f.Data = b[:]
+			case network.CodecC2:
+				b := c2.encode(j.call, &pcm)
+				f.Data = b[:]
+			default:
+				b, err := m.ambe.Encode(ctx, &pcm)
+				if err != nil {
+					b = vocoder.SilenceAMBE
+				}
+				f.Data = b[:]
+			}
+			if err := n.WriteVoice(f); err != nil {
+				m.env.Logger().Debug(m.d.name+": write voice", "err", err)
+			}
+		}
+	}
+}
+
+func (m *Mode) decoder(ctx context.Context) {
+	defer m.wg.Done()
+	im := &imbeState{newf: m.opt.NewIMBE}
+	c2 := &c2State{newf: m.opt.NewCodec2}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case j := <-m.dec:
+			var pcm [vocoder.PCMSamples]int16
+			switch j.codec {
+			case network.CodecIMBE:
+				var b [vocoder.IMBEBytes]byte
+				copy(b[:], j.data)
+				pcm = im.decode(j.call, &b)
+			case network.CodecC2:
+				var b [vocoder.C2Bytes]byte
+				copy(b[:], j.data)
+				pcm = c2.decode(j.call, &b)
+			default:
+				var b [vocoder.AMBEBytes]byte
+				copy(b[:], j.data)
+				p, err := m.ambe.Decode(ctx, b)
+				if err != nil {
+					continue
+				}
+				pcm = p
+			}
+			if m.rxCurrent(j.call) {
+				m.Deliver(audio.Frame(pcm))
+			}
+		}
+	}
+}
+
+// rxCurrent reports whether call is still the received call (a cut call's
+// queued audio is dropped).
+func (m *Mode) rxCurrent(id uint64) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.rxOn && m.rxID == id
+}
+
+func (m *Mode) loop(ctx context.Context, gen uint64) {
+	defer m.wg.Done()
+	t := time.NewTicker(m.opt.Tick)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev := <-m.netEv:
+			if ev.gen != gen {
+				continue
+			}
+			m.onNet(ctx, ev)
+		case <-t.C:
+			m.housekeeping()
+		}
+	}
+}
+
+func (m *Mode) onNet(ctx context.Context, ev netEvent) {
+	now := m.Now()
+	switch {
+	case ev.login:
+		m.onLogin(ctx, ev.state, ev.detail)
+	case ev.hdr != nil:
+		m.mu.Lock()
+		busy := m.tx != 0 || m.rxOn
+		m.mu.Unlock()
+		if busy {
+			return
+		}
+		h := ev.hdr
+		m.mu.Lock()
+		m.nextID++
+		m.rxOn, m.rxCall, m.rxID, m.rxLast = true, h.Call, m.nextID, now
+		m.mu.Unlock()
+		tgt := h.Room
+		if tgt == "" && h.TG != 0 {
+			tgt = strconv.FormatUint(uint64(h.TG), 10)
+		}
+		m.TalkStart(mode.Talker{Callsign: h.Src, ID: h.SrcID, Target: tgt, Since: now})
+	case ev.frame != nil:
+		f := ev.frame
+		m.mu.Lock()
+		ok := m.rxOn && m.rxCall == f.Call
+		if ok {
+			m.rxLast = now
+		}
+		id := m.rxID
+		m.mu.Unlock()
+		if !ok || codecLen(f.Codec) == 0 || len(f.Data) != codecLen(f.Codec) {
+			return
+		}
+		select {
+		case m.dec <- job{call: id, seq: f.Seq, codec: f.Codec, data: f.Data}:
+		default:
+		}
+	case ev.end:
+		m.mu.Lock()
+		ok := m.rxOn && m.rxCall == ev.call
+		m.mu.Unlock()
+		if ok {
+			m.cutRX()
+		}
+	}
+}
+
+func (m *Mode) onLogin(ctx context.Context, st ctl.LoginState, detail string) {
+	m.mu.Lock()
+	n, tgt, nt, pending := m.n, m.target, m.nt, m.pending
+	m.mu.Unlock()
+	switch st {
+	case ctl.LoginOK:
+		if m.d.login {
+			m.mu.Lock()
+			first := !m.loggedIn
+			m.loggedIn, m.pending = true, false
+			m.mu.Unlock()
+			if first {
+				m.env.Logger().Info(m.d.name + ": logged in")
+			}
+			if tgt != nil && pending {
+				_ = m.tune(ctx, n, *tgt, nt)
+			} else if tgt == nil {
+				m.SetState(mode.StateReady, detail, "")
+			}
+			return
+		}
+		if tgt != nil {
+			m.SetState(mode.StateConnected, describe(*tgt), "")
+		}
+	case ctl.LoginPending:
+		if m.d.login {
+			m.mu.Lock()
+			m.loggedIn = false
+			if m.target != nil {
+				m.pending = true
+				m.loginAt = m.Now()
+			}
+			m.mu.Unlock()
+			m.SetState(mode.StateStarting, "logging in", "")
+		} else if tgt != nil {
+			m.SetState(mode.StateConnecting, "linking to "+describe(*tgt), "")
+		}
+	case ctl.LoginFailed:
+		msg := "login refused"
+		if !m.d.login {
+			msg = "link failed"
+		}
+		if detail != "" {
+			msg += ": " + detail
+		}
+		if m.d.login {
+			m.mu.Lock()
+			m.loggedIn = false
+			m.mu.Unlock()
+		}
+		m.env.Logger().Warn(m.d.name + ": " + msg)
+		m.SetState(mode.StateError, "", msg)
+	case ctl.LoginOff, ctl.LoginIdle:
+		if !m.d.login && tgt == nil && m.d.target != targetNone {
+			m.SetState(mode.StateReady, "", "")
+		}
+	}
+}
+
+// cutRX ends the received call now.
+func (m *Mode) cutRX() {
+	m.mu.Lock()
+	was := m.rxOn
+	m.rxOn = false
+	m.mu.Unlock()
+	if was {
+		m.TalkEnd()
+	}
+}
+
+func (m *Mode) housekeeping() {
+	now := m.Now()
+	m.mu.Lock()
+	rxStale := m.rxOn && now.Sub(m.rxLast) > m.opt.RxSilence
+	txStale := m.tx != 0 && now.Sub(m.txLast) > m.opt.TxTimeout
+	loginLate := m.pending && m.target != nil && !m.loginAt.IsZero() && now.Sub(m.loginAt) > m.opt.LoginWait
+	if loginLate {
+		m.loginAt = time.Time{}
+	}
+	m.mu.Unlock()
+	if rxStale {
+		m.cutRX()
+	}
+	if txStale {
+		m.EndTx()
+	}
+	if loginLate {
+		msg := "not logged in yet"
+		if d := m.netDetail(); d != "" {
+			msg += ": " + d
+		}
+		m.SetState(mode.StateConnecting, "waiting for login", msg)
+	}
+}
+
+func (m *Mode) netDetail() string {
+	m.mu.Lock()
+	n := m.n
+	m.mu.Unlock()
+	if n == nil {
+		return ""
+	}
+	return n.Status().Detail
+}
+
+// Talking reports whether a network call is being received.
+func (m *Mode) Talking() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.rxOn
+}
+
+// Status adds the network's own detail when the mode has none.
+func (m *Mode) Status() mode.Status {
+	st := m.Base.Status()
+	if st.Detail == "" {
+		st.Detail = m.netDetail()
+	}
+	return st
+}
