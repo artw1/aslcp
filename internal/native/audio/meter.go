@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Level meters in dBFS, modeled on internal/dv/bridge/meter.go: a live level
+// Level meters in dBFS, modeled on the former DV bridge meter: a live level
 // that falls away like a meter when audio stops.
 
 const (

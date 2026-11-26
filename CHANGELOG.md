@@ -3,6 +3,24 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
+## [3.0.0] - 2026-11-26
+
+### Added
+- The native node (`aslcp-node`, `aslcp-node.service`): one radio (the SHARI) and exactly one active mode, which is AllStar, EchoLink, BrandMeister, TGIF, another DMR Homebrew master, YSF, P25, NXDN, M17 or the local echo test. The radio is separate from the networks. Whatever mode is active, its audio goes out to the radio and the radio's audio goes out to it. Selecting another mode drops the old one first, and networks are never bridged to each other. AllStar keeps its registration current in the background whenever it is configured. EchoLink logs in to the directory only while it is the active mode.
+- The node handles the radio side itself:
+  - the simplex logic: COS, PTT while the mode talks, a 500 ms hang, a 3 minute transmit timeout both ways, and a courtesy tone after a local transmission;
+  - AGC on the network's audio (on by default) and on the radio's audio (off by default);
+  - the station ID. It goes out on the radio only, never to a network, and only after activity: within 10 minutes of the first transmission and once more when activity ends. Where it can, it rides the tail of a transmission instead of keying up again.
+- The node config is `/etc/aslcp/node.json` (mode 0600). It holds the station (callsign, radio channel and levels, ID, the active mode and target restored at boot, advanced settings) and each mode's settings. Errors are reported in plain words, and the file reloads on SIGHUP or when it changes. Without the file the node runs idle.
+- Control API on `/run/aslcp-node/control.sock` (JSON lines, no TCP listener). Ops: `status`, `modes` (never returns passwords), `save_station`, `save_mode`, `delete_mode`, `select`, `connect`, `disconnect`, `last_heard`, `now_calling`, `radio_levels`, `radio_tune`, `radio_program`, `reload` and `subscribe`.
+- A udev rule (`60-aslcp-node.rules`) gives the node's user the CM108 HID interface and the CH340 serial port of the SA818.
+
+### Changed
+- `aslcp-node.service` is enabled and started on install and runs as its own user, `aslcp-node`. An upgrade stops and disables the old `aslcp-dv.service`.
+
+### Removed
+- The digital voice engine `aslcp-dv`, its service and its Asterisk USRP bridge (`internal/dv/bridge`, `internal/dv/usrp`). The native node replaces them.
+
 ## [2.4.2] - 2026-11-25
 
 ### Changed

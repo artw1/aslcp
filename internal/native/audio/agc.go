@@ -3,7 +3,7 @@ package audio
 import "math"
 
 // The AGC is a faithful port, for 8 kHz Frames, of the DV module's AGC in
-// internal/dv/bridge/agc.go (same constants, gate and limiter), so that every
+// the former internal/dv/bridge (same constants, gate and limiter), so that every
 // leg of the native node levels the way the DV legs do. It is feed-forward and
 // adds no latency: the gain for a frame is decided from that frame and ramped
 // sample by sample. A speech gate keeps silence and noise from being pumped up.
