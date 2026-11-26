@@ -34,13 +34,24 @@ type Config struct {
 // Station is everything about the station that is not a mode.
 type Station struct {
 	// Callsign is the station callsign, sent in the ID and to the modes.
-	Callsign string      `json:"callsign,omitempty"`
-	Radio    RadioConfig `json:"radio"`
-	ID       IDConfig    `json:"id"`
+	Callsign string `json:"callsign,omitempty"`
+	// DMRID and NXDNID are the optional station digital IDs (0 = unset).
+	// A DMR, BM, TGIF or P25 mode uses DMRID, and NXDN uses NXDNID, when
+	// its own ID setting is empty.
+	DMRID  uint32      `json:"dmrId,omitempty"`
+	NXDNID uint32      `json:"nxdnId,omitempty"`
+	Radio  RadioConfig `json:"radio"`
+	ID     IDConfig    `json:"id"`
 	// Active is the mode and target restored at boot.
 	Active   *Selection `json:"active,omitempty"`
 	Advanced Advanced   `json:"advanced"`
 }
+
+// Largest station digital IDs: DMR IDs are 24 bits, NXDN unit IDs 16 bits.
+const (
+	MaxDMRID  = 0xFFFFFF
+	MaxNXDNID = 0xFFFF
+)
 
 // Selection is a mode and, optionally, its target.
 type Selection struct {
@@ -312,6 +323,12 @@ func (c *Config) Validate() error {
 	if st.Callsign != "" && !ValidCallsign(st.Callsign) {
 		errs = append(errs, fmt.Errorf("station callsign %q does not look like a callsign", st.Callsign))
 	}
+	if st.DMRID > MaxDMRID {
+		errs = append(errs, fmt.Errorf("station DMR ID %d must be 1 to %d", st.DMRID, MaxDMRID))
+	}
+	if st.NXDNID > MaxNXDNID {
+		errs = append(errs, fmt.Errorf("station NXDN ID %d must be 1 to %d", st.NXDNID, MaxNXDNID))
+	}
 	r := st.Radio
 	if r.FrequencyMHz != 0 {
 		if _, err := r.SA818(); err != nil {
@@ -375,7 +392,7 @@ func (c *Config) Validate() error {
 			errs = append(errs, fmt.Errorf("mode %q is not a known mode", n))
 			continue
 		}
-		if err := sp.Check(c.Modes[n]); err != nil {
+		if err := sp.CheckEnv(mode.Env{DMRID: st.DMRID, NXDNID: st.NXDNID}, c.Modes[n]); err != nil {
 			errs = append(errs, err)
 		}
 	}

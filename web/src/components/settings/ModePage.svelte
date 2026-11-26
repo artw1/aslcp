@@ -9,6 +9,8 @@
   let { mode }: { mode: string } = $props();
   const info = $derived(app.modes.find((m) => m.name === mode));
   let draft = $state<Record<string, string>>({});
+  let ids = $state<{ dmrId?: number; nxdnId?: number } | undefined>(undefined);
+  $effect(() => { api.station().then((s) => { ids = { dmrId: s.dmrId, nxdnId: s.nxdnId }; }).catch(() => { /* the node checks */ }); });
   let err = $state(''), busy = $state(false), seen = '';
   $effect(() => { if (info && seen !== mode) { seen = mode; draft = draftOf(info); err = ''; } });
   $effect(() => { if (!info) refreshModes().catch(toastError); });
@@ -16,7 +18,7 @@
   async function save(ev: Event) {
     ev.preventDefault();
     if (!info) return;
-    const f = missingField(info, draft);
+    const f = missingField(info, draft, ids);
     err = f ? `${f.label} is required.` : '';
     if (f) return;
     busy = true;

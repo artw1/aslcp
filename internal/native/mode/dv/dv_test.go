@@ -336,6 +336,42 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+// TestStationIDFallback checks that a mode with no ID of its own takes the
+// station's, and that its own value wins.
+func TestStationIDFallback(t *testing.T) {
+	sp, _ := mode.Lookup(mode.BM)
+	vals := map[string]string{KeyPassword: "p", KeyAddress: "m.example.net"}
+	s := mode.Settings{Values: vals}
+	if err := sp.Check(s); err == nil || !strings.Contains(err.Error(), "DMR ID is required") {
+		t.Fatalf("Check without any ID: %v", err)
+	}
+	env := mode.Env{Callsign: "N0CALL", DMRID: 1234567, NXDNID: 4321}
+	if err := sp.CheckEnv(env, s); err != nil {
+		t.Fatalf("CheckEnv with the station ID: %v", err)
+	}
+	d, _ := lookupDef(mode.BM)
+	_, id, err := d.netConfig(env, s)
+	if err != nil || id.DMRID != 1234567 {
+		t.Fatalf("identity %+v, %v", id, err)
+	}
+	vals[KeyDMRID] = "7654321"
+	if _, id, _ = d.netConfig(env, s); id.DMRID != 7654321 {
+		t.Fatalf("the mode's own ID should win: %+v", id)
+	}
+	nd, _ := lookupDef(mode.NXDN)
+	cfg, _, err := nd.netConfig(env, mode.Settings{})
+	if err != nil || cfg.Options[KeyNXDNID] != "4321" {
+		t.Fatalf("nxdn options %v, %v", cfg.Options, err)
+	}
+	cfg, _, _ = nd.netConfig(env, mode.Settings{Values: map[string]string{KeyNXDNID: "99"}})
+	if cfg.Options[KeyNXDNID] != "99" {
+		t.Fatalf("nxdn own ID: %v", cfg.Options)
+	}
+	if _, err := mode.Build(mode.BM, mode.Env{Callsign: "N0CALL"}, mode.Settings{Values: map[string]string{KeyPassword: "p", KeyAddress: "m.example.net"}}); err == nil {
+		t.Fatal("Build with no ID anywhere should fail")
+	}
+}
+
 func TestLoginFailure(t *testing.T) {
 	fn := &fakeNet{codec: network.CodecAMBE, login: true, ran: make(chan struct{})}
 	m, err := New(mode.BM, mode.Env{Callsign: "N0CALL"}, mode.Settings{Values: base[mode.BM]}, Options{

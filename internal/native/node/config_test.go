@@ -60,6 +60,17 @@ func TestValidate(t *testing.T) {
 		{name: "bad mode setting", mod: func(c *Config) {
 			c.Modes[mode.AllStar] = mode.Settings{Values: map[string]string{"node": "12"}}
 		}, want: "node"},
+		{name: "dmr id max", mod: func(c *Config) { c.Station.DMRID = 16777215 }},
+		{name: "dmr id", mod: func(c *Config) { c.Station.DMRID = 16777216 }, want: "DMR ID"},
+		{name: "nxdn id max", mod: func(c *Config) { c.Station.NXDNID = 65535 }},
+		{name: "nxdn id", mod: func(c *Config) { c.Station.NXDNID = 65536 }, want: "NXDN ID"},
+		{name: "mode without id", mod: func(c *Config) {
+			c.Modes[mode.NXDN] = mode.Settings{}
+		}, want: "NXDN ID is required"},
+		{name: "mode id from station", mod: func(c *Config) {
+			c.Station.NXDNID = 12345
+			c.Modes[mode.NXDN] = mode.Settings{}
+		}},
 		{name: "active", mod: func(c *Config) { c.Station.Active = &Selection{Mode: "fm"} }, want: "active mode"},
 		{name: "several", mod: func(c *Config) {
 			c.Station.Callsign = "HELLO"

@@ -1,5 +1,5 @@
 // The modes of the node: names, order and small helpers for the UI. Pure functions, tested in modes.test.ts.
-import type { Favorite, Heard, ModeField, ModeInfo, NowCall, Target } from './types';
+import type { Favorite, Heard, ModeField, ModeInfo, NowCall, Station, Target, Vocoder } from './types';
 
 /** The modes in the order the UI lists them. */
 export const MODE_ORDER = ['allstar', 'echolink', 'bm', 'dmr', 'tgif', 'ysf', 'p25', 'nxdn', 'm17'] as const;
@@ -70,10 +70,12 @@ export function savePayload(fields: ModeField[], draft: Record<string, string>):
   return v;
 }
 
-/** The first required field that is empty (and not a saved secret), or null. */
-export function missingField(m: ModeInfo, draft: Record<string, string>): ModeField | null {
+/** The first required field that is empty (and not a saved secret), or null. A field with a stationDefault may be empty
+ * when the station has that ID; `ids` are the station's IDs, and leaving it out assumes the node will check. */
+export function missingField(m: ModeInfo, draft: Record<string, string>, ids?: Pick<Station, 'dmrId' | 'nxdnId'>): ModeField | null {
   for (const f of m.fields ?? []) {
     if (!f.required) continue;
+    if (f.stationDefault && (!ids || ids[f.stationDefault])) continue;
     if ((draft[f.key] ?? '').trim() !== '') continue;
     if (f.secret && m.secretsSet?.[f.key]) continue;
     return f;
@@ -86,6 +88,14 @@ export function dirty(m: ModeInfo, draft: Record<string, string>): boolean {
   const base = draftOf(m);
   return (m.fields ?? []).some((f) => (draft[f.key] ?? '') !== (base[f.key] ?? ''));
 }
+
+/** True when the mode needs the AMBE vocoder and it is not installed and running. v is null until GET /api/vocoder answered. */
+export function needsVocoder(m: ModeInfo | undefined, v: Vocoder | null): boolean {
+  return !!m?.needsAmbe && !!v && !(v.installed && v.active);
+}
+
+/** Whether to keep polling GET /api/vocoder: an install is running. */
+export const vocoderBusy = (v: Vocoder | null): boolean => v?.job === 'running';
 
 /** A short line for a mode's link state, for the mode cards. */
 export function stateText(state: string | undefined, detail?: string, err?: string): string {

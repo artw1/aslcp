@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { draftOf, savePayload, missingField, dirty, targetText, targetBody, favoritesOf, recentTargets, stateText, sortModes, modeTitle } from './modes.ts';
+import { draftOf, savePayload, missingField, dirty, targetText, targetBody, favoritesOf, recentTargets, stateText, sortModes, modeTitle, needsVocoder, vocoderBusy } from './modes.ts';
 import type { ModeInfo, Favorite, Heard, NowCall } from './types';
 
 const bm: ModeInfo = {
@@ -31,6 +31,16 @@ test('missing required fields, with a saved secret counting as present', () => {
   assert.equal(missingField(bm, d)?.key, 'dmrId');
   const fresh = { ...bm, secretsSet: {} };
   assert.equal(missingField(fresh, { ...draftOf(fresh) })?.key, 'password');
+});
+
+test('a field with a station default is optional when the station has the ID', () => {
+  const m: ModeInfo = { ...bm, secretsSet: { password: true }, fields: [{ key: 'dmrId', label: 'DMR ID', kind: 'number', required: true, stationDefault: 'dmrId' }, ...bm.fields!.slice(1)] };
+  const d = { ...draftOf(m), dmrId: '' };
+  assert.equal(missingField(m, d), null); // the node checks when the station is not known
+  assert.equal(missingField(m, d, { dmrId: 1234567 }), null);
+  assert.equal(missingField(m, d, {})?.key, 'dmrId');
+  assert.equal(missingField(m, { ...d, dmrId: '7654321' }, {}), null);
+  assert.equal(missingField(m, d, { nxdnId: 4321 })?.key, 'dmrId');
 });
 
 test('dirty compares with the saved values', () => {
@@ -74,4 +84,24 @@ test('mode order and titles', () => {
   assert.equal(modeTitle('echolink'), 'EchoLink');
   assert.equal(modeTitle('abc'), 'ABC');
   assert.equal(modeTitle('bm', [{ ...bm, title: 'BM Custom' }]), 'BM Custom');
+});
+
+test('needsVocoder: only an AMBE mode, and only until the vocoder runs', () => {
+  const ambe: ModeInfo = { name: 'ysf', title: 'YSF', configured: true, active: false, needsAmbe: true };
+  const plain: ModeInfo = { name: 'm17', title: 'M17', configured: true, active: false };
+  const off = { installed: false, active: false, needed: ['ysf'], supported: true };
+  assert.equal(needsVocoder(ambe, off), true);
+  assert.equal(needsVocoder(ambe, { ...off, installed: true }), true);
+  assert.equal(needsVocoder(ambe, { ...off, installed: true, active: true }), false);
+  assert.equal(needsVocoder(plain, off), false);
+  assert.equal(needsVocoder(ambe, null), false);
+  assert.equal(needsVocoder(undefined, off), false);
+});
+
+test('vocoderBusy: while the install job runs', () => {
+  const v = { installed: false, active: false, needed: [], supported: true };
+  assert.equal(vocoderBusy({ ...v, job: 'running' }), true);
+  assert.equal(vocoderBusy({ ...v, job: 'failed' }), false);
+  assert.equal(vocoderBusy(v), false);
+  assert.equal(vocoderBusy(null), false);
 });

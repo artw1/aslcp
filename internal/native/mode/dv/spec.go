@@ -28,6 +28,7 @@ import (
 // mode is passed to the network as an option of the same name.
 const (
 	KeyDMRID    = "dmr_id"
+	KeyNXDNID   = "nxdn_id"
 	KeyPassword = "password"
 	KeyAddress  = "address" // host or host:port of the master or default reflector
 	KeyOptions  = "options" // extra network options, "key=value, key=value"
@@ -50,13 +51,14 @@ type def struct {
 	login       bool // logs in to a master (DMR networks)
 	target      targetKind
 	needsHost   bool // a target must resolve to a host (P25)
+	ambe        bool // the network carries AMBE voice, so the md380-emu vocoder is needed
 	label, help string
 	fields      []mode.Field
 	check       func(mode.Settings) error
 }
 
 var dmrIDField = mode.Field{Key: KeyDMRID, Label: "DMR ID", Kind: mode.FieldNumber, Required: true,
-	Help: "Your 7-digit DMR radio ID."}
+	StationDefault: mode.StationDMRID, Help: "Your 7-digit DMR radio ID."}
 
 func advanced(key, label string, kind mode.FieldKind, def, help string) mode.Field {
 	return mode.Field{Key: key, Label: label, Kind: kind, Default: def, Help: help, Advanced: true}
@@ -70,7 +72,7 @@ var slotField = mode.Field{Key: "slot", Label: "Timeslot", Kind: mode.FieldSelec
 
 var defs = []def{
 	{
-		name: mode.BM, title: "BrandMeister", ctlMode: ctl.ModeBM, login: true, target: targetTG,
+		ambe: true, name: mode.BM, title: "BrandMeister", ctlMode: ctl.ModeBM, login: true, target: targetTG,
 		label: "Talkgroup", help: "A BrandMeister talkgroup number. 9990 is the Parrot echo test.",
 		fields: []mode.Field{
 			dmrIDField,
@@ -86,7 +88,7 @@ var defs = []def{
 		},
 	},
 	{
-		name: mode.TGIF, title: "TGIF", ctlMode: ctl.ModeTGIF, login: true, target: targetTG,
+		ambe: true, name: mode.TGIF, title: "TGIF", ctlMode: ctl.ModeTGIF, login: true, target: targetTG,
 		label: "Talkgroup", help: "A TGIF talkgroup number.",
 		fields: []mode.Field{
 			dmrIDField,
@@ -99,7 +101,7 @@ var defs = []def{
 		},
 	},
 	{
-		name: mode.DMR, title: "DMR", ctlMode: ctl.ModeDMR, login: true, target: targetTG,
+		ambe: true, name: mode.DMR, title: "DMR", ctlMode: ctl.ModeDMR, login: true, target: targetTG,
 		label: "Talkgroup", help: "A talkgroup number on the master.",
 		fields: []mode.Field{
 			dmrIDField,
@@ -113,7 +115,7 @@ var defs = []def{
 		},
 	},
 	{
-		name: mode.YSF, title: "System Fusion", ctlMode: ctl.ModeYSF, target: targetReflector,
+		ambe: true, name: mode.YSF, title: "System Fusion", ctlMode: ctl.ModeYSF, target: targetReflector,
 		label: "Reflector", help: "A reflector from your list, or host:port.",
 		fields: []mode.Field{
 			advanced("poll_ms", "Poll interval (ms)", mode.FieldNumber, "", ""),
@@ -125,17 +127,19 @@ var defs = []def{
 		name: mode.P25, title: "P25", ctlMode: ctl.ModeP25, target: targetTG, needsHost: true,
 		label: "Talkgroup", help: "A P25 talkgroup. The reflector list maps talkgroups to reflector addresses.",
 		fields: []mode.Field{
-			{Key: KeyDMRID, Label: "Radio ID", Kind: mode.FieldNumber, Help: "Your DMR ID, used as the P25 source ID."},
+			{Key: KeyDMRID, Label: "Radio ID", Kind: mode.FieldNumber, StationDefault: mode.StationDMRID,
+				Help: "Your DMR ID, used as the P25 source ID."},
 			{Key: KeyAddress, Label: "Default reflector", Kind: mode.FieldText,
 				Help: "host or host:port used for talkgroups not in the reflector list."},
 			optionsField,
 		},
 	},
 	{
-		name: mode.NXDN, title: "NXDN", ctlMode: ctl.ModeNXDN, target: targetTG,
+		ambe: true, name: mode.NXDN, title: "NXDN", ctlMode: ctl.ModeNXDN, target: targetTG,
 		label: "Talkgroup", help: "An NXDN talkgroup. The reflector list maps talkgroups to reflector addresses.",
 		fields: []mode.Field{
-			{Key: "nxdn_id", Label: "NXDN ID", Kind: mode.FieldNumber, Required: true},
+			{Key: KeyNXDNID, Label: "NXDN ID", Kind: mode.FieldNumber, Required: true,
+				StationDefault: mode.StationNXDNID},
 			{Key: KeyAddress, Label: "Default reflector", Kind: mode.FieldText,
 				Help: "host or host:port used for talkgroups not in the reflector list."},
 			advanced("nxdn_ran", "RAN", mode.FieldNumber, "", ""),
@@ -154,7 +158,7 @@ var defs = []def{
 		},
 	},
 	{
-		name: mode.EchoTest, title: "Echo test", ctlMode: ctl.ModeLoop, target: targetNone,
+		ambe: true, name: mode.EchoTest, title: "Echo test", ctlMode: ctl.ModeLoop, target: targetNone,
 		label: "", help: "Plays your transmission back through the DMR vocoder.",
 		fields: []mode.Field{
 			advanced("playback_delay_ms", "Playback delay (ms)", mode.FieldNumber, "", ""),
@@ -171,7 +175,7 @@ func init() {
 func (d def) spec() mode.Spec {
 	return mode.Spec{
 		Name: d.name, Title: d.title, TargetLabel: d.label, TargetHelp: d.help,
-		Fields: d.fields, NeedsHost: d.needsHost || d.target == targetReflector,
+		Fields: d.fields, NeedsHost: d.needsHost || d.target == targetReflector, NeedsAMBE: d.ambe,
 		Validate: func(s mode.Settings) error { return d.validate(s) },
 		New: func(env mode.Env, s mode.Settings) (mode.Mode, error) {
 			return New(d.name, env, s, Options{})
@@ -263,7 +267,13 @@ func (d def) netConfig(env mode.Env, s mode.Settings) (ctl.NetConfig, ctl.Identi
 		case KeyDMRID, KeyPassword, KeyAddress, KeyOptions:
 			continue
 		}
-		if v := s.Get(f.Key, f.Default); v != "" {
+		v := s.Get(f.Key, f.Default)
+		if v == "" && f.StationDefault != "" {
+			if n := env.StationID(f.StationDefault); n != 0 {
+				v = strconv.FormatUint(uint64(n), 10)
+			}
+		}
+		if v != "" {
 			cfg.Options[f.Key] = v
 		}
 	}
@@ -274,6 +284,8 @@ func (d def) netConfig(env mode.Env, s mode.Settings) (ctl.NetConfig, ctl.Identi
 			return ctl.NetConfig{}, ctl.Identity{}, fmt.Errorf("DMR ID %q is not valid", v)
 		}
 		id.DMRID = uint32(n)
+	} else {
+		id.DMRID = env.DMRID
 	}
 	if d.ctlMode == ctl.ModeYSF || d.ctlMode == ctl.ModeM17 || d.ctlMode == ctl.ModeNXDN || d.ctlMode == ctl.ModeP25 {
 		if id.Callsign == "" {

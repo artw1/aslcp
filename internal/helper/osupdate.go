@@ -80,7 +80,7 @@ func (o *Ops) osUpgradeArgv() []string {
 
 // aptJobRunning reports whether an upgrade or OS upgrade unit is running.
 func (o *Ops) aptJobRunning(ctx context.Context) bool {
-	for _, u := range []string{upgradeUnit, osUpgradeUnit} {
+	for _, u := range []string{upgradeUnit, osUpgradeUnit, vocoderJobUnit} {
 		if state, _ := o.jobUnit(ctx, u); state == JobRunning {
 			return true
 		}

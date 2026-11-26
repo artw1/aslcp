@@ -70,12 +70,12 @@ func Start(cfg *node.Config, o Options) (*Rig, error) {
 		Radio: r.Radio, ConfigPath: r.ConfigPath, Log: o.Log, StopTimeout: time.Second,
 		// Like the real builder: an unknown mode or settings that fail
 		// the spec's check are refused.
-		Build: func(n string, _ mode.Env, s mode.Settings) (mode.Mode, error) {
+		Build: func(n string, env mode.Env, s mode.Settings) (mode.Mode, error) {
 			sp, ok := mode.Lookup(n)
 			if !ok {
 				return nil, fmt.Errorf("unknown mode %q", n)
 			}
-			if err := sp.Check(s); err != nil {
+			if err := sp.CheckEnv(env, s); err != nil {
 				return nil, err
 			}
 			f := modetest.New(n)

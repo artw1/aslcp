@@ -188,6 +188,8 @@ func (e *Engine) env(c *Config) mode.Env {
 	md := a.MD380
 	return mode.Env{
 		Callsign:     c.Station.Callsign,
+		DMRID:        c.Station.DMRID,
+		NXDNID:       c.Station.NXDNID,
 		Log:          e.log,
 		Now:          e.o.Now,
 		MD380:        md,
@@ -196,7 +198,7 @@ func (e *Engine) env(c *Config) mode.Env {
 }
 
 func sameEnv(a, b mode.Env) bool {
-	return a.Callsign == b.Callsign && a.MD380 == b.MD380 && a.MD380Timeout == b.MD380Timeout
+	return a.Callsign == b.Callsign && a.DMRID == b.DMRID && a.NXDNID == b.NXDNID && a.MD380 == b.MD380 && a.MD380Timeout == b.MD380Timeout
 }
 
 // applyModes makes the built modes match c: a mode whose settings or

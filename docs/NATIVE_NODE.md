@@ -283,6 +283,10 @@ Untested on real hardware or networks: registration against AllStarLink and the 
 - [x] Answered: our SHARI's sound chip is a CM108B (USB ID 0d8c:0012, already on chan\_simpleusb's supported list). Pins are stock: COS from the chip's inverted input (carrierfrom = usbinvert), CTCSS input off, PTT not inverted.
 - [x] Answered: no. ASLCP does not use them at run time; it only switches Allmon3 off, can back up its config, and can import favorites from an AllScan or Supermon install. Its public page replaces their public pages.
 
+## AMBE vocoder (md380-emu)
+
+BrandMeister, TGIF, other DMR masters, YSF and NXDN carry AMBE voice, and the echo test uses it too. The node encodes and decodes it with the md380-emu package (P25 and M17 are computed in Go and need nothing extra). `install.sh` does not install md380-emu by default. An admin installs it from the Modes page: when the picked mode needs AMBE and the vocoder is not installed or not running, the page shows "Needs the AMBE vocoder (md380-emu)" with an Install button. The helper then adds the md380-emu package repository and its pinned signing key, installs the package (plus `qemu-user-static` on boards that are not armhf), keeps the service local-only with a systemd drop-in, and enables and starts it. It is safe to press again. The API is `GET /api/vocoder` and `POST /api/vocoder/install` (admin only).
+
 ## Sources
 
 Code references point into the ASLCP repository; size estimates are rough and not measured from a prototype.

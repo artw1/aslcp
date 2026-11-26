@@ -5,6 +5,7 @@
   import { stationBody, validateStation } from '../../lib/station';
   import type { Station } from '../../lib/types';
   import StationFields from '../StationFields.svelte';
+  import DigitalIdFields from '../DigitalIdFields.svelte';
 
   let st = $state<Station | null>(null), err = $state(''), busy = $state(false);
   // The channel fields belong here only when the node programs an SA818.
@@ -26,6 +27,7 @@
   {#if st}
     <form class="space-y-3" onsubmit={save}>
       <StationFields bind:st {radio} idPrefix="stn" />
+      <DigitalIdFields bind:st idPrefix="stn" />
       {#if err}<p class="text-sm text-danger" role="alert">{err}</p>{/if}
       <button class="btn btn-primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
     </form>

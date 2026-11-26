@@ -36,7 +36,17 @@ type Field struct {
 	Options  []string `json:"options,omitempty"` // FieldSelect choices
 	Help     string   `json:"help,omitempty"`
 	Advanced bool     `json:"advanced,omitempty"`
+	// StationDefault names the station ID this field falls back to when
+	// left empty: StationDMRID or StationNXDNID. A Required field with a
+	// StationDefault is required only when the station has no such ID.
+	StationDefault string `json:"stationDefault,omitempty"`
 }
+
+// Station IDs a Field can fall back to (Field.StationDefault).
+const (
+	StationDMRID  = "dmrId"
+	StationNXDNID = "nxdnId"
+)
 
 // Settings is what the operator saved for one mode.
 type Settings struct {
@@ -112,6 +122,10 @@ func (s Settings) Reflector(id string) (Target, bool) {
 type Env struct {
 	// Callsign is the station callsign.
 	Callsign string
+	// DMRID and NXDNID are the station's optional digital IDs (0 = unset).
+	// A mode uses them when its own ID setting is empty.
+	DMRID  uint32
+	NXDNID uint32
 	// Log is where the mode logs. Never log a password.
 	Log *slog.Logger
 	// Now is the clock (time.Now when nil).
@@ -149,6 +163,9 @@ type Spec struct {
 	Fields      []Field `json:"fields"`
 	// NeedsHost: targets need an address (from Reflectors or Target.Host).
 	NeedsHost bool `json:"needsHost,omitempty"`
+	// NeedsAMBE: the mode's voice is AMBE, which the md380-emu vocoder
+	// encodes and decodes (the UI offers to install it).
+	NeedsAMBE bool `json:"needsAmbe,omitempty"`
 	// Validate checks settings beyond Required fields (optional).
 	Validate func(Settings) error `json:"-"`
 	// New builds the mode from validated settings.
@@ -165,14 +182,31 @@ func (sp Spec) Field(key string) (Field, bool) {
 	return Field{}, false
 }
 
-// Check validates s against the spec: required fields, numbers, booleans,
-// select choices, then Validate. All problems are reported together.
-func (sp Spec) Check(s Settings) error {
+// StationID returns the station ID named by a Field.StationDefault, or 0.
+func (e Env) StationID(name string) uint32 {
+	switch name {
+	case StationDMRID:
+		return e.DMRID
+	case StationNXDNID:
+		return e.NXDNID
+	}
+	return 0
+}
+
+// Check validates s against the spec with no station IDs: a field with a
+// StationDefault must be set. See CheckEnv.
+func (sp Spec) Check(s Settings) error { return sp.CheckEnv(Env{}, s) }
+
+// CheckEnv validates s against the spec: required fields, numbers,
+// booleans, select choices, then Validate. A required field with a
+// StationDefault may be empty when env has that station ID. All problems
+// are reported together.
+func (sp Spec) CheckEnv(env Env, s Settings) error {
 	var errs []error
 	for _, f := range sp.Fields {
 		v := s.Get(f.Key, f.Default)
 		if v == "" {
-			if f.Required {
+			if f.Required && env.StationID(f.StationDefault) == 0 {
 				errs = append(errs, fmt.Errorf("%s: %s is required", sp.Title, f.Label))
 			}
 			continue
@@ -329,7 +363,7 @@ func Build(name string, env Env, s Settings) (Mode, error) {
 	if !ok {
 		return nil, fmt.Errorf("mode %q is not available", name)
 	}
-	if err := sp.Check(s); err != nil {
+	if err := sp.CheckEnv(env, s); err != nil {
 		return nil, err
 	}
 	m, err := sp.New(env, s)

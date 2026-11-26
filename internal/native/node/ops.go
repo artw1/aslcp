@@ -115,6 +115,7 @@ type ModeInfo struct {
 	TargetLabel string       `json:"targetLabel,omitempty"`
 	TargetHelp  string       `json:"targetHelp,omitempty"`
 	NeedsHost   bool         `json:"needsHost,omitempty"`
+	NeedsAmbe   bool         `json:"needsAmbe,omitempty"` // needs the md380-emu AMBE vocoder
 	Fields      []mode.Field `json:"fields"`
 	// Settings are the saved settings with every secret blank; SecretsSet
 	// says which secrets have a value.
@@ -146,7 +147,7 @@ func (e *Engine) Modes() []ModeInfo {
 		red, set := sp.Redact(s)
 		mi := ModeInfo{
 			Name: sp.Name, Title: sp.Title, TargetLabel: sp.TargetLabel,
-			TargetHelp: sp.TargetHelp, NeedsHost: sp.NeedsHost, Fields: sp.Fields,
+			TargetHelp: sp.TargetHelp, NeedsHost: sp.NeedsHost, NeedsAmbe: sp.NeedsAMBE, Fields: sp.Fields,
 			Settings: red, SecretsSet: set, Configured: ok, Error: errs[sp.Name],
 		}
 		if in := built[sp.Name]; in != nil {
@@ -227,7 +228,7 @@ func (e *Engine) SaveMode(n string, upd mode.Settings) error {
 	c := e.cfg.Clone()
 	e.mu.Unlock()
 	s := sp.Merge(c.Modes[n], upd)
-	if err := sp.Check(s); err != nil {
+	if err := sp.CheckEnv(e.env(c), s); err != nil {
 		return err
 	}
 	c.Modes[n] = s

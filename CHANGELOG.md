@@ -6,12 +6,15 @@ Release notes are taken from the section of the tag being released
 ## [3.0.0] - 2026-11-27
 
 ### Changed
+- The first-run setup asks only for the station, the radio interface and the optional DMR and NXDN IDs. Modes are set up later on the Modes page.
 - ASLCP is now a standalone AllStar node. It needs no Asterisk and no ASL3: flash a fresh OS, install ASLCP, fill in one setup screen and you are on the air. This is a fresh-install release, not an upgrade over an ASL3 node.
 - AllStar, EchoLink, BrandMeister, DMR (TGIF and the other masters), YSF, P25, NXDN and M17 are equal modes. One is active at a time, and its audio goes out to the radio.
 - When the far AllStar node disconnects you or hangs up, the link stays down: the node does not redial, and the link is not restored at boot.
 - Changing the radio wiring (PTT pin, PTT or COS polarity, SA818 port) restarts the node service so the change takes effect at once.
 
 ### Added
+- Station DMR ID and NXDN ID (optional), on the setup screen and in Settings > Station. BrandMeister, TGIF, DMR and P25 use the station DMR ID, and NXDN the station NXDN ID, when the mode does not set its own.
+- Install the AMBE vocoder (md380-emu) from the Modes page. When a mode that carries AMBE voice (BrandMeister, TGIF, DMR, YSF, NXDN or the echo test) is picked and the vocoder is missing or not running, an admin sees "Needs the AMBE vocoder (md380-emu)" with an Install button. The helper adds the md380-emu package repository with a pinned key, installs the package, keeps the service local-only and starts it. `install.sh` still does not install it. New admin API: `GET /api/vocoder` and `POST /api/vocoder/install`.
 - The native node (`aslcp-node`, `aslcp-node.service`): one radio (the SHARI) and exactly one active mode, which is AllStar, EchoLink, BrandMeister, TGIF, another DMR Homebrew master, YSF, P25, NXDN, M17 or the local echo test. The radio is separate from the networks. Whatever mode is active, its audio goes out to the radio and the radio's audio goes out to it. Selecting another mode drops the old one first, and networks are never bridged to each other. AllStar keeps its registration current in the background whenever it is configured. EchoLink logs in to the directory only while it is the active mode.
 - A short playout buffer at the start of each received transmission, so network jitter does not cause gaps on the air.
 - If unkeying the transmitter fails, the node keeps retrying and the status says so.

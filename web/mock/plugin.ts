@@ -6,6 +6,7 @@ import { handleBackup, downUntil } from './backup.ts';
 import { createSchedules } from './schedules.ts';
 import { handleSystem } from './system.ts';
 import { handleWifi } from './wifi.ts';
+import { AMBE_MODES, handleVocoder } from './vocoder.ts';
 
 type Info = { node: string; callsign: string; description: string; location: string };
 const places = ['Exampleton, ST', 'Sampleburg, ST', 'Testville, ST', 'Demoton, ST', 'Mockville, ST'];
@@ -15,7 +16,7 @@ const byNode = new Map(NODES.map((n) => [n.node, n]));
 const allstarInfo = (n: string) => byNode.get(n) ?? null;
 
 // ---- Modes. Fields are what the settings forms draw; secrets are never returned, only whether they are set.
-type Field = { key: string; label: string; kind: 'text' | 'number' | 'password' | 'bool' | 'select'; required?: boolean; secret?: boolean; default?: string; options?: string[]; help?: string; advanced?: boolean };
+type Field = { key: string; label: string; kind: 'text' | 'number' | 'password' | 'bool' | 'select'; required?: boolean; secret?: boolean; default?: string; options?: string[]; help?: string; advanced?: boolean; stationDefault?: 'dmrId' | 'nxdnId' };
 interface ModeDef { name: string; title: string; targetLabel: string; targetHelp: string; needsHost?: boolean; fields: Field[]; targets: string[] }
 const pw = (key: string, label: string, required = true): Field => ({ key, label, kind: 'password', secret: true, required });
 const MODES: ModeDef[] = [
@@ -24,17 +25,17 @@ const MODES: ModeDef[] = [
   { name: 'echolink', title: 'EchoLink', targetLabel: 'Callsign or node', targetHelp: 'An EchoLink node number or callsign with -L or -R.', targets: ['N1CALL-L', '123456'],
     fields: [{ key: 'callsign', label: 'EchoLink callsign', kind: 'text', required: true, default: 'N0CALL-L' }, pw('password', 'EchoLink password'), { key: 'location', label: 'Location text', kind: 'text', advanced: true }] },
   { name: 'bm', title: 'BrandMeister', targetLabel: 'Talkgroup', targetHelp: 'A talkgroup number, for example 91.', targets: ['91', '3100', '9'],
-    fields: [{ key: 'id', label: 'DMR ID', kind: 'number', required: true, default: '1234567' }, pw('password', 'Hotspot security password'), { key: 'master', label: 'Master', kind: 'text', default: 'master.example.net', advanced: true }] },
+    fields: [{ key: 'id', label: 'DMR ID', kind: 'number', required: true, stationDefault: 'dmrId' }, pw('password', 'Hotspot security password'), { key: 'master', label: 'Master', kind: 'text', default: 'master.example.net', advanced: true }] },
   { name: 'dmr', title: 'DMR (other master)', targetLabel: 'Talkgroup', targetHelp: 'A talkgroup on the master you set up.', targets: ['9', '1'],
-    fields: [{ key: 'id', label: 'DMR ID', kind: 'number', required: true, default: '1234567' }, { key: 'master', label: 'Master host', kind: 'text', required: true, default: 'dmr.example.net' }, { key: 'port', label: 'Master port', kind: 'number', default: '62031' }, pw('password', 'Master password')] },
+    fields: [{ key: 'id', label: 'DMR ID', kind: 'number', required: true, stationDefault: 'dmrId' }, { key: 'master', label: 'Master host', kind: 'text', required: true, default: 'dmr.example.net' }, { key: 'port', label: 'Master port', kind: 'number', default: '62031' }, pw('password', 'Master password')] },
   { name: 'tgif', title: 'TGIF', targetLabel: 'Talkgroup', targetHelp: 'A TGIF talkgroup number.', targets: ['31665', '9'],
-    fields: [{ key: 'id', label: 'DMR ID', kind: 'number', required: true, default: '1234567' }, pw('password', 'TGIF password')] },
+    fields: [{ key: 'id', label: 'DMR ID', kind: 'number', required: true, stationDefault: 'dmrId' }, pw('password', 'TGIF password')] },
   { name: 'ysf', title: 'YSF', targetLabel: 'Reflector', targetHelp: 'A YSF reflector.', needsHost: true, targets: ['YSF-TEST'],
     fields: [{ key: 'callsign', label: 'Callsign', kind: 'text', required: true, default: 'N0CALL' }, { key: 'suffix', label: 'Suffix', kind: 'text', advanced: true }] },
   { name: 'p25', title: 'P25', targetLabel: 'Talkgroup', targetHelp: 'A P25 reflector talkgroup.', needsHost: true, targets: ['10100'],
-    fields: [{ key: 'id', label: 'DMR ID', kind: 'number', required: true, default: '1234567' }] },
+    fields: [{ key: 'id', label: 'DMR ID', kind: 'number', required: true, stationDefault: 'dmrId' }] },
   { name: 'nxdn', title: 'NXDN', targetLabel: 'Talkgroup', targetHelp: 'An NXDN reflector talkgroup.', needsHost: true, targets: ['65000'],
-    fields: [{ key: 'id', label: 'NXDN ID', kind: 'number', required: true, default: '1234' }] },
+    fields: [{ key: 'id', label: 'NXDN ID', kind: 'number', required: true, stationDefault: 'nxdnId' }] },
   { name: 'm17', title: 'M17', targetLabel: 'Reflector and module', targetHelp: 'A reflector and module, for example M17-XXX C.', needsHost: true, targets: ['M17-XXX C'],
     fields: [{ key: 'callsign', label: 'Callsign', kind: 'text', required: true, default: 'N0CALL' }, { key: 'module', label: 'Module', kind: 'select', options: ['A', 'B', 'C', 'D'], default: 'C' }] },
 ];
@@ -43,7 +44,8 @@ const values: Record<string, Record<string, string>> = {
   allstar: { node: '1999', server: 'register.example.net' }, echolink: { callsign: 'N0CALL-L' }, bm: { id: '1234567', master: 'master.example.net' }, ysf: { callsign: 'N0CALL' },
 };
 const secrets: Record<string, Record<string, boolean>> = { allstar: { password: true }, bm: { password: true } };
-const isConfigured = (m: ModeDef) => m.fields.filter((f) => f.required && !f.secret).every((f) => (values[m.name]?.[f.key] ?? '') !== '') && m.fields.filter((f) => f.required && f.secret).every((f) => secrets[m.name]?.[f.key]);
+const hasStationId = (f: Field) => !!f.stationDefault && !!station[f.stationDefault];
+const isConfigured = (m: ModeDef) => m.fields.filter((f) => f.required && !f.secret).every((f) => (values[m.name]?.[f.key] ?? '') !== '' || hasStationId(f)) && m.fields.filter((f) => f.required && f.secret).every((f) => secrets[m.name]?.[f.key]);
 
 const HOSTS: Record<string, { value: string; name: string; detail?: string; address: string; port: number }[]> = {
   ysf: [{ value: 'YSF-TEST', name: 'Test reflector', detail: 'Placeholder', address: 'ysf1.example.net', port: 42000 }, { value: 'YSF-DEMO', name: 'Demo reflector', address: 'ysf2.example.net', port: 42000 }],
@@ -53,9 +55,9 @@ const HOSTS: Record<string, { value: string; name: string; detail?: string; addr
 };
 
 // ---- Station and node state.
-const station = { callsign: 'N0CALL', radio: { frequencyMHz: 146.52, tone: '100.0', squelch: 4, narrow: false, rxVolume: 60, txVolume: 55, preset: '', sa818Port: '/dev/ttyUSB0' }, id: { enabled: true, intervalS: 600, wpm: 20, pitchHz: 800, levelDb: -12 } };
+const station: Record<string, any> & { callsign: string; radio: Record<string, any>; id: Record<string, any> } = { callsign: 'N0CALL', dmrId: 1234567, radio: { frequencyMHz: 146.52, tone: '100.0', squelch: 4, narrow: false, rxVolume: 60, txVolume: 55, preset: '', sa818Port: '/dev/ttyUSB0' }, id: { enabled: true, intervalS: 600, wpm: 20, pitchHz: 800, levelDb: -12 } };
 let stationSet = process.env.MOCK_STATION_SETUP !== '1';
-if (!stationSet) station.callsign = '';
+if (!stationSet) { station.callsign = ''; delete station.dmrId; }
 const radioPresent = process.env.MOCK_NO_RADIO !== '1';
 // The radio interface presets, as the node lists them. MOCK_NO_RADIO=1 is a node with no USB interface.
 const iface = (preset: string, audio: boolean, o: Record<string, unknown>) => ({ preset, audio, pttPin: 0, pttActiveLow: false, cos: 'none', cosActiveLow: false, ctcss: 'none', ctcssActiveLow: false, sa818: false, ...o });
@@ -112,7 +114,7 @@ function modeStatus(name: string) {
   };
 }
 const modeList = (role: string) => MODES.map((d) => ({
-  name: d.name, title: d.title, targetLabel: d.targetLabel, targetHelp: d.targetHelp, needsHost: d.needsHost,
+  name: d.name, title: d.title, targetLabel: d.targetLabel, targetHelp: d.targetHelp, needsHost: d.needsHost, ...(AMBE_MODES.includes(d.name) ? { needsAmbe: true } : {}),
   ...(role === 'admin' ? { fields: d.fields, settings: { values: Object.fromEntries(Object.entries(values[d.name] ?? {})) }, secretsSet: secrets[d.name] ?? {} } : {}),
   configured: isConfigured(d), active: d.name === active, status: modeStatus(d.name),
 }));
@@ -288,6 +290,7 @@ export function mockApi(): Plugin {
         const isAdmin = user.role === 'admin', canOp = user.role !== 'viewer';
         const forbid = () => err(res, 403, 'forbidden', 'forbidden');
         let mm: RegExpExecArray | null;
+        if (handleVocoder({ m, p, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleWifi({ m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }) })) return;
         if (handleSystem({ m, p, url, body, user, json: (c, b) => json(res, c, b), err: (c, msg, code) => json(res, c, { error: msg, code }), file: (name, text) => { res.statusCode = 200; res.setHeader('Content-Type', 'application/gzip'); res.setHeader('Content-Disposition', `attachment; filename="${name}"`); res.end(text); } })) return;
 
@@ -318,7 +321,7 @@ export function mockApi(): Plugin {
             if (!(f.key in v)) continue;
             if (f.secret) { if (v[f.key] !== '') (secrets[d.name] ??= {})[f.key] = true; } else (values[d.name] ??= {})[f.key] = String(v[f.key]);
           }
-          const miss = d.fields.find((f) => f.required && !f.secret && (values[d.name]?.[f.key] ?? '') === '' && !f.default);
+          const miss = d.fields.find((f) => f.required && !f.secret && (values[d.name]?.[f.key] ?? '') === '' && !f.default && !hasStationId(f));
           if (miss) return err(res, 400, `${miss.label} is required`, 'bad_request');
           return json(res, 200, modeList(user.role));
         }
@@ -327,7 +330,13 @@ export function mockApi(): Plugin {
           if (m === 'GET') return json(res, 200, { ...station, advanced: {}, active: active ? { mode: active, target: target ? { id: target } : undefined } : undefined });
           if (m === 'PUT') {
             if (!/^[A-Za-z0-9/]{3,12}$/.test(String(body.callsign ?? ''))) return err(res, 400, 'enter the station callsign', 'bad_request');
+            const ids: [string, number][] = [['dmrId', 16777215], ['nxdnId', 65535]];
+            for (const [k, max] of ids) {
+              const n = Number(body[k] ?? 0);
+              if (!Number.isInteger(n) || n < 0 || n > max) return err(res, 400, `${k === 'dmrId' ? 'DMR' : 'NXDN'} ID must be 1 to ${max}`, 'bad_request');
+            }
             station.callsign = String(body.callsign).toUpperCase();
+            for (const [k] of ids) { if (body[k]) station[k] = Number(body[k]); else delete station[k]; }
             if (body.radio) {
               for (const k of ['preset', 'pttGpio', 'pttActiveLow', 'cosSource', 'cosActiveLow', 'ctcssSource', 'ctcssActiveLow', 'sa818']) delete (station.radio as Record<string, unknown>)[k];
               Object.assign(station.radio, body.radio);

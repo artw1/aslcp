@@ -2,7 +2,7 @@ import type {
   About, BackupInfo, BackupSelection, Favorite, HostList, HostPatch, HostStatus, Heard, ManualAction, ModeInfo, ModeSettings, NodeJSON, NodeService,
   NowCalling, PublicInfo, PublicSettings, RadioInfo, RadioLevels, RestoreApplyResult, RestoreResult, RestoreUpload, Schedule, ScheduleInput, SchedulesSnapshot,
   Settings, Station, SysLogs, SysNetwork, SysServices, SystemInfo, Target, TerminalSessionInfo, TerminalStatus, TerminalTicket, UpdateInfo, User,
-  UserListStatus, HamDBStatus, DiagPlan, AuditPage, WifiScan, WifiState, NodeInfo,
+  UserListStatus, Vocoder, HamDBStatus, DiagPlan, AuditPage, WifiScan, WifiState, NodeInfo,
 } from './types';
 import type { WebPortStatus } from './svcweb';
 
@@ -130,6 +130,8 @@ export const api = {
   modes: () => req<ModeInfo[]>('GET', '/modes'),
   saveMode: (mode: string, s: ModeSettings) => req<ModeInfo[]>('PUT', `/modes/${q(mode)}`, s),
   deleteMode: (mode: string) => req<void>('DELETE', `/modes/${q(mode)}`),
+  vocoder: () => req<Vocoder>('GET', '/vocoder'),
+  installVocoder: () => req<Vocoder>('POST', '/vocoder/install'),
   station: () => req<Station>('GET', '/station'),
   saveStation: (s: Station) => req<NodeJSON>('PUT', '/station', s),
   /** Makes `mode` the active one (and connects `t` when given); an empty mode makes the node idle. */

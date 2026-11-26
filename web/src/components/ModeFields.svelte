@@ -7,6 +7,7 @@
   const basic = $derived(fields.filter((f) => !f.advanced));
   const adv = $derived(fields.filter((f) => f.advanced));
   const id = (k: string) => `${idPrefix}-${mode.name}-${k}`;
+  const stationHint = (f: { stationDefault?: string }) => `Default: station ${f.stationDefault === 'nxdnId' ? 'NXDN' : 'DMR'} ID`;
   const chk = 'size-4 accent-[var(--accent)]';
 </script>
 
@@ -15,15 +16,16 @@
     <label class="flex cursor-pointer items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" class="mt-0.5 {chk}" checked={draft[f.key] === 'true'} onchange={(e) => (draft[f.key] = e.currentTarget.checked ? 'true' : 'false')} /><span>{f.label}{#if f.help}<span class="block text-xs text-muted">{f.help}</span>{/if}</span></label>
   {:else}
     <div>
-      <label class="label" for={id(f.key)}>{f.label}{#if f.required}<span class="text-danger" aria-hidden="true"> *</span>{/if}</label>
+      <label class="label" for={id(f.key)}>{f.label}{#if f.required && !f.stationDefault}<span class="text-danger" aria-hidden="true"> *</span>{/if}</label>
       {#if f.kind === 'select'}
         <select id={id(f.key)} class="input" bind:value={draft[f.key]}>{#each f.options ?? [] as o}<option value={o}>{o}</option>{/each}</select>
       {:else if (f.kind === 'password' || f.secret)}
         <input id={id(f.key)} class="input" type="password" autocomplete="new-password" bind:value={draft[f.key]} placeholder={mode.secretsSet?.[f.key] ? 'set' : ''} required={f.required && !mode.secretsSet?.[f.key]} />
       {:else}
-        <input id={id(f.key)} class="input {f.kind === 'number' ? 'tabular-nums' : ''}" type={f.kind === 'number' ? 'number' : 'text'} autocomplete="off" bind:value={draft[f.key]} placeholder={f.default ?? ''} required={f.required} />
+        <input id={id(f.key)} class="input {f.kind === 'number' ? 'tabular-nums' : ''}" type={f.kind === 'number' ? 'number' : 'text'} autocomplete="off" bind:value={draft[f.key]} placeholder={f.stationDefault ? stationHint(f) : f.default ?? ''} required={f.required && !f.stationDefault} />
       {/if}
       {#if f.help}<p class="mt-1 text-xs text-muted">{f.help}</p>{/if}
+      {#if f.stationDefault}<p class="mt-1 text-xs text-muted">Optional. {stationHint(f)}</p>{/if}
       {#if (f.kind === 'password' || f.secret) && mode.secretsSet?.[f.key]}<p class="mt-1 text-xs text-muted">Saved. Leave empty to keep it.</p>{/if}
     </div>
   {/if}

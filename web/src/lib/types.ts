@@ -53,18 +53,31 @@ export type FieldKind = 'text' | 'number' | 'password' | 'bool' | 'select';
 export interface ModeField {
   key: string; label: string; kind: FieldKind; required?: boolean; secret?: boolean;
   default?: string; options?: string[]; help?: string; advanced?: boolean;
+  /** The station ID this field falls back to when left empty: "dmrId" or "nxdnId". A required field with one is optional when the station has that ID. */
+  stationDefault?: 'dmrId' | 'nxdnId';
 }
 export interface ModeSettings { values?: Record<string, string>; favorites?: Target[]; reflectors?: Target[] }
 /** One mode of GET /api/modes. Operators and viewers get no fields, settings or secretsSet. */
 export interface ModeInfo {
   name: string; title: string; targetLabel?: string; targetHelp?: string; needsHost?: boolean;
+  /** The mode's voice is AMBE: it needs the md380-emu vocoder (see Vocoder). */
+  needsAmbe?: boolean;
   fields?: ModeField[]; settings?: ModeSettings; secretsSet?: Record<string, boolean>;
   configured: boolean; active: boolean; status?: ModeStatus; error?: string;
+}
+
+/** GET /api/vocoder and POST /api/vocoder/install (admin). */
+export interface Vocoder {
+  installed: boolean; active: boolean; needed: string[]; supported: boolean; reason?: string;
+  /** The install job: absent when none ran, else running, done or failed. */
+  job?: 'running' | 'done' | 'failed'; jobLog?: string;
 }
 
 /** GET and PUT /api/station (admin). */
 export interface Station {
   callsign?: string;
+  /** Optional digital IDs of the station (DMR 1 to 16777215, NXDN 1 to 65535); unset or 0 is none. Modes use them when their own ID is empty. */
+  dmrId?: number; nxdnId?: number;
   radio: {
     frequencyMHz?: number; tone?: string; squelch?: number; narrow?: boolean; rxVolume?: number; txVolume?: number;
     /** "", "shari", "uri" or "none"; empty is automatic. The settings below override the preset's; unset keeps the preset's. */

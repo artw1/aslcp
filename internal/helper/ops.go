@@ -72,6 +72,12 @@ type Ops struct {
 	OSCheckTimeout time.Duration
 	osCheckMu      sync.Mutex
 
+	// VocoderKeyring, VocoderSourceList and VocoderDropin are the files of
+	// the vocoder install (vocoder.go); injectable for tests.
+	VocoderKeyring    string
+	VocoderSourceList string
+	VocoderDropin     string
+
 	// HTTPGet fetches the keyring (tests inject; default: fixed-URL client,
 	// redirects refused, 1 MiB cap). Now is the clock check's time source.
 	HTTPGet func(ctx context.Context, url string) ([]byte, error)

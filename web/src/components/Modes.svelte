@@ -4,8 +4,8 @@
   import { api } from '../lib/api';
   import { app, canOperate, isAdmin, refreshFavorites, refreshModes } from '../lib/store.svelte';
   import { toast, toastError } from '../lib/toast.svelte';
-  import { favoritesOf, modeTitle, recentTargets, sortModes, stateText, targetBody, targetLabel, targetText } from '../lib/modes';
-  import type { Favorite, HostItem, HostList } from '../lib/types';
+  import { favoritesOf, modeTitle, needsVocoder, recentTargets, sortModes, stateText, targetBody, targetLabel, targetText, vocoderBusy } from '../lib/modes';
+  import type { Favorite, HostItem, HostList, Vocoder } from '../lib/types';
   import FavoriteDialog from './FavoriteDialog.svelte';
   import Confirm from './Confirm.svelte';
   import Footer from './Footer.svelte';
@@ -79,6 +79,28 @@
     try { await api.deleteFavorite(f.id); await refreshFavorites(); toast('Favorite removed'); } catch (e) { toastError(e); }
   }
   $effect(() => { if (!app.modes.length) refreshModes().catch(() => {}); });
+
+  // The AMBE vocoder (md380-emu): admins can install it when the picked mode needs it. Installing is a helper job; poll until it ends.
+  let voc = $state<Vocoder | null>(null), vocBusy = $state(false);
+  const vocNeeded = $derived(isAdmin() && needsVocoder(info, voc));
+  async function loadVocoder() {
+    try { voc = await api.vocoder(); } catch { /* the notice stays hidden when the status is unknown */ }
+  }
+  $effect(() => { if (isAdmin()) void loadVocoder(); });
+  $effect(() => {
+    if (!vocoderBusy(voc)) return;
+    const t = setInterval(async () => {
+      await loadVocoder();
+      if (voc?.job === 'done') { toast('AMBE vocoder installed'); void refreshModes().catch(() => {}); }
+      else if (voc?.job === 'failed') toast(voc.jobLog ? `Vocoder install failed: ${voc.jobLog.trim().split('\n').pop()}` : 'Vocoder install failed', 'error');
+    }, 2000);
+    return () => clearInterval(t);
+  });
+  async function installVocoder() {
+    if (vocBusy) return;
+    vocBusy = true;
+    try { voc = await api.installVocoder(); if (voc.job === 'running') toast('Installing the AMBE vocoder…'); else await loadVocoder(); } catch (e) { toastError(e); } finally { vocBusy = false; }
+  }
 </script>
 
 <div class="space-y-3">
@@ -120,6 +142,14 @@
           {#if isActive}<span class="badge border-accent text-accent">Active</span>{/if}
           {#if isAdmin()}<a class="btn btn-sm ml-auto" href={'#/settings/modes/' + info.name}><Settings size={13} aria-hidden="true" />Settings</a>{/if}
         </div>
+        {#if vocNeeded}
+          <div class="flex flex-wrap items-center gap-2 rounded border border-warn/60 bg-warn/5 px-3 py-2 text-sm" role="status" data-testid="vocoder-notice">
+            <span class="min-w-0 flex-1">Needs the AMBE vocoder (md380-emu){#if voc && !voc.supported && voc.reason}. {voc.reason}{/if}</span>
+            {#if voc?.supported !== false}
+              <button type="button" class="btn btn-primary btn-sm" disabled={vocBusy || vocoderBusy(voc)} onclick={installVocoder}>{vocBusy || vocoderBusy(voc) ? 'Installing…' : 'Install'}</button>
+            {/if}
+          </div>
+        {/if}
         {#if !info.configured}
           <p class="text-sm text-muted">{info.title} is not set up yet.{#if isAdmin()} Add its login in <a class="underline" href={'#/settings/modes/' + info.name}>Settings</a>.{:else} Ask an administrator to set it up.{/if}</p>
         {:else}

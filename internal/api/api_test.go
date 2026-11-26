@@ -545,6 +545,29 @@ func TestStationSetupFlag(t *testing.T) {
 	}
 }
 
+func TestStationDigitalIDs(t *testing.T) {
+	cfg := testNodeConfig()
+	delete(cfg.Modes[mode.BM].Values, "dmr_id")
+	cfg.Station.DMRID = 1234567
+	e := newEnv(t, opts{nodeCfg: cfg})
+	var stn node.Station
+	if c := e.do("admin", "GET", "/api/station", nil, &stn); c != 200 || stn.DMRID != 1234567 || stn.NXDNID != 0 {
+		t.Fatal(c, stn)
+	}
+	stn.NXDNID = 4321
+	if c := e.do("admin", "PUT", "/api/station", stn, nil); c != 200 {
+		t.Fatalf("PUT station: %d", c)
+	}
+	var got node.Station
+	if e.do("admin", "GET", "/api/station", nil, &got); got.DMRID != 1234567 || got.NXDNID != 4321 {
+		t.Fatalf("%+v", got)
+	}
+	stn.NXDNID = 70000
+	expectErr(t, e, "admin", "PUT", "/api/station", stn, 409, "node_refused")
+	// BrandMeister has no DMR ID of its own: it builds with the station's.
+	e.fake(mode.BM)
+}
+
 func modeByName(l []node.ModeInfo, n string) *node.ModeInfo {
 	for i := range l {
 		if l[i].Name == n {
