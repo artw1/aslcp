@@ -1,5 +1,5 @@
 [Unit]
-Description=ASLCP web control panel for AllStarLink
+Description=ASLCP web control panel
 Documentation=file:///usr/share/doc/aslcp/README
 After=network.target aslcp-helper.socket
 Wants=aslcp-helper.socket
@@ -8,8 +8,8 @@ Wants=aslcp-helper.socket
 Type=simple
 User=aslcp
 Group=aslcp
-# Access to /etc/asterisk/manager.conf comes from the aslcp user's membership
-# in group "asterisk" (added by the package's postinst); systemd applies the
+# Access to the node's control socket comes from the aslcp user's membership
+# in group "aslcp-node" (added by the package's postinst); systemd applies the
 # user's supplementary groups at start.
 ExecStart=/usr/bin/aslcp --config /etc/aslcp/aslcp.conf
 Restart=on-failure
@@ -21,7 +21,7 @@ RestartForceExitStatus=75
 TimeoutStopSec=15
 UMask=0027
 
-# Hardening. The service can read /etc/asterisk, /sys/class/thermal and /proc
+# Hardening. The service can read /etc/aslcp, /sys/class/thermal and /proc
 # (read-only views are kept) and write only to its data directory.
 NoNewPrivileges=yes
 ProtectSystem=strict

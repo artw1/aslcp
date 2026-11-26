@@ -367,8 +367,8 @@ read -r -d '' page <<'EOH' || true
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>ASLCP - web control panel for AllStarLink 3</title>
-<meta name="description" content="Install ASLCP, a web control panel for AllStarLink 3 nodes (with digital modes), from the signed apt repository.">
+<title>ASLCP - native radio node and web control panel</title>
+<meta name="description" content="Install ASLCP, a native radio node (AllStarLink, EchoLink and digital modes, no Asterisk) with a web control panel, from the signed apt repository.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230ea5e9'/%3E%3Cpath d='M8 22a11 11 0 0 1 16 0M11.5 18.5a6 6 0 0 1 9 0' stroke='%23fff' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='23' r='2' fill='%23fff'/%3E%3C/svg%3E">
 <style>
 :root{--bg:#f3f5f8;--surface:#fff;--surface-2:#e9edf2;--line:#cfd6df;--fg:#0f172a;--muted:#566274;--accent:#0369a1;--accent-fg:#fff;--ok:#15803d;--warn:#a16207;--danger:#b91c1c;
@@ -446,7 +446,7 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 </div></header>
 <main class="wrap" id="top">
 <section class="hero">
-<h1>A web control panel for your AllStarLink 3 node</h1>
+<h1>A native radio node with a web control panel</h1>
 <p class="lead">ASLCP lets you connect, monitor and manage favorites with live status from any browser, and it can set up digital modes for you. It runs on Debian 12 (bookworm), Debian 13 (trixie) and Raspberry Pi OS (arm64 and amd64; 64-bit only).</p>
 <ul class="badges">
 <li class="badge">Latest release <b>@STABLE@</b></li>
@@ -461,8 +461,8 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <div class="cmd">
 <pre tabindex="0"><code id="cmd-default">curl -fsSL @APT_URL@/install.sh | sudo sh</code></pre><button type="button" class="copy" data-copy="cmd-default" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
 </div>
-<p class="note">Run this on the node (over SSH or in a terminal). It works on an ASL3 card or on plain Debian or Raspberry Pi OS Lite 64-bit: if ASL3 is not installed, the installer installs it first (<code>asl3</code> and <code>asl3-menu</code>; a few minutes, many packages).</p>
-<p class="note warn">On a freshly flashed ASL3 card, wait for its first-boot setup and reboot (20-30 minutes) before you install. The installer checks this.</p>
+<p class="note">Run this on the node (over SSH or in a terminal). It works on plain Debian 12/13 or Raspberry Pi OS Lite 64-bit. ASLCP runs its own node: it does not need AllStarLink 3 or Asterisk.</p>
+<p class="note warn">On a freshly flashed card, wait for its first-boot setup to finish before you install. The installer checks this.</p>
 <p class="note">At the end the installer prints a one-time setup link. Open it to create the administrator or to restore a backup from an existing node. <code>sudo aslcp admin setup-code</code> shows the code again.</p>
 </section>
 
@@ -472,22 +472,14 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <p class="muted">Pick what you need and copy the command. Everything is optional.</p>
 <form id="opts" onsubmit="return false" novalidate>
 <fieldset>
-<legend>Digital modes</legend>
-<div class="opt"><input type="checkbox" id="o-dvs"><label for="o-dvs">Also enable digital modes<small>Runs <code>aslcp dv enable</code> once ASLCP is up. It takes a few minutes.</small></label></div>
-</fieldset>
-<fieldset>
-<legend>ASL3 telemetry</legend>
-<div class="opt"><input type="checkbox" id="o-telem"><label for="o-telem">Turn off ASL3 telemetry<small>Disables and masks <code>asl-telemetry.timer</code>, the anonymous usage report ASL3 sends to AllStarLink every day. Left unchecked, ASL3 stays as it is.</small></label></div>
-</fieldset>
-<fieldset>
-<legend>Port 80 and other ASL web services</legend>
-<div class="opt"><input type="checkbox" id="o-take"><label for="o-take">Run ASLCP on port 80 and turn off the other ASL web services<small>Stops and disables Allmon3, the web server of the ASL web UIs (Apache, lighttpd or nginx), asl-web-ui and Supermon, if they are there. Asterisk keeps running. The panel is then at <code>http://your-node/</code>. You can undo it (see below).</small></label></div>
+<legend>Port 80 and other web services</legend>
+<div class="opt"><input type="checkbox" id="o-take"><label for="o-take">Run ASLCP on port 80 and turn off web services an earlier ASL install left<small>Stops and disables Allmon3, the web server of the ASL web UIs (Apache, lighttpd or nginx), asl-web-ui and Supermon, if they are there. The panel is then at <code>http://your-node/</code>. You can undo it (see below).</small></label></div>
 </fieldset>
 <fieldset>
 <legend>Web port</legend>
 <label class="label" for="o-port">Port (1024-65535, or 80)</label>
 <input class="input" id="o-port" type="number" inputmode="numeric" min="80" max="65535" step="1" placeholder="8181" aria-describedby="o-port-hint o-port-err" autocomplete="off">
-<p class="hint" id="o-port-hint">1024-65535, or 80; 8080 is the default. Avoid 9090 (Cockpit on ASL3). Port 80 is set for you by the option above.</p>
+<p class="hint" id="o-port-hint">1024-65535, or 80; 8080 is the default. Avoid 9090 (Cockpit). Port 80 is set for you by the option above.</p>
 <p class="err" id="o-port-err" role="alert" hidden></p>
 <p class="warnmsg" id="o-port-warn" hidden></p>
 </fieldset>
@@ -505,23 +497,20 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <div id="params-static">
 <p>Add these before <code>sh</code>, after <code>sudo</code>, separated by spaces. All are optional:</p>
 <dl class="params">
-<dt><code>ASLCP_ASL3=0</code></dt><dd>Do not install ASL3 (<code>no</code> and <code>false</code> work too). By default the installer installs <code>asl3</code> and <code>asl3-menu</code> if they are missing. <code>ASLCP_ASL3=1</code> fails instead of continuing when ASL3 is not available for the system.</dd>
-<dt><code>ASLCP_DV=1</code></dt><dd>Also enable digital modes (<code>yes</code> and <code>true</code> work too).</dd>
-<dt><code>ASLCP_PORT=8181</code></dt><dd>Web port, 1024-65535, or 80. The default is 8080. Avoid 9090 (Cockpit on ASL3).</dd>
-<dt><code>ASLCP_TAKEOVER=1</code></dt><dd>Run ASLCP on port 80 and turn off the other ASL web services (<code>yes</code> and <code>true</code> work too). See below.</dd>
-<dt><code>ASLCP_ASL_TELEMETRY=0</code></dt><dd>Turn off ASL3 telemetry, the anonymous usage report ASL3 sends to AllStarLink every day, and mask it (<code>off</code>, <code>no</code> and <code>false</code> work too). <code>ASLCP_ASL_TELEMETRY=1</code> turns it back on (<code>on</code>, <code>yes</code> and <code>true</code> work too). By default it is left as ASL3 ships it (on).</dd>
+<dt><code>ASLCP_PORT=8181</code></dt><dd>Web port, 1024-65535, or 80. The default is 8080. Avoid 9090 (Cockpit).</dd>
+<dt><code>ASLCP_TAKEOVER=1</code></dt><dd>Run ASLCP on port 80 and turn off web services an earlier ASL install left (<code>yes</code> and <code>true</code> work too). See below.</dd>
 <dt><code>ASLCP_CHANNEL=beta</code></dt><dd>Use the beta channel (new builds before they are promoted to stable). The default is <code>stable</code>.</dd>
 </dl>
 <p style="margin-top:10px">Example with several options:</p>
-<div class="cmd"><pre tabindex="0"><code id="cmd-example">curl -fsSL @APT_URL@/install.sh | sudo ASLCP_DV=1 ASLCP_PORT=8181 ASLCP_CHANNEL=beta sh</code></pre><button type="button" class="copy" data-copy="cmd-example" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
+<div class="cmd"><pre tabindex="0"><code id="cmd-example">curl -fsSL @APT_URL@/install.sh | sudo ASLCP_PORT=8181 ASLCP_CHANNEL=beta sh</code></pre><button type="button" class="copy" data-copy="cmd-example" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
 </div>
 </section>
 
 <section class="card" aria-labelledby="h-take">
-<h2 id="h-take">ASLCP on port 80, no other ASL web UI</h2>
-<p>An ASL3 image runs Apache, Allmon3 and its own web UI next to ASLCP. To make ASLCP the only web UI, on port 80:</p>
+<h2 id="h-take">ASLCP on port 80, no other web UI</h2>
+<p>A card that ran ASL3 before may still run Apache, Allmon3 and the ASL web UI. To make ASLCP the only web UI, on port 80:</p>
 <div class="cmd"><pre tabindex="0"><code id="cmd-take">curl -fsSL @APT_URL@/install.sh | sudo ASLCP_TAKEOVER=1 sh</code></pre><button type="button" class="copy" data-copy="cmd-take" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
-<p>The installer stops and disables Allmon3, the web server of the ASL web UIs (Apache, lighttpd or nginx), asl-web-ui and Supermon, but only those that exist and are on, and lists each one. <strong>Asterisk and app_rpt keep running.</strong> Nothing is uninstalled. Then ASLCP moves to port 80 and the panel is at <code>http://your-node/</code>. If something else still holds port 80, the installer names it and leaves ASLCP on its old port.</p>
+<p>The installer stops and disables Allmon3, the web server of the ASL web UIs (Apache, lighttpd or nginx), asl-web-ui and Supermon, but only those that exist and are on, and lists each one. <strong>The node keeps running.</strong> Nothing is uninstalled. Then ASLCP moves to port 80 and the panel is at <code>http://your-node/</code>. If something else still holds port 80, the installer names it and leaves ASLCP on its old port.</p>
 <p>To undo it (ASLCP goes back to its old port and the units it turned off are enabled and started again):</p>
 <div class="cmd"><pre tabindex="0"><code id="cmd-untake">curl -fsSL @APT_URL@/install.sh | sudo ASLCP_TAKEOVER=undo sh</code></pre><button type="button" class="copy" data-copy="cmd-untake" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
 </section>
@@ -531,15 +520,13 @@ footer{padding:8px 0 40px;font-size:13px;color:var(--muted)}
 <h3>Web port</h3>
 <p>The web interface listens on port <strong>8080</strong> by default. To change it, run the installer again with <code>ASLCP_PORT</code> (1024-65535, or 80), or edit <code>listen</code> in <code>/etc/aslcp/aslcp.conf</code> (for example <code>listen = :8181</code>) and run <code>sudo systemctl restart aslcp</code>. The installer warns if another program already uses the port.</p>
 <p>If firewalld is running, the installer and the package open the configured port for you. With another firewall (ufw, nftables, a router) open the TCP port yourself. If you edit <code>listen</code> by hand while firewalld is running, open the new port too.</p>
-<h3>Digital modes</h3>
-<p>Run <code>sudo aslcp dv enable</code>, or use Settings, Digital Modes, in the web UI. If enabling fails during the installer, the installer still finishes and you can retry with this command.</p>
 <h3>Update</h3>
 <p>Use Settings &rarr; Updates in the web UI, or:</p>
 <div class="cmd"><pre tabindex="0"><code id="cmd-update">sudo apt update &amp;&amp; sudo apt upgrade</code></pre><button type="button" class="copy" data-copy="cmd-update" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
 <h3>Uninstall</h3>
 <div class="cmd"><pre tabindex="0"><code id="cmd-remove">sudo apt remove aslcp   # keeps users and favorites
 sudo apt purge aslcp    # also deletes them</code></pre><button type="button" class="copy" data-copy="cmd-remove" aria-label="Copy command" title="Copy" hidden><svg class="i-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
-<p><code>apt purge</code> also deletes the config history and ASLCP's digital modes state (which holds copies of network passwords). Your Asterisk config stays.</p>
+<p><code>apt purge</code> also deletes the node config (which holds network passwords).</p>
 </section>
 
 <section class="card" aria-labelledby="h-manual">
@@ -599,8 +586,8 @@ sudo apt update &amp;&amp; sudo apt install aslcp</code></pre><button type="butt
   }
 
   var wiz = document.getElementById("wizard"), stat = document.getElementById("params-static");
-  var dvs = document.getElementById("o-dvs"), port = document.getElementById("o-port"),
-    beta = document.getElementById("o-beta"), take = document.getElementById("o-take"), telem = document.getElementById("o-telem"), out = document.getElementById("cmd-gen"),
+  var port = document.getElementById("o-port"),
+    beta = document.getElementById("o-beta"), take = document.getElementById("o-take"), out = document.getElementById("cmd-gen"),
     err = document.getElementById("o-port-err"), warn = document.getElementById("o-port-warn"),
     copyGen = document.getElementById("copy-gen");
   wiz.hidden = false; stat.hidden = true;
@@ -612,14 +599,12 @@ sudo apt update &amp;&amp; sudo apt install aslcp</code></pre><button type="butt
     err.textContent = valid ? "" : "Enter 80 or a whole number from 1024 to 65535, or leave it empty for 8080.";
     copyGen.disabled = !valid;
     var w = "";
-    if (valid && raw === "9090") w = "Port 9090 is used by Cockpit on ASL3. Pick another port.";
+    if (valid && raw === "9090") w = "Port 9090 is used by Cockpit. Pick another port.";
     warn.textContent = w; warn.hidden = !w;
     if (!valid) return;
     var vars = [];
-    if (dvs.checked) vars.push("ASLCP_DV=1");
     if (take.checked) vars.push("ASLCP_TAKEOVER=1");
     if (raw !== "" && raw !== "8080" && !(take.checked && raw === "80")) vars.push("ASLCP_PORT=" + raw);
-    if (telem.checked) vars.push("ASLCP_ASL_TELEMETRY=0");
     if (beta.checked) vars.push("ASLCP_CHANNEL=beta");
     out.textContent = "curl -fsSL " + BASE + "/install.sh | sudo " + (vars.length ? vars.join(" ") + " " : "") + "sh";
   }

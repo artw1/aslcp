@@ -1,5 +1,7 @@
 # Digital modes (DV)
 
+> Removed in 3.0: this describes a 2.x feature that needed Asterisk. ASLCP 3 runs its own node; see [NATIVE_NODE.md](NATIVE_NODE.md). Kept for reference.
+
 Digital modes (DMR, YSF, P25, NXDN) run on the ASLCP engine, `aslcp-dv`, a small service that ships in the ASLCP package. ASLCP 2.0 replaces the previous third-party digital voice stack with it: that stack is no longer installed, configured or restarted by ASLCP.
 
 > **You have to redo the digital-modes configuration in 2.0.** The BrandMeister, TGIF, DMR - Other, YSF, P25 and NXDN settings and your identity (callsign and DMR ID) are not carried over from the previous stack, and nothing is imported from its ini files. The previous stack is removed on upgrade, except md380-emu. See "Upgrading from 1.x" below.

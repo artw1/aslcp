@@ -20,7 +20,9 @@ Items marked **To verify** are assumptions that need confirmation on real hardwa
 
 ## 2. Scope and non-goals
 
-ASLCP is installed after ASL3 is present. It does not install ASL3, but it ships its own first-run setup wizard that can replace ASL's first-setup routine (`asl3-menu` node setup).
+> ASLCP 3 replaced Asterisk and ASL3 with its own node; see [NATIVE_NODE.md](NATIVE_NODE.md). This document describes the 2.x design and is kept for reference.
+
+In 2.x, ASLCP was installed after ASL3 was present. ASLCP 3 needs neither ASL3 nor Asterisk.
 
 **Non-goals**
 

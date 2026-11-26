@@ -1,5 +1,7 @@
 # SimpleUSB audio tuning from the web UI
 
+> Removed in 3.0: this describes a 2.x feature that needed Asterisk. ASLCP 3 runs its own node; see [NATIVE_NODE.md](NATIVE_NODE.md). Kept for reference.
+
 Status: implemented in 1.1.6 (tone removed in beta.8) (admin-only "Audio levels" page (named "Audio Tuning" before 2.4.0), `/api/radio`). Sections 1 to 9 are the original design; "Implementation notes" near the end lists what differs and what is not yet verified on hardware. Node numbers below are placeholders (1999, 1998).
 
 > **The TX test tone was removed in 1.1.8.** `susb tune flash` is meant to key three 1 s bursts. On the bench the tones were intermittent, even when `susb tune flash` was run directly with `asterisk -rx`, with no ASLCP involved, while `simpleusb-tune-menu` played them consistently. The likely cause is a race with app_rpt on the channel generator, which is in the driver and not something ASLCP can fix. The maintainer decided the panel does not need the feature. The page now says: for a steady test tone (e.g. with a deviation meter), use `simpleusb-tune-menu` in a terminal. Everything below that describes the tone, `flash`, the channel-up pre-flight check, tone rate limits, `POST /api/radio/{dev}/tone` and the dedicated AMI connection is the original design, kept as history; none of it is in the code any more.

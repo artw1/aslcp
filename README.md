@@ -1,8 +1,10 @@
 # ASLCP
 
-A modern web control panel for [AllStarLink 3](https://www.allstarlink.org/) nodes.
+A native radio node with a modern web control panel.
 
-ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly web page to connect and disconnect links, watch live status and keep your favorites, in the spirit of [AllScan](https://allscan.info/). It also edits your Asterisk configuration, runs scheduled links, backs up and restores the whole node, and has built-in digital voice modes (DMR, YSF, P25 and NXDN).
+ASLCP 3 runs its own node (`aslcp-node`): one radio (a SHARI or another SA818 interface) and one network mode at a time, AllStarLink, EchoLink or a digital mode (DMR, YSF, P25, NXDN). Whatever mode is active, its audio goes out on the radio; networks are never bridged to each other. It does not need Asterisk or AllStarLink 3 (ASL3) and never installs them. The web page picks the mode and target, shows who is calling, keeps favorites per mode, runs schedules, tunes the radio and backs up and restores the node.
+
+> ASLCP 3 is a new design. Parts of this README below the install section still describe the 2.x panel for ASL3 and are being rewritten.
 
 ![ASLCP Dashboard, desktop](docs/images/dashboard-desktop.png)
 
@@ -14,10 +16,9 @@ ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly w
 - **Node search** by number, callsign, description or location in the connect bar and favorites, using the AllStarLink node list.
 - **Digital modes** (DMR, YSF, P25, NXDN) on the built-in engine, with a Digital modes card on the dashboard, an Echo test and a **Now calling** strip. See [Digital modes](#digital-modes).
 - **Schedules**: connect and disconnect nodes at set times (weekly or one-off), with a global on/off switch, an upcoming list, and a choice of what happens when you connect by hand.
-- **Asterisk files** (Settings, AllStarLink): edit `rpt.conf`, `iax.conf`, `simpleusb.conf`, `extensions.conf` and other Asterisk files in the browser. Saving shows a diff and checks syntax, reloads Asterisk, and keeps a history you can restore from. Administrators only.
-- **Audio levels** (Settings, AllStarLink; administrators, nodes with a SimpleUSB radio): live receive meter, RX and TX levels, carrier and CTCSS settings, PTT mode and delays.
-- **Backup and restore** (Settings, Maintenance): download one file with your Asterisk config, ASLCP users, favorites and settings and digital modes settings. Restore it on a freshly installed node during setup or later.
-- **Settings** (administrators; the Settings item in the top bar, with AllStarLink, Digital Modes, Access, System, Maintenance, About and Account): CPU temperature, load, uptime, Asterisk status and restart, ASL services, web port, WiFi, a browser terminal, updates and diagnostics.
+- **Radio tune** (administrators): receive and transmit levels and the SA818 channel, tones, squelch and filters.
+- **Backup and restore** (Settings, Maintenance): download one file with the node settings, the SA818 settings, ASLCP users, favorites and schedules. Network passwords are only included when you ask. Restore it on a freshly installed node during setup or later.
+- **Settings** (administrators; the Settings item in the top bar, with AllStarLink, Digital Modes, Access, System, Maintenance, About and Account): CPU temperature, load, uptime, node service status and restart, ASL services, web port, WiFi, a browser terminal, updates and diagnostics.
 - **Diagnostics**: download one `.tar.gz` with versions, recent logs, network summary, disk and memory, service states and your config files, to ask for help. Secrets are replaced by `<redacted>`; a checkbox (on by default) also hides your callsign and public IP. Password files, private keys and the ASLCP database are never included. Read it before posting it publicly.
 - **Users and roles**: admin, operator and viewer, with rate-limited login and CSRF protection.
 - **Updates from the web page**: Settings, System, Updates shows the installed and available version with release notes, lets you pick the release or beta channel, and installs updates on request.
@@ -31,17 +32,15 @@ ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly w
   <img src="docs/images/settings-updates.png" alt="Settings, Updates section" width="520">
 </p>
 
-### Schedules and config editor
+### Schedules
 
 ![Schedules](docs/images/schedules.png)
-
-![Config editor](docs/images/config.png)
 
 ## Requirements
 
 - Debian 12 (bookworm) or Debian 13 (trixie), or Raspberry Pi OS 64-bit based on either. A fresh Raspberry Pi OS Lite 64-bit works.
-- AllStarLink 3 (ASL3) is installed for you if it is missing (see below).
-- A 64-bit system: an ARM board (arm64) or a PC (amd64). A Raspberry Pi Zero 2 W or newer running Raspberry Pi OS Lite (64-bit) is plenty. 32-bit (armhf) is not supported, because ASL3 has no armhf packages; on a 32-bit system the installer refuses before changing anything, so reinstall with the 64-bit OS.
+- No AllStarLink 3 or Asterisk: ASLCP runs its own node. On a card that already runs ASL3, stop Asterisk (`sudo systemctl disable --now asterisk`) so the native node can use the radio.
+- A 64-bit system: an ARM board (arm64) or a PC (amd64). A Raspberry Pi Zero 2 W or newer running Raspberry Pi OS Lite (64-bit) is plenty. 32-bit (armhf) is not supported; on a 32-bit system the installer refuses before changing anything, so reinstall with the 64-bit OS.
 - Root access (sudo) for the installation.
 
 ## Install
@@ -52,9 +51,9 @@ On the node:
 curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo sh
 ```
 
-The script adds the signed ASLCP apt repository, installs the `aslcp` package and prints a one-time setup link. If ASL3 is not installed, the installer installs it first (see [ASL3 at install](#asl3-at-install)). Then open `http://<your-node>:8080` (8080 is the default port; see [Web port](#web-port)).
+The script adds the signed ASLCP apt repository, installs the `aslcp` package and prints a one-time setup link. Then open `http://<your-node>:8080` (8080 is the default port; see [Web port](#web-port)).
 
-On a freshly flashed ASL3 card, wait for the first-boot setup and its reboot (20-30 minutes) before installing: ASL3 installs updates and may reboot the node. The installer checks this (first-boot services, another running apt/dpkg or a held dpkg lock) and refuses to change anything until it is done; just run it again later. `ASLCP_SKIP_PREFLIGHT=1` skips the check. A pending reboot only produces a warning. Package operations started from the web UI wait up to 10 minutes for the apt lock instead of failing.
+On a freshly flashed card, wait for the first-boot setup to finish before installing. The installer checks this (first-boot services, another running apt/dpkg or a held dpkg lock) and refuses to change anything until it is done; just run it again later. `ASLCP_SKIP_PREFLIGHT=1` skips the check. A pending reboot only produces a warning. Package operations started from the web UI wait up to 10 minutes for the apt lock instead of failing.
 
 ### Raspberry Pi (no screen needed)
 
@@ -77,7 +76,7 @@ Or find its address in your router.
 ssh <user>@node1997.local
 ```
 
-6. Run the installer. Wait for the first boot to finish first (see above). If ASL3 is not installed, the installer installs it first (see [ASL3 at install](#asl3-at-install)).
+6. Run the installer. Wait for the first boot to finish first (see above).
 
 ```sh
 curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo sh
@@ -91,35 +90,9 @@ sudo aslcp admin setup-code
 
 Any Raspberry Pi that runs 64-bit Raspberry Pi OS works. 32-bit Raspberry Pi OS does not.
 
-### ASL3 at install
-
-If the `asl3` package is not installed, the installer adds the AllStarLink apt repository (the `asl-apt-repos` package from `https://repo.allstarlink.org/public/`, whose signing key is checked against a pinned fingerprint) and installs `asl3` and `asl3-menu` before it installs ASLCP. If only `asl3-menu` is missing, it installs that. This can take several minutes and downloads many packages. It does not install Allmon3 or the Pi appliance package.
-
-ASL3 is only available for Debian 12 or 13. On any other release the installer says so and installs the panel only. To skip ASL3 on purpose, set `ASLCP_ASL3=0` (`no` and `false` work too):
-
-```sh
-curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL3=0 sh
-```
-
-`ASLCP_ASL3=1` (`yes`, `true`) does the same as the default but fails instead of continuing when ASL3 is not available. Any other value is refused. Afterwards, configure the node with `sudo asl-menu`.
-
-Prefer to do it by hand? See the manual steps on <https://w1jar.github.io/aslcp/>.
-
 ### Digital modes at install
 
-To enable digital modes as well, set `ASLCP_DV=1` (`yes` and `true` work too; any other value is refused):
-
-```sh
-curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_DV=1 sh
-```
-
-It combines with `ASLCP_PORT`:
-
-```sh
-curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_DV=1 ASLCP_PORT=8181 sh
-```
-
-Once ASLCP is running, the installer runs `aslcp dv enable`, the same as enabling digital modes in Settings, Digital Modes (the Engine card), and shows its log. It takes a few minutes. If it fails, the installer warns and finishes anyway; retry with `sudo aslcp dv enable`. Digital modes settings from a restored backup are applied at the end of that install.
+Digital modes are built into the node; there is nothing to enable. `ASLCP_DV=1`, which enabled them in 2.x, is still accepted and does nothing. Prefer to do it by hand? See the manual steps on <https://w1jar.github.io/aslcp/>.
 
 ### First login
 
@@ -171,15 +144,9 @@ curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_TAKEOVER=undo s
 
 ASLCP moves back to the port it had before (8080 unless you set another), then exactly the recorded units are enabled and started again. Apache and Allmon3 are also recorded in the list in Settings, System, ASL web services, so `apt purge aslcp` turns them back on; the other units are only restored by the undo command.
 
-#### ASL3 telemetry at install (`ASLCP_ASL_TELEMETRY`)
+#### ASL3 telemetry
 
-ASL3 sends AllStarLink an anonymous usage report once a day (`asl-telemetry.timer`, which starts `asl-telemetry.service`). ASLCP leaves it on by default, as ASL3 ships it. To turn it off when installing, set `ASLCP_ASL_TELEMETRY=0` (`off`, `no` and `false` work too); the installer then runs `systemctl disable --now asl-telemetry.timer` and masks the timer and the service, so an ASL3 update does not turn it back on:
-
-```sh
-curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL_TELEMETRY=0 sh
-```
-
-`ASLCP_ASL_TELEMETRY=1` (`on`, `yes`, `true`) unmasks and enables it again. Unset, the installer changes nothing. Any other value is refused, and so is a combination with `ASLCP_TAKEOVER=undo`. If the units are not there, the installer says there is nothing to turn off. By hand, on any node:
+The installer no longer touches ASL3 (`ASLCP_ASL_TELEMETRY` is gone). On a card that still has ASL3, turn its daily usage report off by hand:
 
 ```sh
 sudo systemctl disable --now asl-telemetry.timer

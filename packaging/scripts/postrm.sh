@@ -76,7 +76,7 @@ purge)
 	# and the ini history of the previous stack (both hold passwords), and the
 	# port 80 move state. The directories of 1.x installs are removed too (the
 	# helper renames them on start; this covers a node purged before that).
-	# /etc/asterisk and the previous stack's own files are not touched.
+	# The previous stack's own files are not touched.
 	rm -rf "$ROOT/var/lib/aslcp-config-history" "$ROOT/var/lib/aslcp-dvstate" "$ROOT/var/lib/aslcp-dvstate-history" "$ROOT"/var/lib/aslcp-dvswitch* "$ROOT/var/lib/aslcp-webport"
 	# The hotspot setting (WiFi networks saved in NetworkManager stay).
 	rm -rf "$ROOT/var/lib/aslcp-wifi"

@@ -1,5 +1,5 @@
-ASLCP - web control panel for AllStarLink 3
-===========================================
+ASLCP - native radio node and web control panel
+===============================================
 
 Open the web UI:      http://<this-host>:8080   (8080 is the default port; see "listen" in aslcp.conf)
 Admin account:        sudo aslcp admin create   (shows in the install output as a setup link)
@@ -8,7 +8,7 @@ Setup link fallback:  http://<this-host>:<port>/#/setup?code=<code>, with the co
 Lost password:        sudo aslcp admin reset-password <user>
 Accounts:             sudo aslcp admin list
 Configuration:        /etc/aslcp/aslcp.conf       (then: sudo systemctl restart aslcp)
-Logs:                 journalctl -u aslcp -u aslcp-helper -u aslcp-dv
+Logs:                 journalctl -u aslcp -u aslcp-helper -u aslcp-node
 
 Services
   aslcp.service         the web server, runs as user "aslcp" (hardened, no capabilities)
@@ -16,22 +16,14 @@ Services
   aslcp-helper.service  firewalld changes on request from the web server. It accepts
                         a fixed set of operations only, from root and user "aslcp".
 
-  aslcp-dv.service      the digital voice engine (USRP <-> md380-emu, echo test
-                        network), runs as user "aslcp-dv" with no capabilities and
-                        loopback-only network access. It is installed but NOT enabled
-                        by the package: "Digital modes" in the web UI turns it on.
-                        State: /var/lib/aslcp-dv (config.json, mode 0600, written by the
-                        helper). Control socket: /run/aslcp-dv/ctl.sock (user "aslcp"
-                        is a member of group "aslcp-dv" to reach it).
-                        Logs: journalctl -u aslcp-dv
-
-Asterisk access
-  ASLCP reads the AMI credentials from /etc/asterisk/manager.conf ("auto"). The
-  aslcp user is added to group "asterisk". If that file is not group-readable:
-      sudo chgrp asterisk /etc/asterisk/manager.conf
-      sudo chmod 640 /etc/asterisk/manager.conf
-      sudo systemctl restart aslcp
-  Alternatively set explicit credentials in the [ami] section of aslcp.conf.
+  aslcp-node.service    the native node: one radio (SHARI / SA818 interface), one
+                        network mode at a time (AllStarLink, EchoLink or a digital
+                        mode). No Asterisk. Runs as user "aslcp-node" with no
+                        capabilities. Config: /etc/aslcp/node.json (mode 0600: it
+                        holds network passwords) and /etc/aslcp/sa818.json. Control
+                        socket: /run/aslcp-node/control.sock (user "aslcp" is a
+                        member of group "aslcp-node" to reach it).
+                        Logs: journalctl -u aslcp-node
 
 Firewall
   The web port is the one in "listen" in /etc/aslcp/aslcp.conf (default 8080).
@@ -44,27 +36,19 @@ Firewall
   or edit "listen" and run  sudo systemctl restart aslcp , then open the port in
   your firewall (firewalld: sudo firewall-cmd --permanent --add-port=8181/tcp
   && sudo firewall-cmd --reload).
-  Port 80 and no other ASL web UI: run the installer with ASLCP_TAKEOVER=1. It
-  stops and disables Allmon3, the web server of the ASL web UIs (apache2,
+  Port 80 and no other web UI left by an earlier ASL install: run the
+  installer with ASLCP_TAKEOVER=1. It stops and disables Allmon3, the web server of the ASL web UIs (apache2,
   lighttpd or nginx), asl-web-ui and Supermon (those that exist and are on),
-  never Asterisk, records them in /var/lib/aslcp/takeover.list and moves ASLCP
+  never aslcp-node, records them in /var/lib/aslcp/takeover.list and moves ASLCP
   to port 80:
       curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_TAKEOVER=1 sh
   Undo (ASLCP goes back to its old port, the recorded units are turned on):
       curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_TAKEOVER=undo sh
 
-ASL3
-  The installer installs asl3 and asl3-menu first if they are missing (it adds
-  the AllStarLink apt repository from https://repo.allstarlink.org/public/ and
-  checks its key). Debian 12/13 only; on another release it installs the
-  panel only. To skip: ASLCP_ASL3=0
-      curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL3=0 sh
-  ASL3 sends AllStarLink an anonymous usage report every day
-  (asl-telemetry.timer). ASLCP leaves it on. To turn it off and mask it:
-      curl -fsSL https://w1jar.github.io/aslcp/install.sh | sudo ASLCP_ASL_TELEMETRY=0 sh
-  (ASLCP_ASL_TELEMETRY=1 restores it.) By hand:
-      sudo systemctl disable --now asl-telemetry.timer
-      sudo systemctl mask asl-telemetry.timer asl-telemetry.service
+AllStarLink 3 and Asterisk
+  Not needed: ASLCP 3 runs its own node and never installs them. On a node
+  upgraded from 2.x they stay installed; stop Asterisk before the native node
+  uses the radio (sudo systemctl disable --now asterisk).
 
 Updates
   Settings > Updates in the web UI (administrators), or the usual:
@@ -77,7 +61,7 @@ Reporting bugs
 
 Removal
   apt remove aslcp   keeps /var/lib/aslcp (users, favorites) and the user
-  apt purge aslcp    deletes them, the digital voice engine state (/var/lib/aslcp-dv)
-                     and user, the config history (/var/lib/aslcp-config-history)
-                     and the digital modes state (/var/lib/aslcp-dvstate,
-                     /var/lib/aslcp-dvstate-history); /etc/asterisk stays
+  apt purge aslcp    deletes them, the node config (/etc/aslcp/node.json,
+                     /etc/aslcp/sa818.json) and the aslcp-node user, and the state
+                     left by 2.x (/var/lib/aslcp-dv, /var/lib/aslcp-config-history,
+                     /var/lib/aslcp-dvstate*)

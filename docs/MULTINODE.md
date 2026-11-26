@@ -1,5 +1,7 @@
 # Multi-node view (parked)
 
+> Removed in 3.0: this describes a 2.x feature that needed Asterisk. ASLCP 3 runs its own node; see [NATIVE_NODE.md](NATIVE_NODE.md). Kept for reference.
+
 Status: **parked**. Not scheduled. The owner decided to skip it for 1.3.x and revisit later. Nothing here is built.
 
 Node numbers below are placeholders: nodes 2001, 2002 and 2003, host `node2001`, address `192.0.2.10`.

@@ -1,5 +1,7 @@
 # Configuration editing (2.0)
 
+> Removed in 3.0: this describes a 2.x feature that needed Asterisk. ASLCP 3 runs its own node; see [NATIVE_NODE.md](NATIVE_NODE.md). Kept for reference.
+
 Configuration editing of `docs/DESIGN.md` (sections 4-6), released in 2.0.
 
 | Slice | Content |

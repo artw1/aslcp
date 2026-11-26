@@ -17,9 +17,15 @@ Release notes are taken from the section of the tag being released
 
 ### Changed
 - `aslcp-node.service` is enabled and started on install and runs as its own user, `aslcp-node`. An upgrade stops and disables the old `aslcp-dv.service`.
+- The web server runs on the native node only, over its control socket (`[node] socket` in `aslcp.conf`, default `/run/aslcp-node/control.sock`). It no longer talks to Asterisk. The API now covers the node status, the modes and their settings (passwords are write-only: reading only says whether one is set, and saving an empty password keeps the stored one), selecting a mode and target, disconnecting, favorites per mode, Last heard and Now calling across all modes, the radio tune page (levels and SA818 programming), and the status and restart of `aslcp-node.service`. Schedules pick a mode and target.
+- Backups use format 2: the ASLCP database, `aslcp.conf`, the node config and the SA818 settings. Mode passwords are only included when asked for. A restore fills a blank password from the node's current config and lists the modes that still need one (`missingSecrets`), which are left out. Backups made by 2.x (format 1, an Asterisk node) are refused with a message.
+- Diagnostics collect the node config (passwords removed) and the `aslcp-node` journal instead of the Asterisk files.
+- The installer no longer installs AllStarLink 3. `ASLCP_DV` is still accepted and does nothing (digital modes are built in).
 
 ### Removed
 - The digital voice engine `aslcp-dv`, its service and its Asterisk USRP bridge (`internal/dv/bridge`, `internal/dv/usrp`). The native node replaces them.
+- Everything that needed Asterisk or ASL3: the AMI client, the Asterisk config editor and its history, the SimpleUSB tune page, the bridge and private node handling, the Asterisk service control and the ASL3 package checks, the `[ami]` section of `aslcp.conf` (an old file with it still loads), the `asl3` package recommendation, and the installer options `ASLCP_ASL3` and `ASLCP_ASL_TELEMETRY`.
+- The aslcp user is no longer added to group `asterisk`.
 
 ## [2.4.2] - 2026-11-25
 

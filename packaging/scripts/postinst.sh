@@ -3,7 +3,6 @@
 set -e
 
 DATADIR=/var/lib/aslcp
-MANAGER_CONF=/etc/asterisk/manager.conf
 FW_MARKER="$DATADIR/.firewalld-rule-added"
 FW_SUM="$DATADIR/.firewalld-service-sum"
 FW_SERVICE_FILE=/usr/lib/firewalld/services/aslcp.xml
@@ -15,7 +14,6 @@ NODE_MARKER="$DATADIR/.node-enabled"
 # restarts aslcp.service LAST, so the web interface is back as early as
 # possible and the upgrade's own journal stays short.
 FIRST_INSTALL=
-GROUP_CHANGED=
 
 have_systemd() { [ -d /run/systemd/system ]; }
 
@@ -52,7 +50,6 @@ configure_node_user() {
 	fi
 	if ! id -nG aslcp | tr ' ' '\n' | grep -qx aslcp-node; then
 		adduser aslcp aslcp-node >/dev/null
-		GROUP_CHANGED=1
 	fi
 	# The node writes its config next to aslcp.conf (atomically, so it needs
 	# the directory); everyone else keeps read access.
@@ -66,34 +63,6 @@ configure_node_user() {
 		udevadm control --reload >/dev/null 2>&1 || true
 		udevadm trigger --action=change --subsystem-match=hidraw --subsystem-match=tty >/dev/null 2>&1 || true
 	fi
-}
-
-configure_asterisk_access() {
-	getent group asterisk >/dev/null 2>&1 || return 0
-	if ! id -nG aslcp | tr ' ' '\n' | grep -qx asterisk; then
-		adduser aslcp asterisk >/dev/null
-		GROUP_CHANGED=1
-		echo "aslcp: added user aslcp to group asterisk"
-	fi
-	[ -e "$MANAGER_CONF" ] || return 0
-	# The readability check starts a PAM session (slow on a Pi): only on a
-	# first install or when the group membership just changed.
-	[ -n "$FIRST_INSTALL" ] || [ -n "$GROUP_CHANGED" ] || return 0
-	# Test as the aslcp user (fresh group list, directory traversal included).
-	if command -v runuser >/dev/null 2>&1; then
-		if runuser -u aslcp -- test -r "$MANAGER_CONF" 2>/dev/null; then
-			return 0
-		fi
-	elif su -s /bin/sh aslcp -c "test -r '$MANAGER_CONF'" 2>/dev/null; then
-		return 0
-	fi
-	cat <<EOM
-aslcp: WARNING: $MANAGER_CONF is not readable by user aslcp, so ASLCP cannot
-aslcp: read the AMI credentials ("auto"). Permissions were NOT changed. To fix it:
-aslcp:     chgrp asterisk $MANAGER_CONF && chmod 640 $MANAGER_CONF
-aslcp:     systemctl restart aslcp
-aslcp: or set explicit credentials in the [ami] section of /etc/aslcp/aslcp.conf.
-EOM
 }
 
 # Everything the restart of aslcp.service depends on. daemon-reload is fast
@@ -131,24 +100,6 @@ prepare_services() {
 	# Restart (not just start) so an upgrade runs the new helper binary.
 	systemctl stop aslcp-helper.service >/dev/null 2>&1 || true
 	systemctl restart aslcp-helper.socket || echo "aslcp: warning: could not start aslcp-helper.socket"
-}
-
-# Upgrade from 1.x: remove the previous digital voice stack that ASLCP
-# installed (its units, packages, apt source and keyring; md380-emu stays).
-# apt cannot run inside postinst (dpkg holds its lock), so a transient unit
-# does it once this upgrade has finished. It removes nothing ASLCP did not
-# install, is repeated by "aslcp dv enable" if it fails, and its log is in:
-#   journalctl -u aslcp-dv-purge
-purge_previous_stack() {
-	have_systemd || return 0
-	[ -n "$1" ] || return 0
-	dpkg --compare-versions "$1" lt 2.0.0 || return 0
-	[ -x /usr/libexec/aslcp/aslcp-helper ] || return 0
-	systemctl reset-failed aslcp-dv-purge.service >/dev/null 2>&1 || true
-	systemd-run --no-block --unit=aslcp-dv-purge --collect --property=Type=oneshot \
-		--setenv=DEBIAN_FRONTEND=noninteractive --setenv=APT_LISTCHANGES_FRONTEND=none --setenv=LC_ALL=C \
-		/usr/libexec/aslcp/aslcp-helper dv-step purge-legacy >/dev/null 2>&1 ||
-		echo "aslcp: note: could not start the removal of the previous digital voice stack; run: sudo aslcp dv enable"
 }
 
 # The LAST step: the web interface is down only for the restart itself.
@@ -271,13 +222,11 @@ configure)
 	migrate_urls
 	configure_user
 	configure_node_user
-	configure_asterisk_access
 	prepare_services
-	purge_previous_stack "$2"
 	configure_firewalld
 	restart_app
-	# install.sh prints the setup link itself once everything (port, digital modes)
-	# is done, so it sets ASLCP_INSTALLER=1 to keep this one from showing early.
+	# install.sh prints the setup link itself once everything (the port) is
+	# done, so it sets ASLCP_INSTALLER=1 to keep this one from showing early.
 	if [ -z "$2" ] && [ -z "${ASLCP_INSTALLER:-}" ]; then
 		first_install_message
 	fi

@@ -14,17 +14,16 @@ priority: optional
 maintainer: ASLCP <noreply@users.noreply.github.com>
 homepage: https://w1jar.github.io/aslcp/
 description: |
-  Web control panel for AllStarLink 3 nodes.
-  Connect and disconnect links, watch live node status and manage favorites
-  from a browser. Runs as an unprivileged service next to Asterisk and talks
-  to it over AMI. A small root helper performs package updates on request.
+  Native radio node with a web control panel.
+  One radio, one network mode at a time (AllStarLink, EchoLink or a digital
+  mode), chosen and watched from a browser. The node (aslcp-node) runs on its
+  own, without Asterisk; the panel talks to it over a local socket. A small
+  root helper performs package updates and backups on request.
 
 depends:
   - systemd
   - adduser
   - git
-recommends:
-  - asl3
 
 contents:
   - src: "@BUILD_DIR@/aslcp"
