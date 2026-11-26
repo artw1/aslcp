@@ -29,8 +29,8 @@ type Status struct {
 	ID           IDStatus           `json:"id"`
 	// Configured is false until the station has a callsign.
 	Configured bool `json:"configured"`
-	// RestartRequired: the saved radio wiring (PTT GPIO, PTT or COS
-	// polarity, SA818 port) differs from what the radio was opened with.
+	// RestartRequired: the saved radio wiring (preset, pins, polarity,
+	// SA818 port) differs from what the radio was opened with.
 	// The node opens the radio once, so it restarts itself to apply it
 	// (Options.RadioChanged); until then the old wiring is in use.
 	RestartRequired bool `json:"restartRequired,omitempty"`
@@ -38,11 +38,23 @@ type Status struct {
 
 // RadioStatus is the radio side.
 type RadioStatus struct {
-	Present  bool `json:"present"`
-	PTT      bool `json:"ptt"`
-	COS      bool `json:"cos"`
-	RxLocked bool `json:"rxLocked,omitempty"` // a local transmission timed out
-	TxLocked bool `json:"txLocked,omitempty"` // the network timed out the transmitter
+	Present bool `json:"present"`
+	// Preset is the interface preset in use ("shari", "uri" or "none"),
+	// Chip and USBID the detected sound chip ("CM108B", "0d8c:0012"), Product
+	// its USB product string. Detected is true when a supported chip is
+	// plugged in, whether or not the preset uses it. SA818 is true when the
+	// interface has an SA818 module the node programs; otherwise the
+	// frequency and tone are set on the radio.
+	Preset   string `json:"preset"`
+	Chip     string `json:"chip,omitempty"`
+	USBID    string `json:"usbId,omitempty"`
+	Product  string `json:"product,omitempty"`
+	Detected bool   `json:"detected,omitempty"`
+	SA818    bool   `json:"sa818"`
+	PTT      bool   `json:"ptt"`
+	COS      bool   `json:"cos"`
+	RxLocked bool   `json:"rxLocked,omitempty"` // a local transmission timed out
+	TxLocked bool   `json:"txLocked,omitempty"` // the network timed out the transmitter
 	// PTTStuck: unkeying the transmitter failed and is being retried, so
 	// it may still be on the air.
 	PTTStuck bool `json:"pttStuck,omitempty"`
@@ -65,6 +77,8 @@ func (e *Engine) Status() Status {
 		Started:  e.started,
 		Radio: RadioStatus{
 			Present: !e.o.RadioAbsent, PTT: e.sx.ptt, COS: e.sx.cos,
+			Preset: string(e.info.Interface.Preset), Chip: e.info.Chip, USBID: e.info.USBID,
+			Product: e.info.Product, Detected: e.info.Detected, SA818: e.info.Interface.SA818,
 			RxLocked: e.sx.rfLocked, TxLocked: e.sx.txLocked, PTTStuck: e.sx.pttStuck,
 		},
 		ID: IDStatus{
@@ -72,7 +86,7 @@ func (e *Engine) Status() Status {
 			Last: e.sx.idT.lastID, Why: string(e.sx.idT.lastWhy),
 		},
 		Configured:      e.cfg.Station.Callsign != "",
-		RestartRequired: !sameWiring(e.cfg.Station.Radio.Wiring(), e.o.RadioConfig),
+		RestartRequired: e.wiringChanged(e.cfg.Station.Radio),
 	}
 	if e.sx.idT.owed {
 		st.ID.Due = e.sx.idT.deadline
@@ -166,14 +180,14 @@ func (e *Engine) SaveStation(st Station) error {
 		return err
 	}
 	var errs []error
-	if !sameWiring(old.Radio.Wiring(), c.Station.Radio.Wiring()) && e.o.RadioChanged != nil {
+	if e.wiringChanged(c.Station.Radio) && e.o.RadioChanged != nil {
 		go e.o.RadioChanged()
 	}
 	if !reflect.DeepEqual(old.Radio, c.Station.Radio) {
 		if err := e.applyVolumes(c.Station.Radio); err != nil {
 			errs = append(errs, err)
 		}
-		if channelChanged(old.Radio, c.Station.Radio) && c.Station.Radio.FrequencyMHz != 0 && !e.o.RadioAbsent {
+		if channelChanged(old.Radio, c.Station.Radio) && c.Station.Radio.FrequencyMHz != 0 && e.hasSA818() {
 			if err := e.program(c.Station.Radio); err != nil {
 				errs = append(errs, err)
 			}
@@ -182,11 +196,16 @@ func (e *Engine) SaveStation(st Station) error {
 	return errors.Join(errs...)
 }
 
-// sameWiring compares the parts of two radio configs that Wiring sets.
-func sameWiring(a, b radio.Config) bool {
-	return a.PTTGPIO == b.PTTGPIO && a.PTTActiveLow == b.PTTActiveLow &&
-		a.COSActiveLow == b.COSActiveLow && a.SA818Port == b.SA818Port
+// wiringChanged reports whether r would open the radio differently from how
+// it is open now. The preset and overrides are resolved first, so naming the
+// preset that was already chosen automatically changes nothing.
+func (e *Engine) wiringChanged(r RadioConfig) bool {
+	iface, err := r.Interface(e.info.SHARI)
+	return err != nil || iface != e.info.Interface || r.SA818Port != e.o.RadioConfig.SA818Port
 }
+
+// hasSA818 reports whether the radio in use has an SA818 module to program.
+func (e *Engine) hasSA818() bool { return !e.o.RadioAbsent && e.info.Interface.SA818 }
 
 func channelChanged(a, b RadioConfig) bool {
 	return a.FrequencyMHz != b.FrequencyMHz || a.Tone != b.Tone ||
@@ -334,6 +353,9 @@ func (e *Engine) ProgramRadio() error {
 	if e.o.RadioAbsent {
 		return errors.New("no radio is connected")
 	}
+	if !e.info.Interface.SA818 {
+		return errors.New("this radio interface has no SA818 to program: set the frequency and tone on the radio")
+	}
 	e.mu.Lock()
 	r := e.cfg.Station.Radio
 	e.mu.Unlock()
@@ -346,7 +368,7 @@ func (e *Engine) ProgramIfChanged() error {
 	e.mu.Lock()
 	r := e.cfg.Station.Radio
 	e.mu.Unlock()
-	if e.o.RadioAbsent || r.FrequencyMHz == 0 {
+	if !e.hasSA818() || r.FrequencyMHz == 0 {
 		return nil
 	}
 	want, err := r.SA818()
@@ -411,4 +433,31 @@ func (e *Engine) WatchConfig(ctx context.Context, interval time.Duration) {
 			}
 		}
 	}
+}
+
+// RadioDetail is what the radio settings pages need: the hardware found, the
+// settings in use, the presets and the configured preset.
+type RadioDetail struct {
+	radio.Info
+	// Preset is the configured preset; empty means automatic.
+	Preset  string             `json:"preset"`
+	Presets []radio.PresetInfo `json:"presets"`
+	// Resolved is what the saved settings would run with after a restart
+	// (the settings in use are Info.Interface). Error says why they do not
+	// resolve.
+	Resolved        *radio.Interface `json:"resolved,omitempty"`
+	RestartRequired bool             `json:"restartRequired,omitempty"`
+}
+
+// RadioInfo describes the radio interface.
+func (e *Engine) RadioInfo() RadioDetail {
+	e.mu.Lock()
+	r := e.cfg.Station.Radio
+	e.mu.Unlock()
+	d := RadioDetail{Info: e.info, Preset: r.Preset, Presets: radio.Presets(), RestartRequired: e.wiringChanged(r)}
+	d.Info.Present = !e.o.RadioAbsent
+	if iface, err := r.Interface(e.info.SHARI); err == nil {
+		d.Resolved = &iface
+	}
+	return d
 }

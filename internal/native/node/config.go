@@ -48,9 +48,16 @@ type Selection struct {
 	Target *mode.Target `json:"target,omitempty"`
 }
 
-// RadioConfig is the SHARI radio: the SA818 channel and the sound chip.
+// RadioConfig is the radio: which USB interface preset it is, the pins of
+// the sound chip and, when the interface has an SA818 module, its channel.
 type RadioConfig struct {
+	// Preset is "shari", "uri" or "none". Missing means the SHARI when one
+	// is detected, otherwise none (the behavior before presets existed).
+	Preset string `json:"preset,omitempty"`
 	// FrequencyMHz is the simplex channel. 0 leaves the module as it is.
+	// The channel settings (frequency, tone, squelch, bandwidth) apply
+	// only to an interface with an SA818; otherwise they are set on the
+	// radio itself.
 	FrequencyMHz float64 `json:"frequencyMHz,omitempty"`
 	// Tone is the CTCSS or DCS tone both ways: "" (none), "100.0", "D023N"
 	// or "D023I".
@@ -62,20 +69,42 @@ type RadioConfig struct {
 	// RxVolume and TxVolume are the sound chip mixer positions, 0 to 1.
 	RxVolume *float64 `json:"rxVolume,omitempty"`
 	TxVolume *float64 `json:"txVolume,omitempty"`
-	// PTTGPIO, PTTActiveLow and COSActiveLow override the SHARI wiring.
-	PTTGPIO      int    `json:"pttGpio,omitempty"`
-	PTTActiveLow bool   `json:"pttActiveLow,omitempty"`
-	COSActiveLow bool   `json:"cosActiveLow,omitempty"`
-	SA818Port    string `json:"sa818Port,omitempty"`
+	// The rest override single settings of the preset. PTTGPIO is the CM108
+	// pin (1 to 4) that keys the radio. The active-low settings drive the
+	// PTT pin low to transmit, or read the carrier or tone input as present
+	// when its pin is low. COSSource is "none", "always" or "gpio1" to
+	// "gpio4" (gpio2 is the volume-down input); CTCSSSource is "none" or
+	// "gpio1" to "gpio4". SA818Enabled forces SA818 programming on or off.
+	PTTGPIO        int    `json:"pttGpio,omitempty"`
+	PTTActiveLow   *bool  `json:"pttActiveLow,omitempty"`
+	COSSource      string `json:"cosSource,omitempty"`
+	COSActiveLow   *bool  `json:"cosActiveLow,omitempty"`
+	CTCSSSource    string `json:"ctcssSource,omitempty"`
+	CTCSSActiveLow *bool  `json:"ctcssActiveLow,omitempty"`
+	SA818Enabled   *bool  `json:"sa818,omitempty"`
+	SA818Port      string `json:"sa818Port,omitempty"`
+}
+
+// Overrides are the preset overrides of r.
+func (r RadioConfig) Overrides() radio.Overrides {
+	return radio.Overrides{
+		PTTPin: r.PTTGPIO, PTTActiveLow: r.PTTActiveLow,
+		COS: radio.Source(r.COSSource), COSActiveLow: r.COSActiveLow,
+		CTCSS: radio.Source(r.CTCSSSource), CTCSSActiveLow: r.CTCSSActiveLow,
+		SA818: r.SA818Enabled,
+	}
 }
 
 // Wiring is how the radio is opened: the parts of r that take effect only
 // when the radio is opened again.
 func (r RadioConfig) Wiring() radio.Config {
-	return radio.Config{
-		PTTGPIO: r.PTTGPIO, PTTActiveLow: r.PTTActiveLow,
-		COSActiveLow: r.COSActiveLow, SA818Port: r.SA818Port,
-	}
+	return radio.Config{Preset: radio.Preset(r.Preset), Overrides: r.Overrides(), SA818Port: r.SA818Port}
+}
+
+// Interface resolves the preset and overrides. shari says whether a SHARI is
+// detected, for a config with no preset.
+func (r RadioConfig) Interface(shari bool) (radio.Interface, error) {
+	return radio.Resolve(radio.Preset(r.Preset), r.Overrides(), shari)
 }
 
 // IDConfig is the station ID sent on the radio. It is never sent to a mode.
@@ -258,6 +287,10 @@ func (c *Config) Normalize() {
 		c.Version = ConfigVersion
 	}
 	c.Station.Callsign = strings.ToUpper(strings.TrimSpace(c.Station.Callsign))
+	r := &c.Station.Radio
+	for _, s := range []*string{&r.Preset, &r.COSSource, &r.CTCSSSource} {
+		*s = strings.ToLower(strings.TrimSpace(*s))
+	}
 	if a := c.Station.Active; a != nil {
 		a.Mode = strings.ToLower(strings.TrimSpace(a.Mode))
 		if a.Mode == "" {
@@ -297,6 +330,8 @@ func (c *Config) Validate() error {
 	}
 	if r.PTTGPIO < 0 || r.PTTGPIO > 4 {
 		errs = append(errs, errors.New("radio: PTT GPIO must be 1 to 4"))
+	} else if _, err := r.Interface(true); err != nil {
+		errs = append(errs, fmt.Errorf("radio: %w", err))
 	}
 	id := st.ID
 	if id.IntervalS < 0 || id.IntervalS > 600 {

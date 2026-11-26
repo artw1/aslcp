@@ -1,6 +1,6 @@
-// Command aslcp-node is the native node: one radio (the SHARI) and exactly
-// one active network mode, AllStar, EchoLink or one of the digital voice
-// networks. Whatever mode is active, its audio goes out to the radio and the
+// Command aslcp-node is the native node: one radio (a USB interface such as
+// the SHARI) and exactly one active network mode, AllStar, EchoLink or one of
+// the digital voice networks. Whatever mode is active, its audio goes out to the radio and the
 // radio's audio goes out to it; networks are never bridged.
 //
 // It reads /etc/aslcp/node.json (a missing file is a first boot: the node
@@ -71,16 +71,21 @@ func run(args []string, stderr io.Writer) (code int) {
 	}
 
 	rc := cfg.Station.Radio.Wiring()
-	r, err := radio.Open(rc)
-	absent := false
+	r, rinfo, err := radio.Open(rc)
 	switch {
 	case errors.Is(err, radio.ErrNoRadio):
-		log.Warn("no radio interface found; running without one", "err", err)
-		r, absent = radio.NewFake(), true
+		log.Warn("no radio interface found; running without one", "preset", rinfo.Interface.Preset, "err", err)
+		r, rinfo.Present = radio.NewFake(), false
 	case err != nil:
 		log.Error("radio", "err", err)
 		return 1
+	case rinfo.Present:
+		log.Info("radio interface", "preset", rinfo.Interface.Preset, "chip", rinfo.Chip, "usb", rinfo.USBID,
+			"ptt", rinfo.Interface.PTTPin, "cos", rinfo.Interface.COS, "sa818", rinfo.Interface.SA818)
+	case rinfo.Detected:
+		log.Info("no radio preset uses the detected interface; running without a radio", "chip", rinfo.Chip, "usb", rinfo.USBID)
 	}
+	absent := !rinfo.Present
 	// Every exit path, a panic included, unkeys the transmitter.
 	defer func() {
 		if p := recover(); p != nil {
@@ -106,7 +111,7 @@ func run(args []string, stderr io.Writer) (code int) {
 	}
 
 	e, err := node.New(cfg, node.Options{
-		Radio: r, RadioAbsent: absent, RadioConfig: rc,
+		Radio: r, RadioAbsent: absent, RadioConfig: rc, RadioInfo: rinfo,
 		ConfigPath: *cfgPath, Log: log, RadioChanged: radioChanged,
 	})
 	if err != nil {

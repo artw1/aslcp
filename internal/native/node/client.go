@@ -226,6 +226,14 @@ func (c *Client) RadioTune(ctx context.Context, rx, tx *float64) (radio.Levels, 
 	return out, err
 }
 
+// RadioInfo describes the radio interface: the preset, the pins, the
+// detected chip and the presets to choose from.
+func (c *Client) RadioInfo(ctx context.Context) (RadioDetail, error) {
+	var out RadioDetail
+	err := c.Call(ctx, OpRadioInfo, nil, &out)
+	return out, err
+}
+
 // RadioProgram writes the saved channel to the SA818.
 func (c *Client) RadioProgram(ctx context.Context) (Status, error) {
 	var out Status

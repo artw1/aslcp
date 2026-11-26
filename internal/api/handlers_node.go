@@ -37,6 +37,7 @@ func (s *Server) nodeRoutes() {
 	m.HandleFunc("GET /api/heard", s.authed(store.RoleViewer, s.handleHeard))
 	m.HandleFunc("GET /api/radio", s.authed(store.RoleAdmin, s.handleRadioGet))
 	m.HandleFunc("PUT /api/radio", s.authed(store.RoleAdmin, s.handleRadioPut))
+	m.HandleFunc("GET /api/radio/info", s.authed(store.RoleAdmin, s.handleRadioInfo))
 	m.HandleFunc("POST /api/radio/program", s.authed(store.RoleAdmin, s.handleRadioProgram))
 	m.HandleFunc("GET /api/hostlists", s.authed(store.RoleOperator, s.handleHostLists))
 	m.HandleFunc("POST /api/hostlists/refresh", s.authed(store.RoleAdmin, s.handleHostListsRefresh))
@@ -443,6 +444,22 @@ func (s *Server) handleRadioPut(w http.ResponseWriter, r *http.Request, u store.
 	}
 	s.audit(u, "radio.tune", map[string]any{"rxVolume": in.RxVolume, "txVolume": in.TxVolume})
 	writeJSON(w, 200, l)
+}
+
+// handleRadioInfo describes the radio interface: the detected chip and USB
+// id, the settings in use, the configured preset and the presets to pick.
+func (s *Server) handleRadioInfo(w http.ResponseWriter, r *http.Request, _ store.User) {
+	if !s.nodeReady(w) {
+		return
+	}
+	ctx, cancel := nodeCtx(r)
+	defer cancel()
+	d, err := s.d.Node.RadioInfo(ctx)
+	if err != nil {
+		s.nodeErr(w, err)
+		return
+	}
+	writeJSON(w, 200, d)
 }
 
 // handleRadioProgram writes the saved channel (station radio settings) to

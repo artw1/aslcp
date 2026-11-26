@@ -709,8 +709,12 @@ func TestRadioWiringChangeAsksForRestart(t *testing.T) {
 		want bool
 	}{
 		{"volume only", func(r *RadioConfig) { v := 0.7; r.RxVolume = &v }, false},
-		{"COS polarity", func(r *RadioConfig) { r.COSActiveLow = true }, true},
-		{"PTT pin", func(r *RadioConfig) { r.PTTGPIO = 2 }, true},
+		{"COS polarity", func(r *RadioConfig) { v := true; r.COSActiveLow = &v }, true},
+		{"PTT pin", func(r *RadioConfig) { r.PTTGPIO = 4 }, true},
+		{"COS source", func(r *RadioConfig) { r.COSSource = "gpio1" }, true},
+		{"preset", func(r *RadioConfig) { r.Preset = "uri" }, true},
+		{"preset that was already chosen", func(r *RadioConfig) { r.Preset = "shari" }, false},
+		{"override equal to the preset", func(r *RadioConfig) { r.PTTGPIO = 3; v := false; r.COSActiveLow = &v }, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

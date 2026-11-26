@@ -472,6 +472,7 @@ func TestRoles(t *testing.T) {
 		{"op", "PUT", "/api/station"},
 		{"op", "GET", "/api/radio"},
 		{"op", "PUT", "/api/radio"},
+		{"op", "GET", "/api/radio/info"},
 		{"op", "POST", "/api/radio/program"},
 		{"op", "POST", "/api/node/reload"},
 	}
@@ -767,6 +768,41 @@ func TestRadioLevels(t *testing.T) {
 	}
 	expectErr(t, e, "admin", "PUT", "/api/radio", map[string]float64{"txVolume": 1.5}, 400, "bad_request")
 	expectErr(t, e, "admin", "PUT", "/api/radio", map[string]float64{}, 400, "bad_request")
+}
+
+func TestRadioInfoAndPreset(t *testing.T) {
+	e := newEnv(t, opts{})
+	var d struct {
+		Present   bool
+		Preset    string
+		Interface struct{ Preset string }
+		Presets   []struct{ Name, Title string }
+	}
+	if c := e.do("admin", "GET", "/api/radio/info", nil, &d); c != 200 {
+		t.Fatal(c)
+	}
+	if len(d.Presets) != 3 || d.Presets[0].Name != "shari" || d.Interface.Preset == "" {
+		t.Fatalf("%+v", d)
+	}
+	// A bad preset is refused with the node's words; a good one is saved.
+	var st map[string]any
+	e.do("admin", "GET", "/api/station", nil, &st)
+	radio := st["radio"].(map[string]any)
+	radio["preset"] = "bogus"
+	expectErr(t, e, "admin", "PUT", "/api/station", st, 409, "node_refused")
+	radio["preset"] = "uri"
+	radio["pttGpio"] = 4
+	if c := e.do("admin", "PUT", "/api/station", st, nil); c != 200 {
+		t.Fatal(c)
+	}
+	var got map[string]any
+	e.do("admin", "GET", "/api/station", nil, &got)
+	if r := got["radio"].(map[string]any); r["preset"] != "uri" || r["pttGpio"] != float64(4) {
+		t.Fatalf("%+v", r)
+	}
+	if c := e.do("admin", "GET", "/api/radio/info", nil, &d); c != 200 || d.Preset != "uri" {
+		t.Fatalf("%d %+v", c, d)
+	}
 }
 
 func TestFavorites(t *testing.T) {

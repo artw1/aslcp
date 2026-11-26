@@ -29,6 +29,10 @@ type Options struct {
 	// It should be Station.Radio.Wiring() of the config the radio was
 	// opened from.
 	RadioConfig radio.Config
+	// RadioInfo is what radio.Open reported: the interface in use and the
+	// chip found. Zero means the legacy case: a SHARI, or none when
+	// RadioAbsent.
+	RadioInfo radio.Info
 	// RadioChanged, when set, is called in its own goroutine after a saved
 	// station changes the radio wiring. The radio is opened only once, so
 	// the daemon restarts itself to reopen it.
@@ -72,6 +76,7 @@ type Engine struct {
 	buildErr map[string]string
 	active   *instance
 	since    time.Time
+	info     radio.Info
 	sx       simplex
 	started  time.Time
 
@@ -106,8 +111,15 @@ func New(cfg *Config, o Options) (*Engine, error) {
 		o.StopTimeout = 10 * time.Second
 	}
 	cfg = cfg.Clone()
+	info := o.RadioInfo
+	if info.Interface.Preset == "" {
+		info.Present, info.SHARI = !o.RadioAbsent, !o.RadioAbsent
+		info.Interface, _ = radio.Resolve(radio.PresetAuto, radio.Overrides{}, info.SHARI)
+	} else {
+		o.RadioAbsent = !info.Present
+	}
 	e := &Engine{
-		o: o, log: o.Log, cfg: cfg, params: paramsFor(cfg),
+		info: info, o: o, log: o.Log, cfg: cfg, params: paramsFor(cfg),
 		modes: map[string]*instance{}, buildErr: map[string]string{},
 	}
 	e.sx.modeAGC, e.sx.radioAGC = audio.NewAGC(), audio.NewAGC()

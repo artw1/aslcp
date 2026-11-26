@@ -54,9 +54,10 @@ const (
 	OpRadioLevels = "radio_levels" // -> radio.Levels
 	OpRadioTune   = "radio_tune"   // {rxVolume?, txVolume?} -> radio.Levels
 	OpRadioProg   = "radio_program"
-	OpConfig      = "config"    // -> the station settings (no mode passwords)
-	OpReload      = "reload"    // read the config file again
-	OpSubscribe   = "subscribe" // the connection then streams Event lines
+	OpRadioInfo   = "radio_info" // -> RadioDetail
+	OpConfig      = "config"     // -> the station settings (no mode passwords)
+	OpReload      = "reload"     // read the config file again
+	OpSubscribe   = "subscribe"  // the connection then streams Event lines
 )
 
 // Server serves the control API on a Unix socket.
@@ -309,6 +310,8 @@ func (s *Server) do(ctx context.Context, req Request) (any, error) {
 			return nil, err
 		}
 		return e.Levels(), nil
+	case OpRadioInfo:
+		return e.RadioInfo(), nil
 	case OpRadioProg:
 		if err := e.ProgramRadio(); err != nil {
 			return nil, err
