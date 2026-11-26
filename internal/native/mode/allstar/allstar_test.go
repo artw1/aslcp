@@ -221,10 +221,17 @@ func TestLinkAudioAndTalker(t *testing.T) {
 	l.events <- iax2.Event{Kind: iax2.EventLinkList, Links: iax2.ParseLinkList("T2001,R2002")}
 	waitFor(t, "links", func() bool { return len(m.Status().Links) == 2 })
 
-	// Local TX keys once, unkeys on EndTx.
+	// Local TX keys once, unkeys on EndTx. Keying is asynchronous.
+	keysOf := func() []bool {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		return append([]bool(nil), l.keys...)
+	}
 	m.Send(f)
+	waitFor(t, "keyed", func() bool { return len(keysOf()) == 1 })
 	m.Send(f)
 	m.EndTx()
+	waitFor(t, "unkeyed link", func() bool { return len(keysOf()) == 2 })
 	l.mu.Lock()
 	keys, sent := append([]bool(nil), l.keys...), l.sent
 	l.mu.Unlock()
@@ -279,6 +286,40 @@ func TestReconnectAndFatal(t *testing.T) {
 		t.Fatalf("dials %d, want 3 (no retry after reject)", n)
 	}
 	_ = h.m.Stop()
+}
+
+// TestFarEndDrops checks that a disconnect string or a hangup from the far
+// node ends the link for good: no redial, no target, mode ready.
+func TestFarEndDrops(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{"disconnect string", iax2.ErrDisconnected},
+		{"hangup", iax2.ErrHungUp},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, nil)
+			_ = h.m.Start(context.Background())
+			_ = h.m.Connect(context.Background(), mode.Target{ID: "2000"})
+			l := h.link(t, 1)
+			waitFor(t, "connected", func() bool { return h.m.Status().State == mode.StateConnected })
+			l.end(tt.err)
+			waitFor(t, "ready", func() bool { return h.m.Status().State == mode.StateReady })
+			time.Sleep(40 * time.Millisecond) // longer than RetryMax
+			h.mu.Lock()
+			n := len(h.dials)
+			h.mu.Unlock()
+			if n != 1 {
+				t.Fatalf("dials %d, want 1 (no redial)", n)
+			}
+			if st := h.m.Status(); st.Target != nil || st.Error == "" {
+				t.Fatalf("status %+v", st)
+			}
+			_ = h.m.Stop()
+		})
+	}
 }
 
 func TestRegistrationGatesLink(t *testing.T) {

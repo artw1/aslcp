@@ -14,6 +14,7 @@ import (
 
 	"github.com/artw1/aslcp/internal/native/audio"
 	"github.com/artw1/aslcp/internal/native/mode"
+	"github.com/artw1/aslcp/internal/native/radio"
 	"github.com/artw1/aslcp/internal/native/radio/sa818"
 )
 
@@ -66,6 +67,15 @@ type RadioConfig struct {
 	PTTActiveLow bool   `json:"pttActiveLow,omitempty"`
 	COSActiveLow bool   `json:"cosActiveLow,omitempty"`
 	SA818Port    string `json:"sa818Port,omitempty"`
+}
+
+// Wiring is how the radio is opened: the parts of r that take effect only
+// when the radio is opened again.
+func (r RadioConfig) Wiring() radio.Config {
+	return radio.Config{
+		PTTGPIO: r.PTTGPIO, PTTActiveLow: r.PTTActiveLow,
+		COSActiveLow: r.COSActiveLow, SA818Port: r.SA818Port,
+	}
 }
 
 // IDConfig is the station ID sent on the radio. It is never sent to a mode.

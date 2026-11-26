@@ -4,6 +4,8 @@ Research notes, 2026-11-26. Sizes and times are estimates, not measured from a p
 
 ## Goal
 
+> **Update (3.0.0):** the design is now *modes*. AllStar, EchoLink, BrandMeister, DMR (other Homebrew masters), YSF, P25, NXDN and M17 are equal modes, exactly one active at a time. The radio (the SHARI, or a fake radio on a radioless node) is the one fixed local end: the active mode's audio goes out to the radio and the radio's audio goes out to it. Networks are never bridged. There is no ASL3 import and no rollback to Asterisk: 3.0.0 is a fresh install. Where the notes below say otherwise (USRP, a DV bridge, ASL3 upgrades, running beside Asterisk), the modes design wins.
+
 Register on AllStarLink, get a node number, install ASLCP, enter a few numbers and passwords, and be on AllStar and EchoLink. DV setup stays as it is today.
 
 | Field | From |
@@ -246,6 +248,21 @@ Start with feasibility and the radio side; the native IAX2 node runs on a test n
 6. **Parity and cutover.** Opt-in stats posting, config migration, backup and restore, rollback to Asterisk, a security review (no inbound ports), a soak of several weeks.
 
 Keep the API and UI behind a `Node` interface backed today by `internal/rpt`, so each step ships without a UI rewrite.
+
+**Status (branch try/native-node, 3.0.0).** Built: the `aslcp-node` daemon (`internal/native/...`) with the radio (CM108 HID PTT/COS, ALSA audio, SA818 programming, a fake radio), the node engine (one active mode, simplex logic, hang, transmit timeouts, courtesy tone, AGCs, ID on RF only after activity, playout prebuffer), the modes (AllStar over native IAX2 with background registration, EchoLink with GSM and the directory, and the DV networks on the existing protocol and vocoder code), the control socket, the web app and UI rebuilt around modes, the first-run setup, backups and packaging without ASL3. Unit tests use loopback fakes and fake clocks only.
+
+Untested on real hardware or networks: registration against AllStarLink and the DNS check; IAX2 calls to real app\_rpt nodes (call token, MD5, keying, link lists, disconnect and hangup handling); EchoLink directory login and QSOs behind a home router; each DV network's login and audio (and the md380-emu AMBE vocoder); CM108 PTT/COS on a real SHARI, ALSA timing and levels, SA818 programming; the ID and courtesy tone on air; the self-restart after a radio wiring change; the .deb install on a fresh OS.
+
+**Morning test.**
+
+1. Flash a fresh OS on the node.
+2. Install the test .deb from the CI run page.
+3. Open the app: the setup opens.
+4. Fill in the station (callsign, frequency and CTCSS/DCS, ID) and one mode, then save.
+5. Connect to a target in that mode and check you hear it on the radio.
+6. Key the radio and check the far side hears you.
+7. Watch the ID: it should go out on RF after the activity, not before.
+8. Switch to another mode: the first one drops, the new one connects.
 
 **Open questions**
 

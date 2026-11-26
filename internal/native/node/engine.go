@@ -26,7 +26,13 @@ type Options struct {
 	Radio       radio.Radio
 	RadioAbsent bool
 	// RadioConfig is what the radio was opened with, for SA818 programming.
+	// It should be Station.Radio.Wiring() of the config the radio was
+	// opened from.
 	RadioConfig radio.Config
+	// RadioChanged, when set, is called in its own goroutine after a saved
+	// station changes the radio wiring. The radio is opened only once, so
+	// the daemon restarts itself to reopen it.
+	RadioChanged func()
 	// Program programs the SA818 (default radio.ProgramSA818).
 	Program func(radio.Config, sa818.Settings) error
 	// ConfigPath is the config file; "" keeps changes in memory only.
@@ -327,6 +333,15 @@ func (e *Engine) pump(ctx context.Context, in *instance) {
 					}
 				case mode.EventTalkEnd:
 					e.heard.end(in.name, ev.At)
+				case mode.EventState:
+					if ev.Target == nil && ev.State == mode.StateReady {
+						// The mode dropped its target on its own (the far
+						// node ended the link): forget it so it does not
+						// come back at boot. Not in pump itself: the
+						// save takes opMu, which a mode switch holds
+						// while it waits for this pump.
+						go e.forgetTarget(in)
+					}
 				}
 			}
 			e.hub.publish(Event{Kind: EventMode, At: ev.At, Mode: &ev})
@@ -436,6 +451,7 @@ func (e *Engine) resetRadioLocked() {
 	e.sx.rfSentTo = nil
 	e.sx.tone = nil
 	e.sx.netStart, e.sx.txLocked = time.Time{}, false
+	e.sx.netPlaying, e.sx.prebufAt = false, time.Time{}
 	e.sx.modeAGC.Reset()
 }
 
@@ -464,6 +480,29 @@ func (e *Engine) Connect(ctx context.Context, t mode.Target) error {
 		return errors.New("no mode is active: select one first")
 	}
 	return e.Select(ctx, in.name, &t)
+}
+
+// forgetTarget saves in as the active mode with no target, when it still
+// is active, has no target and the saved selection names one.
+func (e *Engine) forgetTarget(in *instance) {
+	e.opMu.Lock()
+	defer e.opMu.Unlock()
+	if e.ctx.Err() != nil {
+		return
+	}
+	e.mu.Lock()
+	sel := e.cfg.Station.Active
+	active := e.active == in
+	e.mu.Unlock()
+	if !active || sel == nil || sel.Mode != in.name || sel.Target == nil {
+		return
+	}
+	if in.m.Status().Target != nil {
+		return // a new connect raced us
+	}
+	if err := e.persistActive(&Selection{Mode: in.name}); err != nil {
+		e.logf(e.now(), "saving the disconnect: %v", err)
+	}
 }
 
 // persistActive saves the active selection. Called with opMu.

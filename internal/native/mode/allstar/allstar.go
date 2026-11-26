@@ -72,6 +72,7 @@ type Mode struct {
 	wg      sync.WaitGroup
 	link    Link
 	keyed   bool
+	keyc    chan bool // the wanted key state for the current link's keyer
 }
 
 var _ mode.Mode = (*Mode)(nil)
@@ -274,33 +275,69 @@ func (m *Mode) Stop() error {
 	return nil
 }
 
-// Send sends one frame of radio audio, keying the link on the first.
+// Send sends one frame of radio audio, keying the link on the first. It
+// never blocks: keying is a round trip to the IAX2 session, so it is handed
+// to the link's keyer goroutine. Frames queued before the key takes effect
+// are kept by the call and sent once it is keyed.
 func (m *Mode) Send(f audio.Frame) {
 	m.mu.Lock()
 	l := m.link
 	keyNow := l != nil && !m.keyed
 	if keyNow {
 		m.keyed = true
+		wantKey(m.keyc, true)
 	}
 	m.mu.Unlock()
 	if l == nil {
 		return
 	}
-	if keyNow {
-		_ = l.Key(true)
-	}
 	l.Send(f)
 }
 
-// EndTx unkeys the link.
+// EndTx unkeys the link. Like Send it never blocks.
 func (m *Mode) EndTx() {
 	m.mu.Lock()
-	l := m.link
-	was := m.keyed
+	if m.link != nil && m.keyed {
+		wantKey(m.keyc, false)
+	}
 	m.keyed = false
 	m.mu.Unlock()
-	if l != nil && was {
-		_ = l.Key(false)
+}
+
+// wantKey records on as the wanted key state in c (buffer 1), replacing a
+// state the keyer has not picked up yet, so the keyer always ends on the
+// latest request. Called with m.mu, so there is one writer at a time.
+func wantKey(c chan bool, on bool) {
+	if c == nil {
+		return
+	}
+	select {
+	case <-c:
+	default:
+	}
+	select {
+	case c <- on:
+	default:
+	}
+}
+
+// keyer applies the wanted key state to l until stop closes.
+func (m *Mode) keyer(l Link, c <-chan bool, stop <-chan struct{}) {
+	applied := false
+	for {
+		select {
+		case <-stop:
+			return
+		case on := <-c:
+			if on == applied {
+				continue
+			}
+			if err := l.Key(on); err != nil {
+				m.env.Logger().Debug("allstar: key", "on", on, "err", err)
+				continue
+			}
+			applied = on
+		}
 	}
 }
 
@@ -350,6 +387,15 @@ func (m *Mode) run(ctx context.Context, t mode.Target) {
 			msg = fmt.Sprintf("link to %s: %v", t.ID, err)
 		}
 		m.env.Logger().Warn("allstar: "+msg, "node", m.node)
+		if farEnded(err) {
+			// The far node dropped us on purpose (a disconnect string or a
+			// hangup). Like app_rpt we do not redial: the far operator must
+			// be able to end the link. The node clears the saved target
+			// when it sees the mode ready with none.
+			m.SetTarget(nil)
+			m.SetState(mode.StateReady, "node "+m.node, msg)
+			return
+		}
 		m.SetState(mode.StateError, "", msg)
 		if !m.retry || errors.Is(err, iax2.ErrRejected) || errors.Is(err, iax2.ErrAuth) || errors.Is(err, iax2.ErrNodeNotFound) {
 			return
@@ -364,6 +410,12 @@ func (m *Mode) run(ctx context.Context, t mode.Target) {
 			delay = m.opt.RetryMax
 		}
 	}
+}
+
+// farEnded reports whether err means the far node ended the link itself,
+// as opposed to a transport failure or a timeout worth retrying.
+func farEnded(err error) bool {
+	return errors.Is(err, iax2.ErrDisconnected) || errors.Is(err, iax2.ErrHungUp)
 }
 
 // linkOnce dials and pumps one call until it ends or ctx ends.
@@ -381,9 +433,14 @@ func (m *Mode) linkOnce(ctx context.Context, t mode.Target) error {
 	if err != nil {
 		return err
 	}
+	keyc, stop := make(chan bool, 1), make(chan struct{})
+	var kwg sync.WaitGroup
+	kwg.Add(1)
+	go func() { defer kwg.Done(); m.keyer(l, keyc, stop) }()
 	m.mu.Lock()
 	m.link = l
 	m.keyed = false
+	m.keyc = keyc
 	m.mu.Unlock()
 	m.env.Logger().Info("allstar: linked", "node", m.node, "to", t.ID)
 	m.SetState(mode.StateConnected, "linked to "+t.ID, "")
@@ -391,7 +448,12 @@ func (m *Mode) linkOnce(ctx context.Context, t mode.Target) error {
 		m.mu.Lock()
 		m.link = nil
 		m.keyed = false
+		m.keyc = nil
 		m.mu.Unlock()
+		// The call has ended (or Hangup returned), so a Key in progress
+		// returns and the keyer sees stop.
+		close(stop)
+		kwg.Wait()
 		m.TalkEnd()
 	}()
 	recv, events := l.Recv(), l.Events()

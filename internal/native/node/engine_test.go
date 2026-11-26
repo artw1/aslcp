@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -619,5 +620,127 @@ func TestRunDropsPTT(t *testing.T) {
 	<-done
 	if g.r.PTT() {
 		t.Fatal("PTT still keyed after Run returned")
+	}
+}
+
+func TestUnkeyRetriedAfterFailure(t *testing.T) {
+	g := newRig(t, quietConfig())
+	g.sel(mode.BM, &mode.Target{ID: "91"})
+	bm := g.fake(mode.BM)
+	bm.Key("N1CALL", frame(1000))
+	g.step(2)
+	bm.Unkey()
+	if !g.r.PTT() {
+		t.Fatal("not keyed")
+	}
+	g.r.FailPTT(errors.New("hid write failed"))
+	g.run(600 * time.Millisecond) // past the hang
+	if !g.r.PTT() {
+		t.Fatal("fake radio unkeyed although SetPTT failed")
+	}
+	if st := g.e.Status(); st.Radio.PTT || !st.Radio.PTTStuck {
+		t.Fatalf("radio status %+v", st.Radio)
+	}
+	g.r.FailPTT(nil)
+	g.step(1)
+	if g.r.PTT() {
+		t.Fatal("unkey not retried")
+	}
+	if st := g.e.Status(); st.Radio.PTTStuck {
+		t.Fatal("still marked stuck")
+	}
+}
+
+func TestFarEndDropForgetsTarget(t *testing.T) {
+	g := newRig(t, quietConfig())
+	g.sel(mode.AllStar, &mode.Target{ID: "2000"})
+	// The mode ends the link by itself, as AllStar does when the far
+	// node disconnects us.
+	_ = g.fake(mode.AllStar).Disconnect(context.Background())
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		a := g.e.Config().Station.Active
+		if a != nil && a.Mode == mode.AllStar && a.Target == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("saved selection %+v", a)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+func TestPlayoutPrebuffer(t *testing.T) {
+	tests := []struct {
+		name   string
+		frames int
+		steps  int // steps before the first frame plays
+	}{
+		{"enough queued", 2, 1},
+		{"one frame waits for more", 1, 4}, // 60 ms after it arrived
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := newRig(t, quietConfig())
+			g.sel(mode.BM, &mode.Target{ID: "91"})
+			bm := g.fake(mode.BM)
+			var fs []audio.Frame
+			for i := 0; i < tt.frames; i++ {
+				fs = append(fs, frame(1000))
+			}
+			bm.Key("N1CALL", fs...)
+			for i := 1; i <= tt.steps; i++ {
+				g.step(1)
+				played := g.r.Played()
+				got := len(played) > 0 && played[len(played)-1][0] == 1000
+				if want := i == tt.steps; got != want {
+					t.Fatalf("step %d: played audio %v, want %v", i, got, want)
+				}
+			}
+			bm.Unkey()
+		})
+	}
+}
+
+func TestRadioWiringChangeAsksForRestart(t *testing.T) {
+	tests := []struct {
+		name string
+		edit func(*RadioConfig)
+		want bool
+	}{
+		{"volume only", func(r *RadioConfig) { v := 0.7; r.RxVolume = &v }, false},
+		{"COS polarity", func(r *RadioConfig) { r.COSActiveLow = true }, true},
+		{"PTT pin", func(r *RadioConfig) { r.PTTGPIO = 2 }, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			called := make(chan struct{}, 1)
+			g := &rig{t: t, r: radio.NewFake(), now: t0, fakes: map[string]*modetest.Fake{}}
+			cfg := quietConfig()
+			cfg.Modes = nil
+			e, err := New(cfg, Options{Radio: g.r, Now: g.clock,
+				RadioChanged: func() { called <- struct{}{} },
+				Build: func(n string, _ mode.Env, _ mode.Settings) (mode.Mode, error) {
+					return modetest.New(n), nil
+				}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer e.Close()
+			st := e.Config().Station
+			tt.edit(&st.Radio)
+			if err := e.SaveStation(st); err != nil {
+				t.Fatal(err)
+			}
+			got := false
+			select {
+			case <-called:
+				got = true
+			case <-time.After(100 * time.Millisecond):
+			}
+			if got != tt.want || e.Status().RestartRequired != tt.want {
+				t.Fatalf("restart asked %v, status %v, want %v", got, e.Status().RestartRequired, tt.want)
+			}
+		})
 	}
 }

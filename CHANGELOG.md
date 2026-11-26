@@ -3,10 +3,18 @@
 Release notes are taken from the section of the tag being released
 (`## [X.Y.Z]`) when the tag has no annotation.
 
-## [3.0.0] - 2026-11-26
+## [3.0.0] - 2026-11-27
+
+### Changed
+- ASLCP is now a standalone AllStar node. It needs no Asterisk and no ASL3: flash a fresh OS, install ASLCP, fill in one setup screen and you are on the air. This is a fresh-install release, not an upgrade over an ASL3 node.
+- AllStar, EchoLink, BrandMeister, DMR (TGIF and the other masters), YSF, P25, NXDN and M17 are equal modes. One is active at a time, and its audio goes out to the radio.
+- When the far AllStar node disconnects you or hangs up, the link stays down: the node does not redial, and the link is not restored at boot.
+- Changing the radio wiring (PTT pin, PTT or COS polarity, SA818 port) restarts the node service so the change takes effect at once.
 
 ### Added
 - The native node (`aslcp-node`, `aslcp-node.service`): one radio (the SHARI) and exactly one active mode, which is AllStar, EchoLink, BrandMeister, TGIF, another DMR Homebrew master, YSF, P25, NXDN, M17 or the local echo test. The radio is separate from the networks. Whatever mode is active, its audio goes out to the radio and the radio's audio goes out to it. Selecting another mode drops the old one first, and networks are never bridged to each other. AllStar keeps its registration current in the background whenever it is configured. EchoLink logs in to the directory only while it is the active mode.
+- A short playout buffer at the start of each received transmission, so network jitter does not cause gaps on the air.
+- If unkeying the transmitter fails, the node keeps retrying and the status says so.
 - The node handles the radio side itself:
   - the simplex logic: COS, PTT while the mode talks, a 500 ms hang, a 3 minute transmit timeout both ways, and a courtesy tone after a local transmission;
   - AGC on the network's audio (on by default) and on the radio's audio (off by default);
@@ -32,6 +40,7 @@ Release notes are taken from the section of the tag being released
 - The digital voice engine `aslcp-dv`, its service and its Asterisk USRP bridge (`internal/dv/bridge`, `internal/dv/usrp`). The native node replaces them.
 - Everything that needed Asterisk or ASL3: the AMI client, the Asterisk config editor and its history, the SimpleUSB tune page, the bridge and private node handling, the Asterisk service control and the ASL3 package checks, the `[ami]` section of `aslcp.conf` (an old file with it still loads), the `asl3` package recommendation, and the installer options `ASLCP_ASL3` and `ASLCP_ASL_TELEMETRY`.
 - The aslcp user is no longer added to group `asterisk`.
+- Not supported by the native node: incoming calls (it only calls out and listens on no public port), DTMF commands, hub features, autopatch, stats posting, and bridging networks to each other.
 - The web UI pages for Asterisk, AllStarLink services, the node list, favorite statistics, the digital modes bridge and the private node.
 
 ## [2.4.2] - 2026-11-25

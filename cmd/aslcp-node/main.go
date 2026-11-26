@@ -20,6 +20,7 @@ import (
 	"os/signal"
 	"os/user"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -33,6 +34,10 @@ var version = "dev"
 
 // exitConfig (EX_CONFIG) tells systemd that restarting cannot help.
 const exitConfig = 78
+
+// exitRestart (EX_TEMPFAIL) asks systemd (Restart=on-failure) to start the
+// daemon again, after the radio wiring changed.
+const exitRestart = 75
 
 // webUser is the web app's user, which may use the control socket.
 const webUser = "aslcp"
@@ -65,7 +70,7 @@ func run(args []string, stderr io.Writer) (code int) {
 		return exitConfig
 	}
 
-	rc := radioConfig(cfg)
+	rc := cfg.Station.Radio.Wiring()
 	r, err := radio.Open(rc)
 	absent := false
 	switch {
@@ -86,18 +91,29 @@ func run(args []string, stderr io.Writer) (code int) {
 		_ = r.Close()
 	}()
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	// The radio is opened once. When a saved station changes its wiring
+	// (PTT GPIO, polarity, SA818 port) the daemon exits with exitRestart
+	// and systemd starts it again on the new wiring. The short wait lets
+	// the save's reply reach the app first.
+	var restart atomic.Bool
+	radioChanged := func() {
+		log.Info("radio wiring changed; restarting to reopen the radio")
+		time.Sleep(time.Second)
+		restart.Store(true)
+		stop()
+	}
+
 	e, err := node.New(cfg, node.Options{
 		Radio: r, RadioAbsent: absent, RadioConfig: rc,
-		ConfigPath: *cfgPath, Log: log,
+		ConfigPath: *cfgPath, Log: log, RadioChanged: radioChanged,
 	})
 	if err != nil {
 		log.Error("node", "err", err)
 		return 1
 	}
 	defer e.Close()
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	if err := e.ProgramIfChanged(); err != nil {
 		log.Warn("radio channel", "err", err)
@@ -126,17 +142,10 @@ func run(args []string, stderr io.Writer) (code int) {
 	defer clock.Stop()
 	e.Run(ctx, clock)
 	log.Info("stopping")
-	return 0
-}
-
-// radioConfig is the radio part of the station config.
-func radioConfig(c *node.Config) radio.Config {
-	r := c.Station.Radio
-	rc := radio.Config{
-		PTTGPIO: r.PTTGPIO, PTTActiveLow: r.PTTActiveLow,
-		COSActiveLow: r.COSActiveLow, SA818Port: r.SA818Port,
+	if restart.Load() {
+		return exitRestart
 	}
-	return rc
+	return 0
 }
 
 func reloadOnHUP(ctx context.Context, e *node.Engine, log *slog.Logger) {

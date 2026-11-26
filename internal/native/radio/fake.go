@@ -23,6 +23,7 @@ type Fake struct {
 	pttLog  []bool
 	vols    Volumes
 	closed  bool
+	pttErr  error
 	rx, tx  audio.Meter
 	dropped atomic.Uint64
 }
@@ -99,10 +100,21 @@ func (f *Fake) Play(fr Frame) {
 	f.played = append(f.played, fr)
 }
 
+// FailPTT makes every SetPTT fail with err, leaving the PTT as it was,
+// until it is called with nil. It stands in for a failed HID write.
+func (f *Fake) FailPTT(err error) {
+	f.mu.Lock()
+	f.pttErr = err
+	f.mu.Unlock()
+}
+
 // SetPTT implements Radio.
 func (f *Fake) SetPTT(on bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.pttErr != nil {
+		return f.pttErr
+	}
 	f.ptt = on
 	f.pttLog = append(f.pttLog, on)
 	return nil

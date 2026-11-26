@@ -29,6 +29,11 @@ type Status struct {
 	ID           IDStatus           `json:"id"`
 	// Configured is false until the station has a callsign.
 	Configured bool `json:"configured"`
+	// RestartRequired: the saved radio wiring (PTT GPIO, PTT or COS
+	// polarity, SA818 port) differs from what the radio was opened with.
+	// The node opens the radio once, so it restarts itself to apply it
+	// (Options.RadioChanged); until then the old wiring is in use.
+	RestartRequired bool `json:"restartRequired,omitempty"`
 }
 
 // RadioStatus is the radio side.
@@ -38,6 +43,9 @@ type RadioStatus struct {
 	COS      bool `json:"cos"`
 	RxLocked bool `json:"rxLocked,omitempty"` // a local transmission timed out
 	TxLocked bool `json:"txLocked,omitempty"` // the network timed out the transmitter
+	// PTTStuck: unkeying the transmitter failed and is being retried, so
+	// it may still be on the air.
+	PTTStuck bool `json:"pttStuck,omitempty"`
 }
 
 // IDStatus is the station ID.
@@ -57,13 +65,14 @@ func (e *Engine) Status() Status {
 		Started:  e.started,
 		Radio: RadioStatus{
 			Present: !e.o.RadioAbsent, PTT: e.sx.ptt, COS: e.sx.cos,
-			RxLocked: e.sx.rfLocked, TxLocked: e.sx.txLocked,
+			RxLocked: e.sx.rfLocked, TxLocked: e.sx.txLocked, PTTStuck: e.sx.pttStuck,
 		},
 		ID: IDStatus{
 			Enabled: e.params.id.on, Owed: e.sx.idT.owed,
 			Last: e.sx.idT.lastID, Why: string(e.sx.idT.lastWhy),
 		},
-		Configured: e.cfg.Station.Callsign != "",
+		Configured:      e.cfg.Station.Callsign != "",
+		RestartRequired: !sameWiring(e.cfg.Station.Radio.Wiring(), e.o.RadioConfig),
 	}
 	if e.sx.idT.owed {
 		st.ID.Due = e.sx.idT.deadline
@@ -157,6 +166,9 @@ func (e *Engine) SaveStation(st Station) error {
 		return err
 	}
 	var errs []error
+	if !sameWiring(old.Radio.Wiring(), c.Station.Radio.Wiring()) && e.o.RadioChanged != nil {
+		go e.o.RadioChanged()
+	}
 	if !reflect.DeepEqual(old.Radio, c.Station.Radio) {
 		if err := e.applyVolumes(c.Station.Radio); err != nil {
 			errs = append(errs, err)
@@ -168,6 +180,12 @@ func (e *Engine) SaveStation(st Station) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// sameWiring compares the parts of two radio configs that Wiring sets.
+func sameWiring(a, b radio.Config) bool {
+	return a.PTTGPIO == b.PTTGPIO && a.PTTActiveLow == b.PTTActiveLow &&
+		a.COSActiveLow == b.COSActiveLow && a.SA818Port == b.SA818Port
 }
 
 func channelChanged(a, b RadioConfig) bool {

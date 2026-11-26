@@ -47,6 +47,9 @@ func paramsFor(c *Config) stepParams {
 type simplex struct {
 	ptt       bool
 	hangUntil time.Time
+	// pttStuck: unkeying failed, so the transmitter may still be keyed
+	// although ptt is false. Every step tries to unkey again.
+	pttStuck bool
 
 	cos      bool      // last carrier state seen
 	rfStart  time.Time // a local transmission into the receiver began
@@ -56,12 +59,25 @@ type simplex struct {
 	netStart time.Time // the network started keying the transmitter
 	txLocked bool      // timed out: ignore the network until it stops
 
+	// Playout prebuffer: at the start of each talk spurt the network's
+	// audio waits until prebufFrames are queued (or prebufWait passes)
+	// so that network jitter does not cause gaps on the air.
+	netPlaying bool
+	prebufAt   time.Time // when the spurt's first frame was seen waiting
+
 	tone audio.Source // courtesy tone playing
 	id   audio.Source // ID playing
 	idT  idTimer
 
 	modeAGC, radioAGC *audio.AGC
 }
+
+// Playout prebuffer at the start of a talk spurt: 2 frames, or what has
+// arrived after 60 ms. The step itself paces playout at 20 ms.
+const (
+	prebufFrames = 2
+	prebufWait   = 60 * time.Millisecond
+)
 
 // maxCatchUp bounds how many captured frames one step forwards when the
 // sound card clock runs ahead of the step clock.
@@ -91,6 +107,9 @@ func (e *Engine) Step(now time.Time) {
 	if e.active != nil {
 		m = e.active.m
 	}
+	if s.pttStuck && !s.ptt {
+		e.retryUnkey(now)
+	}
 
 	// Radio side: a local station transmitting into our receiver. While
 	// we transmit the receiver hears nothing of use (simplex).
@@ -111,17 +130,22 @@ func (e *Engine) Step(now time.Time) {
 	if m != nil {
 		if rfActive {
 			drain(m.Recv()) // the receiver has priority
+			s.netPlaying, s.prebufAt = false, time.Time{}
 		} else {
-			select {
-			case nf = <-m.Recv():
-				haveNet = true
-			default:
+			e.prebuffer(now, m)
+			if s.netPlaying {
+				select {
+				case nf = <-m.Recv():
+					haveNet = true
+				default:
+				}
 			}
 		}
-		netTalking = haveNet || m.Talking()
+		netTalking = haveNet || m.Talking() || len(m.Recv()) > 0
 	}
 	if !netTalking {
 		s.netStart, s.txLocked = time.Time{}, false
+		s.netPlaying, s.prebufAt = false, time.Time{}
 		s.modeAGC.Reset()
 	}
 	wantNet := netTalking && !rfActive && !s.txLocked
@@ -196,6 +220,24 @@ func (e *Engine) Step(now time.Time) {
 	}
 	if s.ptt {
 		e.o.Radio.Play(out)
+	}
+}
+
+// prebuffer decides whether the network's audio may start playing.
+func (e *Engine) prebuffer(now time.Time, m mode.Mode) {
+	s := &e.sx
+	if s.netPlaying {
+		return
+	}
+	q := len(m.Recv())
+	if q == 0 {
+		return
+	}
+	if s.prebufAt.IsZero() {
+		s.prebufAt = now
+	}
+	if q >= prebufFrames || now.Sub(s.prebufAt) >= prebufWait || !m.Talking() {
+		s.netPlaying = true
 	}
 }
 
@@ -286,6 +328,10 @@ func (e *Engine) setPTT(on bool, now time.Time) {
 		if on {
 			return
 		}
+		// The transmitter may still be keyed: keep trying.
+		e.sx.pttStuck = true
+	} else {
+		e.sx.pttStuck = false
 	}
 	e.sx.ptt = on
 	if !on {
@@ -294,11 +340,26 @@ func (e *Engine) setPTT(on bool, now time.Time) {
 	e.publishOn(EventPTT, on, now)
 }
 
+// retryUnkey tries again to unkey a transmitter that failed to unkey.
+// Called with mu.
+func (e *Engine) retryUnkey(now time.Time) {
+	if err := e.o.Radio.SetPTT(false); err != nil {
+		return // logged when it first failed; Status shows it
+	}
+	e.sx.pttStuck = false
+	e.logf(now, "PTT: unkeyed after an earlier failure")
+}
+
 // dropPTT unkeys the transmitter, whatever the state.
 func (e *Engine) dropPTT() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	_ = e.o.Radio.SetPTT(false)
+	if err := e.o.Radio.SetPTT(false); err != nil {
+		e.sx.pttStuck = true
+		e.log.Warn("PTT: unkey failed", "err", err)
+	} else {
+		e.sx.pttStuck = false
+	}
 	if e.sx.ptt {
 		e.sx.ptt = false
 		e.publishOn(EventPTT, false, e.now())

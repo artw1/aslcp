@@ -61,6 +61,7 @@ type job struct {
 	pcm   audio.Frame
 	data  []byte
 	end   bool
+	start *network.CallHeader // the first frame of a transmission: StartTX first
 }
 
 type sink struct {
@@ -202,6 +203,9 @@ func (m *Mode) Start(context.Context) error {
 	if n.Codec() == network.CodecAMBE {
 		m.ambe = m.vocoder()
 	}
+	// The goroutines keep their own copy of the vocoder: Stop clears the
+	// field, and a goroutine that outlives Stop's wait must not see nil.
+	ambe := m.ambe
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.mu.Unlock()
@@ -220,8 +224,8 @@ func (m *Mode) Start(context.Context) error {
 		}
 	}()
 	go m.loop(ctx, gen)
-	go m.encoder(ctx, n)
-	go m.decoder(ctx)
+	go m.encoder(ctx, n, ambe)
+	go m.decoder(ctx, ambe)
 	if m.d.target == targetNone {
 		// The echo test is always "connected".
 		m.SetTarget(&mode.Target{ID: "echo", Name: "Echo test"})
@@ -322,6 +326,11 @@ func (m *Mode) Stop() error {
 	m.cancel, m.n, m.tx = nil, nil, 0
 	m.target, m.pending, m.loggedIn = nil, false, false
 	m.gen++
+	var own *vocoder.MD380
+	if cancel != nil {
+		own = m.own
+		m.own, m.ambe = nil, nil
+	}
 	m.mu.Unlock()
 	if cancel == nil {
 		return nil
@@ -331,7 +340,14 @@ func (m *Mode) Stop() error {
 	}
 	cancel()
 	done := make(chan struct{})
-	go func() { m.wg.Wait(); close(done) }()
+	go func() {
+		m.wg.Wait()
+		// Close the vocoder only once nothing can use it.
+		if own != nil {
+			_ = own.Close()
+		}
+		close(done)
+	}()
 	select {
 	case <-done:
 	case <-time.After(stopWait):
@@ -341,15 +357,13 @@ func (m *Mode) Stop() error {
 	m.Flush()
 	m.SetTarget(nil)
 	m.SetState(mode.StateIdle, "", "")
-	if m.own != nil {
-		_ = m.own.Close()
-		m.own, m.ambe = nil, nil
-	}
 	return nil
 }
 
 // Send encodes one frame of radio audio for the network, starting a
-// transmission on the first.
+// transmission on the first. It never blocks: StartTX, the encoding and
+// the network writes run on the encoder goroutine, so a slow network
+// cannot hold up the node's 20 ms step.
 func (m *Mode) Send(f audio.Frame) {
 	m.mu.Lock()
 	n := m.n
@@ -367,35 +381,36 @@ func (m *Mode) Send(f audio.Frame) {
 	seq := m.txSeq
 	m.txSeq++
 	m.txLast = now
-	var h network.CallHeader
+	j := job{call: id, seq: seq, codec: n.Codec(), pcm: f}
 	if start {
-		h = network.CallHeader{Call: id, Src: m.id.Callsign, SrcID: m.id.DMRID,
+		j.start = &network.CallHeader{Call: id, Src: m.id.Callsign, SrcID: m.id.DMRID,
 			TG: m.nt.TG, Room: m.nt.Room, Slot: m.nt.Slot, Private: m.nt.Private}
 	}
 	m.mu.Unlock()
 	if start {
 		m.cutRX() // the local transmission wins over a received call
-		if err := n.StartTX(h); err != nil {
-			m.env.Logger().Warn(m.d.name+": start transmit", "err", err)
+	}
+	select {
+	case m.enc <- j:
+	default:
+		if start {
+			// The header did not make it: start again on the next frame.
 			m.mu.Lock()
 			if m.tx == id {
 				m.tx = 0
 			}
 			m.mu.Unlock()
-			return
 		}
-	}
-	select {
-	case m.enc <- job{call: id, seq: seq, codec: n.Codec(), pcm: f}:
-	default:
 	}
 }
 
-// EndTx ends the transmission behind the frames already queued.
+// EndTx ends the transmission behind the frames already queued. Like Send
+// it never blocks.
 func (m *Mode) EndTx() {
 	m.mu.Lock()
 	id := m.tx
 	m.tx = 0
+	n := m.n
 	m.mu.Unlock()
 	if id == 0 {
 		return
@@ -403,29 +418,42 @@ func (m *Mode) EndTx() {
 	select {
 	case m.enc <- job{call: id, end: true}:
 	default:
-		m.mu.Lock()
-		n := m.n
-		m.mu.Unlock()
 		if n != nil {
-			_ = n.EndTX(id)
+			go func() { _ = n.EndTX(id) }()
 		}
 	}
 }
 
-func (m *Mode) encoder(ctx context.Context, n network.Network) {
+func (m *Mode) encoder(ctx context.Context, n network.Network, ambe vocoder.AMBE) {
 	defer m.wg.Done()
 	im := &imbeState{newf: m.opt.NewIMBE}
 	c2 := &c2State{newf: m.opt.NewCodec2}
+	var failed uint64 // a call whose StartTX failed: its frames are dropped
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case j := <-m.enc:
+			if j.call == failed {
+				continue
+			}
 			if j.end {
 				if err := n.EndTX(j.call); err != nil {
 					m.env.Logger().Warn(m.d.name+": end transmit", "err", err)
 				}
 				continue
+			}
+			if j.start != nil {
+				if err := n.StartTX(*j.start); err != nil {
+					m.env.Logger().Warn(m.d.name+": start transmit", "err", err)
+					failed = j.call
+					m.mu.Lock()
+					if m.tx == j.call {
+						m.tx = 0 // the next frame tries again
+					}
+					m.mu.Unlock()
+					continue
+				}
 			}
 			pcm := [vocoder.PCMSamples]int16(j.pcm)
 			f := network.VoiceFrame{Call: j.call, Seq: j.seq, Codec: j.codec}
@@ -437,7 +465,10 @@ func (m *Mode) encoder(ctx context.Context, n network.Network) {
 				b := c2.encode(j.call, &pcm)
 				f.Data = b[:]
 			default:
-				b, err := m.ambe.Encode(ctx, &pcm)
+				if ambe == nil {
+					continue
+				}
+				b, err := ambe.Encode(ctx, &pcm)
 				if err != nil {
 					b = vocoder.SilenceAMBE
 				}
@@ -450,7 +481,7 @@ func (m *Mode) encoder(ctx context.Context, n network.Network) {
 	}
 }
 
-func (m *Mode) decoder(ctx context.Context) {
+func (m *Mode) decoder(ctx context.Context, ambe vocoder.AMBE) {
 	defer m.wg.Done()
 	im := &imbeState{newf: m.opt.NewIMBE}
 	c2 := &c2State{newf: m.opt.NewCodec2}
@@ -472,7 +503,10 @@ func (m *Mode) decoder(ctx context.Context) {
 			default:
 				var b [vocoder.AMBEBytes]byte
 				copy(b[:], j.data)
-				p, err := m.ambe.Decode(ctx, b)
+				if ambe == nil {
+					continue
+				}
+				p, err := ambe.Decode(ctx, b)
 				if err != nil {
 					continue
 				}
