@@ -507,9 +507,18 @@ func TestPeerHangup(t *testing.T) {
 }
 
 func TestPeerDisconnectText(t *testing.T) {
-	c, p, _ := simpleCall(t, nil)
+	c, p, clk := simpleCall(t, nil)
 	p.send(TypeText, 0, []byte(TextDisconnect+"\x00"))
 	p.expect(TypeIAX, CmdHangup)
+	// The call ends when our HANGUP is acknowledged (the peer auto-acks) or,
+	// failing that, once the hangup linger runs out. Under CI load the ACK
+	// can lose the race, and the fake clock never reaches the linger on its
+	// own, so give the ACK a moment and then let the linger end the call.
+	select {
+	case <-c.Done():
+	case <-time.After(time.Second):
+		clk.Advance(hangupLinger + time.Second)
+	}
 	if err := waitDone(t, c); !errors.Is(err, ErrDisconnected) {
 		t.Fatalf("err %v", err)
 	}
