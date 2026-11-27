@@ -1,5 +1,7 @@
 # ASLCP
 
+> **Development has moved to [nodespot](https://github.com/w1jar/nodespot).** New features go into nodespot, starting with its v1.0.0 release. ASLCP stays available, and its releases keep working for now.
+
 A modern web control panel for [AllStarLink 3](https://www.allstarlink.org/) nodes.
 
 ASLCP runs next to Asterisk on your node and gives you a fast, mobile-friendly web page to connect and disconnect links, watch live status and keep your favorites, in the spirit of [AllScan](https://allscan.info/). It also edits your Asterisk configuration, runs scheduled links, backs up and restores the whole node, and has built-in digital voice modes (DMR, YSF, P25 and NXDN).
